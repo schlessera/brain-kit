@@ -12,6 +12,7 @@ import {
   setBackendsForTests,
   useTestDb,
 } from "./helpers/test-host";
+import { until as waitFor } from "../../../tests/helpers/until";
 
 /**
  * The device snapshot is only useful if it survives the whole path — frame →
@@ -34,14 +35,6 @@ afterEach(() => {
   closeDb();
   removeDbFile(TEST_DB);
 });
-
-async function waitFor(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt++) {
-    if (condition()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error("waitFor timed out");
-}
 
 const phone: ClientEnvironment = {
   formFactor: "phone",

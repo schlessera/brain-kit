@@ -4,7 +4,7 @@ import { ConversationUnassigned } from "../voice/conversation-unassigned.js";
 import { ConversationField } from "../voice/conversation-field.js";
 import { Button, Callout, InlineToast, VoiceNotice } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
-import { useState, useRef, useEffect, useLayoutEffect, useImperativeHandle, useReducer, type Ref } from "react";
+import { memo, useState, useRef, useEffect, useLayoutEffect, useImperativeHandle, useReducer, type Ref } from "react";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal/client";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type ClientMessage, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat, restorationOf } from "../../stores/chat-store.js";
@@ -98,9 +98,16 @@ export interface ComposerHandle {
   focusEnd: () => boolean;
 }
 
-export function Composer({ send, handle }: { send: (msg: ClientMessage) => void | boolean; handle?: Ref<ComposerHandle> }) {
+/**
+ * Memoized: its parent re-renders with the transcript, and its own props are
+ * stable (#4750), so a frame reaches it only through what it selects.
+ */
+export const Composer = memo(function Composer({ send, handle }: { send: (msg: ClientMessage) => void | boolean; handle?: Ref<ComposerHandle> }) {
   const root = useBrainUiRoot();
-  const conversation = useStore(root.connection.conversation.state);
+  // Two flags of the live-conversation store, never the whole store: its
+  // fragments and outputs change continuously during a conversation (#4750).
+  const conversationAvailable = useStore(root.connection.conversation.state, (s) => s.available);
+  const conversationActive = useStore(root.connection.conversation.state, (s) => s.active);
   const finePointer = useFinePointer();
   const sessionId = useChatStore((s) => s.activeSessionId);
   // The selected session's history has not arrived (#1328): the draft stays
@@ -407,7 +414,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // With neither dictation nor live conversation here, the kit's disabled
   // mic still says why, since a hold would have nothing to offer.
   // D0 and Dx keep it drawn beside them: the take has not started (#3694).
-  const restingMic = (micMode === "dictate" && (voiceMode !== "dictate" || gated) && !(dictationUnavailable && !conversation.available))
+  const restingMic = (micMode === "dictate" && (voiceMode !== "dictate" || gated) && !(dictationUnavailable && !conversationAvailable))
     || (micMode === "local" && (localPhase === "idle" || localPhase === "opening"));
   const [dismissedLocalNotice, setDismissedLocalNotice] = useState<string | null>(null);
   const captureNotice = micMode === "unsupported"
@@ -1010,7 +1017,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     focusMic();
   }
   // The notice answers one hold; it goes once the mic does something else.
-  useEffect(() => { if (voiceMode !== "idle" || conversation.active) setLiveNotice(false); }, [voiceMode, conversation.active]);
+  useEffect(() => { if (voiceMode !== "idle" || conversationActive) setLiveNotice(false); }, [voiceMode, conversationActive]);
   useEffect(() => {
     if (!liveNotice) return;
     const ok = [...frameRef.current?.querySelectorAll<HTMLElement>("[data-live-notice] button") ?? []].find(b => b.textContent === "OK");
@@ -1073,7 +1080,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
 
   return (
     <>
-      {conversation.active ? <div className="px-2 md:px-6"><ConversationField backend={[displayProviderLabel, displayProvider?.backendId, displayProvider?.vendor].filter(Boolean).join(" · ")} onLeave={focusMicOrField} /></div> : <div className="px-4 pt-2 pb-4 md:px-6 md:pb-6">
+      {conversationActive ? <div className="px-2 md:px-6"><ConversationField backend={[displayProviderLabel, displayProvider?.backendId, displayProvider?.vendor].filter(Boolean).join(" · ")} onLeave={focusMicOrField} /></div> : <div className="px-4 pt-2 pb-4 md:px-6 md:pb-6">
         {/* Says where a taken suggestion went, since focus moves with it. */}
         <div className="sr-only" aria-live="polite" data-composer-notice="">
           {insertNotice}
@@ -1278,4 +1285,4 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       <ConversationUnassigned onReview={() => queueMicrotask(focusField)} />
     </>
   );
-}
+});

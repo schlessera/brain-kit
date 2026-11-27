@@ -7,12 +7,12 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
-import { safeStartupTiming, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, BackendRequestError, textOfParts } from "@schlessera/brain-ui-sdk/server";
 import type { LaunchedWorker, NativeFileVersions, sessionPromptContext, WorkerResourceLimitError } from "@schlessera/brain-ui-sdk/internal";
 
 import type { CreatePiBackendOptions, SessionEnv } from "./backend-options.js";
 import type { TurnContext } from "./turn-context.js";
-import { pipeMessages, piWorkerMessage, PiInputSafetyUnavailableError, SessionTooLargeError, type PiWorkerMessage } from "./worker-protocol.js";
+import { appendedFrameBytes, PI_PIPE_MAX_BYTES, pipeMessages, piWorkerMessage, PiInputSafetyUnavailableError, SessionTooLargeError, snapshotFrameBytes, type PiWorkerMessage } from "./worker-protocol.js";
 import type { PiWorkerReceipts } from "./worker-receipts.js";
 import type { PiWorkerRpc } from "./worker-rpc.js";
 import type { provenToolExecution } from "./worker-session.js";
@@ -71,6 +71,27 @@ export async function readPiWorkerProtocol(reader: PiWorkerReader): Promise<void
   // Startup diagnostics carry no authority. Retain at most the first of each
   // of the protocol's four phases, and none once initialization is complete.
   const startupPhases = new Set<string>();
+  // The size a whole snapshot frame of the transcript held would have: the bound appends must keep (#4856).
+  let transcriptBytes = 0;
+  /** Binds the owned prompt to the first transcript entry, among those a frame added, that delivered it. */
+  const acknowledgePrompt = (added: readonly Record<string, unknown>[]) => {
+    if (!state.ownedPrompt) return;
+    for (const entry of added) {
+      if (entry.type !== "message" || resumedIds.has(entry.id)) continue;
+      const message = entry.message as { role?: string; content?: unknown } | undefined;
+      const wire = Array.isArray(message?.content) ? textOfParts(message.content, "") : message?.content;
+      // The installed runtime appends image-normalization hints after the
+      // exact submitted text. Bind the full observed bytes to this owned
+      // turn now; replay never strips a suffix or matches host patterns.
+      const delivered = typeof wire === "string" && (wire === state.ownedPrompt.text
+        || state.ownedPrompt.images && wire.startsWith(state.ownedPrompt.text + "\n\n"));
+      if (message?.role === "user" && delivered && typeof entry.id === "string") {
+        promptContext?.acknowledge(state.ownedPrompt.id, entry.id, wire as string);
+        state.ownedPrompt = undefined;
+        break;
+      }
+    }
+  };
   for await (const raw of pipeMessages(child.stdout)) {
     let msg: PiWorkerMessage;
     try {
@@ -136,23 +157,18 @@ export async function readPiWorkerProtocol(reader: PiWorkerReader): Promise<void
         throw new Error("Pi worker sent an invalid transcript identity");
       }
       receipts.latestEntries = msg.entries;
-      if (state.ownedPrompt) {
-        for (const entry of receipts.latestEntries) {
-          if (entry.type !== "message" || resumedIds.has(entry.id)) continue;
-          const message = entry.message as { role?: string; content?: unknown } | undefined;
-          const wire = Array.isArray(message?.content) ? message.content.filter(part => part.type === "text").map(part => part.text).join("") : message?.content;
-          // The installed runtime appends image-normalization hints after the
-          // exact submitted text. Bind the full observed bytes to this owned
-          // turn now; replay never strips a suffix or matches host patterns.
-          const delivered = typeof wire === "string" && (wire === state.ownedPrompt.text
-            || state.ownedPrompt.images && wire.startsWith(state.ownedPrompt.text + "\n\n"));
-          if (message?.role === "user" && delivered && typeof entry.id === "string") {
-            promptContext?.acknowledge(state.ownedPrompt.id, entry.id, wire as string);
-            state.ownedPrompt = undefined;
-            break;
-          }
-        }
-      }
+      transcriptBytes = snapshotFrameBytes(msg.entries);
+      acknowledgePrompt(msg.entries);
+      receipts.persist();
+    } else if (msg.type === "transcript_append") {
+      if (!state.active) throw new Error("Pi worker sent transcript state outside the turn");
+      const held = receipts.latestEntries;
+      if (!held.length || msg.base !== held.length) throw new Error("Pi worker sent a transcript append that does not extend its transcript");
+      const bytes = transcriptBytes + appendedFrameBytes(msg.entries);
+      if (bytes > PI_PIPE_MAX_BYTES) throw new SessionTooLargeError();
+      transcriptBytes = bytes;
+      for (const entry of msg.entries) held.push(entry);
+      acknowledgePrompt(msg.entries);
       receipts.persist();
     } else if (msg.type === "done") {
       if (!state.active) throw new Error("Pi worker completed an inactive turn");

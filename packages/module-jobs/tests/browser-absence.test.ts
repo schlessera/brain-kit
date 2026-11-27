@@ -14,11 +14,13 @@
  * Keyless and offline: Chrome is never found, so nothing is ever navigated.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { tempDirs } from "../../../tests/helpers/temp";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runScrape } from "../src/scrape";
+
+const tempDir = tempDirs();
 
 // Three variables decide where a browser comes from, and two of them WIN over
 // the executable path: `runScrape` prefers an already-running Chrome at
@@ -40,33 +42,30 @@ describe("a browser board on a host without Chrome", () => {
   test("reports an error naming the missing executable, not an empty result", async () => {
     delete process.env.SCRAPE_CHROME_URL;
     delete process.env.CHROME_CDP_URL;
+    // tmp-path: a Chrome executable that must not exist; nothing is created there.
     process.env.SCRAPE_CHROME_PATH = join(tmpdir(), "no-such-chrome-for-tests");
-    const dir = mkdtempSync(join(tmpdir(), "brain-jobs-nochrome-"));
-    try {
-      const report = await runScrape({
-        dbPath: join(dir, "jobs.db"),
-        sources: ["builtin"],
-        incremental: false,
-        dryRun: true,
-      });
+    const dir = tempDir("brain-jobs-nochrome-");
+    const report = await runScrape({
+      dbPath: join(dir, "jobs.db"),
+      sources: ["builtin"],
+      incremental: false,
+      dryRun: true,
+    });
 
-      const board = report.sources[0];
-      expect(board.source).toBe("builtin");
-      expect(board.jobs_found).toBe(0);
-      // Nothing readable arrived, so the run says so rather than leaving the
-      // zero to be read as a quiet day (#37).
-      expect(board.status).toBe("not_run");
-      // Three pages, three errors: the board cannot be mistaken for one that
-      // simply had no jobs today.
-      expect(board.errors).toHaveLength(3);
-      for (const error of board.errors) {
-        expect(error).toContain("Chrome executable not found");
-      }
-      // ... and the path the epic credited with reporting this is gone: it was
-      // unreachable, and it read like the thing that handled this case (#37).
-      expect(report.total_errors.join("\n")).not.toContain("Browser boards unavailable");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
+    const board = report.sources[0];
+    expect(board.source).toBe("builtin");
+    expect(board.jobs_found).toBe(0);
+    // Nothing readable arrived, so the run says so rather than leaving the
+    // zero to be read as a quiet day (#37).
+    expect(board.status).toBe("not_run");
+    // Three pages, three errors: the board cannot be mistaken for one that
+    // simply had no jobs today.
+    expect(board.errors).toHaveLength(3);
+    for (const error of board.errors) {
+      expect(error).toContain("Chrome executable not found");
     }
+    // ... and the path the epic credited with reporting this is gone: it was
+    // unreachable, and it read like the thing that handled this case (#37).
+    expect(report.total_errors.join("\n")).not.toContain("Browser boards unavailable");
   });
 });

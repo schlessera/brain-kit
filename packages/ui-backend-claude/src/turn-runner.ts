@@ -2,7 +2,7 @@ import { retainNativeRouteInputs } from "./native-route-inputs.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AccountInfo, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { FollowUpRequest, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
-import { safeStartupTiming, assertTurnPosture, BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, assertTurnPosture, autonomousYieldLatch, BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { NativeFileVersions, requireWorkerHostAsync } from "@schlessera/brain-ui-sdk/internal";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
@@ -167,7 +167,6 @@ async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promis
   let turnEnvironment: ReturnType<typeof turnEnv> | undefined;
   let observationStorage: { directory: string; brainPath: string } | undefined;
   let fileVersions: NativeFileVersions | undefined;
-  let yielded = false;
   try {
     // Claim resumed input synchronously, then await collection before any
     // worker or SDK work. A refusal releases the claim through this catch.
@@ -185,13 +184,8 @@ async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promis
         signal: abortController.signal,
         priority: req.autonomous ? "autonomous" : "interactive",
         yieldAfterMs: req.autonomous?.yieldAfterMs,
-        onYield: req.autonomous?.onYield ? (key) => {
-          if (yielded || abortController.signal.aborted) return;
-          yielded = true;
-          try { req.autonomous!.onYield!(key); }
-          catch { req.bridge.emit({ type: "error", code: "AUTONOMOUS_YIELD_FAILED", message: "Autonomous yield checkpoint failed." }); }
-          finally { abortController.abort(); }
-        } : undefined,
+        onYield: req.autonomous?.onYield ? autonomousYieldLatch({ onYield: req.autonomous.onYield, aborted: () => abortController.signal.aborted,
+          emit: (message) => req.bridge.emit(message), abort: () => abortController.abort() }) : undefined,
       },
     });
     turnEnvironment = req.autonomous ? undefined : turnEnv(profile);

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tempDirs } from "../../../tests/helpers/temp";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadScoringConfig, scoreJob, type ScoreJobInput } from "../src/score.js";
+
+const tempDir = tempDirs();
 
 let directory: string, data: string, config: string;
 let savedData: string | undefined, savedConfig: string | undefined;
@@ -11,7 +13,7 @@ const job: ScoreJobInput = { title: "Voyages to Ithaca", company: "Ithaca", desc
   location: null, tags: null, salary_min: null, salary_max: null, remote_type: null };
 beforeEach(() => {
   savedData = process.env.BRAIN_WORKER_DATA_ROOT; savedConfig = process.env.BRAIN_WORKER_CONFIG_ROOT;
-  directory = mkdtempSync(join(tmpdir(), "jobs-worker-scoring-"));
+  directory = tempDir("jobs-worker-scoring-");
   data = join(directory, "data"); config = join(directory, "config");
   for (const [root, weight] of [[data, 5], [config, 25]] as const) {
     mkdirSync(join(root, "settings"), { recursive: true });
@@ -22,7 +24,6 @@ beforeEach(() => {
 afterEach(() => {
   if (savedData === undefined) delete process.env.BRAIN_WORKER_DATA_ROOT; else process.env.BRAIN_WORKER_DATA_ROOT = savedData;
   if (savedConfig === undefined) delete process.env.BRAIN_WORKER_CONFIG_ROOT; else process.env.BRAIN_WORKER_CONFIG_ROOT = savedConfig;
-  rmSync(directory, { recursive: true, force: true });
 });
 
 describe("hosted worker scoring", () => {

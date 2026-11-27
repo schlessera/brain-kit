@@ -665,6 +665,15 @@ test("doctor --fix and brain setup without git on PATH finish and say why hooks 
   expect(human.stdout).toContain("  git hooks:  skipped (git is not installed or not on PATH)");
 });
 
+test("brain init --check without git on PATH reports no repository and no hooks path", async () => {
+  const root = tempBrain();
+  const { stdout, stderr, code } = await runCli(root, ["init", "--check", "--json"], noGitEnv());
+  expect(code, stderr).toBe(0);
+  const report = JSON.parse(stdout) as { git: { repo: boolean }; hooksPath: { set: boolean } };
+  expect(report.git.repo).toBe(false);
+  expect(report.hooksPath.set).toBe(false);
+});
+
 // Review round 1: containment is proven through the command, not the helper.
 test("a check that throws becomes a warn, and every later check still reports", async () => {
   const root = tempBrain();

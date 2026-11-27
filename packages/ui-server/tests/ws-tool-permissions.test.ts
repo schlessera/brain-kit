@@ -5,14 +5,14 @@
  * auto-answered — the seatbelt stays per-use. Plus the management routes.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   AgentBackend,
   PermissionDecision,
   PermissionRequest,
 } from "@schlessera/brain-ui-sdk/server";
 import { createWsHandlers } from "../src/ws/connection";
-import type { WSContext } from "../src/ws/clients";
+import { resultFrame } from "./helpers/fake-backend";
+import { fakeClient } from "./helpers/fake-socket";
 import type { ToolPermissions } from "../src/ws/host";
 import { createToolPermissionRoutes } from "../src/routes/tool-permissions";
 import { getAutoAllowedTools, setAutoAllowedTools } from "../src/db/settings";
@@ -26,6 +26,7 @@ import {
   testHost,
 } from "./helpers/test-host";
 import { testPrincipal } from "./helpers/principal";
+import { until as waitFor } from "../../../tests/helpers/until";
 
 interface TurnControl {
   request: (req: Omit<PermissionRequest, "toolUseId">, id: string) => Promise<PermissionDecision>;
@@ -57,15 +58,7 @@ function permissionBackend() {
       controls.push({
         request: (r, id) => req.bridge.requestPermission({ ...r, toolUseId: id }),
         finish: () => {
-          req.bridge.emit({
-            type: "result",
-            sessionId,
-            outcome: "success",
-            costUsd: 0,
-            durationMs: 1,
-            numTurns: 1,
-            isError: false,
-          });
+          req.bridge.emit(resultFrame(sessionId));
           resolveDone();
         },
       });
@@ -81,19 +74,6 @@ function permissionBackend() {
   return { backend, controls };
 }
 
-function fakeClient() {
-  const sent: ServerMessage[] = [];
-  const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
-  return { ws, sent };
-}
-
-async function waitFor(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if (cond()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  throw new Error("waitFor timed out");
-}
 
 /** In-memory grants store mirroring the app's db-backed one. */
 function memoryGrants(initial: string[] = []) {

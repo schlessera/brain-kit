@@ -5,7 +5,7 @@ import { accessSync, closeSync, constants, fchmodSync, fchownSync, lstatSync, mk
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { WorkerStateError } from "./worker-state-budget.js";
-import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
+import { FIRST_PARTY_FAILURE_CLASSES } from "../failure-classes.js";
 import { mib, resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 
 interface Identity { pid: number; start: string; boot: string; namespace: string }

@@ -12,7 +12,6 @@ import { resolveEnv as resolveScrapeEnv } from "@schlessera/brain-scrape";
 import { resolveEnv } from "./config/env.js";
 import type { RawJob, Source, SourceStatus } from "./types.js";
 import { SOURCES } from "./types.js";
-import { boardPolicy } from "./boards.js";
 import { eurRates } from "./salary.js";
 import { createEnricher, type EnrichmentConfig, type EnrichmentStats } from "./enrich.js";
 
@@ -30,7 +29,10 @@ import { RemotelyDeAdapter } from "./adapters/remotelyde.js";
 import type { JobAdapter } from "./types.js";
 
 // The two query-driven boards accept the user's search terms; the rest fetch
-// full feeds or fixed category pages and ignore `queries`.
+// full feeds or fixed category pages and ignore `queries`. Settings choices
+// read the same boards from `JOB_BOARDS` (`getAdapterOptions`, boards.ts), so
+// the settings form loads no adapter; a test pins that these keys, and each
+// adapter's `name` and `needsBrowser`, equal the board rows.
 export const ADAPTERS: Record<Source, (queries?: string[]) => JobAdapter> = {
   remoteok: () => new RemoteOKAdapter(),
   remotive: () => new RemotiveAdapter(),
@@ -48,18 +50,6 @@ export function getAdapter(source: Source, queries?: string[]): JobAdapter {
   const factory = ADAPTERS[source];
   if (!factory) throw new Error(`Unknown source: ${source}`);
   return factory(queries);
-}
-
-/** Settings choices follow the actual registry, with no parallel UI board list. */
-export function getAdapterOptions(): Array<{ source: string; label: string; defaultSelected: boolean; needsBrowser: boolean; usesQueries: boolean; status: "supported" | "blocked"; caveat: string | null }> {
-  return Object.entries(ADAPTERS).map(([source, factory]) => {
-    const adapter = factory();
-    const policy = boardPolicy(source);
-    return { source, label: adapter.name, defaultSelected: policy?.defaultSelected ?? false, needsBrowser: adapter.needsBrowser ?? false,
-      usesQueries: policy?.usesQueries ?? false,
-      status: policy?.blocked ? "blocked" : "supported",
-      caveat: policy?.caveat ?? null };
-  });
 }
 
 export interface ScrapeReport {

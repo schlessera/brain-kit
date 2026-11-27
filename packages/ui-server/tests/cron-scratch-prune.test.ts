@@ -12,7 +12,7 @@ import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
-import { resolveServerConfig } from "../src/config/env";
+import { testServerConfig } from "./helpers/test-config";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import {
   SCRATCH_PRUNE_DEADLINE_MS,
@@ -299,8 +299,7 @@ async function withBootPruneApp(source: string, action: (fixture: {
     chmodSync(bin, 0o755);
     const observability = createRecordingObservability();
     app = await createApp({
-      config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: ":memory:",
-        BRAIN_PATH: root, BRAIN_UI_PRICING_DISCOVERY: "0" }),
+      config: testServerConfig({ brain: root, db: ":memory:" }),
       observability,
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });

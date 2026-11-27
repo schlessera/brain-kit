@@ -19,14 +19,8 @@ import { ConversationHost } from "../src/ws/conversation";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { fakeLiveProvider, SILENCE, type FakeLiveSession } from "./helpers/live-conversation";
 import { testPrincipal } from "./helpers/principal";
+import { until } from "../../../tests/helpers/until";
 
-async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
-  const start = Date.now();
-  while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error("until: timed out");
-    await new Promise((r) => setTimeout(r, 5));
-  }
-}
 const settle = () => new Promise((r) => setTimeout(r, 25));
 
 interface Turn {

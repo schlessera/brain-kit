@@ -6504,3 +6504,63 @@ for old backends. Updated backends prefer `prepareDispatch`; a genuinely old
 host without it uses `allowed()` plus a final backend check. If that old host
 records allowance before a late refusal, it may conservatively retain a gap;
 no compatibility fallback permits a stale dispatch or clears possible exposure.
+
+<a id="final-tool-dispatch-admission-helper-additive-0450-4767"></a>
+
+## Final tool-dispatch admission helper (additive, 0.45.0, #4767)
+
+`@schlessera/brain-ui-sdk/server` exports `admitToolDispatch(admission)` and
+`ToolDispatchAdmission`, `@experimental` backend toolkit until 1.0. It performs
+the sequence above for one call: wait for the call site's pending safety
+recordings, run its synchronous validator, take a `prepareDispatch` ticket (on
+a host without it, `allowed(toolUseId, validate)`), wait again, validate again,
+`commit(validate)`, then run the optional synchronous `expose` callback with no
+await after the commit. `dispatchesNow: false` skips the ticket and `allowed`
+for a call that dispatches at a later admission step (Pi `bash`). A refusal
+reason is thrown as an `Error`; any throw before `expose` cancels the ticket
+and propagates, and recording the refusal stays with the caller. A throw from
+`expose` propagates and leaves the committed ticket alone. The helper is the
+first supported consumer of the `@internal` `inputSafety` members
+`prepareDispatch` and `allowed`; their tags and the bridge contract are
+unchanged. Both first-party backends call it at every final admission; the Pi
+in-process gate and the Claude `canUseTool` callback now also wait for pending
+recordings before the first validation. Provider requests are unchanged.
+
+<a id="content-text-helpers-additive-0450-4720"></a>
+
+## Content text helpers (additive, 0.45.0, #4720)
+
+`@schlessera/brain-ui-sdk/server` exports `textParts(content): string[]` and
+`textOfParts(content, separator): string`, `@experimental` backend toolkit
+until 1.0. A part counts when its `type` is `"text"` and its `text` is a
+string; anything else, including a non-array `content`, yields no parts.
+Both first-party backends read content arrays through them, each site passing
+the separator it used before. The one visible change: the Claude backend's
+session history joins a replayed tool result's text blocks with `"\n"`, as
+its live stream always did, where it joined them with `""`. Stored
+transcripts are not rewritten, no wire type changes, and the sites that compare
+text with the prompt as sent keep their separator, so provider requests are
+unchanged.
+
+<a id="turn-rule-helpers-additive-0450-4721"></a>
+
+## Turn rule helpers (additive, 0.45.0, #4721)
+
+`@schlessera/brain-ui-sdk/server` exports, `@experimental` backend toolkit
+until 1.0:
+
+- `isSessionUuid(id): boolean`, the anchored, case-insensitive UUID test both
+  backends apply to a session id. The Claude `isSessionId` and Pi
+  `isPiSessionId` names remain as aliases of it, and Pi's `savePiSession` and
+  `appendPiSession` now refuse an id it rejects (they accepted any 36
+  characters of `[a-f0-9-]`; their callers pass server-minted UUIDs).
+- `autonomousYieldLatch({ onYield, aborted, emit, abort })`, returning the
+  `onYield` wrapper both
+  backends hand their runtimes: the first yield of a live turn calls
+  `onYield`, emits an `AUTONOMOUS_YIELD_FAILED` error frame when it throws,
+  then calls the runtime's own `abort`; later yields and a yield after
+  `aborted()` do nothing.
+- `usageTokenCount(value): number | null`, the token check of the
+  `first_request_cache` activity event: a non-negative safe integer, or `null`.
+
+Wire frames, activity events and provider requests are unchanged.

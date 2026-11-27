@@ -25,6 +25,7 @@ import {
   setBackendForTests,
   testHost,
 } from "./helpers/test-host";
+import { until as waitFor } from "../../../tests/helpers/until";
 
 /**
  * A backend that keeps its own record of live turns, as the Claude runner
@@ -102,14 +103,6 @@ function client() {
   const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
   addClient(ws);
   return { ws, sent };
-}
-
-async function waitFor(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error("waitFor timed out");
 }
 
 const errors = (sent: ServerMessage[]) =>

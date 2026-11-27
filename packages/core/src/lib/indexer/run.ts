@@ -198,13 +198,17 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   // --- parse --------------------------------------------------------------
   let parsed: ParseResult, markdownOnDisk: Set<string>;
   if (targeted) {
-    parsed = completeCorpusMaps(run, parseMarkdownFiles(run, targeted.present, existingDocs), targeted.unnamed);
+    const named = parseMarkdownFiles(run, targeted.present, existingDocs);
+    parsed = completeCorpusMaps(run, named, [...targeted.unnamed, ...named.unparsed]);
     // A named path that is no longer a valid document leaves the index, as a
     // fresh build would never have written it.
     markdownOnDisk = new Set([...targeted.unnamed, ...targeted.present.filter((path) => parsed.fileMap.has(path))]);
   } else {
     const markdownFiles = getMarkdownFiles(run.root, run.taxonomy);
-    parsed = parseMarkdownFiles(run, markdownFiles, existingDocs);
+    const read = parseMarkdownFiles(run, markdownFiles, existingDocs);
+    // The files that were not parsed are unchanged: their titles and aliases
+    // are the index's.
+    parsed = read.unparsed.length ? completeCorpusMaps(run, read, read.unparsed) : read;
     markdownOnDisk = new Set(markdownFiles);
   }
   run.stats.total = markdownOnDisk.size;
@@ -223,7 +227,8 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
     parsed,
     existingDocs,
     markdownOnDisk,
-    assetsOnDisk
+    assetsOnDisk,
+    targeted ? new Set(options.paths) : undefined
   );
 
   await dropIneligibleVectors(run);
@@ -253,9 +258,10 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   // `brain index` is the only thing that knows what is still reachable.
   // Asset lines are pruned only while the index holds a current hash for
   // every asset on disk; otherwise a live asset's description would look
-  // unreachable (#3242). A targeted run scans no asset, so it never knows.
+  // unreachable (#3242). A targeted run scans no asset, so it never knows;
+  // nor does it read every note, so it leaves context lines alone too.
   const pruneAssets = !targeted && indexCoversAssets(run, assetFiles);
-  const pruned = pruneSidecarCaches(run.db, run.root, run.warn, { assets: pruneAssets });
+  const pruned = pruneSidecarCaches(run.db, run.root, run.warn, { assets: pruneAssets, contexts: !targeted });
   if (pruned.assets || pruned.contexts) {
     run.report(`  Pruned ${pruned.assets} asset and ${pruned.contexts} context cache entries`);
   }
