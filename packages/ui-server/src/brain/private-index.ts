@@ -21,7 +21,7 @@
 import { chmodSync, chownSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { launchAgentWorker, prepareWorkerSandbox, retainWorkerStartupView, workerIdentityHelper, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { launchAgentWorkerAsync, prepareWorkerSandbox, retainWorkerStartupView, workerIdentityHelper, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { privateIndexArgv, workerBrainCliCommand } from "./client.js";
 
 /** How long admission waits for the private index; a slower build leaves a partial index. */
@@ -90,9 +90,10 @@ export async function runMaskedBrainCli(options: {
     providerMasks: Object.freeze({ folders: Object.freeze([...options.folders]), index: options.index, indexWritable: true,
       ...(options.visible ? { visible: Object.freeze([...options.visible]) } : {}) }) };
   const view = retainWorkerStartupView(options.startupView);
-  let worker: ReturnType<typeof launchAgentWorker>;
+  let worker: Awaited<ReturnType<typeof launchAgentWorkerAsync>>;
   try {
-    worker = launchAgentWorker({ brainPath: options.brainPath, startupView: view, sandbox,
+    // Awaited, so a loaded host's sandbox setup does not stall the event loop (#4862).
+    worker = await launchAgentWorkerAsync({ brainPath: options.brainPath, startupView: view, sandbox,
       env: { PATH: [dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"].join(":"), BRAIN_ROOT: options.brainPath, HOME: "/tmp", NO_COLOR: "1" },
       command: command.command });
   } catch (error) {
@@ -103,6 +104,8 @@ export async function runMaskedBrainCli(options: {
   const stop = () => worker.kill("SIGKILL");
   const timer = setTimeout(() => { timedOut = true; stop(); }, options.timeoutMs);
   options.signal.addEventListener("abort", stop, { once: true });
+  // An abort that landed while the launch was pending fired no listener.
+  if (options.signal.aborted) stop();
   try {
     const [stdout, stderr, exit] = await Promise.all([bounded(worker.stdout, options.outputBytes ?? OUTPUT_BYTES), bounded(worker.stderr, OUTPUT_BYTES), worker.exited]);
     options.signal.throwIfAborted();
