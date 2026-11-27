@@ -1226,10 +1226,14 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     return { child, spawnedAt, pid };
   } catch (error) {
     // An unreleased start gate closes only after its sandbox is dead (#3387).
-    status.close(child);
+    const gateClosed = status.close(child);
     child?.kill("SIGKILL");
-    // A refusal or an abort leaves as itself once its sandbox is gone; the caller cleans up after a confirmed exit.
-    if (child && (aborted || privateStateRefusalOf(error))) yield* awaitWorkerExitSteps(child);
+    // A refusal or an abort leaves as itself once its sandbox is gone and,
+    // for an asynchronous caller, its gate descriptors are closed.
+    if (child && (aborted || privateStateRefusalOf(error))) {
+      yield* awaitWorkerExitSteps(child);
+      yield* workerStep(() => undefined, () => gateClosed);
+    }
     throw error;
   }
 }
