@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
   existsSync,
@@ -19,6 +19,7 @@ import { dirname, join } from "path";
 import { chunkContextKey, forgetCachedEnrichment, getAssetFiles, indexAll, type IndexStats } from "../src/lib/indexer";
 import { forgetAssetEntries, loadAssetCache, loadContextCache, pruneSidecarCaches } from "../src/lib/indexer/caches";
 import { JOURNAL_SIZE_LIMIT_BYTES, openDatabase, migrateVecSchema } from "../src/lib/db";
+import { indexStaleness } from "../src/lib/ops/staleness";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { collectStats } from "../src/lib/stats";
 import { gitIgnoredMatcher } from "../src/lib/git-ignore";
@@ -267,6 +268,68 @@ describe("incremental indexing (default mode)", () => {
     const after = db2.prepare("SELECT id, path FROM documents ORDER BY path").all();
     db2.close();
     expect(after).toEqual(before);
+  });
+});
+
+describe("the run stamp (#4870)", () => {
+  // A controlled clock: `Date` reads it and only `Bun.sleepSync` moves it, so
+  // a run that waits for the clock is told apart from one that does not. The
+  // mtimes are set explicitly, with the sub-millisecond part a real one has.
+  const START = Date.parse("2026-07-12T09:00:00.000Z");
+  function controlledClock() {
+    let clock = START;
+    setSystemTime(new Date(clock));
+    const sleep = spyOn(Bun, "sleepSync").mockImplementation((ms) => { clock += Number(ms); setSystemTime(new Date(clock)); });
+    return { restore: () => { sleep.mockRestore(); setSystemTime(); } };
+  }
+  const setMtime = (path: string, ms: number) => utimesSync(path, ms / 1000, ms / 1000);
+
+  test("a file written in the millisecond its run starts is not stale after it; one changed after the run is", async () => {
+    const root = makeCorpus({ "notes/raft.md": md("Raft", "Built on Ogygia.") });
+    setMtime(join(root, "notes/raft.md"), START + 0.5);
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    const clock = controlledClock();
+    try {
+      await indexAll(db, { root, taxonomy, quiet: true });
+    } finally {
+      clock.restore();
+    }
+    try {
+      expect(indexStaleness(db, root, taxonomy)).toEqual({ stale: 0, indexed: 1 });
+      // Any write after the run read the file lands after the stamp: see below.
+      const { indexed_at } = db.prepare("SELECT indexed_at FROM documents").get() as { indexed_at: string };
+      setMtime(join(root, "notes/raft.md"), Date.parse(indexed_at) + 0.5);
+      expect(indexStaleness(db, root, taxonomy)).toEqual({ stale: 1, indexed: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a run reads nothing before the clock has passed its stamp", async () => {
+    const root = makeCorpus({ "notes/raft.md": md("Raft", "Built on Ogygia.") });
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    // The first thing a run reads is the index's document rows; every file is read after them.
+    const prepare = db.prepare;
+    const firstRead: number[] = [];
+    db.prepare = ((...args: Parameters<typeof prepare>) => {
+      if (String(args[0]).startsWith("SELECT id, path, asset_type, content_hash") && !firstRead.length) firstRead.push(Date.now());
+      return prepare.apply(db, args);
+    }) as typeof prepare;
+    const clock = controlledClock();
+    try {
+      await indexAll(db, { root, taxonomy, quiet: true });
+    } finally {
+      clock.restore();
+      db.prepare = prepare;
+    }
+    try {
+      const { indexed_at } = db.prepare("SELECT indexed_at FROM documents").get() as { indexed_at: string };
+      expect(Date.parse(indexed_at)).toBe(START + 1);
+      expect(firstRead).toHaveLength(1);
+      expect(firstRead[0]).toBeGreaterThanOrEqual(Date.parse(indexed_at));
+    } finally {
+      db.close();
+    }
   });
 });
 

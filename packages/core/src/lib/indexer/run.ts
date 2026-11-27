@@ -61,11 +61,20 @@ function emptyStats(): IndexStats {
  * callers receive the stable stats object and can still detect partial runs.
  */
 async function createRun(db: Database, options: IndexOptions): Promise<IndexRun> {
+  // The run's start, rounded up to the next millisecond. `indexed_at` keeps
+  // milliseconds and a file's mtime keeps more, so a file written in the
+  // millisecond the run started would otherwise be newer than the run that
+  // read it, and counted stale until it changed again (#4870).
+  const stamp = Date.now() + 1;
   const quiet = options.quiet ?? false;
   const checked = checkGovernancePolicy(options.root);
   if (!checked.ok) console.warn(`provider_policy_invalid: embedding and enrichment disabled; ${checked.errors.join("; ")}`);
   const rules = checked.ok ? checked.effective.providers : [{ paths: ["**"], allow: [] }];
   const recipient = rules.length ? await geminiEmbeddingRecipient(options.provider) : undefined;
+  // No file is read before the clock has passed the stamp, so a file changed
+  // after the run read it is always newer than its row. At most a millisecond.
+  const wait = stamp - Date.now();
+  if (wait > 0) Bun.sleepSync(wait);
   return {
     db,
     root: options.root,
@@ -74,7 +83,7 @@ async function createRun(db: Database, options: IndexOptions): Promise<IndexRun>
     wantEmbeddings: options.embeddings ?? false,
     provider: options.provider,
     enrichment: options.enrichment,
-    now: new Date().toISOString(),
+    now: new Date(stamp).toISOString(),
     ...(rules.length ? { embeddingRouting: { rules, recipient, excludedDocuments: [] } } : {}),
     stats: emptyStats(),
     report: quiet ? () => {} : (message) => console.log(message),

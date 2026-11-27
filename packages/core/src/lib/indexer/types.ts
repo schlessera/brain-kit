@@ -78,7 +78,9 @@ export interface IndexRun {
   enrichment?: Enrichment;
   /** ISO timestamp stamped on every row this run writes. One per run, so a
    *  run's documents share an `indexed_at` and staleness comparisons are
-   *  stable regardless of how long the run took. */
+   *  stable regardless of how long the run took. It is the run's start
+   *  rounded up to the next millisecond, and the run reads no file before the
+   *  clock has passed it. */
   now: string;
   /** Frozen policy and concrete recipient for this embedding run. */
   embeddingRouting?: { rules: import("@schlessera/brain-common/internal/governance-policy").EffectiveGovernancePolicy["providers"]; recipient?: string; excludedDocuments: number[] };
