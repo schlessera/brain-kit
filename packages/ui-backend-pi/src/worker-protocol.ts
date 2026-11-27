@@ -123,17 +123,21 @@ export function sendPipe(pipe: Pick<Writable, "write">, value: unknown): void {
 
 /** Bound bytes before JSON parsing, including a sender that never sends LF. */
 export async function* pipeMessages(pipe: Readable): AsyncGenerator<unknown> {
-  let pending = Buffer.alloc(0);
-  for await (const chunk of pipe) {
-    pending = Buffer.concat([pending, Buffer.from(chunk)]);
-    let newline: number;
-    while ((newline = pending.indexOf(10)) >= 0) {
-      if (newline > PI_PIPE_MAX_BYTES) throw new Error("Pi worker protocol payload exceeds its bound.");
-      const line = pending.subarray(0, newline).toString("utf8");
-      pending = pending.subarray(newline + 1);
-      yield JSON.parse(line);
+  // The chunks of the line not yet completed: each chunk is searched once and
+  // each line is joined once, so a large frame costs linear time (#4854).
+  let parts: Buffer[] = [], pending = 0;
+  for await (const received of pipe) {
+    const chunk = Buffer.isBuffer(received) ? received : Buffer.from(received);
+    let start = 0, newline: number;
+    while ((newline = chunk.indexOf(10, start)) >= 0) {
+      if (pending + newline - start > PI_PIPE_MAX_BYTES) throw new Error("Pi worker protocol payload exceeds its bound.");
+      const tail = chunk.subarray(start, newline);
+      const line = parts.length ? Buffer.concat([...parts, tail], pending + tail.length) : tail;
+      parts = []; pending = 0; start = newline + 1;
+      yield JSON.parse(line.toString("utf8"));
     }
-    if (pending.length > PI_PIPE_MAX_BYTES) throw new Error("Pi worker protocol payload exceeds its bound.");
+    if (start < chunk.length) { parts.push(chunk.subarray(start)); pending += chunk.length - start; }
+    if (pending > PI_PIPE_MAX_BYTES) throw new Error("Pi worker protocol payload exceeds its bound.");
   }
-  if (pending.length) throw new Error("Pi worker protocol ended with a partial message.");
+  if (pending) throw new Error("Pi worker protocol ended with a partial message.");
 }
