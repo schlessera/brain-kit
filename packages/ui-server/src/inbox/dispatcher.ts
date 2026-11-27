@@ -67,7 +67,6 @@ export function createInboxDispatcher(db: Database, deps: InboxDispatcherDeps) {
     return Boolean(principal && isUsablePrincipal(principal, now()));
   };
   const scheduled = (itemId: string): boolean =>
-    db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schedule_occurrence_items'").get() !== null &&
     db.query("SELECT 1 FROM schedule_occurrence_items WHERE item_id = ?").get(itemId) !== null;
   const route = (itemId: string): string | null => {
     const row = db.query("SELECT facts_json FROM inbox_checkpoints WHERE id = ?").get(`triage-result:${itemId}`) as { facts_json: string } | null;
