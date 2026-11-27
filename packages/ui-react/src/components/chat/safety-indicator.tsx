@@ -105,12 +105,18 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
   const supported=useStore(root.stores.safety,s=>s.supported),readReason=useStore(root.stores.safety,s=>s.reason);
   const readStatus=useStore(root.stores.safety,s=>s.status),historyScopeKey=useStore(root.stores.safety,s=>s.historyScopeKey);
   // The host decides attribution (#4513); never inferred from the transcript.
-  const attribution=useStore(root.stores.safety,s=>s.projection?.attributionUnknown);
+  const liveAttribution=useStore(root.stores.safety,s=>s.projection?.attributionUnknown),projectionLoaded=useStore(root.stores.safety,s=>!!s.projection);
   const chatCount=useStore(root.stores.safety,s=>s.status==="ready"&&s.identity&&"sessionId" in s.identity&&s.identity.sessionId===sessionId?s.projection?.unresolvedCount:undefined);
   const chatTotal=chatCount===undefined?"Whole chat · current count unavailable":`Whole chat · ${chatCount} unresolved input${chatCount===1?"":"s"}`;
   const [open,setOpen]=useState(false),[limit,setLimit]=useState(20),[position,setPosition]=useState({left:12,top:12});
   const trigger=useRef<HTMLButtonElement>(null),panel=useRef<HTMLDivElement>(null),id=useId();
   const scope=`${sessionId}\0${root.authLock.epoch()}\0${historyScopeKey}`,held=useRef<{scope:string;entries:SafetyEvidence[]}>({scope,entries:[]});
+  // A refresh clears the projection until its first page: an open dialog
+  // keeps the last host verdict, and before any loads it names no action.
+  const verdict=useRef<{scope:string;loaded:boolean;value:typeof liveAttribution}>({scope,loaded:false,value:undefined});
+  if(verdict.current.scope!==scope)verdict.current={scope,loaded:false,value:undefined};
+  if(projectionLoaded)verdict.current={scope,loaded:true,value:liveAttribution};
+  const attribution=verdict.current.value,attributionLoaded=verdict.current.loaded;
   const allowed=auth==="active"&&supported&&(readStatus!=="unavailable"||readReason==="disconnected");
   if(held.current.scope!==scope||!allowed)held.current={scope,entries:[]};
   if(currentEntries.length&&allowed)held.current={scope,entries:currentEntries};
@@ -168,7 +174,7 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
       <div className="flex items-center justify-between gap-2"><strong>{name}</strong><IconButton icon="dismiss" name="Close safety details" style={{minWidth:44,minHeight:44}} onClick={close}/></div>
       <p className="mb-3 text-xs">Marking an input safe accepts that input for this chat. Its contents stay in the model’s context.</p>
       {entries.slice(0,limit).map(entry=><SafetyTrigger key={entry.occurrence.id} entry={entry} nextIndicator={nextIndicator} showNext={showNext} unattributed={unknownAttribution(attribution,entry)}
-        toolName={unknownAttribution(attribution,entry) ? null : entry.occurrence.turnId===turnId ? toolCalls?.find(tool=>tool.id===entry.occurrence.entry?.toolUseId)?.name : undefined}/>)}
+        toolName={unknownAttribution(attribution,entry) ? null : !attributionLoaded&&entry.occurrence.entry ? undefined : entry.occurrence.turnId===turnId ? toolCalls?.find(tool=>tool.id===entry.occurrence.entry?.toolUseId)?.name : undefined}/>)}
       {entries.length>limit&&<Button label="Show more inputs" tone="quiet" reach onClick={()=>setLimit(n=>n+20)}/>}
     </div>,document.body)}
   </span>;

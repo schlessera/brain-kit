@@ -127,6 +127,32 @@ for(const width of [320,1280])for(const hostSaw of ['id','turn',false] as const)
  expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
 });
 
+/** A refresh clears the projection until its first page (#4513): an open
+ * dialog keeps the host verdict, including the refresh after marking safe. */
+test('an open review keeps the host attribution through a refresh',async()=>{
+ await scene(320,'light',false,reused);
+ await patch({action:'reuse',id:'tool_c'});
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.attributionUnknown?.length??0,{timeout:8000}).toBeGreaterThan(0);
+ await userEvent.click([...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].find(b=>!b.closest('[data-safety-turn-event]'))!);
+ await expect.element(page.getByRole('dialog',{name:'Safety input details'})).toBeVisible();
+ const search=()=>[...document.querySelectorAll('[data-safety-trigger]')].find(e=>e.textContent?.includes('Workspace read'))?.textContent??'';
+ const seen:string[]=[];const observer=new MutationObserver(()=>seen.push(search()));
+ observer.observe(document.querySelector('[data-safety-details]')!,{subtree:true,childList:true,characterData:true});
+ try{
+  flushSync(()=>ui!.stores.safety.getState().begin('odyssey_refresh'));
+  expect(ui!.stores.safety.getState().projection).toBeNull();
+  expect(search(),'REFRESH_KEEPS_THE_HOST_VERDICT').toContain('Action · Unknown');
+  ui!.stores.safety.getState().refresh();
+  await expect.poll(()=>ui!.stores.safety.getState().status,{timeout:5000}).toBe('ready');
+  const fetch=[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('Web fetch'))!;
+  await userEvent.click([...fetch.querySelectorAll<HTMLButtonElement>('button,[role=button]')].find(b=>b.textContent==='Mark as safe')!);
+  await userEvent.click(page.getByRole('button',{name:'Mark this input as safe',exact:true}));
+  await expect.poll(()=>ui!.stores.safety.getState().status==='ready'&&ui!.stores.safety.getState().projection?.unresolvedCount===2,{timeout:5000}).toBe(true);
+ }finally{observer.disconnect();}
+ expect(seen.filter(text=>/Action · (Local search|Bash|Grep)/.test(text)),'REVIEW_NEVER_NAMES_A_FLAGGED_ACTION').toEqual([]);
+ expect(search()).toContain('Action · Unknown');
+});
+
 test('mounted tool indicators share one turn index per messages array',async()=>{
  await scene(1280,'light',false,reused);
  await userEvent.click(page.getByRole('button',{name:/^3 steps/}));
