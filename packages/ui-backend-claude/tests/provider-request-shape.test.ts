@@ -215,13 +215,23 @@ test("native managed policy overriding a gateway selection is refused before pro
 }, 180_000);
 
 test("project settings alone cannot turn off a first-party bridge session", () => {
-  const capture = captures["project-on"]!;
-  expect(capture.qualification!.projectToolSearch, "PROJECT_CASE_REQUESTS_TRUE").toBe("true");
+  const capture = captures["project-off"]!;
+  expect(capture.qualification!.projectToolSearch, "PROJECT_CASE_REQUESTS_FALSE").toBe("false");
   for (const input of capture.budgets as any[]) {
-    expect(input.env, "PROJECT_CANNOT_OVERRIDE_ENV_PIN").toBe("true");
-    expect(input.settings, "PROJECT_CANNOT_OVERRIDE_FLAG_PIN").toBe("true");
+    expect(input.env, "HOST_PINS_ENV_ON").toBe("true");
+    expect(input.settings, "HOST_PINS_FLAG_ON").toBe("true");
   }
+  // The runtime's own resolution: the host pin wins over the project's "false".
+  expect(capture.qualification!.effectiveToolSearch, "EFFECTIVE_VALUE_IS_THE_HOST_PIN").toBe("true");
+  expect(capture.qualification!.promptReleased, "PINNED_SESSION_RELEASED").toBe(true);
   for (const exchange of main(capture)) expect(body(exchange).tools.some((tool: any) => tool.name === "ToolSearch"), "PROJECT_CANNOT_DISABLE_WIRE_DISCOVERY").toBe(true);
+  // Control: without the pin the same project setting is what the runtime resolves,
+  // and the gate withholds the prompt for the retained selection.
+  const control = captures["project-off-unpinned"]!;
+  expect([(control.budgets as any[])[0].env, (control.budgets as any[])[0].settings], "CONTROL_HAS_NO_HOST_PIN").toEqual([undefined, undefined]);
+  expect(control.qualification!.effectiveToolSearch, "CONTROL_RESOLVES_THE_PROJECT_VALUE").toBe("false");
+  expect(control.qualification!.promptReleased, "CONTROL_PROMPT_WITHHELD").toBe(false);
+  expect(control.exchanges, "CONTROL_SENDS_NO_REQUEST").toHaveLength(0);
 });
 
 test("incompatible authority refuses before inference and compatible resume preserves every writer definition", () => {

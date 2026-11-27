@@ -63,7 +63,7 @@ const proxy = Bun.serve({ unix: join(relay.dir, "proxy.sock"), fetch() { return 
 chmodSync(join(relay.dir, "proxy.sock"), 0o600);
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
- for (scenario of (process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? ["managed-gateway"] : ["discovery", "legacy", "legacy-no-snapshot", "legacy-inherited", "gateway", "project-on", "authority-upgrade", "removed", "builtins", "fast-api", "fast-subscription", "fast-disabled", "fast-thirdparty"])) {
+ for (scenario of (process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? ["managed-gateway"] : ["discovery", "legacy", "legacy-no-snapshot", "legacy-inherited", "gateway", "project-off", "project-off-unpinned", "authority-upgrade", "removed", "builtins", "fast-api", "fast-subscription", "fast-disabled", "fast-thirdparty"])) {
   const brain = fixtureBrain(scratch, scenario), home = join(scratch, `home-${scenario}`);
   mkdirSync(join(home, ".claude"), { recursive: true });
   writeFileSync(join(brain, "ithaca.ipynb"), JSON.stringify({ nbformat: 4, nbformat_minor: 5, metadata: {},
@@ -72,7 +72,7 @@ try {
   mcpReady = scenario === "discovery" ? join(brain, "mcp-ready") : undefined;
   if (scenario.startsWith("legacy")) writeFileSync(marker, "Odysseus keeps the old roster.");
   mkdirSync(join(brain, ".claude"), { recursive: true });
-  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ enableAllProjectMcpServers: true, env: scenario === "legacy-inherited" ? {} : { ENABLE_TOOL_SEARCH: scenario === "project-on" ? "true" : "false" } }));
+  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ enableAllProjectMcpServers: true, env: scenario === "legacy-inherited" ? {} : { ENABLE_TOOL_SEARCH: "false" } }));
   if (!scenario.startsWith("legacy") && scenario !== "builtins") writeFileSync(join(brain, ".mcp.json"), JSON.stringify({ mcpServers: {
     brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker, ...(mcpReady ? [mcpReady, counter] : [])] },
   } }));
@@ -85,7 +85,7 @@ try {
     // selection or marker. The first query uses independently frozen inputs.
     if (scenario !== "legacy-no-snapshot") claudePromptContext(brain, sessionId).retainAppend(baseline.append);
   }
-  for (turnIndex = 0; turnIndex < (scenario === "builtins" ? 2 : scenario === "fast-thirdparty" || scenario === "managed-gateway" ? 1 : 3); turnIndex++) {
+  for (turnIndex = 0; turnIndex < (scenario === "builtins" ? 2 : scenario === "fast-thirdparty" || scenario === "managed-gateway" || scenario === "project-off-unpinned" ? 1 : 3); turnIndex++) {
     if (turnIndex) rmSync(marker, { force: true });
     // Each diagnostic process starts before its project MCP server is ready.
     // Reset the event latch on resume too, so qualification is not a CPU race.
@@ -185,6 +185,9 @@ try {
         (turn.options.settings as any).env.CLAUDE_CODE_OAUTH_TOKEN = INFERENCE_PLACEHOLDER;
       }
     }
+    // #4894 round 5 F4 control: without the host pin the runtime resolves the
+    // project's own "false", so the pin is what wins in "project-off".
+    if (scenario === "project-off-unpinned") { delete turn.options.env!.ENABLE_TOOL_SEARCH; delete (turn.options.settings as any).env.ENABLE_TOOL_SEARCH; }
     turn.options.stderr = text => console.error(text);
     capture.appends.push(turn.options.systemPrompt);
     capture.budgets!.push({ disallowed: turn.options.disallowedTools, allowed: turn.options.allowedTools,
@@ -196,7 +199,7 @@ try {
       let runtime: ReturnType<typeof query>;
       let gateTerminal: TurnTerminal | undefined;
       let prompt = turn.prompt;
-      if (scenario === "managed-gateway" || scenario === "discovery") {
+      if (scenario === "managed-gateway" || scenario === "discovery" || scenario.startsWith("project-off")) {
         gateTerminal = new TurnTerminal({ frames: new TurnFrames({ emit() {}, async requestPermission() { return { behavior: "deny", message: "Qualification cannot approve permission prompts." }; } }, null), hostSignal: new AbortController().signal,
           abortController: controller, startedAt: Date.now(), pendingFailure: () => null });
         const terminal = gateTerminal;
@@ -222,11 +225,12 @@ try {
         }
         if (message.type === "result") { if (message.subtype !== "success") throw new Error(JSON.stringify(message)); sessionId = message.session_id; success = true; }
       }
-      if (scenario === "managed-gateway" && gateTerminal?.withheld) continue;
+      // The project-off pair records a withheld prompt for the test to judge.
+      if ((scenario === "managed-gateway" || scenario.startsWith("project-off")) && gateTerminal?.withheld) continue;
       if (!success || !sessionId) throw new Error("Missing successful SDK result");
       capture.sessions.push(sessionId);
     } catch (error) {
-      if (scenario === "managed-gateway" && controller.signal.aborted && capture.qualification?.promptReleased === false) { /* Expected gate refusal, before any model request. */ }
+      if ((scenario === "managed-gateway" || scenario.startsWith("project-off")) && controller.signal.aborted && capture.qualification?.promptReleased === false) { /* Expected gate refusal, before any model request. */ }
       else if (scenario !== "fast-thirdparty" || !controller.signal.aborted || !capture.rosters?.length) throw error;
     } finally { clearTimeout(timer); await turn.finishWorker();
       if (scenario === "discovery") ((capture.qualification!.brainProcessStarts ??= []) as number[]).push(readFileSync(counter, "utf8").trim().split("\n").length);

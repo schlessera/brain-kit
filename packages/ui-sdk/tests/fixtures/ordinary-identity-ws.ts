@@ -3,7 +3,7 @@ import { installDbRepeatObservation, repeatWarmIndex } from "./db-repeat-observa
 import { installBootPruneCapture } from "./boot-prune-capture.js";
 /** Real managed-server admission and native SDK turn; explicit fictional API profile. */
 import { expect } from "bun:test";
-import { lstatSync, mkdirSync, readFileSync, statSync, readdirSync } from "node:fs";
+import { lstatSync, mkdirSync, statSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createApp } from "../../../ui-server/src/app.js";
 import { resolveServerConfig } from "../../../ui-server/src/config/env.js";
@@ -36,97 +36,14 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   requests.push({ model: body.model, history: body.messages.length, apiCredential: request.headers.get("x-api-key") === "odysseus-fictional-api-key" });
   return nativeModelReply();
 } });
-// Diagnostic only (#4325 F3, hosted runtime_host): when the bridge inventory
-// probe runs before a new chat, record its phases and the UIDs its process
-// tree ran as. Observes the existing spawn, startup-span and backend-log
-// channels; changes nothing the turn sees.
-const bridgeDiagnostic = { launches: [] as Array<Record<string, unknown>>, spans: [] as Array<{ startMs: number; endMs?: number }>,
-  logs: [] as Array<{ atMs: number; level: string; message: string }>, otherLaunches: [] as Array<{ atMs: number; kind: string }>,
-  turnStartMs: [] as number[], chatSentMs: undefined as number | undefined };
-const diagnosticNow = () => Math.round(performance.now());
-function processTreeUids(root: number): number[] {
-  const parents = new Map<number, number>();
-  for (const name of readdirSync("/proc")) {
-    if (!/^\d+$/.test(name)) continue;
-    try { const stat = readFileSync(`/proc/${name}/stat`, "utf8"); parents.set(Number(name), Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1])); } catch {}
-  }
-  const tree = [root], uids = new Set<number>();
-  for (let i = 0; i < tree.length && tree.length < 64; i++) for (const [pid, ppid] of parents) if (ppid === tree[i]) tree.push(pid);
-  for (const pid of tree) {
-    try { const uid = /^Uid:\s+(\d+)/m.exec(readFileSync(`/proc/${pid}/status`, "utf8"))?.[1]; if (uid !== undefined) uids.add(Number(uid)); } catch {}
-  }
-  return [...uids];
-}
-/** UIDs of every process whose own command line names the inventory entry, wherever the identity helper parented it. */
-function markedProcessUids(): number[] {
-  const uids = new Set<number>();
-  for (const name of readdirSync("/proc")) {
-    if (!/^\d+$/.test(name)) continue;
-    try {
-      if (!readFileSync(`/proc/${name}/cmdline`, "utf8").split("\u0000").some(arg => arg.endsWith("brain-bridge-inventory-entry.ts"))) continue;
-      const uid = /^Uid:\s+(\d+)/m.exec(readFileSync(`/proc/${name}/status`, "utf8"))?.[1];
-      if (uid !== undefined) uids.add(Number(uid));
-    } catch {}
-  }
-  return [...uids];
-}
-function observeInventoryLaunch(proc: any) {
-  const entry: Record<string, unknown> = { startMs: diagnosticNow(), pid: proc?.pid };
-  const uids = new Set<number>(), entryUids = new Set<number>();
-  bridgeDiagnostic.launches.push(entry);
-  if (bridgeDiagnostic.launches.length > 8) return;
-  let samples = 0;
-  const sampler = setInterval(() => {
-    if (++samples > 1200) { clearInterval(sampler); return; }
-    try {
-      for (const uid of processTreeUids(proc.pid)) uids.add(uid);
-      for (const uid of markedProcessUids()) { if (!entryUids.size) entry.entrySeenMs = diagnosticNow(); entryUids.add(uid); }
-      entry.uids = [...uids]; entry.entryUids = [...entryUids];
-    } catch (error) { entry.sampleError = String(error); clearInterval(sampler); }
-  }, 25);
-  (sampler as { unref?: () => void }).unref?.();
-  try {
-    const [mine, theirs] = (proc.stdout as ReadableStream<Uint8Array>).tee();
-    Object.defineProperty(proc, "stdout", { value: theirs, configurable: true });
-    void (async () => {
-      const reader = mine.getReader();
-      let bytes = 0;
-      for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
-        if (bytes === 0) entry.firstStdoutMs = diagnosticNow();
-        bytes += chunk.value.byteLength;
-      }
-      entry.stdoutEndMs = diagnosticNow(); entry.stdoutBytes = bytes;
-    })().catch(error => { entry.stdoutError = String(error); });
-  } catch (error) { entry.stdoutTee = String(error); }
-  void Promise.resolve(proc.exited).then(code => { entry.exitMs = diagnosticNow(); entry.exitCode = code; },
-    error => { entry.exitError = String(error); }).finally(() => { clearInterval(sampler); entry.uids = [...uids]; });
-}
-function printBridgeDiagnostic(phase: string) {
-  const line = JSON.stringify({ bridgeInventoryDiagnostic: { phase, profile, warm, atMs: diagnosticNow(), ...bridgeDiagnostic } });
-  console.log(line); console.error(line.slice(0, 3000));
-}
 const backend = createClaudeBackend({ brainPath: brain, profiles: [{ id: "odysseus-haiku", label: "Odysseus Haiku", billing: "api",
   requiredEnvKeys: [], model: "claude-haiku-4-5", buildEnv: () => ({ ANTHROPIC_BASE_URL: provider.url.origin,
     ANTHROPIC_API_KEY: "odysseus-fictional-api-key", HOME: home, CLAUDE_CONFIG_DIR: config, PATH: "/usr/local/bin:/usr/bin:/bin",
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" }) }], log(level, message) {
-  if (String(message).includes("brain_bridge") && bridgeDiagnostic.logs.length < 32) bridgeDiagnostic.logs.push({ atMs: diagnosticNow(), level, message: String(message).slice(0, 300) });
-} });
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" }) }], log() {} });
 const backendProfiles: Array<string | undefined> = [];
 const admissionReads: Array<ReturnType<NonNullable<Parameters<typeof backend.startTurn>[0]["bridge"]["admissionSafety"]>["read"]>> = [];
 const observedBackend = { ...backend, startTurn(request: Parameters<typeof backend.startTurn>[0]) {
   backendProfiles.push(request.workerSandbox?.profile);
-  bridgeDiagnostic.turnStartMs.push(diagnosticNow());
-  const timing = request.startupTiming;
-  if (timing) {
-    const start = timing.start.bind(timing);
-    timing.start = (name: string) => {
-      const stop = start(name);
-      if (name !== "brain_tool_inventory") return stop;
-      const span: { startMs: number; endMs?: number } = { startMs: diagnosticNow() };
-      bridgeDiagnostic.spans.push(span);
-      return () => { span.endMs = diagnosticNow(); stop(); };
-    };
-  }
   // Observe the real host gate synchronously, returning each original read
   // unchanged. Native refusals otherwise collapse to a generic HTTP 403.
   const safety = request.bridge.admissionSafety;
@@ -162,13 +79,7 @@ Object.defineProperty(Bun, "spawn", { ...spawnDescriptor, value: (...args: any[]
         classes: ["attested-stage-container", "git-adapter", "frozen-config"], nodes } }));
     }
   }
-  const proc = Reflect.apply(spawn, Bun, args);
-  if (typeof launch === "string") {
-    if (launch.includes("brain-bridge-inventory-entry")) observeInventoryLaunch(proc);
-    else if (bridgeDiagnostic.otherLaunches.length < 16) bridgeDiagnostic.otherLaunches.push({ atMs: diagnosticNow(),
-      kind: launch.includes("node_modules/.bin/brain") ? "brain" : launch.includes("claude") ? "runtime" : "other" });
-  }
-  return proc;
+  return Reflect.apply(spawn, Bun, args);
 } });
 // Local diagnostic artifact only: fixed disposable fixture root, no contents or recursion.
 function recordFixtureRootMetadata(phase: "before-app" | "after-app") {
@@ -254,9 +165,7 @@ try {
   await until(() => frames.some(frame => frame.type === "server_hello"), "REAL_SERVER_HELLO");
   socket.send(JSON.stringify({ type: "client_hello", protocolRev: 3, capabilities: { followUpQueue: true } }));
   socket.send(JSON.stringify({ type: "chat_message", text: "Plan the return to Ithaca.", providerId: "odysseus-haiku", requestId: "ithaca-ordinary" }));
-  bridgeDiagnostic.chatSentMs = diagnosticNow();
-  try { await until(() => frames.some(frame => frame.type === "result" || frame.type === "error"), "REAL_SERVER_NATIVE_TERMINAL"); }
-  finally { printBridgeDiagnostic("terminal"); }
+  await until(() => frames.some(frame => frame.type === "result" || frame.type === "error"), "REAL_SERVER_NATIVE_TERMINAL");
   await until(() => !app!.wsHost.coordinator.isTurnActive(), "REAL_SERVER_RELEASED_TURN");
   const admittedProfiles = app.db.query("SELECT profile FROM turn_governance_policy").all();
   expect(admittedProfiles, "ACTUAL_MANAGED_WS_SELECTED_PROFILE").toEqual(Array.from({ length: warm ? 2 : 1 }, () => ({ profile })));
@@ -292,7 +201,6 @@ try {
     }
   }
   stage("cleanup:done");
-  printBridgeDiagnostic("cleanup");
   recordFixtureRootMetadata("after-app");
   console.log(JSON.stringify({ actualMaintenanceFinalDiagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
   if (sharedGit) expect(observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")),

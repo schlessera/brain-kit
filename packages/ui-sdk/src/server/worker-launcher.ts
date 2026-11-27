@@ -1181,6 +1181,11 @@ export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["st
   /** Resolves once no descriptor of this worker's stdio remains open in this process, once its streams have ended (#2862). */
   released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
+  /**
+   * The same signal without blocking the event loop: a separate-UID worker is
+   * signalled through its broker's asynchronous request (#4894 round 5 F1).
+   */
+  killAsync?(signal?: NodeJS.Signals): Promise<void>;
   /** True means the existing worker control acknowledged the stop; void has no timing confirmation. */
   freeze(): boolean | void;
   /** True means the existing worker control acknowledged the resume; void has no timing confirmation. */
@@ -1567,6 +1572,10 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       resume: () => cgroup ? cgroup.resume() : freezer.resume(),
       kill: (signal?: NodeJS.Signals) => { killed = true;
         if (identityBroker) identityBroker.request("signal", { signal: (signal ?? "SIGTERM").replace(/^SIG/, "") });
+        else spawned.kill(signal);
+      },
+      killAsync: async (signal?: NodeJS.Signals) => { killed = true;
+        if (identityBroker) await identityBroker.requestAsync("signal", { signal: (signal ?? "SIGTERM").replace(/^SIG/, "") });
         else spawned.kill(signal);
       }, ...(state ? { state } : {}),
       ...(turnTemp ? { turnTemp } : {}) };

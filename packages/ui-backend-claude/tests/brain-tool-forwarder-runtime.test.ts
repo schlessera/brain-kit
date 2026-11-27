@@ -11,7 +11,7 @@ import { join, resolve } from "node:path";
 import { openDatabase } from "@schlessera/brain/internal";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { launchLimits, restrictedReadPaths, resolveTurnTempLimits } from "@schlessera/brain-ui-sdk/internal";
+import { launchLimits, processStateLedger, restrictedReadPaths, resolveTurnTempLimits } from "@schlessera/brain-ui-sdk/internal";
 import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { replaceNativeStartupAcquisitionForFixture } from "../../ui-server/tests/helpers/fixture-native-startup.js";
 import { createBrainToolForwarder, startBrainToolWorker, probeBrainBridgeInventory, brainInventoryEntry } from "../src/brain-tool-forwarder.js";
@@ -35,6 +35,11 @@ function inventoryTiming(kind: string) {
     expect(spans[0]!.attributes, "INVENTORY_SPAN_HAS_NO_CACHE_ATTRIBUTE").toBeUndefined();
     console.log("BRAIN_TOOL_INVENTORY_WALL", JSON.stringify({ kind, ...spans[0] }));
   } };
+}
+
+/** The probe's worker cleanup runs detached after its verdict; let it settle before the scratch tree goes. */
+async function bridgeCleanupSettled() {
+  for (let waited = 0; waited < 10_000 && processStateLedger().turnTempHeld > 0; waited += 10) await Bun.sleep(10);
 }
 
 test("forwarded core reads use the immutable worker view and refuse provider-masked paths while the host copy remains readable", async () => {
@@ -108,7 +113,7 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
     expect(starts, "ONE_SANDBOXED_BRAIN_SERVER").toBe(1);
   } finally {
     controller.abort();
-    try { await client?.close(); } finally { try { await forward?.close(); } finally { restore?.(); view?.cleanup(); rmSync(scratch, { recursive: true, force: true }); } }
+    try { await client?.close(); } finally { try { await forward?.close(); await bridgeCleanupSettled(); } finally { restore?.(); view?.cleanup(); rmSync(scratch, { recursive: true, force: true }); } }
   }
 });
 
@@ -175,6 +180,6 @@ test("a config change between two new sessions preserves the second session modu
     expect(diagnostics).toContain("brain_bridge_fallback_module_tools: keeping the project brain stdio entry and tool search off.");
   } finally {
     controller.abort();
-    try { await client.close(); } finally { try { await resource?.close(); await firstTurn?.finishWorker(); await turn?.finishWorker(); } finally { restore(); testHome.dispose(); view?.cleanup(); rmSync(scratch, { recursive: true, force: true }); } }
+    try { await client.close(); } finally { try { await resource?.close(); await firstTurn?.finishWorker(); await turn?.finishWorker(); await bridgeCleanupSettled(); } finally { restore(); testHome.dispose(); view?.cleanup(); rmSync(scratch, { recursive: true, force: true }); } }
   }
 });

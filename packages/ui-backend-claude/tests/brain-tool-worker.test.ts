@@ -6,7 +6,7 @@ import { PassThrough } from "node:stream";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import * as internal from "@schlessera/brain-ui-sdk/internal";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { startBrainToolWorker, probeBrainBridgeInventory, brainWorkerTransport, createBrainToolForwarder, bridgeBrainVersion, BRAIN_INVENTORY_TIMEOUT_MS } from "../src/brain-tool-forwarder.js";
+import { startBrainToolWorker, probeBrainBridgeInventory, brainWorkerTransport, createBrainToolForwarder, bridgeBrainVersion, BRAIN_INVENTORY_TIMEOUT_MS, BRAIN_TOOL_EXIT_WAIT_MS } from "../src/brain-tool-forwarder.js";
 import * as promptContext from "../src/prompt-context.js";
 import { createBridgedTurnReservation } from "../src/brain-tool-reservation.js";
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
@@ -363,6 +363,71 @@ for (const cause of ["deadline", "caller abort"] as const) test(`a hung inventor
     expect([child.stdout.destroyed, child.stderr.destroyed], "HUNG_INVENTORY_PIPES_DISPOSED").toEqual([true, true]);
     expect(ledger.turnTempHeld, "HUNG_INVENTORY_ALLOWANCE_HELD").toBe(f.input.turnTempLimits.allowanceBytes);
   } finally { child.exit.resolve(0); timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4894 round 5: one lifecycle rule for every bridge worker. The verdict and
+// close are decided by one bounded race; cleanup runs detached after it; a
+// worker is signalled once, asynchronously; a launch that has not returned a
+// worker is never awaited.
+const shortTimers = (map: Record<number, number>) => {
+  const nativeTimer = globalThis.setTimeout;
+  return spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) =>
+    nativeTimer(callback, ms !== undefined && ms in map ? map[ms] : ms, ...args)) as typeof setTimeout);
+};
+
+test("a missed inventory deadline signals its worker once, asynchronously, never through a blocking call", async () => {
+  const f = fixture(), child = worker(f.state), ledger = internal.createStateLedger();
+  let syncSignals = 0, asyncSignals = 0;
+  Object.assign(child.launched, { kill() { syncSignals++; }, async killAsync() { asyncSignals++; } });
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockResolvedValue(child.launched);
+  const timer = shortTimers({ [BRAIN_INVENTORY_TIMEOUT_MS]: 20, [BRAIN_TOOL_EXIT_WAIT_MS]: 0 });
+  try {
+    const verdict = await probeBrainBridgeInventory({ ...f.input, reservation: () => ledger.reserve(undefined, f.input.turnTempLimits) }, f.signal);
+    expect(verdict).toBe("unavailable");
+    // Let the detached cleanup run its stop, which must not signal again.
+    for (let waited = 0; waited < 2_000 && !child.stdout.destroyed; waited += 10) await Bun.sleep(10);
+    expect({ syncSignals, asyncSignals }, "BRIDGE_WORKER_SIGNALLED_ONCE_ASYNC").toEqual({ syncSignals: 0, asyncSignals: 1 });
+  } finally { child.exit.resolve(0); timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test("a valid inventory returns its verdict while the worker's pipe release is still held", async () => {
+  // Its own ledger: the held release keeps this reservation for good.
+  const f = fixture(), child = worker(f.state), ledger = internal.createStateLedger();
+  (child.launched as { released: unknown }).released = () => new Promise<void>(() => {});
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockImplementation(async () => {
+    child.stdout.end('{"enabled":[],"available":[]}'); child.exit.resolve(0);
+    return child.launched;
+  });
+  try {
+    const verdict = await Promise.race([probeBrainBridgeInventory({ ...f.input, reservation: () => ledger.reserve(undefined, f.input.turnTempLimits) }, f.signal),
+      Bun.sleep(2_000).then(() => "STILL_WAITING")]);
+    expect(verdict, "VERDICT_NOT_HELD_BY_CLEANUP").toBe("core-only");
+  } finally { launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test("closing the forwarder never waits for a launch that has not returned, and closes it when it does", async () => {
+  const gate = Promise.withResolvers<{ transport: never; close(): Promise<void> }>();
+  let lateCloses = 0;
+  const forward = createBrainToolForwarder(async () => gate.promise, new AbortController().signal, () => {});
+  forward.start();
+  await Bun.sleep(0);
+  const closed = await Promise.race([forward.close().then(() => "closed"), Bun.sleep(1_000).then(() => "STILL_WAITING")]);
+  expect(closed, "CLOSE_DOES_NOT_AWAIT_A_STALLED_LAUNCH").toBe("closed");
+  gate.resolve({ transport: {} as never, async close() { lateCloses++; } });
+  for (let waited = 0; waited < 1_000 && lateCloses === 0; waited += 10) await Bun.sleep(10);
+  expect(lateCloses, "LATE_LAUNCH_CLOSED_DETACHED").toBe(1);
+});
+
+test("closing the forwarder waits for a started worker's cleanup only within the exit wait", async () => {
+  const transport = { async start() {}, async send() {}, async close() { (transport as { onclose?: () => void }).onclose?.(); } };
+  const forward = createBrainToolForwarder(async () => ({ transport: transport as never, close: () => new Promise<void>(() => {}) }), new AbortController().signal, () => {});
+  forward.start();
+  await Bun.sleep(10);
+  const timer = shortTimers({ [BRAIN_TOOL_EXIT_WAIT_MS]: 20 });
+  try {
+    const closed = await Promise.race([forward.close().then(() => "closed"), Bun.sleep(1_000).then(() => "STILL_WAITING")]);
+    expect(closed, "CLOSE_BOUNDED_BY_EXIT_WAIT").toBe("closed");
+  } finally { timer.mockRestore(); }
 });
 
 // #4894 round 4 F4: a rejected exit (lost supervision) closes the transport

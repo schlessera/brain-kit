@@ -25,8 +25,24 @@ export const BRAIN_TOOL_EXIT_WAIT_MS = 5_000;
  */
 export const BRAIN_INVENTORY_TIMEOUT_MS = 8_000;
 
+const signalled = new WeakSet<object>();
+/**
+ * One rule for every bridge worker: signal it at most once, through the
+ * launcher's asynchronous path where it has one. A separate-UID signal is a
+ * broker request, never a synchronous one on the host's event loop, and a
+ * refused or lost signal is never retried (#4894 round 5 F1).
+ */
+export function signalBrainWorkerOnce(worker: Pick<LaunchedWorker, "kill" | "killAsync">): void {
+  if (signalled.has(worker)) return;
+  signalled.add(worker);
+  try {
+    if (worker.killAsync) void worker.killAsync("SIGKILL").catch(() => { /* Exit is still awaited, bounded. */ });
+    else worker.kill("SIGKILL");
+  } catch { /* Exit is still awaited, bounded. */ }
+}
+
 /** Adapt the sandbox launch's existing pipes; never spawn a process in a transport. */
-export function brainWorkerTransport(worker: Pick<LaunchedWorker, "stdin" | "stdout" | "exited" | "kill">): Transport {
+export function brainWorkerTransport(worker: Pick<LaunchedWorker, "stdin" | "stdout" | "exited" | "kill" | "killAsync">): Transport {
   const buffer = new ReadBuffer();
   const transport: Transport = {
     async start() {
@@ -58,7 +74,7 @@ export function brainWorkerTransport(worker: Pick<LaunchedWorker, "stdin" | "std
     async send(message: JSONRPCMessage) {
       await new Promise<void>((resolve, reject) => worker.stdin.write(serializeMessage(message), error => error ? reject(error) : resolve()));
     },
-    async close() { worker.kill("SIGKILL"); },
+    async close() { signalBrainWorkerOnce(worker); },
   };
   return transport;
 }
@@ -112,12 +128,26 @@ export function createBrainToolForwarder(start: (signal: AbortSignal) => Promise
     async close() {
     return closing ??= (async () => {
       controller.abort();
-      try { await client.close(); }
-      finally {
-        await ready?.catch(() => {});
-        ownedSignal.removeEventListener("abort", abort);
-        await resource?.close();
+      let clientFailure: { error: unknown } | undefined;
+      try { await client.close(); } catch (error) { clientFailure = { error }; }
+      ownedSignal.removeEventListener("abort", abort);
+      // Never wait for a launch that has not returned a worker: one that
+      // returns late is closed detached. A started worker's cleanup is
+      // awaited within the exit wait only, so the turn's terminal frame is
+      // never held past that bound; past it the cleanup continues detached
+      // and keeps its allowance until the exit is confirmed (#4894 round 5 F3).
+      if (!resource) void ready?.catch(() => {}).then(() => resource?.close()).catch(observe);
+      else {
+        const cleanup = resource.close();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const outcome = await Promise.race([cleanup.then(() => ({ done: true as const }), (error: unknown) => ({ error })),
+          new Promise<{ detached: true }>(resolve => { timer = setTimeout(() => resolve({ detached: true }), BRAIN_TOOL_EXIT_WAIT_MS); })]);
+        clearTimeout(timer);
+        if ("detached" in outcome) void cleanup.catch(observe);
+        // The worker's cleanup failure is the more specific one, as before.
+        else if ("error" in outcome) throw outcome.error;
       }
+      if (clientFailure) throw clientFailure.error;
     })();
   } };
 }
@@ -206,9 +236,14 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
         ...(input.startupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(input.startupView) } : {}),
         ...launch, credentialEnv: input.credentialEnv, ...(input.egress ? { egress: input.egress } : {}), turnTempBytes: reservation.turnTempBytes });
       const child = worker;
+      // Release the turn-temp handle once the worker exits: under a separate
+      // UID its stdout ends only when the identity broker closes, and the
+      // broker closes only when no handle holds it (#4325 F3). Idempotent
+      // with the release at close.
+      void child.exited.finally(() => child.turnTemp?.closeAsync().catch(() => {})).catch(() => {});
       // A separate-UID supervisor may refuse or lose a signal request. That
       // never skips pipe, storage or reservation cleanup (#4325 F24).
-      const kill = () => { try { child.kill("SIGKILL"); } catch { /* exited is still awaited below. */ } };
+      const kill = () => signalBrainWorkerOnce(child);
       abort = kill;
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
@@ -231,7 +266,7 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
       try {
         if (worker) {
           const launched = worker;
-          const exit = await stopBrainWorker(launched, () => { try { launched.kill("SIGKILL"); } catch { /* Exit is still awaited, bounded. */ } });
+          const exit = await stopBrainWorker(launched, () => signalBrainWorkerOnce(launched));
           if (!exit.settled) { held = true; retainUnexited(launched, unexited()); }
           else {
             // A rejected exit observer is the more specific failure, as before.
@@ -274,7 +309,6 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
   const controller = new AbortController();
   const ownedSignal = AbortSignal.any([signal, controller.signal]);
   let resource: Awaited<ReturnType<ReturnType<typeof startBrainToolWorker>>> | undefined;
-  let missedDeadline = false;
   const timer = setTimeout(() => controller.abort(), BRAIN_INVENTORY_TIMEOUT_MS);
   // Every wait races one deadline: the product timeout or the caller's abort.
   // A supervisor that refuses the kill and a stdout that never ends can then
@@ -291,20 +325,14 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
     const worker = started.worker;
     const reading = (async () => {
       let text = "";
-      // Release the turn-temp handle once the helper exits: under a separate
-      // UID its stdout ends only when the identity broker closes, and the
-      // broker closes only when no handle holds it (#4325 F3). Idempotent
-      // with the release in `finally`.
-      const exit = worker.exited.finally(() => worker.turnTemp?.closeAsync().catch(() => {}));
-      void exit.catch(() => {});
       for await (const chunk of worker.stdout) {
         text += String(chunk);
         if (Buffer.byteLength(text) > 1024 * 1024) throw new Error("brain_bridge_inventory_oversized");
       }
-      return { text, code: await exit };
+      return { text, code: await worker.exited };
     })();
     const read = await Promise.race([reading, deadline]);
-    if (read === "deadline") { void reading.catch(() => {}); missedDeadline = true; return "unavailable"; }
+    if (read === "deadline") { void reading.catch(() => {}); return "unavailable"; }
     const { text, code } = read;
     if (code !== 0 || ownedSignal.aborted) return "unavailable";
     const result = JSON.parse(text);
@@ -317,11 +345,10 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
   } catch { return "unavailable"; }
   finally {
     clearTimeout(timer); controller.abort();
-    // Past the deadline the fallback is returned at once: the worker's
-    // cleanup continues detached, bounded by its exit wait, and keeps the
-    // allowance until the exit is confirmed (#4894 round 4 F3).
-    if (missedDeadline) void resource?.close().catch(() => {});
-    else await resource?.close();
+    // The deadline race alone decides the verdict: cleanup always runs
+    // detached after it, bounded by its exit wait, and keeps the allowance
+    // until the exit is confirmed (#4894 round 4 F3, round 5 F2).
+    void resource?.close().catch(() => {});
   }
 }
 
