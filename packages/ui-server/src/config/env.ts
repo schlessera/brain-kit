@@ -803,7 +803,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "BRAIN_GOOGLE_LEDGER",
     description:
       "Absolute path of the shared Google ledger, private to the host user and outside every brain. " +
-      "Read once at boot and kept host-only. Remembered Google approvals use this file; standalone approval management (`brain google approvals` / `revoke`) " +
+      "Read once at boot and kept host-only. Remembered Google approvals and send replay evidence use this file; sends refuse without it. Deleting or restoring this ledger can re-enable sending bytes already sent; standalone approval management (`brain google approvals` / `revoke`) " +
       "requires this same absolute path explicitly. The file is private (0600) in a host-owned directory that is not group- or other-writable. An in-memory database requires an explicit absolute BRAIN_GOOGLE_LEDGER, otherwise remembered approvals are unavailable. Never passed to a worker.",
     default: "DB_PATH.google-ledger.sqlite; unset with an in-memory database",
     required: false,

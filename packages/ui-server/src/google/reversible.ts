@@ -1,4 +1,6 @@
 /** Concrete reversible Gmail factories; no policy or approval shortcuts. */
+import { createGmailIrreversibleFactories } from "./irreversible.js";
+import type { GoogleLedger } from "@schlessera/brain-common/internal/google-ledger";
 import type { Database } from "bun:sqlite";
 import { prepareGmailModify, prepareGmailDraft, GooglePreparationError, type GmailDraftProvenance } from "@schlessera/brain-common/internal/google-gog";
 import { GOOGLE_APPROVAL_CARD_BYTES, GOOGLE_MAIL_APPROVAL_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
@@ -21,7 +23,7 @@ function gmailDraftProvenance(db: Database, sessionId: string, principalId: stri
   } catch { /* Unreadable provenance escalates this update only. */ }
   return { createdByBrainKit: false, fingerprint: null };
 }
-export function createGmailWriteFactories(options: { db: Database; credential: Pick<GoogleCredential, "transport">; brainId: string }): GoogleWriteFactories {
+export function createGmailWriteFactories(options: { db: Database; credential: Pick<GoogleCredential, "transport">; brainId: string; ledger?: () => GoogleLedger }): GoogleWriteFactories {
   const factory: NonNullable<GoogleWriteFactories["gmail.modify"]> = async (turn, call, accountIdentity) => {
     const policy = turn.policy()!;
     const opened = options.credential.transport(policy.account!);
@@ -44,5 +46,5 @@ export function createGmailWriteFactories(options: { db: Database; credential: P
     const at = Date.now();
     return { ...prepared, operation, input: call.input, card, inverse: { ...prepared.inverse, snapshot: prepared.inverse.snapshot ? new Uint8Array(prepared.inverse.snapshot) : null, createdAt: at, expiresAt: at + 604_800_000 } };
   };
-  return { "gmail.modify": factory, "gmail.draft.save": factory };
+  return { "gmail.modify": factory, "gmail.draft.save": factory, ...createGmailIrreversibleFactories(options) };
 }

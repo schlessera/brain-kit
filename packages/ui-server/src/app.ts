@@ -893,7 +893,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     resolveAccount: alias => google.resolveAccount(alias), currentPolicyHash: googlePolicyHash, state: googleState, ready: googleStartup.ready,
     currentPolicy: () => governancePolicyReaderFor(config.brainPath).load().policy.google,
     isDraftLocked: (account, draft, epoch, now) => isDraftSendLocked(db, googleBrain, account, draft, epoch, now),
-    preparedWrites: options.googlePreparedWrites ?? createGmailWriteFactories({ db, credential: google, brainId: googleBrain }),
+    preparedWrites: options.googlePreparedWrites ?? createGmailWriteFactories({ db, credential: google, brainId: googleBrain, ledger: openCurrentGoogleLedger }),
   }, credential: google, principal: id => googlePrincipalKind(resolvePrincipal(db, id), authMode, Date.now()),
     untrusted: async (turn, event) => {
       const collection=db.query("SELECT id,policy_hash FROM safety_collections WHERE turn_id=?").get(turn.turnId) as {id:string;policy_hash:string|null}|null;

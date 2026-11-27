@@ -180,6 +180,7 @@ export "./internal/google-gog" (./src/google/gog/index.ts)
   GOG_PIN_REFUSALS
   GOG_PIN_TRANSIENT_REFUSALS
   GOG_PLATFORMS
+  GOG_PRE_REQUEST_FAILURES
   GOG_READ_OPERATIONS
   type GmailDraftProvenance
   type GogAvailability
@@ -206,9 +207,13 @@ export "./internal/google-gog" (./src/google/gog/index.ts)
   gogEnvironment
   gogPlatform
   isGogAccountAlias
+  isGogPreRequestFailure
   isTargetIndependentGogFailure
+  prepareGmailDelete
   prepareGmailDraft
   prepareGmailModify
+  prepareGmailSend
+  prepareGmailTrash
   verifyGogBinary
 
 export "./internal/google-ledger" (./src/google/ledger.ts)

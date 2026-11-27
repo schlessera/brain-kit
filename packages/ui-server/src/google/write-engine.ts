@@ -12,6 +12,7 @@ import { GOOGLE_APPROVAL_CARD_BYTES, GOOGLE_MAIL_APPROVAL_SCHEMA, GOOGLE_WRITE_S
 import type { GoogleLedger } from "@schlessera/brain-common/internal/google-ledger";
 import { GooglePreparationError, type GogResult } from "@schlessera/brain-common/internal/google-gog";
 import type { createGoogleAllowances, GoogleAllowanceContext, GoogleAllowanceRow } from "./allowances.js";
+import { SEND_MAY_HAVE_GONE } from "./irreversible.js";
 import type { GoogleToolsTurn, GoogleCallAudit } from "./host.js";
 import type { createGoogleStateWrites, GoogleDecisionEvent, GoogleInversePrepared, GoogleInverseResult } from "./state-writes.js";
 
@@ -34,7 +35,9 @@ export interface GoogleWriteTurn {
  * preconditions, so an approval cannot silently change targets.
  * execute MUST call finalAdmission synchronously immediately before its SINGLE
  * dispatch, after all transport waits, and MUST NOT dispatch on an error.
- * The gog transport invokes this callback at its final spawn boundary. */
+ * The gog transport invokes this callback at its final spawn boundary.
+ * A confirmed raw send alone may use cleanupAdmission for one draft deletion,
+ * after recording its digest; cleanup cannot authorize another send. */
 export interface PreparedGoogleWrite {
   operation: Operation;
   input: WriteCall["input"];
@@ -43,8 +46,8 @@ export interface PreparedGoogleWrite {
   card: GoogleMailApproval;
   inverse?: Omit<GoogleInversePrepared, "sessionId" | "turnId" | "principalId" | "brainId" | "callId" | "inverseId" | "operation" | "accountIdentity">;
   sendLock?: string;
-  execute(finalAdmission: () => GoogleError | null): Promise<
-    { ok: true; result: GoogleWriteSuccess["result"]; inverseResult?: GoogleInverseResult } | { ok: false; error: GoogleError }>;
+  execute(finalAdmission: () => GoogleError | null, cleanupAdmission: () => GoogleError | null): Promise<
+    { ok: true; result: GoogleWriteSuccess["result"]; inverseResult?: GoogleInverseResult } | { ok: false; error: GoogleError; notDispatched?: true }>;
 }
 export type GoogleWriteFactories = Partial<Record<Operation,
   (turn: GoogleToolsTurn, call: WriteCall, accountIdentity: string) => Promise<PreparedGoogleWrite>>>;
@@ -268,29 +271,40 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
           sendLocked = true;
         }
         held(); held = undefined;
-        let answer: PermissionDecision, releaseFailed = false;
+        let answer: PermissionDecision, releaseFailure: GoogleError | null = null;
         try {
           answer = await ctx.requestPermission({ kind: "google", toolUseId: cardId, toolName: ctx.toolName(call.tool), input: structuredClone(card),
             description: `Approve this ${decision.effect} Google change exactly as shown, once.` });
         } finally {
-          if (sendLocked) {
-            try { await options.state.releaseSendLock(sessionId, cardId); }
-            catch (cause) {
-              report(`Google card lock release failed: ${String(cause)}`); releaseFailed = true;
-              retryCleanup("Google card lock release", () => options.state.releaseSendLock(sessionId, cardId));
+          try {
+            // Keep the draft locked until this account is serialized again.
+            // Never hold the account lock while waiting for the card answer.
+            held = await lock.acquire(account, { signal: ctx.signal });
+          } finally {
+            if (sendLocked) {
+              try { await options.state.releaseSendLock(sessionId, cardId, true); }
+              catch (cause) {
+                report(`Google card lock release failed: ${String(cause)}`);
+                releaseFailure = cause instanceof Error && cause.message === "Google send card lost its live lock"
+                  ? error("card_lock_expired", "This approval card expired or lost its lock. Make a new request; nothing was sent.", "unavailable")
+                  : stateUnavailable;
+                retryCleanup("Google card lock release", () => options.state.releaseSendLock(sessionId, cardId));
+              }
+              sendLocked = false;
             }
-            sendLocked = false;
           }
         }
-        if (releaseFailed) return await refused(stateUnavailable);
+        if (releaseFailure) return await refused(releaseFailure);
         const edited = answer.behavior === "allow" && answer.updatedInput !== undefined && canonical(answer.updatedInput) !== canonical(card);
         if (answer.behavior !== "allow" || edited) return await refused(error(edited ? "edited" : "declined", "This Google change was declined; nothing was sent.", "approval_declined"), "declined");
         if ((answer.always && !card.offers.allow_always) || (answer.forSession && !card.offers.allow_for_session) || (answer.always && answer.forSession))
           return await refused(error("standing_choice_unavailable", "This standing choice is not offered by this card; nothing was sent.", "approval_declined"), "declined");
         grant = answer.always ? "always" : answer.forSession ? "session" : undefined;
-        held = await lock.acquire(account, { signal: ctx.signal });
         failure = live();
         if (failure) return await refused(failure);
+        // This card's own send lock was released under the account lock.
+        // An older save/delete card must still respect another send's lock.
+        if (draft && options.isDraftLocked(account, draft, hostEpoch, now())) return await refused(gogError("draft_locked", "draft_locked"));
         const refreshed = await prepare();
         if (preparedKey(refreshed) !== preparedKey(prepared)) return await refused(error("prepared_changed", "The prepared change no longer matches the approved card; call again."));
         prepared = refreshed;
@@ -369,22 +383,46 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       };
       // No retries. The concrete operation owns the last synchronous spawn check.
       let outcome: Awaited<ReturnType<PreparedGoogleWrite["execute"]>>;
-      try { outcome = await prepared.execute(finalAdmission); } finally { settled = true; }
+      let cleaned = false;
+      const cleanupAdmission = (): GoogleError | null => {
+        if (operation !== "gmail.draft.send" || !dispatched || cleaned || settled)
+          return error("cleanup_not_admitted", "The send cleanup is not admitted.");
+        const failure = live() ?? (!sameSafetyAdmission(dispatchSafety, ctx.safety()) ? stale : null);
+        if (failure) return failure;
+        cleaned = true;
+        return null;
+      };
+      try { outcome = await prepared.execute(finalAdmission, cleanupAdmission); } finally { settled = true; }
       if (finalError) return await withdraw(finalError);
+      if (!outcome.ok && outcome.notDispatched) {
+        dispatched = false;
+        return await withdraw(outcome.error);
+      }
       if (!dispatched) return await withdraw(error("missing_admission", "The prepared write did not reach final admission."));
       if (!outcome.ok) {
         if (inverseId) { const id = inverseId; await cleanup("Google inverse unknown marking", () => options.state.markInverseUnknown(sessionId, id)); }
+        // A send factory owns every answer after dispatch: a failure proven
+        // pre-request keeps its own, even if the turn was cancelled meanwhile,
+        // and anything else already says the bytes stay pending.
+        if (operation === "gmail.draft.send") return refuse(outcome.error);
         const ambiguous = outcome.error.code === "outcome_unknown" || outcome.error.code === "upstream_error" || ctx.signal.aborted;
         return refuse(ambiguous ? gogError("outcome_unknown", outcome.error.reason ?? "dispatch_failed") : outcome.error);
       }
       const result = GOOGLE_WRITE_SUCCESS_SCHEMA.parse({ ok: true, tool: call.tool, operation, effect: decision.effect, admission, result: outcome.result, ...(standingChoiceNotKept ? { standingChoice: "not_kept" } : {}) });
+      if (result.operation === "gmail.draft.send" && result.result.draft_deleted !== true) {
+        audit.reason = "draft_cleanup_incomplete";
+        report("Google send confirmed; draft cleanup incomplete. The recorded digest prevents resend.");
+      }
       if (inverseId) await options.state.confirmInverse(sessionId, inverseId, outcome.inverseResult);
       return result;
     } catch (cause) {
       report(`Google write failed: ${String(cause)}`);
       if (dispatched) {
         if (inverseId) { const id = inverseId; await cleanup("Google inverse unknown marking", () => options.state.markInverseUnknown(sessionId, id)); }
-        return refuse(gogError("outcome_unknown", "dispatch_failed"));
+        // A send's bytes stay pending: never suggest trying them again.
+        return refuse(operation === "gmail.draft.send"
+          ? { code: "outcome_unknown", reason: "dispatch_failed", message: SEND_MAY_HAVE_GONE }
+          : gogError("outcome_unknown", "dispatch_failed"));
       }
       return await withdraw(ctx.signal.aborted ? cancelled : cause instanceof GooglePreparationError ? cause.error : error("state_unavailable", "Google write preparation or state failed; nothing was sent.", "unavailable"));
     } finally { releaseAlias?.(); held?.(); }

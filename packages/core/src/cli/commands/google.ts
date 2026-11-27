@@ -22,6 +22,8 @@ const USAGE = `brain google <command> [--json]
                                                    Comma-separated label ids, at most 25 messages
   gmail draft create --to ADDRESSES --subject TEXT --body TEXT [--cc ADDRESSES] [--bcc ADDRESSES]
                                                    Save a plain-text draft (never send)
+  gmail send <draft-id> | draft delete <draft-id> | trash <message-id…>
+                                                   Refused: irreversible calls require a hosted card
   gmail draft update <draft-id> --body TEXT          Refused: requires hosted approval
   gmail draft reply <message-id> --body TEXT         Refused: use the hosted draft tool
 
@@ -146,6 +148,14 @@ export const googleCommand: CoreCommand = {
       }
       case "gmail": {
         const [verb, ...words] = rest;
+        if (verb === "send" || verb === "trash" || (verb === "draft" && words[0] === "delete")) {
+          only(flags, [], "gmail irreversible write");
+          const ids = verb === "draft" ? words.slice(1) : words;
+          if (!ids.length || (verb !== "trash" && ids.length !== 1)) throw new UsageError("The command needs its target id(s).");
+          const operation = verb === "send" ? "gmail.draft.send" : verb === "trash" ? "gmail.trash" : "gmail.draft.delete";
+          envelope = await service().write(operation, verb === "trash" ? { message_ids: ids } : { draft_id: ids[0] });
+          break;
+        }
         if (verb === "modify") {
           only(flags, ["add", "remove"], "gmail modify");
           if (!words.length) throw new UsageError("gmail modify needs message ids.");

@@ -13,8 +13,8 @@
  *
  * 1. Input: the tool's strict schema (`parseGoogleToolCall`); the call names
  *    its operation.
- * 2. Writes: the four write tools answer `unavailable` (`writes_unavailable`)
- *    until concrete Gmail operations land (#4213/#4214). Nothing is decided or sent.
+ * 2. Writes: the four write tools enter the write engine and its concrete
+ *    Gmail factories; a host without write plumbing answers `writes_unavailable`.
  * 3. The gate: the decision function with every host fact except the
  *    targets' labels, which only the read itself can give: availability
  *    (owner only, an enabled block naming an account, Gmail listed), input,

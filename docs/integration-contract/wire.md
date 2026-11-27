@@ -3272,7 +3272,7 @@ body, subject, address or arbitrary transport text:
 | `gmail.trash` | Changed `message_ids` |
 | `gmail.draft.save` | `draft_id`, SHA-256 `fingerprint` |
 | `gmail.draft.delete` | `draft_id` |
-| `gmail.draft.send` | Reviewed `draft_id`, returned `message_id`, nullable `thread_id` |
+| `gmail.draft.send` | Reviewed `draft_id`, returned `message_id`, nullable `thread_id`, optional `draft_deleted` (#4214; production always supplies it) |
 
 The existing refusal envelope is unchanged. New host refusal reasons include
 `policy_changed` (`policy_denied`; the turn keeps its policy, so the change applies from the next message), `standing_choice_unavailable`
@@ -3322,8 +3322,8 @@ the composed contents before its fingerprint is confirmed. Failure leaves an
 unknown inverse and returns `outcome_unknown`, without retrying the write.
 
 All write pre-reads and dispatches use the resolved account address, so a
-later alias change cannot redirect them. Trash, send and draft delete still
-return `writes_unavailable` until #4214.
+later alias change cannot redirect them. #4214 also connects trash, send and
+draft deletion through irreversible cards (below).
 The engine's prepared-operation injection is internal test plumbing, absent
 from the public package API and configuration.
 
@@ -3667,3 +3667,129 @@ dropped, as gog drops it), and the stored
 threading under gog's rule: lineage is carried only with an In-Reply-To, and
 an empty References takes the In-Reply-To. The host explicitly supplies the
 current subject because gog requires it. No tool names or wire schemas change.
+
+
+### Irreversible Gmail writes (#4214)
+
+`gmail.draft.send`, `gmail.draft.delete` and `gmail.trash` execute through the
+existing tools and approval shapes. All three require one unedited card and
+never offer either standing choice. An irreversible dispatch without a card
+refuses as `policy_denied/card_required`.
+
+Send pre-reads raw RFC 822 bytes, parses their headers and complete plain-text
+body, and checks every parsed To, Cc and Bcc address against `gmail.send_to` and
+`max_recipients`. Display names confer no authority. HTML parts, attachments,
+unreadable fields, bodies over 32,768 characters or a card over 256,000 UTF-8
+JSON bytes refuse as `draft_not_displayable`. Nothing is truncated. The card
+carries From, send-as, To, Cc, Bcc, Reply-To, subject, threading and the full
+body, with the SHA-256 of the retained raw bytes. Its payload additively includes
+`account_alias` and `recipient_matches` (`{ field: "to" | "cc" | "bcc",
+address, entry }[]`), naming each policy match. These two fields are optional
+for earlier card producers; production supplies both, and denied recipients
+never reach a shown card. A field that the card schema cannot represent
+refuses as `draft_not_displayable/card_schema`, naming the field class (mailbox,
+threading, subject, body or message); the total serialized byte bound remains
+`draft_not_displayable/card_too_large`. gog validates the raw sender
+against the connected account and its verified send-as identities; the host
+never overrides it. The host resolves `self` conservatively to the primary
+account address; it does not infer verified aliases from a draft.
+
+A card-owned draft lock refuses concurrent save, delete and send before their
+pre-read (`draft_locked`). A lost or expired lock refuses that card as
+`unavailable/card_lock_expired`: the owner must make a new request. On allow,
+the host reacquires its account write lock before releasing the card's own
+send lock, then checks again for another card’s send lock (including saves
+and deletes whose cards opened earlier), and re-prepares. The release and
+recheck both run under the account lock; waiting for the card answer does not.
+Any payload change refuses as
+`policy_denied/prepared_changed`. It sends the retained bytes on stdin with
+`gmail send --raw-file -` and the draft's thread id, never `drafts send`.
+
+An account-scoped digest reservation commits immediately before dispatch.
+Successful send confirms the digest before attempting to delete the draft.
+A recorded send refuses as the additive `already_sent/digest_recorded` code;
+an uncertain reserved send refuses as `outcome_unknown/digest_pending`,
+including after process restart. The refusal tells the owner to check Gmail’s
+Sent folder or edit the draft to send new bytes. The new `sent_digests` table
+has a nullable `cause` column. Failed pending rows retain their cause as a
+`code/reason` pair (`null` is stored literally for a null reason). Only
+`transport_incompatible/spawn_failed` and `unavailable/config` permit a new
+card to reserve the same digest atomically (`GOG_PRE_REQUEST_FAILURES`,
+`packages/common/src/google/gog/errors.ts`). These fail before any HTTP
+request: the host spawn catch (`runGogProcess`,
+`packages/common/src/google/gog/runner.ts:94-108`), and missing credentials
+(`ClientCredentialsStore.ReadMetadata`,
+`internal/config/client_credentials_store.go:103-137`, propagated before
+transport creation by `clientCredentialsForAccount`,
+`internal/googleapi/client_auth.go:343-355`, and
+`authenticatedTransportWithStoredScopeCheck`, `internal/googleapi/client.go:125-182`).
+The exit mapping is `stableExitCode` (`internal/cmd/exit_codes.go:54-126`),
+all upstream citations at 44364d31; the host maps them in `gogProcessError`
+(`packages/common/src/google/gog/errors.ts`). Exit 2,
+`transport_incompatible/usage`, is not among them. gog's own usage errors
+precede any request, but the Go runtime also ends an unrecovered panic or a
+fatal error with status 2, and gog re-panics anything but its own exit
+(`executeWithRuntime`, `internal/cmd/root.go:125-175`), so an exit 2 can
+follow a request. It stays pending.
+
+`unavailable/auth_required`, `not_found/null`, `forbidden/null` and
+`rate_limited/null` after reservation stay pending: gog can return that refusal
+after retrying an earlier attempt that may have delivered. gog can also return
+some of these before any request, such as missing tokens or a send-as check;
+the host cannot tell them apart, so they stay pending too. The answer is
+`outcome_unknown`, with the original reason or, for a null reason, the original
+code. Its message is: "This send was refused, but gog retries a send after a
+server error, so an earlier attempt may have gone out. Check Gmail's Sent
+folder, or edit the draft to send new bytes. These bytes will not be sent again."
+Every other failure after reservation stays pending too: exit 1, 2, 3, 8, 11
+and any other exit, a timeout, a signal, oversized output, an answer brain-kit
+cannot read, and a failure after dispatch. Each answers `outcome_unknown` with
+its reason and the message: "This send may have gone out. Check Gmail's Sent
+folder, or edit the draft to send new bytes. These bytes will not be sent
+again." The engine keeps the send's own message. Failure
+to record the cause retains pending and returns
+`outcome_unknown/digest_failure_recording_failed`. A reservation refusal at
+dispatch records a refusal and retains its specific recovery message; nothing
+spawned on that call. The ledger stores no body, address headers
+or session content. An unreadable digest store refuses this send as
+`unavailable/digest_store_unavailable`; failed receipt confirmation retains
+the reservation and returns `outcome_unknown/digest_confirmation_failed`.
+
+Known limitation ([#4657](https://github.com/schlessera/brain-kit/issues/4657)):
+one approved send can deliver twice if Gmail accepts an attempt whose response
+is a 5xx, because pinned gog retries it inside one process. `RetryTransport.RoundTrip`
+(`internal/googleapi/transport.go:82-232`) retries once after a 5xx and up to six
+times after a 429 or rate-limit 403 (`MaxRateLimitRetries`,
+`internal/googleapi/retry_constants.go:10-16`, at 44364d31). The raw send does
+not set `WithoutRetries` (`internal/googleapi/transport.go:33-35`;
+`runRaw`, `internal/cmd/gmail_send.go:259-292`). The host's replay ledger cannot
+see or prevent that internal retry. The same retry covers draft deletion and
+trash: a delete or trash that took effect can still end in a refusal, such as a
+404 after a retried 5xx or a 429, so their refusals do not prove that nothing
+changed.
+
+The structured send result additively carries `draft_deleted: boolean | null`
+(optional in the schema for existing producers; always present from the
+production factory). `true` confirms draft deletion. `false` means cleanup did
+not delete it: the draft changed or could not be re-read, its final authority
+check refused, or gog failed before any request. `null` means the deletion
+outcome is unknown: any refusal or failure after the request, which may follow
+a retried delete that worked, exit 8, a timeout, a signal, an unreadable
+response, a reply naming another draft id, or an error during the delete.
+Google confirmed sending
+in all three cases. It never means the send should be repeated. Cleanup has its
+own once-only final authority check and re-reads the draft digest before
+removal; changed drafts are retained. The call audit records
+`draft_cleanup_incomplete` when cleanup is false or null. The host never retries
+a write; the gog-internal retry limitation above still applies.
+
+Draft deletion binds its card to the target draft's digest. Trash resolves
+threads to at most 25 exact message ids and pre-reads their labels. Both
+respect hidden threads and refuse before a card. Pinned gog resolves the exact
+uppercase system ids TRASH and INBOX before lowercased label names, so user
+label names cannot redirect trash (`fetchLabelNameToID`,
+`internal/cmd/gmail_labels.go:389-405`; `resolveLabelIDs`,
+`internal/cmd/gmail_labels_utils.go:15-38`, at 44364d31). Mismatched deletion
+ids or trash counts return
+`outcome_unknown`. Trash remains irreversible until a separate disposable
+account proof establishes its inverse; this implementation does not claim it.

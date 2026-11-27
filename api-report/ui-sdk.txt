@@ -11166,6 +11166,7 @@ signatures (every public export and the types it is made of)
     const GOOGLE_DETAIL_ERROR_RESPONSE_SCHEMA: z.ZodObject<{
         error: z.ZodObject<{
             code: z.ZodEnum<{
+                already_sent: "already_sent";
                 approval_declined: "approval_declined";
                 draft_locked: "draft_locked";
                 draft_not_displayable: "draft_not_displayable";
@@ -11185,10 +11186,11 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>;
     }, z.core.$strict>;
   GOOGLE_ERROR_CODES (packages/common/src/google/catalog.ts)
-    const GOOGLE_ERROR_CODES: readonly ["invalid_input", "unavailable", "policy_denied", "approval_declined", "not_found", "forbidden", "rate_limited", "upstream_error", "draft_not_displayable", "draft_locked", "recording_unavailable", "transport_incompatible", "outcome_unknown"];
+    const GOOGLE_ERROR_CODES: readonly ["invalid_input", "unavailable", "policy_denied", "approval_declined", "not_found", "forbidden", "rate_limited", "upstream_error", "already_sent", "draft_not_displayable", "draft_locked", "recording_unavailable", "transport_incompatible", "outcome_unknown"];
   GOOGLE_ERROR_SCHEMA (packages/ui-sdk/src/tool-contracts/google.ts)
     const GOOGLE_ERROR_SCHEMA: z.ZodObject<{
         code: z.ZodEnum<{
+            already_sent: "already_sent";
             approval_declined: "approval_declined";
             draft_locked: "draft_locked";
             draft_not_displayable: "draft_not_displayable";
@@ -11375,6 +11377,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>;
         operation: z.ZodLiteral<"gmail.draft.send">;
         payload: z.ZodObject<{
+            account_alias: z.ZodOptional<z.ZodString>;
             draft_id: z.ZodString;
             message: z.ZodObject<{
                 bcc: z.ZodArray<z.ZodObject<{
@@ -11414,6 +11417,15 @@ signatures (every public export and the types it is made of)
                     local: z.ZodString;
                 }, z.core.$strict>>;
             }, z.core.$strict>;
+            recipient_matches: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                address: z.ZodString;
+                entry: z.ZodNullable<z.ZodString>;
+                field: z.ZodEnum<{
+                    bcc: "bcc";
+                    cc: "cc";
+                    to: "to";
+                }>;
+            }, z.core.$strict>>>;
             send_as: z.ZodObject<{
                 address: z.ZodString;
                 display_name: z.ZodNullable<z.ZodString>;
@@ -11463,6 +11475,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
                 code: z.ZodEnum<{
+                    already_sent: "already_sent";
                     approval_declined: "approval_declined";
                     draft_locked: "draft_locked";
                     draft_not_displayable: "draft_not_displayable";
@@ -11571,6 +11584,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
                 code: z.ZodEnum<{
+                    already_sent: "already_sent";
                     approval_declined: "approval_declined";
                     draft_locked: "draft_locked";
                     draft_not_displayable: "draft_not_displayable";
@@ -12015,6 +12029,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
                 code: z.ZodEnum<{
+                    already_sent: "already_sent";
                     approval_declined: "approval_declined";
                     draft_locked: "draft_locked";
                     draft_not_displayable: "draft_not_displayable";
@@ -12160,6 +12175,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
                 code: z.ZodEnum<{
+                    already_sent: "already_sent";
                     approval_declined: "approval_declined";
                     draft_locked: "draft_locked";
                     draft_not_displayable: "draft_not_displayable";
@@ -12198,6 +12214,7 @@ signatures (every public export and the types it is made of)
             ok: z.ZodLiteral<true>;
             operation: z.ZodLiteral<"gmail.draft.send">;
             result: z.ZodObject<{
+                draft_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                 draft_id: z.ZodString;
                 message_id: z.ZodString;
                 thread_id: z.ZodNullable<z.ZodString>;
@@ -12207,6 +12224,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
                 code: z.ZodEnum<{
+                    already_sent: "already_sent";
                     approval_declined: "approval_declined";
                     draft_locked: "draft_locked";
                     draft_not_displayable: "draft_not_displayable";
@@ -12252,6 +12270,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>, z.ZodObject<{
             error: z.ZodObject<{
                 code: z.ZodEnum<{
+                    already_sent: "already_sent";
                     approval_declined: "approval_declined";
                     draft_locked: "draft_locked";
                     draft_not_displayable: "draft_not_displayable";
@@ -12471,6 +12490,7 @@ signatures (every public export and the types it is made of)
         ok: z.ZodLiteral<true>;
         operation: z.ZodLiteral<"gmail.draft.send">;
         result: z.ZodObject<{
+            draft_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             draft_id: z.ZodString;
             message_id: z.ZodString;
             thread_id: z.ZodNullable<z.ZodString>;
