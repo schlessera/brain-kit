@@ -6,7 +6,6 @@ import {
   ATTACHMENT_MAX_FILE_BYTES,
   ATTACHMENT_MAX_TOTAL_BYTES,
   ATTACHMENT_POOL_DEFAULT_BYTES,
-  type AttachmentErrorResponse,
   type AttachmentFile,
   type DraftOutgoing,
   type DraftSnapshot,
@@ -19,7 +18,6 @@ import {
   type Draft,
   type DraftAttachmentResponse,
   type DraftBindResponse,
-  type DraftErrorResponse,
   type DraftListResponse,
   type DraftRef,
   type DraftSaveResponse,
@@ -27,12 +25,12 @@ import {
   type SessionDraftLimits,
 } from "@schlessera/brain-ui-sdk/protocol";
 
-import { createDraftWrites } from "./writes.js";
+import { DraftAuthError, DraftError, invalid } from "./errors.js";
+import { legacyOutgoing, nextSnapshots, snapshotFiles } from "./snapshot-list.js";
 import {
   addRef, draftEnvelope, draftReferencedBytes, FILE_ID, forgetDeleted, hasAnyRef, insertAttachment, insertAttachmentRead, listAttachmentReads, markForDeletion,
   poolCharged, readAttachment, readAttachments, setRefs, toAttachmentFile, type NewAttachment,
 } from "../attachments/store.js";
-import type { SqliteWriter } from "../db/write-worker.js";
 
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { isRetired } from "../ws/chat-lifecycle.js";
@@ -55,23 +53,7 @@ import { isRetired } from "../ws/chat-lifecycle.js";
 
 export type DraftImageType = (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
 
-/** A refusal with its HTTP status and typed body. */
-export class DraftError extends Error {
-  readonly bodyJson: string;
-  constructor(readonly status: 400 | 404 | 409 | 410 | 413 | 428 | 507, readonly body: DraftErrorResponse | AttachmentErrorResponse) {
-    super(body.message);
-    this.name = "DraftError";
-    this.bodyJson = JSON.stringify(body);
-  }
-}
-
-/** The calling principal is no longer usable (revoked, expired or gone). */
-export class DraftAuthError extends Error {
-  constructor() {
-    super("Authentication required");
-    this.name = "DraftAuthError";
-  }
-}
+export { DraftAuthError, DraftError };
 
 /** A stored upload not named by any save is removed this long after upload. */
 const PENDING_ATTACHMENT_TTL_MS = 60 * 60 * 1_000;
@@ -247,10 +229,6 @@ export function hasImageSignature(mime: DraftImageType, bytes: Uint8Array): bool
   }
 }
 
-function invalid(message: string): DraftError {
-  return new DraftError(400, { error: "DRAFT_INVALID", message });
-}
-
 function notFound(): DraftError {
   return new DraftError(404, { error: "DRAFT_NOT_FOUND", message: "No draft with this id is stored on this host." });
 }
@@ -263,8 +241,10 @@ function deleted(row: DraftRow): DraftError {
   });
 }
 
-export type DraftWrite = "save" | "upload" | "remove" | "bind" | "accept" | "reserveAttachment" | "commitAttachment" | "releaseReservation"
-  | "discardReservations" | "sweepMark" | "sweepForget" | "markMissing" | "adoptOrphan" | "releaseSession" | "recordAttachmentRead";
+/** Every mutating method of the store: the write channel forwards exactly these (#4724). */
+export const DRAFT_WRITE_METHODS = ["save", "upload", "remove", "bind", "accept", "reserveAttachment", "commitAttachment", "releaseReservation",
+  "discardReservations", "sweepMark", "sweepForget", "markMissing", "adoptOrphan", "releaseSession", "recordAttachmentRead"] as const;
+export type DraftWrite = (typeof DRAFT_WRITE_METHODS)[number];
 export type AwaitableDraftStore = Omit<DraftStore, DraftWrite> & {
   [K in DraftWrite]: (...args: Parameters<DraftStore[K]>) => ReturnType<DraftStore[K]> | Promise<ReturnType<DraftStore[K]>>;
 } & { settled?(): Promise<void> };
@@ -275,14 +255,7 @@ export interface DraftStoreOptions {
   attachmentPoolBytes?: number;
 }
 
-export function createDraftStore(db: Database, options?: DraftStoreOptions): DraftStore;
-export function createDraftStore(db: Database, options: DraftStoreOptions, writer: SqliteWriter): AwaitableDraftStore;
-export function createDraftStore(
-  db: Database,
-  options: DraftStoreOptions = {},
-  writer?: SqliteWriter
-): AwaitableDraftStore {
-  if (writer) return createDraftWrites(db, options, writer);
+export function createDraftStore(db: Database, options: DraftStoreOptions = {}): DraftStore {
   const now = options.now ?? Date.now;
   const limits: Readonly<SessionDraftLimits> = Object.freeze({ ...SESSION_DRAFT_LIMITS, ...options.limits });
   const poolBytes = options.attachmentPoolBytes ?? ATTACHMENT_POOL_DEFAULT_BYTES;
@@ -330,17 +303,6 @@ export function createDraftStore(
     return JSON.parse(row.outgoing_snapshots) as DraftSnapshot[];
   }
 
-  /** The single-slot view: the newest snapshot still held or unconfirmed. */
-  function legacyOutgoing(snapshots: readonly DraftSnapshot[]): DraftSnapshot | null {
-    for (let i = snapshots.length - 1; i >= 0; i--) if (snapshots[i]!.state !== "returned") return snapshots[i]!;
-    return null;
-  }
-
-  /** Every file a draft's snapshots own, once each. */
-  function snapshotFiles(snapshots: readonly DraftSnapshotWrite[]): string[] {
-    return [...new Set(snapshots.flatMap((s) => s.fileIds))];
-  }
-
   /**
    * Live snapshots of the chat a draft belongs to, outside that draft: every
    * other live draft bound to the same session, whichever tab or device saved
@@ -352,68 +314,6 @@ export function createDraftStore(
       "SELECT COALESCE(SUM(json_array_length(outgoing_snapshots)), 0) AS n FROM session_drafts WHERE session_id = ? AND draft_id != ? AND deleted_at IS NULL"
     ).get(sessionId, draftId) as { n: number };
     return row.n;
-  }
-
-  function outgoingInvalid(message: string): DraftError {
-    return invalid(message);
-  }
-
-  /**
-   * The list a save leaves, from the stored list and what the request names.
-   * Edits happen in place and never need a free slot; `created` lists the new
-   * snapshots, which the caller counts against the chat's capacity.
-   */
-  function nextSnapshots(stored: readonly DraftSnapshot[], input: SaveDraftInput, at: number): { list: DraftSnapshot[]; created: DraftSnapshot[] } {
-    if (input.snapshots !== undefined && input.outgoing !== undefined) throw outgoingInvalid("Send either outgoing or snapshots, not both.");
-    if (input.snapshots === undefined && input.outgoing === undefined) return { list: [...stored], created: [] };
-    const byId = new Map(stored.map((s) => [s.snapshotId, s]));
-    if (input.outgoing === null) {
-      // The single-slot clear removes the snapshot that slot shows, as #3153 did.
-      const shown = legacyOutgoing(stored);
-      return { list: stored.filter((s) => s !== shown), created: [] };
-    }
-    const writes: DraftSnapshotWrite[] = input.outgoing !== undefined
-      ? (() => {
-        // The single-slot write addresses the snapshot of its request.
-        const o = input.outgoing;
-        const existing = stored.find((s) => s.requestId === o.requestId);
-        const write = { snapshotId: existing?.snapshotId ?? o.requestId, requestId: o.requestId, text: o.text, fileIds: o.fileIds, state: o.state };
-        return existing ? stored.map((s) => (s === existing ? write : s)) : [...stored, write];
-      })()
-      : input.snapshots!;
-    const seen = new Set<string>();
-    const requests = new Set<string>();
-    const list: DraftSnapshot[] = [];
-    const created: DraftSnapshot[] = [];
-    for (const write of writes) {
-      if (seen.has(write.snapshotId)) throw outgoingInvalid("A snapshot is listed twice.");
-      if (requests.has(write.requestId)) throw outgoingInvalid("Two snapshots name the same requestId.");
-      seen.add(write.snapshotId); requests.add(write.requestId);
-      const prior = byId.get(write.snapshotId);
-      if (!prior) {
-        if (write.state === "returned") throw outgoingInvalid("A new snapshot is held or dispatched.");
-        if (stored.some((s) => s.requestId === write.requestId)) throw outgoingInvalid("Another snapshot already sends this requestId.");
-        const snapshot = { ...write, fileIds: [...write.fileIds], createdAt: at };
-        list.push(snapshot); created.push(snapshot);
-        continue;
-      }
-      // Nothing of a snapshot changes but its state, and a held one's files.
-      if (write.requestId !== prior.requestId || write.text !== prior.text) throw outgoingInvalid("A snapshot's text and requestId do not change.");
-      const sameFiles = write.fileIds.length === prior.fileIds.length && write.fileIds.every((id, i) => id === prior.fileIds[i]);
-      if (!sameFiles && prior.state !== "held") throw outgoingInvalid("Only a held snapshot's files change.");
-      const allowed = write.state === prior.state
-        || (prior.state === "held" && (write.state === "returned" || write.state === "dispatched"))
-        || (prior.state === "dispatched" && write.state === "returned");
-      if (!allowed) throw outgoingInvalid(`A ${prior.state} snapshot cannot become ${write.state}.`);
-      list.push({ ...prior, fileIds: [...write.fileIds], state: write.state });
-    }
-    // Leaving a snapshot out deletes it, which only a returned one may be.
-    for (const prior of stored) {
-      if (!seen.has(prior.snapshotId) && prior.state !== "returned") {
-        throw outgoingInvalid(`A ${prior.state} snapshot is not deleted; return it first.`);
-      }
-    }
-    return { list, created };
   }
 
   function toDraft(row: DraftRow): Draft {

@@ -80,7 +80,7 @@ import { createDraftRoutes } from "./routes/drafts.js";
 import { createMarkupRoutes } from "./routes/markup.js";
 import { createSessionRecoveryRoutes } from "./routes/session-recovery.js";
 import { supportsSessionRecovery } from "./ws/recovery.js";
-import { createDraftStore } from "./drafts/store.js";
+import { createDraftWrites } from "./drafts/writes.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
 import { createAttachmentReadRoutes } from "./routes/attachment-reads.js";
 import { ATTACHMENT_SWEEP_INTERVAL_MS, reconcileAttachments, sweepAttachments } from "./attachments/sweep.js";
@@ -749,7 +749,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   });
   // Per-session composer drafts (#979): the UI's operational database, one
   // namespace for this host, shared by its principals.
-  const drafts = createDraftStore(db, { attachmentPoolBytes: config.attachmentPoolBytes }, writer);
+  const drafts = createDraftWrites(db, { attachmentPoolBytes: config.attachmentPoolBytes }, writer);
   // Composer originals (#3153): one instance id per process, so reservations
   // an earlier process left are discarded at boot.
   const attachmentInstanceId = crypto.randomUUID();
