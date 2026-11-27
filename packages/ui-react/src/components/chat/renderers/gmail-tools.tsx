@@ -21,13 +21,12 @@ import {
   GMAIL_SEARCH_CONTRACT,
   GMAIL_TOOL_NAMES,
   GOOGLE_RESULT_SCHEMAS,
-  type GoogleToolResult,
 } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { Mail, MailSearch } from "lucide-react";
 import { ClampedPre } from "../tool-views.js";
 import { GmailReadCard, GmailSearchCard } from "../tool-cards/gmail-cards.js";
 import { boundToolNames } from "./bind.js";
-import { gmailRowMeta } from "./gmail-mapping.js";
+import { gmailRowMeta, type GmailReadResult } from "./gmail-mapping.js";
 
 /** Each contract with its result envelope as the payload, as `bind()` parses it. */
 const SEARCH = { ...GMAIL_SEARCH_CONTRACT, payload: GOOGLE_RESULT_SCHEMAS[GMAIL_TOOL_NAMES.search] };
@@ -51,8 +50,8 @@ function Fallback({ tool }: { tool: ToolCallView }) {
  */
 const copyShown = (tool: ToolCallView): string => revealInvisibles(tool.output ?? "");
 
-const searchResult = (tool: ToolCallView): GoogleToolResult | null => parseToolPayload(SEARCH, tool.output);
-const readResult = (tool: ToolCallView): GoogleToolResult | null => parseToolPayload(READ, tool.output);
+const searchResult = (tool: ToolCallView): GmailReadResult | null => parseToolPayload(SEARCH, tool.output);
+const readResult = (tool: ToolCallView): GmailReadResult | null => parseToolPayload(READ, tool.output);
 
 /** The query as the call sent it: the search page does not carry one. */
 function queryOf(tool: ToolCallView): string | null {
@@ -71,7 +70,7 @@ function ReadOutput({ tool }: { tool: ToolCallView }) {
 }
 
 /** "thread · 5 messages", "message", "draft", "12 labels": what was read, never a word a sender wrote. */
-function readSummary(result: GoogleToolResult | null): string | null {
+function readSummary(result: GmailReadResult | null): string | null {
   if (!result?.ok || result.tool !== GMAIL_TOOL_NAMES.read) return null;
   const read = result.result;
   if (read.kind === "thread") return `thread · ${read.messages.length} ${read.messages.length === 1 ? "message" : "messages"}`;

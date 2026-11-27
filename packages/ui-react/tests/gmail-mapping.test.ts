@@ -114,6 +114,7 @@ describe("detailErrorState", () => {
     draft_locked: "error",
     recording_unavailable: "error",
     outcome_unknown: "error",
+    already_sent: "error",
   };
 
   test("every route code has its state", () => {

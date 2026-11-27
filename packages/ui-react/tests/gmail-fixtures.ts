@@ -11,8 +11,8 @@ import {
   type GmailContentMessagePayload,
   type GmailMessageBody,
   type GmailStructuredMessagePayload,
-  type GoogleToolResult,
 } from "@schlessera/brain-ui-sdk/tool-contracts";
+import type { GmailReadResult } from "../src/components/chat/renderers/gmail-mapping.js";
 
 export const SESSION = "session-odysseus";
 
@@ -168,14 +168,14 @@ export const CURSOR = "gc_Q2FseXBzbyBkb2VzIG5vdCB3ZWVw";
 type Tool = "search" | "read";
 
 /** A tool result envelope, validated against the tool's real result schema. */
-export function envelope(tool: Tool, result: unknown): GoogleToolResult {
+export function envelope(tool: Tool, result: unknown): GmailReadResult {
   const name = GMAIL_TOOL_NAMES[tool];
-  return GOOGLE_RESULT_SCHEMAS[name].parse({ ok: true, tool: name, result }) as GoogleToolResult;
+  return GOOGLE_RESULT_SCHEMAS[name].parse({ ok: true, tool: name, result }) as GmailReadResult;
 }
 
-export function refusal(tool: Tool, code: string, reason: string | null, message: string): GoogleToolResult {
+export function refusal(tool: Tool, code: string, reason: string | null, message: string): GmailReadResult {
   const name = GMAIL_TOOL_NAMES[tool];
-  return GOOGLE_RESULT_SCHEMAS[name].parse({ ok: false, tool: name, error: { code, reason, message } }) as GoogleToolResult;
+  return GOOGLE_RESULT_SCHEMAS[name].parse({ ok: false, tool: name, error: { code, reason, message } }) as GmailReadResult;
 }
 
 export const searchPage = (view: "structured" | "content", next: string | null = CURSOR) =>

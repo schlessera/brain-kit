@@ -20,6 +20,7 @@ import type {
   GmailStructuredThread,
 } from "@schlessera/brain-ui-kit";
 import type {
+  GMAIL_TOOL_NAMES,
   GmailContentMessagePayload,
   GmailMessageBody,
   GmailSearchPayload,
@@ -27,6 +28,15 @@ import type {
   GoogleErrorCode,
   GoogleToolResult,
 } from "@schlessera/brain-ui-sdk/tool-contracts";
+
+/**
+ * A Gmail search or read call's parsed result: its success or a refusal.
+ * `GoogleToolResult` also carries the write tools' successes, which have no
+ * view and never reach these renderers.
+ */
+export type GmailReadResult =
+  | Extract<GoogleToolResult, { ok: true; tool: typeof GMAIL_TOOL_NAMES.search | typeof GMAIL_TOOL_NAMES.read }>
+  | Extract<GoogleToolResult, { ok: false }>;
 
 type StructuredHit = Extract<GmailSearchPayload, { view: "structured" }>["threads"][number];
 type ContentHit = Extract<GmailSearchPayload, { view: "content" }>["threads"][number];
@@ -166,7 +176,7 @@ export function detailErrorState(code: GoogleErrorCode): Extract<GmailDetailStat
  * as `invalid_input` was never classified (an input the host cannot read has
  * no class), so its row claims none.
  */
-export function gmailRowMeta(result: GoogleToolResult | null): string {
+export function gmailRowMeta(result: GmailReadResult | null): string {
   if (result === null) return "read";
   if (!result.ok) return result.error.code === "invalid_input" ? "no result" : "read · no result";
   return `read · ${result.result.view} view`;
