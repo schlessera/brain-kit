@@ -1,6 +1,7 @@
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, TRACK_MAX_FILE_BYTES, type SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { sharedFileMetaSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { BrainUiRoot } from "../root.js";
+import { formatBytes as trackBytes } from "./format-bytes.js";
 
 // The parser's UTF-8 input cap is smaller than the generic share-file cap.
 export const TRACK_MAX_BYTES = TRACK_MAX_FILE_BYTES;
@@ -20,9 +21,7 @@ export const trackPending = (track: PendingTrack) => ["picked", "uploading", "pa
 export function trackDisplayName(name: string): string {
   return Array.from(name.replace(/[\p{Cc}\p{Cf}]/gu, "")).slice(0, 100).join("") || "Unnamed track";
 }
-export function trackBytes(bytes: number): string {
-  return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+export { trackBytes };
 export function trackStatus(track: PendingTrack): string {
   switch (track.state) {
     case "picked": return "waiting to upload";

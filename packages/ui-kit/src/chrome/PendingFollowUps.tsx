@@ -1,8 +1,9 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, FocusEvent, KeyboardEvent, MouseEvent, PointerEvent, ReactElement } from "react";
 
 import { edgeFor, focusEdge, focusSibling, useRoving } from "../internal/roving.js";
+import { useStripFocus, useStripSheet } from "../internal/strip-sheet.js";
 import { SheetDialog } from "../internal/sheet-dialog.js";
 import { Icon } from "../primitives/Icon.js";
 import { ListRow } from "../rows/ListRow.js";
@@ -49,10 +50,6 @@ const ITEM = '[data-pill][role="button"], [data-pending-summary]';
 
 type Reveal = { id: string; via: "hover" | "focus" | "tap" } | null;
 
-interface OpenSheet {
-  returnTo: HTMLElement | null;
-  selection: [number, number] | null;
-}
 
 /**
  * Pending follow-ups: the right half of the shared row above the composer
@@ -90,25 +87,11 @@ interface OpenSheet {
  */
 export function PendingFollowUps(p: PendingFollowUpsProps) {
   const total = p.followUps.length;
-  const [sheet, setSheet] = useState<OpenSheet | null>(null);
-  const [reveal, setReveal] = useState<Reveal>(null);
   const group = useRef<HTMLDivElement>(null);
+  const { sheet, setSheet, openFromKeyboardSummary, dismiss } = useStripSheet({ group, item: ITEM });
+  const [reveal, setReveal] = useState<Reveal>(null);
   const pointer = useRef<string | null>(null);
-  const restore = useRef<OpenSheet | null>(null);
   const base = useId();
-
-  useEffect(() => {
-    const to = restore.current;
-    if (sheet || !to) return;
-    restore.current = null;
-    const target = to.returnTo && to.returnTo.isConnected
-      ? to.returnTo
-      : group.current?.querySelector<HTMLElement>(`:is(${ITEM})[tabindex="0"]`) ?? null;
-    target?.focus();
-    if (target && to.selection && (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) {
-      target.setSelectionRange(to.selection[0], to.selection[1]);
-    }
-  }, [sheet]);
 
   const mode = total === 0 ? "none" : p.keyboardOpen ? "keyboard" : total <= 2 ? "pills" : "overflow";
   const itemCount = mode === "none" ? 0 : mode === "keyboard" ? 1 : mode === "pills" ? total : 2;
@@ -118,8 +101,7 @@ export function PendingFollowUps(p: PendingFollowUpsProps) {
   const empty = total === 0;
   useEffect(() => {
     if (!empty || !sheet) return;
-    restore.current = sheet;
-    setSheet(null);
+    dismiss();
   }, [empty, sheet]);
 
   // A revealed follow-up that leaves takes its popover with it.
@@ -146,19 +128,8 @@ export function PendingFollowUps(p: PendingFollowUpsProps) {
   // A follow-up the agent takes removes its pill; a focused item that goes
   // takes focus to <body>, so while focus was in the group its stop takes it
   // back.
-  const inGroup = useRef(false);
   const drawn = `${mode}:${shownIds.join("\n")}`;
-  useEffect(() => {
-    if (!inGroup.current || sheet || document.activeElement !== document.body) return;
-    group.current?.querySelector<HTMLElement>(`:is(${ITEM})[tabindex="0"]`)?.focus();
-  }, [drawn, sheet]);
-  useLayoutEffect(() => {
-    const here = group.current;
-    const active = document.activeElement;
-    if (!here || !(active instanceof HTMLElement) || !here.contains(active)) return;
-    const at = [...here.querySelectorAll<HTMLElement>(ITEM)].indexOf(active);
-    if (at !== -1 && at !== roving.stop) roving.onItemFocus(at);
-  });
+  const inGroup = useStripFocus({ group, item: ITEM, drawn, sheet, roving });
 
   // The live region is portalled once mounted: there is no document to
   // portal into while rendering on a server.
@@ -195,26 +166,6 @@ export function PendingFollowUps(p: PendingFollowUpsProps) {
     setReveal(null);
     setSheet({ returnTo: el, selection: null });
   }
-  // The composer still holds focus: note it and its caret, then blur it so
-  // the soft keyboard drops.
-  function openFromKeyboardSummary(el: HTMLElement) {
-    const active = document.activeElement;
-    let returnTo: HTMLElement = el;
-    let selection: [number, number] | null = null;
-    if (active instanceof HTMLElement && active !== el && active !== document.body) {
-      returnTo = active;
-      if ((active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) && active.selectionStart !== null && active.selectionEnd !== null) {
-        selection = [active.selectionStart, active.selectionEnd];
-      }
-      active.blur();
-    }
-    setSheet({ returnTo, selection });
-  }
-  function dismiss() {
-    restore.current = sheet;
-    setSheet(null);
-  }
-
   let items: ReactElement[];
   if (mode === "keyboard") {
     items = [

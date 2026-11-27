@@ -27,19 +27,8 @@ export interface MeterProps {
   labelWidth?: number;
 }
 
-/** The track fill is a solid surface, so every tone takes the `fill` role. */
-const TONES: Record<Tone, string> = {
-  amber: accent.amber.fill,
-  gold: accent.gold.fill,
-  teal: accent.teal.fill,
-  purple: accent.purple.fill,
-  blue: accent.blue.fill,
-  red: accent.red.fill,
-  neutral: accent.neutral.fill,
-};
-
 export function Meter(p: MeterProps) {
-  const tone = TONES[p.tone || "teal"] || TONES.teal;
+  const tone = (accent[p.tone || "teal"] ?? accent.teal).fill;
   const h = Number(p.height) || 5;
   const v = Math.max(0, Math.min(100, Number(p.value ?? 40)));
   const res = Number(p.reserve) || 0;

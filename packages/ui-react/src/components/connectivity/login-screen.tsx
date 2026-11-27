@@ -3,6 +3,7 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@schlessera/brain-ui-kit";
 import { recordingTime } from "../../lib/recordings.js";
+import { readVpnCheck } from "../../lib/vpn-check.js";
 import { LoginForm } from "./login-form.js";
 import {
   isUserCancel,
@@ -44,10 +45,9 @@ export function LoginScreen({ reauth, onLocalCapture }: { reauth?: { revoked: bo
     // opening its local writer generation or requesting association.
     let key: string;
     try {
-      const response = await root.request(root.backendUrl("/api/vpn-check"), { signal });
-      const body = response.ok ? await response.json() as { accountKey?: unknown } : null;
-      if (typeof body?.accountKey !== "string" || !/^[A-Za-z0-9_-]{8,64}$/.test(body.accountKey)) throw new Error("Couldn't confirm your signed-in account. Try again.");
-      key = body.accountKey;
+      const { accountKey } = await readVpnCheck(root, { signal });
+      if (typeof accountKey !== "string" || !/^[A-Za-z0-9_-]{8,64}$/.test(accountKey)) throw new Error("Couldn't confirm your signed-in account. Try again.");
+      key = accountKey;
     } catch (error) {
       if (signal.aborted) return;
       // With no recoverable warm snapshot, preserve T4's cold fallback.

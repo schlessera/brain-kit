@@ -8,6 +8,7 @@ import { Chip } from "../primitives/Chip.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { ButtonTone, ContactKind, ContactTone, ValueTone } from "../types.js";
+import { valueInk } from "../internal/tone-ink.js";
 
 /**
  * An entity the corpus knows about — a person, a company, a project — surfaced
@@ -72,27 +73,6 @@ export interface ContactCardProps {
   keyWidth?: number;
 }
 
-const INKS: Record<ContactTone, string> = {
-  teal: accent.teal.ink,
-  blue: accent.blue.ink,
-  purple: accent.purple.ink,
-  amber: accent.amber.ink,
-  neutral: accent.neutral.ink,
-};
-
-/** Fact values: every accent's ink, plus the two inks themselves. */
-const FACT_INKS: Record<ValueTone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-  ink: color.ink,
-  dim: color.inkDim,
-};
-
 const AVATAR_TINTS: Record<ContactTone, string> = {
   teal: token("avatar-tint-teal"),
   blue: token("avatar-tint-blue"),
@@ -121,7 +101,7 @@ export function ContactCard(p: ContactCardProps) {
 
   const kind = p.kind || "person";
   const tone = p.tone || (kind === "company" ? "blue" : kind === "project" ? "purple" : "teal");
-  const ink = INKS[tone] || INKS.teal;
+  const ink = (accent[tone] ?? accent.teal).ink;
   const label = p.label ?? "Penelope";
   const role = p.role ?? "Wife · holding Ithaca";
   const initials =
@@ -232,7 +212,7 @@ export function ContactCard(p: ContactCardProps) {
                   style={{
                     minWidth: 0,
                     overflowWrap: "anywhere",
-                    color: FACT_INKS[factTone] || FACT_INKS.dim,
+                    color: valueInk(factTone, "dim"),
                     fontWeight: 500,
                   }}
                 >

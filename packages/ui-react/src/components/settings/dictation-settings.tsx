@@ -2,6 +2,7 @@ import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { Button, Callout, Placeholder, Toggle } from "@schlessera/brain-ui-kit";
 import type { VoiceProvidersResponse } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
+import { readVpnCheck } from "../../lib/vpn-check.js";
 import { useVoiceStore, type DictationChoice, type DictationSaveState } from "../../voice/voice-store.js";
 import { providerLabel, type DictationProvider } from "../../voice/dictation-providers.js";
 import { dictationSaveRunning, refreshDictationDiscovery, saveDictationChoice } from "../../voice/dictation-settings-save.js";
@@ -45,11 +46,10 @@ export function DictationSettings({ active }: { active: boolean }) {
   useEffect(() => {
     if (!active || account !== null || probed) return;
     let live = true;
-    void root.request(root.backendUrl("/api/vpn-check"), { cache: "no-store" })
-      .then((response) => response.ok ? response.json() as Promise<{ accountKey?: unknown }> : null)
-      .then((body) => {
-        if (!live || !body || root.authLock.epoch() !== epoch) return;
-        setOwnProbe({ root, epoch, accountGeneration, account: typeof body.accountKey === "string" && body.accountKey !== "" ? body.accountKey : null });
+    void readVpnCheck(root, { cache: "no-store" })
+      .then(({ accountKey }) => {
+        if (!live || accountKey === undefined || root.authLock.epoch() !== epoch) return;
+        setOwnProbe({ root, epoch, accountGeneration, account: typeof accountKey === "string" && accountKey !== "" ? accountKey : null });
       })
       .catch(() => { /* Unknown authority keeps the controls disabled. */ });
     return () => { live = false; };

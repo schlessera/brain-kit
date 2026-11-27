@@ -1,5 +1,6 @@
 import { draftListResponseSchema, draftSaveResponseSchema, draftSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { Draft, DraftErrorResponse, DraftListResponse, DraftSaveRequest, DraftSaveResponse } from "@schlessera/brain-ui-sdk/protocol";
+import { base64ToBytes } from "./base64.js";
 
 /**
  * The six `/api/drafts` routes (#979, D52 §6) as one root's client, each
@@ -33,13 +34,6 @@ export interface DraftApi {
 
 /** How long one draft call may take before it counts as no answer. */
 const DRAFT_CALL_TIMEOUT_MS = 15_000;
-
-function decodeBase64(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
 
 export function createDraftApi(
   base: () => string,
@@ -89,7 +83,7 @@ export function createDraftApi(
     ),
     upload: (draftId, idempotencyKey, image) => call(
       `/drafts/${id(draftId)}/attachments${image.name ? `?name=${encodeURIComponent(image.name.slice(0, 255))}` : ""}`,
-      { method: "POST", headers: { "Content-Type": image.mime, "Idempotency-Key": idempotencyKey }, body: decodeBase64(image.base64) as BodyInit },
+      { method: "POST", headers: { "Content-Type": image.mime, "Idempotency-Key": idempotencyKey }, body: base64ToBytes(image.base64) as BodyInit },
       (answer) => {
         const attachmentId = (answer as { attachmentId?: unknown } | undefined)?.attachmentId;
         return typeof attachmentId === "string" && attachmentId.length > 0 ? { attachmentId } : null;

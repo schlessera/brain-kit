@@ -6,6 +6,7 @@ import type { ClientMessage, ConsumerServerMessage, ServerMessage, ServerConvers
 import type { BrainUiServices } from "../root.js";
 import type { ConversationFrame } from "../hooks/websocket-handlers/types.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
+import { base64ToBytes, bytesToBase64 } from "../lib/base64.js";
 
 export interface ConversationClientOutput extends ConversationOutputRecord {
   /** This projected readable segment contains only failed-write text. */
@@ -586,9 +587,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         silence = setTimeout(() => endpoint(own), 700);
       }
       if (!utterance || ended) return;
-      let binary = "";
-      for (const byte of pcm) binary += String.fromCharCode(byte);
-      if (!send({ type: "conversation_audio", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: utterance, sequence: sequence++, rate: input.sampleRate, pcm: btoa(binary) })) { suspend(); startEpoch(); }
+      if (!send({ type: "conversation_audio", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: utterance, sequence: sequence++, rate: input.sampleRate, pcm: bytesToBase64(pcm) })) { suspend(); startEpoch(); }
     }, () => {
       if (!current(own) || mic !== captureSession) return;
       state.setState({ micOn: true, notice: "" }); playback.quiet(true); announce("Microphone on"); refresh();
@@ -1038,7 +1037,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       updateOutput(p.epoch, event.outputId, { generated: ((old?.generated ?? "") + event.text).slice(0, p.limits.maxGeneratedChars) });
     } else if (event.kind === "audio") {
       try {
-        const pcm = Uint8Array.from(atob(event.pcm), c => c.charCodeAt(0));
+        const pcm = base64ToBytes(event.pcm);
         if (state.getState().disclosureOpen || typeof document !== "undefined" && document.hidden) { updateOutput(p.epoch, event.outputId, { playback: "unknown" }); return; }
         if (recovery.phase !== "audible") {
           recovery.observe(pcm, performance.now());

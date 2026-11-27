@@ -3,9 +3,9 @@ import {
   Search,
   Newspaper,
   Plus,
-  BarChart3,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+  ChartColumn,
+} from "../icons.js";
+import type { LucideIcon } from "../icons.js";
 import type { CSSProperties } from "react";
 import { motion } from "framer-motion";
 
@@ -21,7 +21,7 @@ const commands: Command[] = [
   { name: "search", label: "/search", description: "Search knowledge base", icon: Search },
   { name: "whatsup", label: "/whatsup", description: "Daily briefing", icon: Newspaper },
   { name: "add", label: "/add", description: "Add a note", icon: Plus },
-  { name: "stats", label: "/stats", description: "Brain statistics", icon: BarChart3 },
+  { name: "stats", label: "/stats", description: "Brain statistics", icon: ChartColumn },
 ];
 
 /** The commands a draft's text after `/` could name, in palette order. */
