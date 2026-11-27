@@ -3,13 +3,14 @@ import { expect, fn, waitFor, within } from "storybook/test";
 
 import { L } from "../../fixtures/gmail.js";
 import {
-  CREW_BCC, CREW_CC, CREW_TO, DRAFT_ID, EUMAEUS, PENELOPE, PREVIOUS_BODY, TELEMACHUS, fullMessage, hiddenMessage, idOnlyTargets, linkMessage, longMessage,
-  loomThread, manyMessage, matchesFor, minimalMessage, promotionTargets, replyMessage, suitorTargets, updatedMessage,
+  CREW_BCC, CREW_CC, CREW_TO, DRAFT_ID, EUMAEUS, LONG_BODY, MARKDOWN_BODY, PENELOPE, PREVIOUS_BODY, SPACING_BODY, TELEMACHUS, fullMessage, hiddenMessage,
+  idOnlyTargets, longMessage, loomThread, manyMessage, markdownMessage, matchesFor, minimalMessage, promotionTargets, replyMessage, spacingMessage,
+  suitorTargets, updatedMessage,
 } from "../../fixtures/gmail-approval.js";
 import { GOOGLE_SEND_RECIPIENT_REFUSAL, GoogleMailApprovalCard, type GoogleMailApprovalCardProps } from "../../src/index.js";
 import { color, font } from "../../src/tokens.js";
 import { stage } from "../_stage.js";
-import { Hosted, cardIn, desktop, holds, narrow, noStandingChoice, printed, widthOf } from "./_mail-approval.js";
+import { Hosted, MARKUP, cardIn, desktop, drawnBody, drawnLines, drawnRow, holds, narrow, noStandingChoice, printed, widthOf } from "./_mail-approval.js";
 
 /**
  * The approval card for one Gmail write (#4215; brief of 2026-11-20, rulings
@@ -136,6 +137,11 @@ export const SendLongBody = meta.story({
     const before = Number(cue.dataset.googleMoreLines);
     await expect(before).toBeGreaterThan(10);
     await expect(cue.textContent).toBe(`↓ ${before} more lines`);
+    // The cue counts real lines: every numbered line not wholly inside the visible part of the region.
+    const rows = [...region.querySelectorAll<HTMLElement>("[data-google-body-line]")];
+    await expect(rows).toHaveLength(42);
+    const fold = region.getBoundingClientRect().top + region.clientTop + region.clientHeight;
+    await expect(before, "the cue counts the lines below the fold").toBe(rows.filter((row) => row.getBoundingClientRect().bottom > fold + 1).length);
     await expect(card.querySelector("[data-google-body-header]")!.textContent).toMatch(/^Body · 42 lines · \d(\.\d)? KB · plain text$/);
     // Tab from the host's group reaches the body before the buttons.
     host(canvasElement).focus();
@@ -160,40 +166,98 @@ export const SendHiddenChars = meta.story({
   play: async ({ canvasElement, parameters }) => {
     await holds(canvasElement, widthOf(parameters), [PENELOPE.address, "Invoice", "harbour"]);
     const card = cardIn(canvasElement);
-    await expect([...card.querySelectorAll("[data-hidden-char]")].map((m) => m.getAttribute("data-hidden-char"))).toEqual(["‹U+202E›", "‹U+200B›", "‹U+202E›"]);
+    // The display name, the subject twice, then the body: every one a chip.
+    await expect([...card.querySelectorAll("[data-hidden-char]")].map((m) => m.getAttribute("data-hidden-char"))).toEqual(["‹U+202E›", "‹U+200B›", "‹U+202E›", "‹U+202E›", "‹U+200B›", "‹U+200B ×3›"]);
     for (const marker of card.querySelectorAll<HTMLElement>("[data-hidden-char]")) await expect(marker).toBeVisible();
     await expect(card.querySelector("[data-google-hidden-summary]")).toHaveTextContent("3 hidden characters in To and Subject are shown as ‹U+…›.");
-    const body = card.querySelector("[data-google-body-region]")!.textContent!;
-    await expect(body).toContain("Argo‹U+202E›gro");
-    await expect(body).toContain("‹U+200B ×3›");
+    await expect(drawnBody(card.querySelector("[data-google-body-region]")!)).toBe("The ship's name is in the attachment: Argo‹U+202E›gro.\nMeet at the harbour‹U+200B›master's house‹U+200B ×3› at dusk.");
     await expect(card.querySelector("[data-google-body-header]")!.textContent).toBe("Body · 2 lines · 104 bytes · plain text · 5 hidden characters");
     await expect(card.textContent ?? "", "no raw hidden character reaches the screen").not.toMatch(/[\u{200B}\u{202E}]/u);
   },
 });
 export const SendHiddenCharsNarrow = SendHiddenChars.extend({ ...narrow });
 
-/** A link in the body is a button that opens the full-address interstitial; nothing navigates. */
-export const SendLinkInBody = meta.story({
-  args: sendArgs(linkMessage),
+/**
+ * Emphasis, a heading, a quote, a list, code, a link, an image and a bare
+ * URL, in a plain-text body: the recipient gets every asterisk and bracket,
+ * so the card draws every one, and a URL is text read in full. Nothing on
+ * the card is a link (F1).
+ */
+export const SendMarkdownLiteral = meta.story({
+  args: sendArgs(markdownMessage),
   ...desktop,
-  play: async ({ canvas, canvasElement, parameters, userEvent }) => {
-    await holds(canvasElement, widthOf(parameters), ["Read it before you agree"]);
-    await expect(cardIn(canvasElement).querySelectorAll("a[href]"), "no anchor on the card").toHaveLength(0);
-    const link = canvas.getByRole("button", { name: "tides at Ogygia, outside link to ithaca.example, asks first" });
-    link.focus();
-    await userEvent.keyboard("{Enter}");
-    const dialog = await waitFor(() => {
-      const open = document.querySelector<HTMLDialogElement>("dialog[data-untrusted-gate]");
-      if (!open?.open) throw new Error("the interstitial is not open yet");
-      return open;
-    });
-    await expect(dialog.textContent).toContain("This link was written in this draft. Brain hasn't checked where it goes.");
-    await expect(dialog.querySelector("[data-untrusted-gate-address]")!.textContent).toBe("https://tides.ithaca.example/ogygia/july");
-    await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(document.activeElement).toBe(link));
+  play: async ({ canvasElement, parameters }) => {
+    await holds(canvasElement, widthOf(parameters), [
+      "**Sail** at seven, _not_ at six.", "# The route", "> Calypso says the wind holds east.",
+      "`mast` and [the tide table](https://tides.ithaca.example/ogygia/july)", "![raft](https://tides.ithaca.example/ogygia/raft.png)",
+      "https://tides.ithaca.example/ogygia/private?night=7",
+    ]);
+    const card = cardIn(canvasElement);
+    const region = card.querySelector<HTMLElement>("[data-google-body-region]")!;
+    await expect(drawnBody(region), "the body is drawn as written").toBe(MARKDOWN_BODY);
+    await expect([...region.querySelectorAll(MARKUP)].map((el) => el.outerHTML), "no Markdown is drawn").toEqual([]);
+    await expect(card.querySelectorAll("a[href]"), "no anchor on the card").toHaveLength(0);
+    // Every row is one line of the body, in order, numbered 1 to 8.
+    const rows = [...region.querySelectorAll<HTMLElement>("[data-google-body-line]")];
+    await expect(rows.map((row) => row.querySelector("[data-line-number]")!.textContent)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
+    // The heading and the quote are body text, in the body's font and size: nothing is set larger, bolder or indented.
+    const plain = getComputedStyle(rows[0]!.querySelector("[data-untrusted-field]")!);
+    for (const row of [rows[1]!, rows[2]!]) {
+      const style = getComputedStyle(row.querySelector("[data-untrusted-field]")!);
+      await expect([style.fontSize, style.fontWeight, style.fontStyle, style.paddingInlineStart]).toEqual([plain.fontSize, plain.fontWeight, plain.fontStyle, plain.paddingInlineStart]);
+    }
   },
 });
-export const SendLinkInBodyNarrow = SendLinkInBody.extend({ ...narrow });
+export const SendMarkdownLiteralNarrow = SendMarkdownLiteral.extend({ ...narrow });
+
+/** The width of `text[from, to)` as the browser laid it out, from a Range over the row's one text node. */
+function spanWidth(row: HTMLElement, from: number, to: number): number {
+  const node = row.querySelector("[data-untrusted-field]")!.firstChild!;
+  const range = document.createRange();
+  range.setStart(node, from);
+  range.setEnd(node, to);
+  return range.getBoundingClientRect().width;
+}
+
+/**
+ * Blank lines, indentation, runs of spaces and tabs: each is in the bytes, so
+ * each is on the card, as wide as the recipient's mono client would draw it.
+ * Measured, not read from the DOM: a collapsed run would still be in the text.
+ */
+export const SendSpacingLiteral = meta.story({
+  args: sendArgs(spacingMessage),
+  ...desktop,
+  play: async ({ canvasElement, parameters }) => {
+    await holds(canvasElement, widthOf(parameters), ["Penelope,", "  The loom:  unpick it at night.", "    Day 2:   the same."]);
+    const card = cardIn(canvasElement);
+    const region = card.querySelector<HTMLElement>("[data-google-body-region]")!;
+    await expect(drawnBody(region), "the body is drawn as written").toBe(SPACING_BODY);
+    await expect(drawnLines(region)).toEqual(["Penelope,", "", "", "  The loom:  unpick it at night.", "\tDay 1:\tthe Great Bear, left hand.", "    Day 2:   the same.", "", "O."]);
+    const rows = [...region.querySelectorAll<HTMLElement>("[data-google-body-line]")];
+    const lineHeight = parseFloat(getComputedStyle(region.querySelector(".bk-gma-lines")!).lineHeight);
+    await expect(lineHeight).toBe(18);
+    // Each blank line is a whole row: nothing collapses it.
+    for (const i of [1, 2, 6]) await expect(rows[i]!.getBoundingClientRect().height, `line ${i + 1} is a blank row`).toBe(lineHeight);
+    const ch = spanWidth(rows[0]!, 0, 1);
+    await expect(ch).toBeGreaterThan(5);
+    const near = (actual: number, chars: number) => expect(Math.abs(actual - chars * ch), `${chars} character widths`).toBeLessThan(0.75);
+    await near(spanWidth(rows[3]!, 0, 2), 2); // two leading spaces
+    await near(spanWidth(rows[3]!, 11, 13), 2); // "The loom:" then two spaces
+    await near(spanWidth(rows[4]!, 0, 1), 8); // a leading tab, to the eighth column
+    await near(spanWidth(rows[5]!, 0, 4), 4); // four leading spaces
+    await near(spanWidth(rows[5]!, 10, 13), 3); // "Day 2:" then three spaces
+    // The indented text starts four columns right of the unindented text above it.
+    const startOf = (row: HTMLElement, at: number) => {
+      const range = document.createRange();
+      const node = row.querySelector("[data-untrusted-field]")!.firstChild!;
+      range.setStart(node, at);
+      range.setEnd(node, at + 1);
+      return range.getBoundingClientRect().left;
+    };
+    await near(startOf(rows[5]!, 4) - startOf(rows[0]!, 0), 4);
+  },
+});
+export const SendSpacingLiteralNarrow = SendSpacingLiteral.extend({ ...narrow });
 
 /** Twenty-one recipients: every one on its own line with its match, nothing cut, nothing past the edge. */
 export const SendManyRecipients = meta.story({
@@ -282,6 +346,9 @@ export const DraftUpdate = meta.story({
     await expect(rows.map((r) => r.dataset.sign)).toEqual(["…", " ", "-", "+", " ", "…"]);
     await expect(rows[2]!.textContent).toContain("I'm still on Ogygia");
     await expect(rows[3]!.textContent).toContain("I've left Ogygia");
+    // The change and the full body agree: the added row and its context are lines 2 to 4 of the body below, as drawn there.
+    const lines = drawnLines(card.querySelector("[data-google-body-region]")!);
+    await expect([rows[1]!, rows[3]!, rows[4]!].map(drawnRow)).toEqual(lines.slice(1, 4));
     await expect(card.querySelector("[data-google-body-changes]")!.compareDocumentPosition(card.querySelector("[data-google-body]")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   },
 });
@@ -330,10 +397,12 @@ export const DraftDelete = meta.story({
     await expect(within(card).getByText("Deletes the draft. Brain can't bring it back.")).toBeVisible();
     await expect(card.querySelectorAll("[data-google-match], [data-google-match-missing]")).toHaveLength(0);
     await noStandingChoice(card);
-    const field = card.querySelector<HTMLElement>("[data-google-body] .bk-ut")!;
-    await expect(field.classList.contains("bk-ut-clamp"), "the body is clamped").toBe(true);
-    await expect(field.hasAttribute("data-cut"), "and cut: there is more than six lines").toBe(true);
-    await expect(Math.round(field.getBoundingClientRect().height / parseFloat(getComputedStyle(field).lineHeight))).toBe(6);
+    const clamp = card.querySelector<HTMLElement>("[data-google-body-clamp]")!;
+    await expect(clamp.classList.contains("bk-gma-clamp"), "the body is clamped").toBe(true);
+    await expect(clamp.hasAttribute("data-cut"), "and cut: there is more than six lines").toBe(true);
+    const lineHeight = parseFloat(getComputedStyle(clamp.querySelector(".bk-gma-lines")!).lineHeight);
+    await expect(Math.round(clamp.getBoundingClientRect().height / lineHeight), "six rows show").toBe(6);
+    await expect(drawnLines(clamp).slice(0, 6), "the first six lines, as written").toEqual(LONG_BODY.split("\n").slice(0, 6));
     await expect(canvas.getByRole("button", { name: "Show whole draft" })).toBeVisible();
     await irreversibleKeys(canvasElement, args, userEvent);
   },
@@ -346,11 +415,13 @@ export const DraftDeleteExpanded = meta.story({
   ...desktop,
   play: async ({ canvas, canvasElement, parameters, userEvent }) => {
     const card = cardIn(canvasElement);
-    const field = card.querySelector<HTMLElement>("[data-google-body] .bk-ut")!;
+    const clamp = card.querySelector<HTMLElement>("[data-google-body-clamp]")!;
     await userEvent.click(canvas.getByRole("button", { name: "Show whole draft" }));
-    await waitFor(() => expect(field.classList.contains("bk-ut-clamp")).toBe(false));
-    await expect(field.scrollHeight, "the whole draft shows").toBeLessThanOrEqual(field.clientHeight + 1);
+    await waitFor(() => expect(clamp.classList.contains("bk-gma-clamp")).toBe(false));
+    await expect(clamp.scrollHeight, "the whole draft shows").toBeLessThanOrEqual(clamp.clientHeight + 1);
     await expect(within(card).getByText(/Sent from the raft/)).toBeVisible();
+    await expect(drawnBody(clamp), "the whole draft, as written: blank lines, the quoted history and the signature's trailing space").toBe(LONG_BODY);
+    await expect(clamp.querySelectorAll("blockquote, [data-untrusted-link]"), "a quote is text").toHaveLength(0);
     await holds(canvasElement, widthOf(parameters), [PENELOPE.address, "Sent from the raft"]);
   },
 });

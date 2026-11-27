@@ -10,7 +10,7 @@
  * save), the words follow the same pattern and are listed in the design
  * record for sign-off (M7).
  */
-import { invisibleSegments } from "./reveal-invisibles.js";
+import { codeLabel, invisibleSegments, type InvisibleSegment } from "./reveal-invisibles.js";
 import { joinAnd, type GmailLabel } from "./shared.js";
 
 /* ── Effect, keys and the approved copy ───────────────────────────────── */
@@ -217,12 +217,15 @@ export function envelopeSummary(env: { to: readonly Mailbox[]; cc: readonly Mail
 export const repliesElsewhere = (from: Mailbox, replyTo: readonly Mailbox[]) =>
   replyTo.some((m) => m.address.toLowerCase() !== from.address.toLowerCase());
 
-/** How many hidden characters `text` holds, counting each one in a run. */
-function hiddenCount(text: string): number {
+/** How many hidden characters the segments hold, counting each one in a run. */
+function hiddenIn(segments: readonly InvisibleSegment[]): number {
   let n = 0;
-  for (const segment of invisibleSegments(text)) if (segment.kind === "hidden") n += segment.count;
+  for (const segment of segments) if (segment.kind === "hidden") n += segment.count;
   return n;
 }
+
+/** How many hidden characters `text` holds. */
+const hiddenCount = (text: string) => hiddenIn(invisibleSegments(text));
 
 /** "1 hidden character", "3 hidden characters". */
 const hiddenWords = (n: number) => `${n.toLocaleString("en-US")} hidden ${n === 1 ? "character" : "characters"}`;
@@ -248,8 +251,44 @@ export function hiddenSummary(fields: readonly [field: string, texts: readonly (
 
 /* ── The body ─────────────────────────────────────────────────────────── */
 
-/** How many lines a body has, as its text spells them: "a\nb" is two. */
-export const lineCount = (body: string) => (body === "" ? 0 : body.replace(/\r\n?/g, "\n").split("\n").length);
+/**
+ * A body's lines, as mail reads them (#4215 F1). LF and CRLF each end a
+ * line, and alike: they are the same line break to the recipient (the host's
+ * parser turns CRLF into LF, `packages/common/src/google/mime.ts`). A lone CR
+ * is not a line ending in mail (RFC 5322 §2.3, and the host refuses one), so
+ * it stays inside its line, where the card draws it as its marker. A
+ * trailing line break leaves an empty last line: "O.\n" is two lines, and
+ * "" is none.
+ */
+export const bodyLines = (body: string): string[] => (body === "" ? [] : body.split(/\r?\n/));
+
+/** How many lines a body has, as `bodyLines` splits it: "a\nb" is two. */
+export const lineCount = (body: string) => bodyLines(body).length;
+
+const CR = 0x0d;
+
+/**
+ * One body line as the card draws it: the text as written, each hidden
+ * character as its marker (`invisibleSegments`), and each lone CR as a
+ * marker too. `invisibleSegments` keeps CR, because elsewhere it is half of
+ * a line ending; inside a line it is a character the recipient gets and
+ * cannot see. Three or more in a row are one counted marker, as
+ * `invisibleSegments` counts its own runs.
+ */
+export function lineSegments(line: string): InvisibleSegment[] {
+  const out: InvisibleSegment[] = [];
+  for (const part of line.split(/(\r+)/)) {
+    if (part === "") continue;
+    if (part.charCodeAt(0) !== CR) {
+      out.push(...invisibleSegments(part));
+    } else if (part.length >= 3) {
+      out.push({ kind: "hidden", code: CR, count: part.length, marker: `‹${codeLabel(CR)} ×${part.length}›`, spoken: `${part.length} hidden characters: carriage return` });
+    } else {
+      for (let i = 0; i < part.length; i++) out.push({ kind: "hidden", code: CR, count: 1, marker: `‹${codeLabel(CR)}›`, spoken: "hidden character: carriage return" });
+    }
+  }
+  return out;
+}
 
 /** A body's size in UTF-8 bytes, as a reader reads it: "860 bytes", "2.1 KB". */
 export function bodySize(body: string): string {
@@ -261,7 +300,8 @@ export function bodySize(body: string): string {
 /** "Body · 41 lines · 2.1 KB · plain text", and "· 1 hidden character" when the body has one. */
 export function bodyHeader(body: string): string {
   const lines = lineCount(body);
-  const hidden = hiddenCount(body);
+  // The markers the body draws, line by line: a lone CR counts.
+  const hidden = bodyLines(body).reduce((n, line) => n + hiddenIn(lineSegments(line)), 0);
   return [`Body · ${lines.toLocaleString("en-US")} ${lines === 1 ? "line" : "lines"}`, bodySize(body), "plain text", ...(hidden > 0 ? [hiddenWords(hidden)] : [])].join(" · ");
 }
 
@@ -272,18 +312,22 @@ export const bodyRegionName = (body: string) => {
 };
 
 /**
- * How many of the body's lines are below the visible part of its scroll
- * region: the line count scaled by the share of the region's content that
- * is below the fold, rounded up, so anything left unread counts as at least
- * one line. Zero once the end is in view. The share is of rendered height,
- * not of source lines, so the cue is an estimate in the body's own unit
- * and can never exceed its line count.
+ * How many of the body's lines are not yet wholly in view: those whose
+ * bottom edge is below `fold`, the bottom of the scroll region's visible
+ * part, so a line cut by the fold still counts as unread. `bottomOf(i)` is
+ * line i's bottom edge in the region's content. The lines stand in order, so
+ * a binary search finds the first one below the fold in O(log n) reads.
+ * Zero once the end is in view. A pixel of slack absorbs subpixel layout.
  */
-export function linesBelow(total: number, scrollHeight: number, scrollTop: number, clientHeight: number): number {
-  if (total <= 0 || scrollHeight <= 0) return 0;
-  const below = scrollHeight - scrollTop - clientHeight;
-  if (below <= 1) return 0;
-  return Math.min(total, Math.max(1, Math.ceil((total * below) / scrollHeight)));
+export function linesBelow(count: number, bottomOf: (i: number) => number, fold: number): number {
+  let lo = 0;
+  let hi = count;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (bottomOf(mid) > fold + 1) hi = mid;
+    else lo = mid + 1;
+  }
+  return count - lo;
 }
 
 /** "↓ 23 more lines". */
@@ -305,11 +349,13 @@ const MAX_CELLS = 1_000_000;
  * of shown. The shared head and tail are trimmed first; the middle is
  * compared by longest common subsequence while it fits `MAX_CELLS`, and past
  * that shown whole as removed then added, which is still exact, only not
- * the smallest. `[]` when nothing changed.
+ * the smallest. `[]` when nothing changed. Lines are `bodyLines`'s, the lines
+ * the full body below draws, so the two agree on every line: a CRLF-for-LF
+ * swap changes nothing either draws, and a lone CR is in its line in both.
  */
 export function bodyChanges(before: string, after: string, context = 1): ChangeRow[] {
-  const a = before.replace(/\r\n?/g, "\n").split("\n");
-  const b = after.replace(/\r\n?/g, "\n").split("\n");
+  const a = bodyLines(before);
+  const b = bodyLines(after);
   let head = 0;
   while (head < a.length && head < b.length && a[head] === b[head]) head++;
   let tail = 0;

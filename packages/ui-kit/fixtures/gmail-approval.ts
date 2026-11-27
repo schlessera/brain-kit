@@ -79,11 +79,32 @@ export const HIDDEN_BODY = [
   "Meet at the harbour\u{200B}master's house\u{200B}\u{200B}\u{200B} at dusk.",
 ].join("\n");
 
-/** A body with a link: it opens only through the interstitial, with its full address. */
-export const LINK_BODY = [
-  "The tide table for the strait is here: [tides at Ogygia](https://tides.ithaca.example/ogygia/july).",
+/**
+ * A plain-text body full of what Markdown would read: emphasis, a heading, a
+ * quote, a list, code, a link, an image and a bare URL. The recipient gets
+ * every asterisk and bracket, so the card draws every one.
+ */
+export const MARKDOWN_BODY = [
+  "**Sail** at seven, _not_ at six.",
+  "# The route",
+  "> Calypso says the wind holds east.",
+  "- rope",
+  "- oars",
+  "`mast` and [the tide table](https://tides.ithaca.example/ogygia/july)",
+  "![raft](https://tides.ithaca.example/ogygia/raft.png)",
+  "https://tides.ithaca.example/ogygia/private?night=7",
+].join("\n");
+
+/** Blank lines, indentation, a run of spaces and tabs: each is in the bytes, so each is on the card. */
+export const SPACING_BODY = [
+  "Penelope,",
   "",
-  "Read it before you agree to anything Calypso says about the wind.",
+  "",
+  "  The loom:  unpick it at night.",
+  "\tDay 1:\tthe Great Bear, left hand.",
+  "    Day 2:   the same.",
+  "",
+  "O.",
 ].join("\n");
 
 // ---------------------------------------------------------------- messages
@@ -122,7 +143,9 @@ export const hiddenMessage = message({
   body: HIDDEN_BODY,
 });
 
-export const linkMessage = message({ subject: "The tide table", body: LINK_BODY });
+export const markdownMessage = message({ subject: "The tide table", body: MARKDOWN_BODY });
+
+export const spacingMessage = message({ subject: "The loom, again", body: SPACING_BODY });
 
 export const manyMessage = message({ to: CREW_TO, cc: CREW_CC, bcc: CREW_BCC, subject: "Muster at the ships, first light" });
 

@@ -1,15 +1,14 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ApprovalCard } from "../decisions/ApprovalCard.js";
-import { UntrustedText } from "../evidence/UntrustedText.js";
 import { Callout } from "../primitives/Callout.js";
 import { Icon } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 import {
-  GOOGLE_ALWAYS_NOTE, GOOGLE_REVERSIBLE_RISK, GOOGLE_SESSION_NOTE, GOOGLE_TAINT_BANNER, bodyChanges, bodyHeader, bodyRegionName, deltaLine,
-  envelopeSummary, googleApprovalKeys, googleBadge, hiddenSummary, lineCount, linesBelow, messages, modifyActions, modifyWords, moreLines,
+  GOOGLE_ALWAYS_NOTE, GOOGLE_REVERSIBLE_RISK, GOOGLE_SESSION_NOTE, GOOGLE_TAINT_BANNER, bodyChanges, bodyHeader, bodyLines, bodyRegionName, deltaLine,
+  envelopeSummary, googleApprovalKeys, googleBadge, hiddenSummary, lineSegments, linesBelow, messages, modifyActions, modifyWords, moreLines,
   repliesElsewhere, standingLabel, unchangedLines, type ChangeRow, type DeltaLine, type GoogleEffect,
 } from "./mail-approval.js";
-import { CAPS, Field, META, PROVENANCE, When, plural, shownLabels, spoken, type GmailDate, type GmailLabel, type GoogleHostTime } from "./shared.js";
+import { CAPS, Field, META, PROVENANCE, Segments, When, plural, shownLabels, spoken, type GmailDate, type GmailLabel, type GoogleHostTime } from "./shared.js";
 
 /**
  * `GoogleMailApprovalCard` — the approval card for one Gmail write (#4215,
@@ -35,10 +34,16 @@ import { CAPS, Field, META, PROVENANCE, When, plural, shownLabels, spoken, type 
  * - **A reversible card** offers the one standing choice its chat allows,
  *   under the buttons, as its own row with a note saying where it lives.
  * - **A tainted chat** puts the taint banner above the payload (M5).
- * - **Untrusted text** (every address, display name, subject, message id
- *   and body) is drawn through `Field` or `UntrustedText`: isolated, with
- *   every hidden character visible, and links behind the full-address
- *   interstitial.
+ * - **Untrusted text** (addresses, display names, the subject, the
+ *   In-Reply-To ids, the thread's subject, an affected message's sender and
+ *   subject) is drawn through `Field`: isolated, with every hidden character
+ *   shown as its marker. The head's send-as address shows its markers too.
+ *   Gmail's message and draft ids, which the host validates, are plain text.
+ * - **The body is drawn literally** (#4215 F1, plan §4: a send is bound to
+ *   the exact approved bytes): one numbered row per line, every character as
+ *   written, blank lines, indentation, runs of spaces and tabs kept, long
+ *   lines wrapped, hidden characters as markers. It is never read as
+ *   Markdown and holds no link: a URL is text the reader reads in full.
  */
 
 /** A parsed mailbox, as the host's card carries it: the canonical address and the display name the draft gave. */
@@ -353,9 +358,6 @@ function Envelope(p: {
 
 /* ── The body ─────────────────────────────────────────────────────────── */
 
-/** Where a link in a draft says it was written: in this draft, by nobody it can name. */
-const DRAFT_SOURCE = { source: "this draft", sourcePhrase: "in this draft", author: null, caption: false as const };
-
 const DRAFT_BOX: CSSProperties = {
   border: `1px solid ${token("provenance-border")}`,
   borderRadius: 10,
@@ -366,20 +368,60 @@ const DRAFT_BOX: CSSProperties = {
 };
 
 /**
+ * One body line as written (#4215 F1): every character, each run of spaces
+ * and each tab taking its room (`break-spaces`: nothing collapses, nothing
+ * hangs past the edge), a long line wrapping anywhere, and each hidden
+ * character, a lone CR included, as its marker. Never Markdown, never a link.
+ * The full body and an update's change rows both draw their lines with it.
+ */
+function LiteralText({ text, className, style }: { text: string; className?: string; style?: CSSProperties }) {
+  return (
+    <bdi className={className} style={{ whiteSpace: "break-spaces", overflowWrap: "anywhere", ...style }} data-untrusted-field="">
+      <Segments segments={lineSegments(text)} />
+    </bdi>
+  );
+}
+
+/**
+ * A body exactly as it will be sent or saved (plan §4): one row per line, in
+ * mono, numbered. Blank lines are rows, a trailing line break leaves an empty
+ * last row, and a wrapped line keeps its one number, so the rows are the
+ * lines the header counts. The numbers are the card's, not the body's: hidden
+ * from assistive technology and left out of a copy.
+ */
+function LiteralBody({ body }: { body: string }) {
+  const lines = bodyLines(body);
+  return (
+    <div className="bk-gma-lines" style={{ "--bk-gma-digits": String(lines.length).length } as CSSProperties} data-google-body-text="">
+      {lines.map((line, i) => (
+        <div key={i} className="bk-gma-line" data-google-body-line={i + 1}>
+          <span className="bk-gma-ln" aria-hidden="true" data-line-number="">
+            {i + 1}
+          </span>
+          <LiteralText text={line} className="bk-gma-text" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
  * The whole body, in a scroll region the keyboard can reach. Allow is never
- * gated on it (M3): the cue under the visible part only says how much is
- * left, and goes once the end is in view.
+ * gated on it (M3): the cue under the visible part only says how many lines
+ * are not yet wholly in view, and goes once the end is.
  */
 function ScrollBody({ body, caption }: { body: string; caption: string }) {
   const region = useRef<HTMLDivElement>(null);
-  const lines = lineCount(body);
   const [view, setView] = useState({ scrolls: false, more: 0 });
   useLayoutEffect(() => {
     const el = region.current;
     if (!el) return;
+    const rows = el.querySelectorAll<HTMLElement>("[data-google-body-line]");
+    // The region is the rows' offset parent (`.bk-gma-scroll` is positioned), so a row's bottom is in its content's coordinates.
+    const bottomOf = (i: number) => rows[i]!.offsetTop + rows[i]!.offsetHeight;
     const measure = () => {
       const scrolls = el.scrollHeight - el.clientHeight > 1;
-      const more = scrolls ? linesBelow(lines, el.scrollHeight, el.scrollTop, el.clientHeight) : 0;
+      const more = scrolls ? linesBelow(rows.length, bottomOf, el.scrollTop + el.clientHeight) : 0;
       setView((v) => (v.scrolls === scrolls && v.more === more ? v : { scrolls, more }));
     };
     measure();
@@ -392,7 +434,7 @@ function ScrollBody({ body, caption }: { body: string; caption: string }) {
       el.removeEventListener("scroll", measure);
       watch.disconnect();
     };
-  }, [lines, body]);
+  }, [body]);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }} data-google-body="">
       <div style={META} data-google-body-header="">
@@ -413,7 +455,7 @@ function ScrollBody({ body, caption }: { body: string; caption: string }) {
               data-google-body-region=""
               data-scrolls={view.scrolls ? "" : undefined}
             >
-              <UntrustedText text={spoken(body)} {...DRAFT_SOURCE} frame="none" />
+              <LiteralBody body={body} />
             </div>
             {view.more > 0 ? (
               <div className="bk-gma-more" aria-hidden="true" data-google-more-lines={view.more}>
@@ -427,8 +469,25 @@ function ScrollBody({ body, caption }: { body: string; caption: string }) {
   );
 }
 
-/** A draft about to be deleted: clamped to six lines, with "Show whole draft". Nothing is sent. */
+/**
+ * A draft about to be deleted: its first six rows, the last fading when there
+ * is more, and "Show whole draft", which opens the rest in place. The same
+ * literal rows as a send. Nothing is sent.
+ */
 function ClampedBody({ body }: { body: string }) {
+  const clamp = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const el = clamp.current;
+    if (!el || open) return;
+    const measure = () => setCut(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [open, body]);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }} data-google-body="">
       <div style={META} data-google-body-header="">
@@ -437,9 +496,23 @@ function ClampedBody({ body }: { body: string }) {
       {body === "" ? (
         <p style={{ ...LINE, ...MUTED_ITALIC }}>— This draft has no text body.</p>
       ) : (
-        <div style={{ ...DRAFT_BOX, padding: "8px 12px 6px" }}>
-          <div style={{ ...PROVENANCE, paddingBottom: 4 }}>Saved draft · not sent</div>
-          <UntrustedText text={spoken(body)} {...DRAFT_SOURCE} frame="none" lines={6} expandLabel="Show whole draft" />
+        <div style={{ ...DRAFT_BOX, padding: "8px 12px 6px", display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={PROVENANCE}>Saved draft · not sent</div>
+          <div ref={clamp} className={open ? undefined : "bk-gma-clamp"} data-cut={!open && cut ? "" : undefined} data-google-body-clamp="">
+            <LiteralBody body={body} />
+          </div>
+          {!open && cut ? (
+            <button
+              type="button"
+              className="bk-text-btn"
+              data-tone="inherit"
+              aria-expanded={false}
+              onClick={() => setOpen(true)}
+              style={{ alignSelf: "flex-start", font: `500 12px/20px ${font.body}`, color: color.inkDim, textDecoration: "none" }}
+            >
+              Show whole draft
+            </button>
+          ) : null}
         </div>
       )}
     </div>
@@ -449,7 +522,11 @@ function ClampedBody({ body }: { body: string }) {
 const SIGN_TINT: Record<"-" | "+", string> = { "-": token("diff-tint-red"), "+": token("diff-tint-teal") };
 const SIGN_INK: Record<"-" | "+", string> = { "-": accent.red.ink, "+": accent.teal.ink };
 
-/** An update's body change: removed and added lines tinted, a line of context around each, longer unchanged runs counted. */
+/**
+ * An update's body change: removed and added lines tinted, a line of context
+ * around each, longer unchanged runs counted. Each row is a body line drawn
+ * as the full body below draws it, so the two agree on every line.
+ */
 function BodyChanges({ rows }: { rows: readonly ChangeRow[] }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }} data-google-body-changes="">
@@ -469,7 +546,7 @@ function BodyChanges({ rows }: { rows: readonly ChangeRow[] }) {
                   {row.sign === " " ? "\u00a0" : row.sign}
                 </span>
                 {row.sign !== " " ? <span className="bk-sr-only">{row.sign === "-" ? "removed: " : "added: "}</span> : null}
-                <Field text={row.text === "" ? "\u00a0" : row.text} style={{ flex: 1, minWidth: 0, whiteSpace: "pre-wrap", color: row.sign === " " ? color.inkMute : color.inkDim }} />
+                <LiteralText text={row.text} style={{ flex: 1, minWidth: 0, color: row.sign === " " ? color.inkMute : color.inkDim }} />
               </div>
             ),
           )}

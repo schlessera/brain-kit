@@ -5,9 +5,10 @@
  * interstitial, geometry and targets) is in the stories' play functions,
  * `stories/google/GoogleMailApprovalCard.stories.tsx`.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
-import type { ReactElement } from "react";
+import { act, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { GoogleMailApproval } from "@schlessera/brain-ui-sdk/tool-contracts";
 
@@ -21,7 +22,7 @@ import {
   GoogleMailApprovalCard, type GoogleMailApprovalCardProps, type GoogleMailbox, type GoogleMailMessage,
 } from "../src/google/GoogleMailApprovalCard.js";
 import {
-  GOOGLE_SEND_RECIPIENT_REFUSAL, bodyChanges, bodyHeader, bodySize, deltaLine, deltaText, envelopeSummary, googleApprovalKeys, hiddenSummary,
+  GOOGLE_SEND_RECIPIENT_REFUSAL, bodyChanges, bodyHeader, bodyLines, bodySize, deltaLine, deltaText, envelopeSummary, googleApprovalKeys, hiddenSummary,
   lineCount, linesBelow, modifyActions, modifyWords, standingLabel,
 } from "../src/google/mail-approval.js";
 import type { GmailLabel } from "../src/google/shared.js";
@@ -31,6 +32,37 @@ function draw(element: ReactElement): Document {
   document.body.innerHTML = renderToStaticMarkup(element);
   return document as unknown as Document;
 }
+
+/**
+ * What a body container draws, read as text: each text node as written, each
+ * hidden-character chip as its marker, the gutter's numbers and the screen
+ * reader's words left out. It reads whatever the container holds, so a body
+ * drawn some other way is read as it is drawn.
+ */
+function drawnText(el: Element): string {
+  let out = "";
+  for (const child of el.childNodes) {
+    if (child.nodeType === 3) out += child.nodeValue ?? "";
+    if (child.nodeType !== 1) continue;
+    const e = child as Element;
+    if (e.hasAttribute("data-line-number") || e.classList.contains("bk-sr-only")) continue;
+    out += e.hasAttribute("data-hidden-char") ? e.getAttribute("data-hidden-char")! : drawnText(e);
+  }
+  return out;
+}
+
+/** The body as drawn: its drawn lines joined by "\n", or, with none, all the container draws. */
+function drawnBody(container: Element): string {
+  const lines = [...container.querySelectorAll("[data-google-body-line]")];
+  return lines.length > 0 ? lines.map(drawnText).join("\n") : drawnText(container);
+}
+
+/** The card's body container: the scroll region of a send or save, the clamp of a delete. */
+const bodyOf = (root: ParentNode) => {
+  const el = root.querySelector("[data-google-body-region], [data-google-body-clamp]");
+  if (!el) throw new Error("the card drew no body");
+  return el;
+};
 
 const text = (doc: Document) => doc.body.textContent ?? "";
 const noop = () => {};
@@ -258,12 +290,12 @@ describe("hidden characters", () => {
   test("in the subject, a display name and the body, each is shown as its marker", () => {
     const doc = draw(<GoogleMailApprovalCard {...send({ message: hiddenMessage, recipientMatches: matchesFor(hiddenMessage) })} />);
     const markers = [...doc.querySelectorAll("[data-hidden-char]")].map((el) => el.getAttribute("data-hidden-char"));
-    expect(markers).toEqual(["‹U+202E›", "‹U+200B›", "‹U+202E›"]);
+    // The display name, the subject twice, then the body: each a chip, the body's as the envelope's.
+    expect(markers).toEqual(["‹U+202E›", "‹U+200B›", "‹U+202E›", "‹U+202E›", "‹U+200B›", "‹U+200B ×3›"]);
     expect(doc.querySelector("[data-google-subject] [data-hidden-char]")!.getAttribute("data-hidden-char")).toBe("‹U+200B›");
-    const body = doc.querySelector("[data-google-body] [data-untrusted-text]")!.textContent!;
-    expect(body).toContain("Argo‹U+202E›gro");
-    expect(body).toContain("harbour‹U+200B›master's house‹U+200B ×3›");
-    expect(body).not.toMatch(/[\u{200B}\u{202E}]/u);
+    const body = bodyOf(doc);
+    expect(drawnBody(body)).toBe("The ship's name is in the attachment: Argo‹U+202E›gro.\nMeet at the harbour‹U+200B›master's house‹U+200B ×3› at dusk.");
+    expect(body.textContent).not.toMatch(/[\u{200B}\u{202E}]/u);
     expect(doc.querySelector("[data-google-hidden-summary]")!.textContent).toBe("3 hidden characters in To and Subject are shown as ‹U+…›.");
     expect(doc.querySelector("[data-google-body-header]")!.textContent).toBe("Body · 2 lines · 104 bytes · plain text · 5 hidden characters");
   });
@@ -309,12 +341,18 @@ describe("untrusted text", () => {
 
 describe("the body", () => {
   test.each([
-    ["", 0],
-    ["one", 1],
-    ["one\ntwo", 2],
-    ["one\r\ntwo\rthree\n", 4],
-  ] as const)("lineCount(%p) is %i", (body, n) => {
-    expect(lineCount(body)).toBe(n);
+    ["", []],
+    ["one", ["one"]],
+    ["one\ntwo", ["one", "two"]],
+    ["one\r\ntwo", ["one", "two"]],
+    ["one\n", ["one", ""]],
+    ["\n\n", ["", "", ""]],
+    // A lone CR is no line ending in mail: it stays in its line. CR then CRLF is a lone CR, then a line ending.
+    ["one\r\ntwo\rthree\n", ["one", "two\rthree", ""]],
+    ["a\r\r\nb", ["a\r", "b"]],
+  ] as const)("bodyLines(%p)", (body, lines) => {
+    expect(bodyLines(body)).toEqual([...lines]);
+    expect(lineCount(body)).toBe(lines.length);
   });
 
   test.each([
@@ -331,15 +369,29 @@ describe("the body", () => {
     expect(bodyHeader("one\ntwo")).toBe("Body · 2 lines · 7 bytes · plain text");
   });
 
+  test("the header counts a lone CR as a hidden character, as the body draws it", () => {
+    expect(bodyHeader("Ogygia\rIthaca\u{200B}")).toBe("Body · 1 line · 16 bytes · plain text · 2 hidden characters");
+  });
+
+  // Ten 18px rows, a 20px top pad: row i ends at 20 + 18(i + 1).
+  const rows = (i: number) => 20 + 18 * (i + 1);
   test.each([
-    ["at the top of a body twice its view", 41, 1000, 0, 500, 21],
-    ["half way", 41, 1000, 250, 500, 11],
-    ["one pixel short of the end", 41, 1000, 498, 500, 1],
-    ["at the end", 41, 1000, 500, 500, 0],
-    ["a body that fits", 5, 200, 0, 200, 0],
-    ["no lines", 0, 1000, 0, 500, 0],
-  ] as const)("linesBelow %s", (_, total, scrollHeight, scrollTop, clientHeight, n) => {
-    expect(linesBelow(total, scrollHeight, scrollTop, clientHeight)).toBe(n);
+    ["at the top, five rows in view", 110, 5],
+    ["a row cut by the fold is unread", 120, 5],
+    ["a row ending half a pixel past the fold is in view", 127.5, 4],
+    ["one row left", 182, 1],
+    ["at the end", 200, 0],
+    ["past the end", 400, 0],
+    ["above the first row", 0, 10],
+  ] as const)("linesBelow: %s", (_, fold, n) => {
+    expect(linesBelow(10, rows, fold)).toBe(n);
+  });
+
+  test("linesBelow reads O(log n) rows, and none for no lines", () => {
+    let reads = 0;
+    expect(linesBelow(32_769, (i) => (reads++, 18 * (i + 1)), 18 * 100)).toBe(32_769 - 100);
+    expect(reads).toBeLessThanOrEqual(16);
+    expect(linesBelow(0, () => { throw new Error("no row to read"); }, 100)).toBe(0);
   });
 
   test("the scroll region is named for its lines, and the whole body is in it", () => {
@@ -349,6 +401,179 @@ describe("the body", () => {
     expect(region.getAttribute("role")).toBe("group");
     expect(region.textContent).toContain("I've left Ogygia; the raft sails at seven, if the wind holds east.");
     expect(region.textContent).toContain("O.");
+  });
+});
+
+/* ── The body as it is sent (F1) ───────────────────────────────────────── */
+
+/** 2,000 characters with no break opportunity. */
+const UNBROKEN = "Ithaca".repeat(334).slice(0, 2000);
+
+/**
+ * Bodies the recipient gets byte for byte, each with what the card must draw
+ * and how many lines that is. Markers stand for hidden characters, a lone CR
+ * among them; CRLF is a line break, the same one as LF.
+ */
+const BODIES: [name: string, body: string, drawn: string, lines: number][] = [
+  ["Markdown-like syntax", "**Sail** at _seven_\n# The route\n> Calypso says east.\n- rope\n1. oars\n`mast` <b>bold</b> ~~not~~", "**Sail** at _seven_\n# The route\n> Calypso says east.\n- rope\n1. oars\n`mast` <b>bold</b> ~~not~~", 6],
+  ["a link, an image and a bare URL", "[the tide table](https://tides.ithaca.example/ogygia/july)\n![raft](https://tides.ithaca.example/ogygia/raft.png)\nhttps://tides.ithaca.example/ogygia/private?night=7", "[the tide table](https://tides.ithaca.example/ogygia/july)\n![raft](https://tides.ithaca.example/ogygia/raft.png)\nhttps://tides.ithaca.example/ogygia/private?night=7", 3],
+  ["blank lines", "Penelope,\n\n\nO.", "Penelope,\n\n\nO.", 4],
+  ["leading spaces, tabs and runs of spaces", "  Penelope  waits\t  here\n\tat dawn\n    -- O.  ", "  Penelope  waits\t  here\n\tat dawn\n    -- O.  ", 3],
+  ["CRLF line endings", "Penelope\r\n\r\nOdysseus", "Penelope\n\nOdysseus", 3],
+  ["a lone CR", "Ogygia\rIthaca\r\r\r", "Ogygia‹U+000D›Ithaca‹U+000D ×3›", 1],
+  ["a trailing line break", "O.\n", "O.\n", 2],
+  ["a 2,000-character unbroken line", UNBROKEN, UNBROKEN, 1],
+  ["hidden characters", "Argo\u{202E}gro\nHarbour\u{200B}master\u{0000} at dusk\u{200B}\u{200B}\u{200B}", "Argo‹U+202E›gro\nHarbour‹U+200B›master‹U+0000› at dusk‹U+200B ×3›", 2],
+];
+
+const withBody = (body: string): GoogleMailMessage => ({ ...minimalMessage, body });
+
+/** Every card that draws a body, given that body. */
+const BODY_PATHS: [path: string, props: (body: string) => GoogleMailApprovalCardProps][] = [
+  ["send", (body) => send({ message: withBody(body) })],
+  ["draft create", (body) => ({ operation: "gmail.draft.save", effect: "reversible", action: "create", tainted: false, draftId: null, threadId: null, message: withBody(body) })],
+  ["draft reply", (body) => ({ operation: "gmail.draft.save", effect: "reversible", action: "reply", tainted: true, draftId: null, threadId: "19a1a01f10000005", message: withBody(body) })],
+  ["draft update", (body) => ({ operation: "gmail.draft.save", effect: "reversible", action: "update", tainted: false, draftId: DRAFT_ID, threadId: null, message: withBody(body), previousBody: PREVIOUS_BODY })],
+  ["draft delete, clamped", (body) => ({ operation: "gmail.draft.delete", tainted: false, draftId: DRAFT_ID, message: withBody(body) })],
+];
+
+/** What only Markdown would draw: none of it belongs in a plain-text body. */
+const MARKUP = "strong, em, del, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, li, code, pre, a, button, img, [data-untrusted-link]";
+
+/** The assertions every drawn body makes, whatever card drew it. */
+function drawsAsSent(body: Element, drawn: string, lines: number) {
+  expect(drawnBody(body)).toBe(drawn);
+  const rows = [...body.querySelectorAll("[data-google-body-line]")];
+  expect(rows.map((row) => row.querySelector("[data-line-number]")?.textContent)).toEqual(Array.from({ length: lines }, (_, i) => String(i + 1)));
+  // Each line keeps every space and tab: `break-spaces`, inline, on the element holding the line's text.
+  const spacing = (row: Element) => {
+    const style = (row.querySelector("[data-untrusted-field]") as HTMLElement | null)?.style;
+    return style ? `${style.getPropertyValue("white-space")} ${style.getPropertyValue("overflow-wrap")}` : "no line text";
+  };
+  expect(rows.map(spacing)).toEqual(rows.map(() => "break-spaces anywhere"));
+  expect([...body.querySelectorAll(MARKUP)].map((el) => el.outerHTML)).toEqual([]);
+}
+
+describe.each(BODY_PATHS)("the %s body", (_, props) => {
+  test.each(BODIES)("%s, drawn as sent", (_name, body, drawn, lines) => {
+    const doc = draw(<GoogleMailApprovalCard {...props(body)} />);
+    drawsAsSent(bodyOf(doc), drawn, lines);
+    expect(doc.querySelector("[data-google-body-header]")!.textContent).toStartWith(`Body · ${lines} ${lines === 1 ? "line" : "lines"} · `);
+  });
+});
+
+describe("a body's text", () => {
+  test("a marker typed as text stays text: only a hidden character is a chip", () => {
+    const doc = draw(<GoogleMailApprovalCard {...send({ message: withBody("A marker typed by hand: ‹U+202E›") })} />);
+    expect(drawnBody(bodyOf(doc))).toBe("A marker typed by hand: ‹U+202E›");
+    expect(bodyOf(doc).querySelectorAll("[data-hidden-char]")).toHaveLength(0);
+    expect(doc.querySelector("[data-google-body-header]")!.textContent).not.toContain("hidden");
+  });
+
+  test("the scroll region is named for the lines it draws", () => {
+    const doc = draw(<GoogleMailApprovalCard {...send({ message: withBody("Penelope,\r\n\r\nO.\n") })} />);
+    expect(bodyOf(doc).getAttribute("aria-label")).toBe("Message body, 4 lines");
+    expect(bodyOf(doc).querySelectorAll("[data-google-body-line]")).toHaveLength(4);
+  });
+
+  test("the gutter's numbers are hidden from a screen reader", () => {
+    const doc = draw(<GoogleMailApprovalCard {...send()} />);
+    expect([...bodyOf(doc).querySelectorAll("[data-line-number]")].map((n) => n.getAttribute("aria-hidden"))).toEqual(["true", "true", "true", "true", "true"]);
+  });
+});
+
+describe("an update's change and its full body", () => {
+  const update = (previousBody: string, body: string) =>
+    draw(<GoogleMailApprovalCard operation="gmail.draft.save" effect="reversible" action="update" tainted={false} draftId={DRAFT_ID} threadId={null} message={withBody(body)} previousBody={previousBody} />);
+  /** Each change row as its sign and its drawn line. */
+  const changeRows = (doc: Document) =>
+    [...doc.querySelectorAll("[data-google-body-changes] [data-sign]")].map((row) => {
+      const sign = row.getAttribute("data-sign")!;
+      return sign === "…" ? row.textContent : `${sign}${drawnText(row.querySelector("[data-untrusted-field]")!)}`;
+    });
+
+  test("agree on every line, Markdown, spacing, a lone CR and hidden characters included", () => {
+    const changed = "  **Sail** at\t seven,  [now](https://tides.ithaca.example/now)\rOgygia\u{202E}";
+    const doc = update("Penelope,\nI'm still on Ogygia.\n\nO.", `Penelope,\n${changed}\n\nO.`);
+    const added = "  **Sail** at\t seven,  [now](https://tides.ithaca.example/now)‹U+000D›Ogygia‹U+202E›";
+    expect(changeRows(doc)).toEqual([" Penelope,", "-I'm still on Ogygia.", `+${added}`, " ", "… 1 unchanged line"]);
+    const lines = [...bodyOf(doc).querySelectorAll("[data-google-body-line]")].map(drawnText);
+    expect(lines).toEqual(["Penelope,", added, "", "O."]);
+    // The rows that are in the new body are its lines 1 to 3, as the full body draws them.
+    expect(changeRows(doc).filter((row) => row!.startsWith(" ") || row!.startsWith("+")).map((row) => row!.slice(1))).toEqual(lines.slice(0, 3));
+    expect([...doc.querySelector("[data-google-body-changes]")!.querySelectorAll(MARKUP)].map((el) => el.outerHTML)).toEqual([]);
+  });
+
+  test("a CRLF-for-LF swap is no change, and both draw the same lines", () => {
+    expect(bodyChanges("Penelope\r\nO.", "Penelope\nO.")).toEqual([]);
+    const doc = update("Penelope\r\nO.", "Penelope\nO.");
+    expect(doc.querySelector("[data-google-body-changes]")!.textContent).toBe("Changes to the bodyThe body is unchanged.");
+    expect(drawnBody(bodyOf(doc))).toBe("Penelope\nO.");
+  });
+
+  test("a blank line changed to spaces is a change, drawn with its spaces", () => {
+    expect(changeRows(update("a\n\nb", "a\n  \nb"))).toEqual([" a", "-", "+  ", " b"]);
+  });
+});
+
+/* ── The delete body, opened (F2) ──────────────────────────────────────── */
+
+describe("the draft delete body, expanded", () => {
+  const saved = new Map<string, PropertyDescriptor | undefined>();
+  const layout = new Map<string, PropertyDescriptor | undefined>();
+  let win: Window;
+  let root: Root | undefined;
+
+  beforeAll(() => {
+    win = new Window();
+    for (const [key, value] of Object.entries({ window: win, document: win.document, navigator: win.navigator, HTMLElement: win.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true })) {
+      saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+    }
+    // happy-dom lays nothing out. The clamp is six 18px rows; its content is taller, so the card measures a cut.
+    const proto = win.HTMLElement.prototype as unknown as object;
+    const sizes = { scrollHeight: 400, clientHeight: 108 };
+    for (const key of Object.keys(sizes) as (keyof typeof sizes)[]) {
+      layout.set(key, Object.getOwnPropertyDescriptor(proto, key));
+      Object.defineProperty(proto, key, {
+        configurable: true,
+        get(this: Element) {
+          return this.hasAttribute("data-google-body-clamp") ? sizes[key] : 0;
+        },
+      });
+    }
+  });
+  afterEach(async () => {
+    if (root) await act(async () => root!.unmount());
+    root = undefined;
+    win.document.body.innerHTML = "";
+  });
+  afterAll(() => {
+    const proto = win.HTMLElement.prototype as unknown as object;
+    for (const [key, descriptor] of layout) {
+      if (descriptor) Object.defineProperty(proto, key, descriptor);
+      else Reflect.deleteProperty(proto, key);
+    }
+    for (const [key, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  });
+
+  test.each(BODIES)("%s, drawn as sent once Show whole draft opens it", (_name, body, drawn, lines) => {
+    const host = win.document.createElement("div") as unknown as HTMLElement;
+    win.document.body.appendChild(host as never);
+    root = createRoot(host);
+    act(() => root!.render(<GoogleMailApprovalCard operation="gmail.draft.delete" tainted={false} draftId={DRAFT_ID} message={withBody(body)} />));
+    const clamp = bodyOf(host);
+    expect(clamp.className).toBe("bk-gma-clamp");
+    expect(clamp.hasAttribute("data-cut"), "the clamp measured a cut").toBe(true);
+    const open = [...host.querySelectorAll("button")].find((b) => b.textContent === "Show whole draft")!;
+    expect(open.getAttribute("aria-expanded")).toBe("false");
+    act(() => open.click());
+    expect(clamp.className, "the clamp is gone").toBe("");
+    expect([...host.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Show whole draft");
+    drawsAsSent(clamp, drawn, lines);
   });
 });
 
@@ -431,7 +656,7 @@ describe("the cards", () => {
 
   test("a draft delete with its message clamps the body behind Show whole draft", () => {
     const doc = draw(<GoogleMailApprovalCard operation="gmail.draft.delete" tainted={false} draftId={DRAFT_ID} message={fullMessage} />);
-    expect(doc.querySelector("[data-google-body] .bk-ut-clamp")).not.toBeNull();
+    expect(doc.querySelector("[data-google-body] [data-google-body-clamp]")!.className).toBe("bk-gma-clamp");
     expect(doc.querySelector("[data-google-envelope-summary]")!.textContent).toBe("To 1 · Cc 1 · Bcc 1");
     expect(doc.querySelectorAll("[data-google-match], [data-google-match-missing]")).toHaveLength(0);
   });

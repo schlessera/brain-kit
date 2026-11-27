@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, type CSSProperties, type FocusEvent, type ReactNode, type RefObject } from "react";
 import { Icon } from "../primitives/Icon.js";
 import { accent, color, font } from "../tokens.js";
-import { invisibleSegments, revealInvisibles } from "./reveal-invisibles.js";
+import { invisibleSegments, revealInvisibles, type InvisibleSegment } from "./reveal-invisibles.js";
 
 /**
  * Shared pieces of the Gmail components (#4209, epic #4201; design brief of
@@ -180,8 +180,12 @@ export function Field({ text, style, className }: { text: string; style?: CSSPro
 
 /** Text with each hidden character drawn as its marker chip. */
 function Revealed({ text }: { text: string }) {
-  const segments = invisibleSegments(text);
-  if (segments.length === 1 && segments[0]!.kind === "text") return <>{text}</>;
+  return <Segments segments={invisibleSegments(text)} />;
+}
+
+/** Revealed text, already split: each text run in its own `<bdi>`, each hidden character as its marker chip, named for a screen reader. */
+export function Segments({ segments }: { segments: readonly InvisibleSegment[] }) {
+  if (segments.length === 1 && segments[0]!.kind === "text") return <>{segments[0]!.text}</>;
   return (
     <>
       {segments.map((segment, i) =>

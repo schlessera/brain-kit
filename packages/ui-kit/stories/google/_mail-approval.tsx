@@ -74,6 +74,31 @@ export async function holds(canvasElement: HTMLElement, width: "narrow" | "deskt
   await expect(containment(card, untrusted), "untrusted text is on screen, and only inside a field or text block").toEqual({ unguarded: [], guarded: untrusted });
 }
 
+/** A node's text as drawn: text as written, each hidden-character chip as its marker, gutter numbers and screen-reader words left out. */
+function drawnText(el: Element): string {
+  let out = "";
+  for (const child of el.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE) out += child.nodeValue ?? "";
+    if (child.nodeType !== Node.ELEMENT_NODE) continue;
+    const e = child as Element;
+    if (e.hasAttribute("data-line-number") || e.classList.contains("bk-sr-only")) continue;
+    out += e.hasAttribute("data-hidden-char") ? e.getAttribute("data-hidden-char")! : drawnText(e);
+  }
+  return out;
+}
+
+/** A body's drawn lines, as text: what the recipient gets, hidden characters as their markers. */
+export const drawnLines = (container: Element) => [...container.querySelectorAll("[data-google-body-line]")].map(drawnText);
+
+/** The whole body as drawn, its lines joined by "\n". */
+export const drawnBody = (container: Element) => drawnLines(container).join("\n");
+
+/** One change row's line, as drawn. */
+export const drawnRow = (row: Element) => drawnText(row.querySelector("[data-untrusted-field]")!);
+
+/** What only Markdown would draw: none of it belongs in a plain-text body. */
+export const MARKUP = "strong, em, del, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, li, code, pre, a, button, img, [data-untrusted-link]";
+
 /** No standing choice of any kind: the element is not drawn, and neither are its words. */
 export async function noStandingChoice(card: HTMLElement) {
   await expect(card.querySelector("[data-kit-approval-actions]"), "the decision row is drawn").not.toBeNull();

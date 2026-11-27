@@ -11,7 +11,8 @@
  *   throughout (M3: no gate).
  * - **Baselines.** The defining states, at 320px and at the 680px desktop
  *   column, in dark and paper: a lost Bcc row, a collapsed envelope column, a
- *   cue that stopped fading or a banner that lost its provenance colour.
+ *   cue that stopped fading, a banner that lost its provenance colour, or a
+ *   body that stopped drawing its syntax, blank lines and spacing as written.
  *   Geometry, targets, copy, keys and containment are the stories' own plays.
  * - **Review captures.** Every story, at its width, in both themes, written to
  *   `packages/ui-kit/.vitest-attachments/google-mail-approval/` for the maintainer's sign-off
@@ -121,6 +122,8 @@ const BASELINES: [story: Runnable, name: string][] = [
   [stories.SendFullEnvelopeNarrow as unknown as Runnable, "gmail-approval-send-full-phone"],
   [stories.SendLongBodyNarrow as unknown as Runnable, "gmail-approval-send-long-phone"],
   [stories.SendHiddenCharsNarrow as unknown as Runnable, "gmail-approval-send-hidden-phone"],
+  [stories.SendMarkdownLiteralNarrow as unknown as Runnable, "gmail-approval-send-markdown-phone"],
+  [stories.SendSpacingLiteralNarrow as unknown as Runnable, "gmail-approval-send-spacing-phone"],
   [stories.DraftReplyNarrow as unknown as Runnable, "gmail-approval-draft-reply-phone"],
   [stories.DraftUpdate as unknown as Runnable, "gmail-approval-draft-update"],
   [stories.DraftDeleteNarrow as unknown as Runnable, "gmail-approval-draft-delete-phone"],
