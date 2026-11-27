@@ -436,11 +436,7 @@ function cmdScaffold(args: string[], jctx: JobsCtx): number {
 
   let salary: string | null = null;
   if (job.salary_raw) salary = job.salary_raw;
-  else if (job.salary_min || job.salary_max) {
-    const min = job.salary_min ? `€${Math.round(job.salary_min / 100).toLocaleString()}` : "?";
-    const max = job.salary_max ? `€${Math.round(job.salary_max / 100).toLocaleString()}` : "?";
-    salary = `${min} - ${max} (EUR, annual)`;
-  }
+  else if (job.salary_min || job.salary_max) salary = formatSalaryRange(job, { suffix: true });
 
   let scoreLine = `${Math.round(job.relevance_score)}/100`;
   if (job.score_breakdown) {

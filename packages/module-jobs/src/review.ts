@@ -193,17 +193,31 @@ export interface JobSummary extends Pick<JobRow,
   tags: string[];
 }
 
-/** Omit long descriptions; invalid or absent stored tags become an empty list. */
-export function projectJobSummary(job: JobRow): JobSummary {
+/** A job's stored tags; absent, invalid or non-string-array JSON is an empty list. */
+export function parseTags(job: Pick<JobRow, "tags">): string[] {
   let tags: unknown = [];
   try { tags = job.tags === null ? [] : JSON.parse(job.tags); } catch { /* invalid stored JSON */ }
+  return Array.isArray(tags) && tags.every((tag) => typeof tag === "string") ? tags : [];
+}
+
+/**
+ * `€<min> - €<max>` from annual EUR cents, `?` for a missing bound, grouped
+ * as `en-US` whatever the host locale; `suffix` appends ` (EUR, annual)`.
+ */
+export function formatSalaryRange(job: Pick<JobRow, "salary_min" | "salary_max">, { suffix }: { suffix: boolean }): string {
+  const bound = (cents: number | null): string => cents ? `€${Math.round(cents / 100).toLocaleString("en-US")}` : "?";
+  return `${bound(job.salary_min)} - ${bound(job.salary_max)}${suffix ? " (EUR, annual)" : ""}`;
+}
+
+/** Omit long descriptions; invalid or absent stored tags become an empty list. */
+export function projectJobSummary(job: JobRow): JobSummary {
   return {
     id: job.id, title: job.title, company: job.company, location: job.location,
     remote_type: job.remote_type, salary_raw: job.salary_raw,
     salary_min: job.salary_min, salary_max: job.salary_max, salary_currency: job.salary_currency,
     source: job.source, published_at: job.published_at, review_status: job.review_status,
     relevance_score: job.relevance_score,
-    tags: Array.isArray(tags) && tags.every((tag) => typeof tag === "string") ? tags : [],
+    tags: parseTags(job),
     url: job.url,
   };
 }
@@ -219,11 +233,7 @@ export function formatJobSummary(job: JobRow, rank?: number): string {
   const meta: string[] = [job.company];
   if (job.location) meta.push(job.location);
   if (job.salary_raw) meta.push(job.salary_raw);
-  else if (job.salary_min || job.salary_max) {
-    const min = job.salary_min ? `€${Math.round(job.salary_min / 100).toLocaleString()}` : "?";
-    const max = job.salary_max ? `€${Math.round(job.salary_max / 100).toLocaleString()}` : "?";
-    meta.push(`${min} - ${max}`);
-  }
+  else if (job.salary_min || job.salary_max) meta.push(formatSalaryRange(job, { suffix: false }));
   lines.push(`     ${meta.join(" | ")}`);
 
   const info: string[] = [`Source: ${job.source}`];
@@ -231,12 +241,8 @@ export function formatJobSummary(job: JobRow, rank?: number): string {
   if (job.review_status !== "queued") info.push(`Status: ${job.review_status}`);
   lines.push(`     ${info.join(" | ")}`);
 
-  if (job.tags) {
-    try {
-      const tags = JSON.parse(job.tags) as string[];
-      if (tags.length > 0) lines.push(`     Tags: ${tags.slice(0, 8).join(", ")}`);
-    } catch {}
-  }
+  const tags = parseTags(job);
+  if (tags.length > 0) lines.push(`     Tags: ${tags.slice(0, 8).join(", ")}`);
 
   if (job.url) lines.push(`     ${job.url}`);
 
@@ -259,17 +265,11 @@ export function formatJobDetail(job: JobRow): string {
   if (job.salary_raw) {
     lines.push(`Salary:     ${job.salary_raw}`);
   } else if (job.salary_min || job.salary_max) {
-    const min = job.salary_min ? `€${Math.round(job.salary_min / 100).toLocaleString()}` : "?";
-    const max = job.salary_max ? `€${Math.round(job.salary_max / 100).toLocaleString()}` : "?";
-    lines.push(`Salary:     ${min} - ${max} (EUR, annual)`);
+    lines.push(`Salary:     ${formatSalaryRange(job, { suffix: true })}`);
   }
 
-  if (job.tags) {
-    try {
-      const tags = JSON.parse(job.tags) as string[];
-      if (tags.length > 0) lines.push(`Tags:       ${tags.join(", ")}`);
-    } catch {}
-  }
+  const tags = parseTags(job);
+  if (tags.length > 0) lines.push(`Tags:       ${tags.join(", ")}`);
 
   if (job.published_at) lines.push(`Published:  ${job.published_at}`);
   if (job.expires_at) lines.push(`Expires:    ${job.expires_at}`);
