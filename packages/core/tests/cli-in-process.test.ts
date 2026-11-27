@@ -7,10 +7,12 @@
  * environment isolation) stays with the spawned runner.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 
+import * as cliMain from "../src/cli/main";
+import { setContext, type BrainContext } from "../src/lib/context";
 import { packageVersion } from "../src/package-version";
 import { cleanup, keylessEnv, makeTempBrain, runCli, type CliResult } from "./cli-harness";
 import { runCliInProcess } from "./cli-in-process-runner";
@@ -138,6 +140,42 @@ describe("runCliInProcess", () => {
     for (const key of [...Object.keys(keylessEnv(root)), "BRAIN_IN_PROCESS_PROBE", "GEMINI_API_KEY", "ANTHROPIC_API_KEY"]) {
       expect({ key, value: process.env[key] }).toEqual({ key, value: env[key] });
     }
+  }, 60_000);
+
+  test("a call that rejects after the harness replaced the console puts everything back (#4934)", async () => {
+    const names = ["log", "error", "warn", "info", "debug"] as const;
+    const before = names.map((name) => Object.getOwnPropertyDescriptor(console, name));
+    const writes = [process.stdout, process.stderr].map((stream) => Object.getOwnPropertyDescriptor(stream, "write"));
+    const env = { ...process.env };
+    const which = Bun.which;
+    // A brain context the call must clear for itself and hand back.
+    const sentinel = { root: "/ithaca" } as BrainContext;
+    const outer = setContext(sentinel);
+    let replaced: boolean[] = [];
+    let handedBack: BrainContext | null = null;
+    const fault = spyOn(cliMain, "runBrainCli").mockImplementation(async () => {
+      replaced = names.map((name, i) => Object.getOwnPropertyDescriptor(console, name)?.value !== before[i]?.value);
+      console.log("Odysseus sets sail");
+      process.stdout.write("from Ogygia\n");
+      throw new Error("the raft broke apart");
+    });
+    try {
+      await expect(runCliInProcess(root, ["--version"], { BRAIN_IN_PROCESS_PROBE: "set" })).rejects.toThrow("the raft broke apart");
+    } finally {
+      fault.mockRestore();
+      handedBack = setContext(outer);
+    }
+    // The fault ran with every console method already replaced.
+    expect(replaced).toEqual(names.map(() => true));
+    expect(names.map((name) => Object.getOwnPropertyDescriptor(console, name))).toEqual(before);
+    expect([process.stdout, process.stderr].map((stream) => Object.getOwnPropertyDescriptor(stream, "write"))).toEqual(writes);
+    expect(Bun.which).toBe(which);
+    for (const key of [...Object.keys(keylessEnv(root)), "BRAIN_IN_PROCESS_PROBE", "GEMINI_API_KEY", "ANTHROPIC_API_KEY"]) {
+      expect({ key, value: process.env[key] }).toEqual({ key, value: env[key] });
+    }
+    expect(handedBack).toBe(sentinel);
+    // The overlap guard was released: the next call runs.
+    expect((await runCliInProcess(root, ["--version"])).code).toBe(0);
   }, 60_000);
 
   test("two overlapping calls fail clearly instead of interleaving output", async () => {
