@@ -7,7 +7,7 @@ import { createClaudeBackend } from "../src/backend.js";
 import { createHistory } from "../src/history.js";
 import { createWorkerSpawn } from "../src/worker-spawn.js";
 import { createClaudeWorkerState } from "../src/worker-state.js";
-import { createStateLedger } from "../src/worker-state-budget.js";
+import { createStateLedger } from "@schlessera/brain-ui-sdk/internal";
 import { createFixtureWorkerStartupView, prepareFixtureNativeWorkerOutput } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import * as nativeOutput from "../../ui-sdk/src/server/worker-native-output.js";
 import { workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";

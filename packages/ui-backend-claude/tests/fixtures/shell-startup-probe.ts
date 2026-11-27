@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { LaunchedWorker } from "@schlessera/brain-ui-sdk/internal";
 import { createWorkerSpawn } from "../../src/worker-spawn.js";
-import { createStateLedger } from "../../src/worker-state-budget.js";
+import { createStateLedger } from "@schlessera/brain-ui-sdk/internal";
 import { nativeModelReply } from "../helpers/native-model-reply.js";
 import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 

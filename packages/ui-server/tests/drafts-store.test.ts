@@ -4,7 +4,9 @@ import type { SessionDraftLimits } from "@schlessera/brain-ui-sdk/protocol";
 
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
-import { createDraftStore, DraftError, draftPreview, hasImageSignature } from "../src/drafts/store";
+import { createDraftStore, DRAFT_WRITE_METHODS, DraftError, draftPreview, hasImageSignature } from "../src/drafts/store";
+import { createDraftWrites } from "../src/drafts/writes";
+import type { SqliteWriter } from "../src/db/write-worker";
 import { queryPlan, recordStatements } from "./helpers/statement-recorder";
 
 const dbs: Database[] = [];
@@ -172,4 +174,31 @@ test("saving new text to a draft with two images reads no image bytes, and the i
   expect(selects.filter(sql => readsColumn(db, sql, "session_draft_attachments", "bytes"))).toEqual([]);
   expect(store.get(owner, "draft-a")?.attachments.map(a => [a.attachmentId, a.name, a.bytes])).toEqual(
     ids.map((id, i) => [id, `shroud-${i}.png`, Buffer.from(images[i]!).toString("base64")]));
+});
+
+// Every mutating store method goes through the write channel (#4724); one
+// missing from DRAFT_WRITE_METHODS would commit on the app connection.
+const DRAFT_READ_METHODS = ["list", "get", "attachments", "attachmentRef", "attachmentReferenced", "attachmentInventory", "attachmentReads", "attachmentPoolBytes"];
+
+test("every draft store method is either a listed write or a known read", () => {
+  const { store } = setup();
+  const methods = Object.keys(store).filter(key => typeof (store as unknown as Record<string, unknown>)[key] === "function");
+  const unlisted = methods.filter(name => !(DRAFT_WRITE_METHODS as readonly string[]).includes(name) && !DRAFT_READ_METHODS.includes(name));
+  expect(unlisted, "DRAFT_MUTATIONS_ALL_LISTED").toEqual([]);
+  expect(DRAFT_WRITE_METHODS.filter(name => !methods.includes(name)), "DRAFT_WRITE_METHODS_EXIST").toEqual([]);
+});
+
+test("the draft write channel forwards every listed write", async () => {
+  const db = createUiDb(":memory:");
+  dbs.push(db);
+  const forwarded: unknown[] = [];
+  const writer: SqliteWriter = {
+    offloop: false,
+    channel: () => ({ ready: Promise.resolve(), call: <T>(_name: string, method: unknown) => { forwarded.push(method); return Promise.resolve(undefined as T); }, close: async () => {} }),
+    idle: async () => {},
+    close: async () => {},
+  };
+  const drafts = createDraftWrites(db, { now: () => 1_000_000 }, writer);
+  for (const method of DRAFT_WRITE_METHODS) await (drafts[method] as (...args: unknown[]) => Promise<unknown>)();
+  expect(forwarded, "EVERY_DRAFT_WRITE_FORWARDED").toEqual([...DRAFT_WRITE_METHODS]);
 });

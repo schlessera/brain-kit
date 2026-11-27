@@ -6,7 +6,8 @@ import { WorkerStateError } from "../../src/server/worker-state-budget.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../../src/protocol.js";
 import { launchAgentWorker, prepareWorkerSandbox, type WorkerLaunch } from "../../src/server/worker-launcher.js";
 import type { MaintenanceHost } from "../../src/server/maintenance-worker.js";
-import { prepareWorkerOutput } from "../../src/server/worker-output.js";
+import type { PreparedWorkerOutput } from "../../src/server/worker-native-output.js";
+import { prepareWorkerOutput } from "./worker-copy-output.js";
 
 export interface WorkerStartupStorage {
   readonly root: string;
@@ -214,13 +215,15 @@ export function prepareFixtureWorkerOutput(brain: string, options: Parameters<ty
   } catch (error) { if (!options.startupView) view.cleanup(); throw error; }
 }
 
-/** Explicit copied-input/output fixture for non-storage tests; never a production fallback. */
-export async function prepareFixtureNativeWorkerOutput(brain: string, options: { startupView: WorkerStartupView; areas?: readonly string[]; signal?: AbortSignal }): Promise<import("../../src/server/worker-native-output.js").PreparedWorkerOutput> {
-  options.signal?.throwIfAborted();
-  const view = createFixtureWorkerStartupView(options.startupView.root);
-  let publication: ReturnType<typeof prepareWorkerOutput>;
-  try { publication = prepareWorkerOutput(brain, { startupView: view, areas: options.areas }); }
-  catch (error) { await view.cleanup(); throw error; }
+/**
+ * Copy-staged output in the launcher's prepared-output shape. It owns the
+ * startup view reference it is given, as the launcher's `preparedOutput`
+ * does: cleanup releases the output, then the view.
+ */
+export function prepareFixtureLaunchOutput(brain: string, view: WorkerStartupView, areas?: readonly string[]): PreparedWorkerOutput {
+  let publication: ReturnType<typeof prepareFixtureWorkerOutput>;
+  try { publication = prepareFixtureWorkerOutput(brain, { startupView: view, areas }); }
+  catch (error) { view.cleanup(); throw error; }
   let cleanup: Promise<void> | undefined;
   return { view, output: publication.output,
     discardGit() { publication.discardGit(); },
@@ -230,12 +233,30 @@ export async function prepareFixtureNativeWorkerOutput(brain: string, options: {
   };
 }
 
-/** Real launcher with an explicit copied input lease for non-native runtime fixtures. */
+/** Explicit copied-input/output fixture for non-storage tests; never a production fallback. */
+export async function prepareFixtureNativeWorkerOutput(brain: string, options: { startupView: WorkerStartupView; areas?: readonly string[]; signal?: AbortSignal }): Promise<PreparedWorkerOutput> {
+  options.signal?.throwIfAborted();
+  return prepareFixtureLaunchOutput(brain, createFixtureWorkerStartupView(options.startupView.root), options.areas);
+}
+
+/**
+ * Real launcher with an explicit copied input lease for non-native runtime
+ * fixtures. A launch with writable areas gets copy-staged output prepared
+ * here, because the launcher publishes only prepared output.
+ */
 export function launchFixtureAgentWorker(input: WorkerLaunch) {
   if (input.sandbox?.profile === "governed") return launchAgentWorker(input);
   const startupView = input.startupView ?? createFixtureWorkerStartupView(input.brainPath, { omitGit: Boolean(input.restricted) });
-  try { return launchAgentWorker({ ...input, startupView }); }
-  catch (error) { if (!input.startupView) startupView.cleanup(); throw error; }
+  const areas = input.sandbox?.areas.filter(area => area.mount.writable).map(area => area.rel) ?? [];
+  let preparedOutput = input.preparedOutput;
+  try {
+    if (!preparedOutput && areas.length) preparedOutput = prepareFixtureLaunchOutput(input.brainPath, startupView, areas);
+    return launchAgentWorker({ ...input, startupView, ...(preparedOutput ? { preparedOutput } : {}) });
+  } catch (error) {
+    if (preparedOutput && !input.preparedOutput) void preparedOutput.cleanup().catch(() => undefined);
+    else if (!input.startupView) startupView.cleanup();
+    throw error;
+  }
 }
 
 /** Prepared Git/configuration input; caller owns cleanup after its maintenance reads. */

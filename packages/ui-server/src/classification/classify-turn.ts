@@ -31,7 +31,7 @@ import {
 
 import { attachMessageBlocks } from "./blocks-store.js";
 import * as classificationWrites from "./classification-writes.js";
-import { procedureCaller, type ProcedureCall, type SqliteWriter } from "../db/write-worker.js";
+import { procedureCaller, trackedCaller, type ProcedureCall, type SqliteWriter } from "../db/write-worker.js";
 import type { JevClient, JevOutcome } from "./jev-client.js";
 
 type PartKind = "text" | "thinking" | "tool";
@@ -108,14 +108,9 @@ export interface TurnClassifier {
 
 export function createTurnClassifier(deps: ClassificationPassDeps): TurnClassifier {
   let caller: ProcedureCall | undefined;
-  let tail: Promise<void> = Promise.resolve();
-  const submit = (name: string, ...args: unknown[]): Promise<void> => {
-    let done: Promise<void>;
-    try { caller ??= procedureCaller(deps.db(), classificationWrites, undefined, deps.writer); done = caller<void>(name, ...args); }
-    catch (error) { done = Promise.reject(error); }
-    tail = done.then(() => {}, () => {});
-    return done;
-  };
+  // Built on the first write; a throw while building it rejects that write.
+  const writes = trackedCaller((name, ...args) => (caller ??= procedureCaller(deps.db(), classificationWrites, undefined, deps.writer))(name, ...args));
+  const submit = (name: string, ...args: unknown[]): Promise<void> => writes.call<void>(name, ...args);
   const passes = deps.meter?.createCounter("classification.passes", {
     description: "Classification passes by outcome",
   });
@@ -185,7 +180,7 @@ export function createTurnClassifier(deps: ClassificationPassDeps): TurnClassifi
         });
       });
     },
-    async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
+    settled: writes.settled,
     attach(sessionId, messages) {
       try {
         return attachMessageBlocks(deps.db(), sessionId, messages);

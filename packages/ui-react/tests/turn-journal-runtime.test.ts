@@ -11,7 +11,7 @@ import { createRecordingObservability, resolveServerConfig } from "@schlessera/b
 import { createWriterGate } from "../../ui-server/src/brain/writer-gate.js";
 import { recordGovernanceEvent } from "../../ui-server/src/governance/events.js";
 import { createClaudeWorkerState } from "../../ui-backend-claude/src/worker-state.js";
-import { createStateLedger } from "../../ui-backend-claude/src/worker-state-budget.js";
+import { createStateLedger } from "../../ui-sdk/src/server/worker-state-budget.js";
 import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.js";
 import { MIN_BRAIN_CLI_VERSION } from "../../ui-server/src/brain/client";
 const executablePath = chromePath("turn-journal-runtime.test.ts");

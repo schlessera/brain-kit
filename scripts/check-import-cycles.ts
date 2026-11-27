@@ -41,18 +41,6 @@ export const ALLOWLIST: CycleAllowlistEntry[] = [
   { files: ["packages/ui-react/src/components/chat/brain-markdown.tsx", "packages/ui-react/src/components/chat/share-block.tsx"],
     reason: "permanent: mutual recursion by design; a share block renders markdown and markdown renders share blocks, inside components" },
 
-  // #4818 cuts the store ↔ write-procedure cycles in ui-server.
-  { files: ["packages/ui-server/src/activity/store-writes.ts", "packages/ui-server/src/activity/store.ts", "packages/ui-server/src/activity/turn-lifecycle.ts"],
-    reason: "store and its write-procedure module import each other; #4818 cuts the store-to-writes edge" },
-  { files: ["packages/ui-server/src/brain/governed-turn-writes.ts", "packages/ui-server/src/brain/provider-exposure.ts"],
-    reason: "store and its write-procedure module import each other; #4818 cuts the store-to-writes edge" },
-  { files: ["packages/ui-server/src/drafts/store.ts", "packages/ui-server/src/drafts/writes.ts"],
-    reason: "store and its write-procedure module import each other; #4818 cuts the store-to-writes edge" },
-  { files: ["packages/ui-server/src/inbox/resolve-writes.ts", "packages/ui-server/src/inbox/resolve.ts"],
-    reason: "store and its write-procedure module import each other; #4818 cuts the store-to-writes edge" },
-  { files: ["packages/ui-server/src/storage/maintenance-writes.ts", "packages/ui-server/src/storage/maintenance.ts"],
-    reason: "store and its write-procedure module import each other; #4818 cuts the store-to-writes edge" },
-
   // #4819 cuts the voice tray cycle in ui-react.
   { files: ["packages/ui-react/src/components/voice/associate-recordings.tsx", "packages/ui-react/src/components/voice/recordings-tray.tsx"],
     reason: "the tray and the associate dialog import each other for two label helpers; #4819 cuts it" },
@@ -60,8 +48,8 @@ export const ALLOWLIST: CycleAllowlistEntry[] = [
   // #2530 cuts the worker-runtime cycle in ui-sdk.
   { files: [
     "packages/ui-sdk/src/server/maintenance-worker.ts", "packages/ui-sdk/src/server/worker-launcher.ts",
-    "packages/ui-sdk/src/server/worker-output.ts", "packages/ui-sdk/src/server/worker-protection.ts",
-    "packages/ui-sdk/src/server/worker-sandbox.ts", "packages/ui-sdk/src/server/worker-turn-temp.ts",
+    "packages/ui-sdk/src/server/worker-protection.ts", "packages/ui-sdk/src/server/worker-sandbox.ts",
+    "packages/ui-sdk/src/server/worker-turn-temp.ts",
   ], reason: "the worker launcher and its helpers import each other; #2530 cuts it" },
 ];
 
