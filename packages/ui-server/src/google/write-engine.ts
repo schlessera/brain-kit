@@ -275,16 +275,22 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
           answer = await ctx.requestPermission({ kind: "google", toolUseId: cardId, toolName: ctx.toolName(call.tool), input: structuredClone(card),
             description: `Approve this ${decision.effect} Google change exactly as shown, once.` });
         } finally {
-          if (sendLocked) {
-            try { await options.state.releaseSendLock(sessionId, cardId, true); }
-            catch (cause) {
-              report(`Google card lock release failed: ${String(cause)}`);
-              releaseFailure = cause instanceof Error && cause.message === "Google send card lost its live lock"
-                ? error("card_lock_expired", "This approval card expired or lost its lock. Make a new request; nothing was sent.", "unavailable")
-                : stateUnavailable;
-              retryCleanup("Google card lock release", () => options.state.releaseSendLock(sessionId, cardId));
+          try {
+            // Keep the draft locked until this account is serialized again.
+            // Never hold the account lock while waiting for the card answer.
+            held = await lock.acquire(account, { signal: ctx.signal });
+          } finally {
+            if (sendLocked) {
+              try { await options.state.releaseSendLock(sessionId, cardId, true); }
+              catch (cause) {
+                report(`Google card lock release failed: ${String(cause)}`);
+                releaseFailure = cause instanceof Error && cause.message === "Google send card lost its live lock"
+                  ? error("card_lock_expired", "This approval card expired or lost its lock. Make a new request; nothing was sent.", "unavailable")
+                  : stateUnavailable;
+                retryCleanup("Google card lock release", () => options.state.releaseSendLock(sessionId, cardId));
+              }
+              sendLocked = false;
             }
-            sendLocked = false;
           }
         }
         if (releaseFailure) return await refused(releaseFailure);
@@ -293,11 +299,10 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
         if ((answer.always && !card.offers.allow_always) || (answer.forSession && !card.offers.allow_for_session) || (answer.always && answer.forSession))
           return await refused(error("standing_choice_unavailable", "This standing choice is not offered by this card; nothing was sent.", "approval_declined"), "declined");
         grant = answer.always ? "always" : answer.forSession ? "session" : undefined;
-        held = await lock.acquire(account, { signal: ctx.signal });
         failure = live();
         if (failure) return await refused(failure);
-        // This card's own send lock was released above. A card opened before
-        // another send must still respect that send's lock after reacquiring.
+        // This card's own send lock was released under the account lock.
+        // An older save/delete card must still respect another send's lock.
         if (draft && options.isDraftLocked(account, draft, hostEpoch, now())) return await refused(gogError("draft_locked", "draft_locked"));
         const refreshed = await prepare();
         if (preparedKey(refreshed) !== preparedKey(prepared)) return await refused(error("prepared_changed", "The prepared change no longer matches the approved card; call again."));
@@ -395,6 +400,9 @@ export function createGoogleWriteEngine(options: GoogleWriteOptions, principal: 
       if (!dispatched) return await withdraw(error("missing_admission", "The prepared write did not reach final admission."));
       if (!outcome.ok) {
         if (inverseId) { const id = inverseId; await cleanup("Google inverse unknown marking", () => options.state.markInverseUnknown(sessionId, id)); }
+        // Send factories own actionable replay guidance; retain it instead of
+        // suggesting a retry of bytes whose reservation remains pending.
+        if (operation === "gmail.draft.send" && outcome.error.code === "outcome_unknown") return refuse(outcome.error);
         const ambiguous = outcome.error.code === "outcome_unknown" || outcome.error.code === "upstream_error" || ctx.signal.aborted;
         return refuse(ambiguous ? gogError("outcome_unknown", outcome.error.reason ?? "dispatch_failed") : outcome.error);
       }

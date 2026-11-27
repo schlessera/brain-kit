@@ -7,9 +7,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { GOOGLE_OPERATIONS, type GoogleOperation } from "./catalog.js";
 
-// The pinned gog exit mapping proves only these causes did not send. Unknown
-// exits and generic exit 1 must retain their reservation (google/gog/errors.ts).
-const retryableSendCauses = ["spawn_failed", "usage", "auth_required", "config", "not_found", "forbidden", "rate_limited"];
+// Only code/reason pairs proven pre-request release a reservation. The spawn
+// catch is before any child exists (runGogProcess, packages/common/src/google/gog/runner.ts:94-108).
+// At gog 44364d31, usage/ErrReadOnly and CredentialsMissingError precede HTTP
+// (GmailSendCmd.runRaw, internal/cmd/gmail_send.go:259-292; stableExitCode,
+// internal/cmd/exit_codes.go:54-126). See wire.md for the full source chain.
+// HTTP refusals may follow an earlier accepted attempt inside gog's retry
+// transport. Never release an outcome_unknown code, even for a matching reason.
+const retryableSendCauses = ["transport_incompatible/spawn_failed", "transport_incompatible/usage", "unavailable/config"];
 const key = z.string().min(1).max(2048);
 const scopeSchema = z.strictObject({ principal_id: key, brain_id: key, account_identity: key });
 export interface GoogleApprovalScope { principal_id: string; brain_id: string; account_identity: string }
@@ -102,15 +107,10 @@ export function openGoogleLedger(path: string): GoogleLedger {
           UNIQUE(principal_id,brain_id,account_identity,operation,entity));
         CREATE TABLE IF NOT EXISTS sent_digests (
           account_identity TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','sent')),
-          created_at INTEGER NOT NULL, PRIMARY KEY(account_identity,digest));
+          created_at INTEGER NOT NULL, cause TEXT, PRIMARY KEY(account_identity,digest));
         CREATE TABLE IF NOT EXISTS standalone_inverses (
           id TEXT PRIMARY KEY, brain_id TEXT NOT NULL, account_identity TEXT NOT NULL, operation TEXT NOT NULL,
           state TEXT NOT NULL, inverse_json TEXT NOT NULL, precondition_json TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);`);
-      if (create) db.transaction(() => {
-        // Additive schema-v1 migration; old hosts still read pending/sent rows.
-        const columns = db.query<{ name: string }, []>("PRAGMA table_info(sent_digests)").all();
-        if (!columns.some(column => column.name === "cause")) db.exec("ALTER TABLE sent_digests ADD COLUMN cause TEXT");
-      }).immediate();
       return work(db);
     } finally { db.close(); }
   }
@@ -121,7 +121,7 @@ export function openGoogleLedger(path: string): GoogleLedger {
       return use(false, null, db => {
         // Schema-v1 ledgers predate sends. No table means no earlier send support.
         if (!db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sent_digests'").get()) return null;
-        const row = db.query<{ state: string; cause?: string | null }, [string, string]>("SELECT * FROM sent_digests WHERE account_identity=? AND digest=?").get(account, digest);
+        const row = db.query<{ state: string; cause: string | null }, [string, string]>("SELECT * FROM sent_digests WHERE account_identity=? AND digest=?").get(account, digest);
         if (!row) return null;
         if (row.state !== "pending" && row.state !== "sent") throw new Error("Unreadable Google send digest");
         if (row.state === "pending" && retryableSendCauses.includes(row.cause ?? "")) return null;

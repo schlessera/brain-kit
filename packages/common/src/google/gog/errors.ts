@@ -5,8 +5,8 @@
  * stderr and gog's JSON error envelope never reach the model: only a code, a
  * short machine reason and a fixed message. A write that may have reached
  * Google before it failed is `outcome_unknown` and is never retried; a write
- * that gog says Google refused (auth, not found, denied, rate limited) did
- * not happen.
+ * that gog says Google refused retains its final refusal code here. A send
+ * factory must account for gog-internal retries before inferring non-delivery.
  */
 import type { GoogleError, GoogleErrorCode } from "../catalog.js";
 

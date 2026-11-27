@@ -118,28 +118,41 @@ test("Google send digest unreadable state refuses without blocking unrelated app
 });
 
 
-test("Google schema-v1 ledgers gain failure causes without losing pending or sent evidence", () => {
+test("Google send digest retry clears its cause atomically across connections", () => {
   const path = resolve(scratch(), "ledger.sqlite"), ledger = openGoogleLedger(path), digest = "c".repeat(64);
   cleanups.push(() => ledger.close());
   ledger.reserveSentDigest("odysseus@example.com", digest, 1);
-  const db = new Database(path);
-  try { db.exec("ALTER TABLE sent_digests DROP COLUMN cause"); } finally { db.close(); }
-  expect(ledger.sentDigest("odysseus@example.com", digest), "DIGEST_OLD_PENDING_READABLE").toBe("pending");
-  expect(ledger.reserveSentDigest("odysseus@example.com", digest, 2), "DIGEST_MIGRATION_NO_RELEASE").toBe(false);
-  ledger.failSentDigest("odysseus@example.com", digest, "rate_limited");
+  ledger.failSentDigest("odysseus@example.com", digest, "transport_incompatible/usage");
   expect(ledger.sentDigest("odysseus@example.com", digest)).toBeNull();
   expect(ledger.reserveSentDigest("odysseus@example.com", digest, 3), "DIGEST_FAILED_REACQUIRED").toBe(true);
   const second = openGoogleLedger(path);
   try { expect(second.reserveSentDigest("odysseus@example.com", digest, 4), "DIGEST_RETRY_ATOMIC").toBe(false); } finally { second.close(); }
-  ledger.failSentDigest("odysseus@example.com", digest, "error");
+  ledger.failSentDigest("odysseus@example.com", digest, "outcome_unknown/error");
   expect(ledger.sentDigest("odysseus@example.com", digest), "DIGEST_GENERIC_UNKNOWN_RETAINED").toBe("pending");
   expect(ledger.reserveSentDigest("odysseus@example.com", digest, 5)).toBe(false);
   ledger.confirmSentDigest("odysseus@example.com", digest);
-  const read = new Database(path);
-  try {
-    expect(read.query("SELECT value FROM meta WHERE key='schema_version'").get()).toEqual({ value: "1" });
-    read.exec("ALTER TABLE sent_digests DROP COLUMN cause");
-  } finally { read.close(); }
-  expect(ledger.sentDigest("odysseus@example.com", digest), "DIGEST_OLD_SENT_READABLE").toBe("sent");
+  expect(ledger.sentDigest("odysseus@example.com", digest)).toBe("sent");
   expect(ledger.reserveSentDigest("odysseus@example.com", digest, 6)).toBe(false);
+});
+
+test("Google ledger made before sends still reads approvals without a sent_digests table", () => {
+  const path = resolve(scratch(), "ledger.sqlite"), ledger = openGoogleLedger(path);
+  cleanups.push(() => ledger.close());
+  const scope = { brain_id: "ithaca", principal_id: "odysseus", account_identity: "odysseus@example.com" };
+  ledger.remember(scope, "gmail.modify", ["archive"], 1);
+  const db = new Database(path);
+  try { db.exec("DROP TABLE sent_digests"); } finally { db.close(); }
+  expect(ledger.approvals(scope), "PRE_SEND_APPROVALS_READABLE").toMatchObject([{ ...scope, operation: "gmail.modify", entity: "archive" }]);
+  expect(ledger.sentDigest(scope.account_identity, "a".repeat(64))).toBeNull();
+  expect(ledger.reserveSentDigest(scope.account_identity, "a".repeat(64), 2)).toBe(true);
+  expect(ledger.approvals(scope)).toHaveLength(1);
+});
+
+for (const reason of ["spawn_failed", "usage", "config"]) test(`Google unknown send cannot release on a colliding ${reason} reason`, () => {
+  const path = resolve(scratch(), "ledger.sqlite"), ledger = openGoogleLedger(path), digest = "d".repeat(64);
+  cleanups.push(() => ledger.close());
+  ledger.reserveSentDigest("odysseus@example.com", digest, 1);
+  ledger.failSentDigest("odysseus@example.com", digest, `outcome_unknown/${reason}`);
+  expect(ledger.sentDigest("odysseus@example.com", digest), "DIGEST_UNKNOWN_CODE_RETAINED").toBe("pending");
+  expect(ledger.reserveSentDigest("odysseus@example.com", digest, 2)).toBe(false);
 });

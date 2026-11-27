@@ -5,10 +5,11 @@ import { resolve } from "node:path";
 import { createGogTransport } from "@schlessera/brain-common/internal/google-gog";
 import { openGoogleLedger } from "@schlessera/brain-common/internal/google-ledger";
 import type { GoogleToolCall } from "@schlessera/brain-ui-sdk/tool-contracts";
+import * as sdkServer from "@schlessera/brain-ui-sdk/server";
 import type { PermissionDecision, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import { createUiDb } from "../src/db/client.js";
 import { createPrincipal } from "../src/db/principals.js";
-import { createGoogleToolsHost, type GoogleToolsTurn } from "../src/google/host.js";
+import { createGoogleToolsHost, type GoogleToolsTurn, type GoogleCallAudit } from "../src/google/host.js";
 import { createGoogleStateWrites, isDraftSendLocked } from "../src/google/state-writes.js";
 import { createGoogleAllowances } from "../src/google/allowances.js";
 import { createGmailWriteFactories } from "../src/google/reversible.js";
@@ -28,7 +29,7 @@ function fixture(mode: "allow" | "ask" = "allow", options: { hidden?: string[]; 
   const fake = createFakeGog(sendScenario()); cleanups.push(() => fake.dispose());
   const transport = createGogTransport({ binary: fake.binary, account: "ithaca", environment: fake.environment, retryDelayMs: 0 });
   const credential = { transport: () => ({ ok: true as const, transport }) };
-  const state = createGoogleStateWrites(db), cards: PermissionRequest[] = [];
+  const state = createGoogleStateWrites(db), cards: PermissionRequest[] = [], audits: GoogleCallAudit[] = [];
   const policy = googlePolicy(mode);
   policy.gmail.hidden_labels = options.hidden ?? [];
   policy.limits.items_per_call = options.items ?? 25; policy.limits.reversible_per_turn = options.turn ?? 25;
@@ -39,11 +40,12 @@ function fixture(mode: "allow" | "ask" = "allow", options: { hidden?: string[]; 
     write: { signal: new AbortController().signal, toolName: name => name, isCurrent: () => true, safety: () => safety, routingNow: () => routing,
       record: (...args) => state.commitGoogleDecision(...args), requestPermission: async request => { cards.push(request); return answer(request); } } };
   const host = createGoogleToolsHost({ credential, principal: () => "owner", untrusted: async () => { tainted = true; },
+    audit: (_scope, event) => { audits.push(event); },
     writes: { brainId: "brain", hostEpoch: "ithaca-epoch", ledger: () => ledger, allowances: createGoogleAllowances(db),
       resolveAccount: () => transport.resolveAccount(), currentPolicyHash: () => "ithaca", state, ready: () => true, currentPolicy: () => current,
       isDraftLocked: (account, draft, epoch, now) => isDraftSendLocked(db, "brain", account, draft, epoch, now), preparedWrites: createGmailWriteFactories({ db, credential, brainId: "brain", ledger: () => ledger }) } });
   cleanups.push(() => host.close?.());
-  return { db, fake, transport, turn, cards, ledger, owner, policy, state, ledgerPath: resolve(dir, "ledger.db"), call: (call: GoogleToolCall) => host.call(turn, call),
+  return { db, fake, transport, turn, cards, audits, ledger, owner, policy, state, ledgerPath: resolve(dir, "ledger.db"), call: (call: GoogleToolCall) => host.call(turn, call),
     syncPolicy: () => { current = structuredClone(policy); },
     answer: (next: typeof answer) => { answer = next; },
     change: (kind: string) => { if (kind === "taint") tainted = true; if (kind === "untaint") tainted = false; if (kind === "routing") routing = "recipient_restricted";
@@ -324,7 +326,7 @@ for (const call of [{ tool: "brain_google_gmail_draft", input: { action: "update
     expect(f.fake.callsOf("gmail.drafts.delete"), "ONLY_SEND_CLEANUP_DELETES").toHaveLength(1);
   });
 
-for (const [exit, cause] of [[7, "rate_limited"], [2, "usage"], [4, "auth_required"], [10, "config"], [5, "not_found"], [6, "forbidden"], [null, "spawn_failed"]] as const)
+for (const [exit, cause] of [[2, "transport_incompatible/usage"], [10, "unavailable/config"], [null, "transport_incompatible/spawn_failed"]] as const)
   test(`google definitive send failure ${cause} permits a newly approved retry`, async () => {
     const f = fixture();
     let spawnSpy: ReturnType<typeof spyOn> | undefined;
@@ -353,7 +355,7 @@ for (const exit of [1, 8]) test(`google ambiguous send exit ${exit} stays pendin
   const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.send": { exit } });
   expect(await f.call(send)).toMatchObject({ ok: false, error: { code: "outcome_unknown" } });
   const ledgerDb = new Database(f.ledgerPath);
-  try { expect(ledgerDb.query("SELECT state,cause FROM sent_digests").all()).toEqual([{ state: "pending", cause: exit === 1 ? "error" : "retryable" }]); }
+  try { expect(ledgerDb.query("SELECT state,cause FROM sent_digests").all()).toEqual([{ state: "pending", cause: exit === 1 ? "outcome_unknown/error" : "outcome_unknown/retryable" }]); }
   finally { ledgerDb.close(); }
   expect(await f.call(send), "SEND_AMBIGUOUS_NOT_RELEASED").toMatchObject({ ok: false, error: { reason: "digest_pending", message: expect.stringContaining("edit the draft") } });
   expect(f.cards).toHaveLength(1); expect(f.fake.callsOf("gmail.send")).toHaveLength(1);
@@ -368,10 +370,11 @@ test("google unavailable dispatch reservation records refusal with no dispatch c
   expect(f.fake.callsOf("gmail.send")).toHaveLength(0);
 });
 
-for (const [response, deleted] of [[{ exit: 6 }, false], [{ exit: 8 }, null], [{ signal: "SIGTERM" }, null], [{ stdout: { deleted: true, draftId: DRAFT, unexpected: true } }, null]] as const)
+for (const [response, deleted] of [[{ exit: 6 }, false], [{ exit: 8 }, null], [{ signal: "SIGTERM" }, null], [{ stdout: { deleted: true, draftId: DRAFT, unexpected: true } }, null], [{ stdout: { deleted: true, draftId: "r-987654321" } }, null]] as const)
   test(`google cleanup reports ${JSON.stringify(response)} honestly`, async () => {
     const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.drafts.delete": response });
     expect(await f.call(send), "SEND_CLEANUP_TRI_STATE").toMatchObject({ ok: true, result: { draft_deleted: deleted } });
+    expect(f.audits.at(-1), "SEND_CLEANUP_AUDIT").toMatchObject({ operation: "gmail.draft.send", outcome: "returned", reason: "draft_cleanup_incomplete" });
     expect(await f.call(send)).toMatchObject({ ok: false, error: { code: "already_sent" } });
   });
 
@@ -379,4 +382,86 @@ test("google oversized subject names its card schema field", async () => {
   const f = fixture(); setRaw(f, mail().replace("Subject: Ithaca", `Subject: ${"O".repeat(501)}`));
   expect(await f.call(send), "SEND_CARD_SCHEMA_REASON").toMatchObject({ ok: false, error: { reason: "card_schema", message: expect.stringContaining("subject") } });
   expect(f.cards).toHaveLength(0); expect(f.fake.callsOf("gmail.send")).toHaveLength(0);
+});
+
+const retriedSendMessage = "Gmail refused this send, but gog retries a send after a server error, so an earlier attempt may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again.";
+for (const [exit, code, reason] of [[4, "unavailable", "auth_required"], [5, "not_found", null], [6, "forbidden", null], [7, "rate_limited", null]] as const)
+  test(`google send refusal ${reason ?? code} stays pending because gog may have retried`, async () => {
+    const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.send": { exit } });
+    expect(await f.call(send), "SEND_RETRIED_REFUSAL_UNKNOWN").toMatchObject({ ok: false, error: {
+      code: "outcome_unknown", reason: reason ?? code, message: retriedSendMessage } });
+    const ledgerDb = new Database(f.ledgerPath);
+    try { expect(ledgerDb.query("SELECT state,cause FROM sent_digests").all(), "SEND_REFUSAL_PAIR_DURABLE").toEqual([{ state: "pending", cause: `${code}/${reason}` }]); }
+    finally { ledgerDb.close(); }
+    f.fake.setScenario(sendScenario());
+    expect(await f.call(send), "SEND_RETRIED_REFUSAL_NOT_RELEASED").toMatchObject({ ok: false, error: { reason: "digest_pending" } });
+    expect(f.cards).toHaveLength(1); expect(f.fake.callsOf("gmail.send")).toHaveLength(1);
+    expect(await f.call(trash), "SEND_PENDING_OTHER_OPERATION_USABLE").toMatchObject({ ok: true });
+  });
+
+test("google send failure recording retains its specific recovery message", async () => {
+  const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.send": { exit: 2 } });
+  const spy = spyOn(f.ledger, "failSentDigest").mockImplementation(() => { throw new Error("Ithaca receipt unavailable"); });
+  cleanups.push(() => spy.mockRestore());
+  expect(await f.call(send), "SEND_FAILURE_RECORDING_MESSAGE").toMatchObject({ ok: false, error: {
+    code: "outcome_unknown", reason: "digest_failure_recording_failed",
+    message: "The send failure could not be recorded. Check Gmail's Sent folder, or edit the draft to send new bytes." } });
+  expect(await f.call(send)).toMatchObject({ ok: false, error: { reason: "digest_pending" } });
+});
+
+test("google send keeps its draft lock while an older save answers before account reacquisition", async () => {
+  // Pause just the send's account-lock reacquisition; keep the real lock for
+  // every other call so the older save can win that race deterministically.
+  const createLock = sdkServer.createKeyedLock;
+  const locks: ReturnType<typeof createLock>[] = [];
+  const createSpy = spyOn(sdkServer, "createKeyedLock").mockImplementation((...args) => {
+    const lock = createLock(...args); locks.push(lock); return lock;
+  });
+  cleanups.push(() => createSpy.mockRestore());
+  const f = fixture(); createSpy.mockRestore();
+  const accountLock = locks[0]!;
+  const resolvers: Array<(d: PermissionDecision) => void> = [];
+  let shown!: () => void;
+  let nextCard = new Promise<void>(resolve => { shown = resolve; });
+  f.answer(() => new Promise(resolve => { resolvers.push(resolve); shown(); }));
+  const saving = f.call({ tool: "brain_google_gmail_draft", input: { action: "update", draft_id: DRAFT, body: "Keep weaving." } });
+  await nextCard;
+  nextCard = new Promise<void>(resolve => { shown = resolve; });
+  const sending = f.call(send);
+  await nextCard;
+  let reached!: () => void, resume!: () => void;
+  const reacquiring = new Promise<void>(resolve => { reached = resolve; });
+  const gate = new Promise<void>(resolve => { resume = resolve; });
+  const acquire = accountLock.acquire.bind(accountLock);
+  const acquireSpy = spyOn(accountLock, "acquire").mockImplementationOnce(async (...args) => {
+    reached(); await gate; return acquire(...args);
+  });
+  cleanups.push(() => acquireSpy.mockRestore());
+  resolvers[1]!({ behavior: "allow" });
+  await reacquiring;
+  resolvers[0]!({ behavior: "allow" });
+  try {
+    expect(await saving, "SEND_REACQUIRE_WINDOW_SAVE_REFUSED").toMatchObject({ ok: false, error: { code: "draft_locked" } });
+    expect(f.fake.callsOf("gmail.drafts.update")).toHaveLength(0);
+  } finally { resume(); await sending; }
+  expect(await sending).toMatchObject({ ok: true });
+  expect(f.db.query("SELECT * FROM google_send_locks").all()).toEqual([]);
+});
+
+for (const [name, answer, reason] of [
+  ["declined", { behavior: "deny", message: "Keep this draft." }, "declined"],
+  ["edited", { behavior: "allow", updatedInput: {} }, "edited"],
+  ["standing", { behavior: "allow", always: true }, "standing_choice_unavailable"],
+] as const) test(`google ${name} send answer releases both locks`, async () => {
+  const f = fixture(); f.answer(async () => answer);
+  expect(await f.call(send)).toMatchObject({ ok: false, error: { reason } });
+  expect(f.db.query("SELECT * FROM google_send_locks").all()).toEqual([]);
+  f.answer(async () => ({ behavior: "allow" }));
+  expect(await f.call(send), "SEND_REFUSED_CARD_LOCKS_RELEASED").toMatchObject({ ok: true });
+});
+
+test("google other writes keep the generic ambiguous outcome message", async () => {
+  const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.drafts.delete": { exit: 8 } });
+  expect(await f.call(remove), "OTHER_WRITE_AMBIGUITY_UNCHANGED").toMatchObject({ ok: false, error: {
+    code: "outcome_unknown", message: "The write may or may not have happened at Google; check before trying again." } });
 });

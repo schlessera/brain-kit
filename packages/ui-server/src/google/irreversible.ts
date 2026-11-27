@@ -71,8 +71,14 @@ export function createGmailIrreversibleFactories(options: { credential: Pick<Goo
         if (!answer.ok) {
           if (notDispatched) return { ...answer, notDispatched: true };
           if (reserved) {
-            try { ledger().failSentDigest(accountIdentity, digest, answer.error.reason ?? answer.error.code); }
+            try { ledger().failSentDigest(accountIdentity, digest, `${answer.error.code}/${answer.error.reason}`); }
             catch { return { ok: false, error: { code: "outcome_unknown", reason: "digest_failure_recording_failed", message: "The send failure could not be recorded. Check Gmail's Sent folder, or edit the draft to send new bytes." } }; }
+            // A final HTTP/auth refusal can follow a delivered attempt that gog
+            // retried internally. Keep these bytes pending and explain why.
+            if ((answer.error.code === "unavailable" && answer.error.reason === "auth_required") ||
+                ["not_found", "forbidden", "rate_limited"].includes(answer.error.code))
+              return { ok: false, error: { code: "outcome_unknown", reason: answer.error.reason ?? answer.error.code,
+                message: "Gmail refused this send, but gog retries a send after a server error, so an earlier attempt may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again." } };
           }
           return answer;
         }
