@@ -1,17 +1,11 @@
-import { runtimeHookPhases } from "./fixtures/runtime-hook-phases";
-import { runtimePackageBuild } from "./fixtures/runtime-package-build";
+import { chromePath, startRuntimeHost, type RuntimeHost } from "./fixtures/runtime-host";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { statSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { chromium, type Browser, type BrowserContextOptions, type Page } from "playwright";
-import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
-import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
+import type { Browser, BrowserContextOptions, Page } from "playwright";
+import { createRecordingObservability, resolveServerConfig } from "@schlessera/brain-ui-server";
 import { requireTurnFreeSpace } from "../../ui-server/tests/helpers/turn-free-space.js";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
-import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 
 // Trackers end to end (#948, D52 §4), on the real public ChatPage in real
 // Chrome against the real app and its recovery route: leave a running
@@ -20,16 +14,11 @@ import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 // only once the latest turn is actually on screen: not while a panel covers
 // Chat, not while the transcript is scrolled up. Keyless: the backend is
 // scripted, and each turn waits until the test lets it finish.
-const candidates = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
-const executablePath = candidates.find((path) => path && statSync(path, { throwIfNoEntry: false })?.isFile());
-if (!executablePath && process.env.BRAIN_REQUIRE_CHROME === "1") throw new Error("Tracker runtime proof requires real Chrome");
-if (!executablePath) console.warn("SKIPPING tracker runtime proof: no Chrome; trackers are unverified in a browser locally.");
+const executablePath = chromePath("tracker-runtime.test.ts");
 
-const repo = resolve(import.meta.dir, "../../..");
+let host: RuntimeHost | undefined;
+let backend: AgentBackend;
 let browser: Browser | undefined;
-let app: Awaited<ReturnType<typeof createApp>> | undefined;
-let server: ReturnType<typeof Bun.serve> | undefined;
-let scratch: string | undefined;
 let origin = "";
 let sequence = 0;
 const transcripts = new Map<string, SessionHistoryMessage[]>();
@@ -41,22 +30,7 @@ const LOG = Array.from({ length: 60 }, (_, i) => `Day ${i + 1}: the wax held, an
 
 beforeAll(async () => {
   if (!executablePath) return;
-  const [out, err, code] = await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], runtimeHookPhases("tracker-runtime.test.ts"));
-  if (code !== 0) throw new Error(`Tracker fixture package build failed (${code}): ${out}\n${err}`);
-  scratch = await mkdtemp(resolve(tmpdir(), "odysseus-trackers-"));
-  const brain = resolve(scratch, "brain");
-  await createFixtureBrain(repo, brain);
-  requireTurnFreeSpace(brain);
-  const assets = resolve(scratch, "client");
-  await mkdir(assets);
-  const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/tracker-runtime-client.ts"), assets], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [bundleOut, bundleErr, bundleCode] = await Promise.all([new Response(bundle.stdout).text(), new Response(bundle.stderr).text(), bundle.exited]);
-  if (bundleCode !== 0) throw new Error(`Tracker client build failed (${bundleCode}): ${bundleOut}\n${bundleErr}`);
-  await writeFile(resolve(assets, "index.html"), '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
-  for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) {
-    await writeFile(resolve(assets, file!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
-  }
-  const backend: AgentBackend = {
+  backend = {
     id: "trackers-scripted", capabilities: { resume: true, permissions: false, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false },
     listProfiles: () => [{ id: "trackers-scripted", label: "Local fixture" }],
     listSessions: async () => [...transcripts.keys()].map((id) => ({ id, title: "The voyage home", createdAt: 1, lastActiveAt: 2, totalCostUsd: 0, numTurns: 1 })),
@@ -77,19 +51,24 @@ beforeAll(async () => {
       bridge.emit({ type: "result", sessionId, outcome: "success", durationMs: 0, numTurns: 1, isError: false });
     },
   };
-  app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(scratch, "ui.db"), AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }), staticRoot: assets, registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(), turnTimeoutMs: 60_000 });
-  server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
-  origin = `http://127.0.0.1:${server.port}`;
-  browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 });
 }, 180_000);
+
+// The real app, client and Chrome around the scripted backend (#4841). The
+// package build comes before Chrome's own 120 s launch watchdog, so this hook
+// allows more than the setup did as one hook.
+beforeAll(async () => {
+  if (!executablePath) return;
+  host = await startRuntimeHost({ file: "tracker-runtime.test.ts", executablePath, packages: ["ui-react", "ui-server", "core"], scratchPrefix: "odysseus-trackers-",
+    client: resolve(import.meta.dir, "fixtures/tracker-runtime-client.ts"), seed: async ({ brain }) => requireTurnFreeSpace(brain),
+    page: '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>',
+    app: { backend, observability: createRecordingObservability(), turnTimeoutMs: 60_000,
+      config: ({ brain, db }) => resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: db, AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }) } });
+  ({ browser, origin } = host);
+}, 240_000);
 
 afterAll(async () => {
   for (const release of gates.values()) release();
-  await browser?.close();
-  server?.stop(true);
-  app?.cancelActiveTurns();
-  await app?.close();
-  if (scratch) await rm(scratch, { recursive: true, force: true });
+  await host?.close();
 });
 
 type Fixture = {
