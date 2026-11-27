@@ -1,6 +1,6 @@
 import { BaseAdapter } from "./base.js";
 import type { RawJob } from "../types.js";
-import type { AdapterRunOptions } from "@schlessera/brain-scrape";
+import { stripHtml, type AdapterRunOptions } from "@schlessera/brain-scrape";
 
 // SimplyHired uses Chakra UI with consistent class patterns
 const BASE_URL = "https://www.simplyhired.com/search";
@@ -77,7 +77,7 @@ export class SimplyHiredAdapter extends BaseAdapter {
 
     while ((match = linkRegex.exec(html)) !== null) {
       const [, href, id, titleHtml] = match;
-      const title = this.stripHtml(titleHtml).trim();
+      const title = stripHtml(titleHtml).trim();
 
       // Skip navigation/filter links, only want actual job titles
       if (!id || seen.has(id) || title.length < 5 || href.includes("clk")) continue;
@@ -96,13 +96,13 @@ export class SimplyHiredAdapter extends BaseAdapter {
         context.match(/class="[^"]*company[^"]*"[^>]*>([\s\S]*?)<\//) ||
         context.match(/<span[^>]*data-testid="[^"]*company[^"]*"[^>]*>([\s\S]*?)<\//) ||
         context.match(/class="[^"]*employer[^"]*"[^>]*>([\s\S]*?)<\//);
-      const company = companyMatch ? this.stripHtml(companyMatch[1]) : "Unknown";
+      const company = companyMatch ? stripHtml(companyMatch[1]) : "Unknown";
 
       // Extract location
       const locationMatch =
         context.match(/class="[^"]*location[^"]*"[^>]*>([\s\S]*?)<\//) ||
         context.match(/Remote[^<]*/i);
-      const location = locationMatch ? this.stripHtml(locationMatch[0]) : "Remote";
+      const location = locationMatch ? stripHtml(locationMatch[0]) : "Remote";
 
       // Extract salary
       const salaryMatch = context.match(
