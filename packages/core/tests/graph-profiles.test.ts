@@ -705,6 +705,28 @@ describe("local graph and graph meta cost (#4789)", () => {
     expect(sortedEdges(discovery.edges)).toEqual(["1>2", "1>3", "2>8", "3>4", "4>1"]);
   });
 
+  test("on the fleet ledger, capped cluster and discovery scenes keep the same nodes and exactly the edges between them", () => {
+    const fleet = fleetBrain();
+    const oracle = cli(fleet, (db) => db.query<{ source: number; target: number }, []>(joinedEdges(UI_GRAPH_PROFILE)).all());
+    const between = (nodes: { id: number }[]) => {
+      const kept = new Set(ids(nodes));
+      return sortedEdges(oracle.filter((e) => kept.has(e.source) && kept.has(e.target)));
+    };
+    const top = (n: number) => Array.from({ length: n }, (_, i) => 100 + ENTRIES - n + i);
+    // Clusters keep the hub and the highest-ranked entries.
+    const clusters = ok(queries.readGraphClusters({ brainPath: fleet }));
+    expect(clusters.truncated).toBe(true);
+    expect(ids(clusters.nodes).sort((a, b) => a - b)).toEqual([1, ...top(4999)]);
+    expect(sortedEdges(clusters.edges)).toEqual(between(clusters.nodes));
+    expect(clusters.edges).toHaveLength(4999);
+    // Discovery from the hub walks its out-links in link order until the cap.
+    const discovery = ok(queries.readGraphDiscovery({ brainPath: fleet, root: "crew/odysseus.md" }));
+    expect(discovery.truncated).toBe(true);
+    expect(ids(discovery.nodes).sort((a, b) => a - b)).toEqual([1, ...Array.from({ length: 4999 }, (_, i) => 100 + i)]);
+    expect(sortedEdges(discovery.edges)).toEqual(between(discovery.nodes));
+    expect(discovery.edges).toHaveLength(4999);
+  });
+
   test("a neighborhood scene holds exactly the edges between its nodes", () => {
     for (const direction of ["both", "in", "out"] as const) {
       for (const depth of [1, 2, 3]) {
