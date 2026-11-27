@@ -31,7 +31,7 @@ export const PROVIDER_RELAY_PLACEHOLDER = "brain-provider-relay-placeholder";
 export type ProviderRelayFamily = "gemini" | "anthropic" | "openai" | "typesafe";
 
 /** Credential headers the CLI never sends to the relay, whatever a provider SDK set. */
-const CREDENTIAL_HEADERS = ["authorization", "x-api-key", "x-goog-api-key", "api-key", "cookie", "proxy-authorization"];
+export const CREDENTIAL_HEADERS = ["authorization", "x-api-key", "x-goog-api-key", "api-key", "cookie", "proxy-authorization"];
 
 /**
  * The value of a provider key this process may send itself, or undefined. The

@@ -70,7 +70,7 @@ try {
       apifyPolicy(brain, turnIndex === 0 ? null : { enabled: true, discovery: "ask", actors: "ask", limits: APIFY_LIMITS });
       queue = [...SCRIPT[turnIndex]!];
       const controller = new AbortController();
-      const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] });
+      const sandbox = prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] });
       const view = createFixtureWorkerStartupView(brain);
       const turnId = `odysseus-apify-${turnIndex}`;
       const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: {

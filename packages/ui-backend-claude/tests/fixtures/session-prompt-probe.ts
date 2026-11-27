@@ -35,7 +35,7 @@ try {
   for (let index = 0; index < 6; index++) {
     const abortController = new AbortController();
     const workerStartupView = createFixtureWorkerStartupView(brainPath, { omitGit: true });
-    const sandbox = prepareFixtureWorkerSandbox(brainPath, { home: process.env.HOME, profile: index === 0 || index === 3 ? "strict" : "governed", areas: [] });
+    const sandbox = prepareFixtureWorkerSandbox(brainPath, { profile: index === 0 || index === 3 ? "strict" : "governed", areas: [] });
     const turn = createClaudeSdkTurn({ backend: { brainPath, ...(!nativeSnapshot ? { systemPromptAppend: `Odysseus surface revision ${index}` } : {}) },
       req: { workerStartupView, workerSandbox: { ...sandbox, noteFacts: { ...sandbox.noteFacts, history: { journal: index > 0, userRevert: index > 0 && index !== 3 } } },
         sessionId, prompt: original[index]!, signal: abortController.signal, turnBudgetMs: index === 0 ? 60000 : 120000,

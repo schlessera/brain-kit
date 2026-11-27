@@ -1,5 +1,6 @@
 /** Host-only identity broker client. No authority from this module enters a payload. */
 import { closeSync, constants, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, rmSync, statfsSync } from "node:fs";
+import { parseProcStat } from "./proc-identity.js";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { workerIdentityHelperInput } from "../config/env.js";
@@ -44,8 +45,7 @@ export function workerIdentityHelper(): string | undefined {
 
 /** Original process identity; PID alone never authenticates a retained launch. */
 function processIdentity(pid: number): { pid: number; start: string } {
-  const fields = readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ");
-  return { pid, start: fields[19]! };
+  return { pid, start: parseProcStat(readFileSync(`/proc/${pid}/stat`, "utf8")).start };
 }
 
 /** Construct the coordinator argv after the unchanged worker-entry descriptor filter. */
