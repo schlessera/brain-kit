@@ -119,6 +119,31 @@ describe("the boot-config rule", () => {
   });
 });
 
+describe("the tmp-path rule", () => {
+  // Spelled through TMP so this file's own source holds no such path.
+  const TMP = "tmpdir()";
+
+  test("a new unmarked path under tmpdir() fails with the file and line", () => {
+    const root = tree({ "packages/core/tests/ithaca-temp.test.ts": `const root = "x";\nconst db = join(${TMP}, "ithaca.db");\n` });
+    expect(scanTree(root).findings).toEqual([{ rule: "tmp-path", file: "packages/core/tests/ithaca-temp.test.ts", line: 2, name: `join(${TMP}` }]);
+    const gate = runGate(root);
+    expect(gate.code).toBe(1);
+    expect(gate.stderr).toContain(`packages/core/tests/ithaca-temp.test.ts:2: join(${TMP}`);
+    expect(scanSource("tests/a.test.ts", `const db = resolve(os.${TMP}, "ithaca.db");\n`)).toHaveLength(1);
+  });
+
+  test("a marked line, a marker on the line above and a mkdtemp argument pass", () => {
+    for (const text of [
+      `const missing = join(${TMP}, "no-such-chrome"); // tmp-path: an executable that must not exist\n`,
+      `// tmp-path: an executable that must not exist\nconst missing = join(${TMP}, "no-such-chrome");\n`,
+      `const root = mkdtempSync(join(${TMP}, "prefix-"));\n`,
+      `const root = await mkdtemp(resolve(${TMP}, "prefix-"));\n`,
+    ]) expect({ text, sites: scanSource("tests/a.test.ts", text) }).toEqual({ text, sites: [] });
+    expect(scanSource("tests/a.test.ts", `// tmp-path:\nconst missing = join(${TMP}, "no-such-chrome");\n`), "A_MARKER_NEEDS_A_REASON").toHaveLength(1);
+    expect(scanSource("tests/helpers/temp.ts", `const db = join(${TMP}, "ithaca.db");\n`)).toEqual([]);
+  });
+});
+
 describe("the baseline", () => {
   const file = "packages/ui-server/tests/ws-ithaca.test.ts";
   const entry = (count: number): BaselineEntry => ({ rule: "polling-helper", file, count, reason: "follow-up slice of the Ithaca tests" });

@@ -138,7 +138,9 @@ test("the date field shows the parsed date and refuses an unparseable one", asyn
 - **D4. Every resource has an owner and a teardown that runs on failure.**
   Temporary directories come from `mkdtemp`, servers listen on port 0, and
   processes, servers and directories are released in `afterEach`, a `finally`
-  or a `using` declaration. Prevents `fixed-resource` and `leaked-resource`.
+  or a `using` declaration. In a Bun test, `tempDirs` from
+  `tests/helpers/temp.ts` does both for a directory. Prevents
+  `fixed-resource` and `leaked-resource`.
 - **D5. A replaced global is restored completely.** Save and restore the whole
   property descriptor, and delete only what was absent
   ([testing.md](testing.md#runtimes-browsers-and-doubles)). Prevents

@@ -8,8 +8,8 @@
  * real `ScrapeClient` over a stubbed `fetch` with an injected clock.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tempDirs } from "../../../tests/helpers/temp";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { Window } from "happy-dom";
@@ -31,6 +31,8 @@ import { setReviewStatus } from "../src/review";
 import { getAdapter, ingestJobs } from "../src/scrape";
 import { autoClassify, loadScoringConfig, scoreNewJobs } from "../src/score";
 import type { RawJob, Source } from "../src/types";
+
+const tempDir = tempDirs();
 
 const FIXTURES = join(import.meta.dir, "fixtures");
 const read = (...parts: string[]) => readFileSync(join(FIXTURES, ...parts), "utf-8");
@@ -700,28 +702,24 @@ describe("per-host pacing holds with enrichment on", () => {
 
 describe("runScrape reports enrichment per board", () => {
   async function run(mode: string) {
-    const dir = mkdtempSync(join(tmpdir(), "brain-enrich-report-"));
-    try {
-      const child = Bun.spawn(["bun", join(import.meta.dir, "helpers/enrich-runner.ts"), mode, join(dir, "jobs.db")], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const [stdout, stderr, code] = await Promise.all([
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-        child.exited,
-      ]);
-      expect(stderr).toBe("");
-      expect(code).toBe(0);
-      return JSON.parse(stdout) as {
-        report: { sources: Array<Record<string, unknown> & { errors: string[] }> };
-        stored: Array<{ source_id: string; description_text: string | null }>;
-        run: { status: string; cursor: string | null };
-        seen: Array<{ url: string; proxy: string | null }>;
-      };
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const dir = tempDir("brain-enrich-report-");
+    const child = Bun.spawn(["bun", join(import.meta.dir, "helpers/enrich-runner.ts"), mode, join(dir, "jobs.db")], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(stderr).toBe("");
+    expect(code).toBe(0);
+    return JSON.parse(stdout) as {
+      report: { sources: Array<Record<string, unknown> & { errors: string[] }> };
+      stored: Array<{ source_id: string; description_text: string | null }>;
+      run: { status: string; cursor: string | null };
+      seen: Array<{ url: string; proxy: string | null }>;
+    };
   }
 
   test("enriched and truncated rows are counted in the --json row", async () => {

@@ -114,5 +114,22 @@
   {"rule":"polling-helper","file":"packages/ui-server/tests/untrusted-marks.test.ts","count":1,"reason":"follow-up slice of #4835: the ui-server tests outside ws-*.test.ts"},
   {"rule":"polling-helper","file":"packages/ui-server/tests/web-tools-broker.test.ts","count":1,"reason":"follow-up slice of #4835: the ui-server tests outside ws-*.test.ts"},
   {"rule":"polling-helper","file":"tests/host-admission.test.ts","count":1,"reason":"follow-up slice of #4835: root tests/"},
-  {"rule":"polling-helper","file":"tests/test-invocation-lifetime.test.ts","count":1,"reason":"follow-up slice of #4835: root tests/"}
+  {"rule":"polling-helper","file":"tests/test-invocation-lifetime.test.ts","count":1,"reason":"follow-up slice of #4835: root tests/"},
+  {"rule":"tmp-path","file":"packages/core/tests/safe-path.test.ts","count":1,"reason":"computes a target path for a containment check; nothing is created there"},
+  {"rule":"tmp-path","file":"packages/core/tests/skills-discover.test.ts","count":1,"reason":"names a skills directory that must not exist"},
+  {"rule":"tmp-path","file":"packages/ui-backend-claude/tests/autonomous-envelope.test.ts","count":2,"reason":"names the private-index location a mask points at and asserts production did not create it"},
+  {"rule":"tmp-path","file":"packages/ui-backend-pi/tests/autonomous-provider-masks.test.ts","count":2,"reason":"names the private-index location a mask points at; nothing is created there"},
+  {"rule":"tmp-path","file":"packages/ui-kit/tests/visual/rank-footer-browser.ts","count":1,"reason":"the shared font cache, a deliberate location reused across captures"},
+  {"rule":"tmp-path","file":"packages/ui-react/tests/browser/hygiene-capture.ts","count":1,"reason":"a deliberate shared capture location read by the hygiene browser specs"},
+  {"rule":"tmp-path","file":"packages/ui-react/tests/browser/offline/fake-microphone-file.ts","count":1,"reason":"the fake-microphone staging directory, shared on purpose (#2615)"},
+  {"rule":"tmp-path","file":"packages/ui-sdk/tests/bridge-tools.test.ts","count":1,"reason":"names an outside path that must not exist"},
+  {"rule":"tmp-path","file":"packages/ui-server/tests/helpers/test-app.ts","count":3,"reason":"createTestApp's state paths, owned by #4467"},
+  {"rule":"tmp-path","file":"packages/ui-server/tests/native-suite-fixture.test.ts","count":1,"reason":"matches the prefix of state directories the fixture made with mkdtemp"},
+  {"rule":"tmp-path","file":"packages/ui-server/tests/private-index-cache.test.ts","count":7,"reason":"reads production's private-index base directories and plants an orphan under production's own naming"},
+  {"rule":"tmp-path","file":"packages/ui-server/tests/runtime-boot.test.ts","count":1,"reason":"names a Claude executable that must not exist"},
+  {"rule":"tmp-path","file":"packages/ui-server/tests/turn-data-tree-placement.test.ts","count":1,"reason":"checks a view tree's root against production's temp prefix"},
+  {"rule":"tmp-path","file":"packages/ui-server/tests/turn-data-tree.test.ts","count":1,"reason":"lists production's private-index base directories"},
+  {"rule":"tmp-path","file":"tests/generated-audio-input.test.ts","count":1,"reason":"the fake-microphone staging directory, shared on purpose (#2615)"},
+  {"rule":"tmp-path","file":"tests/helpers/planning-observer.ts","count":1,"reason":"a deliberate shared planning-observer location outside GitHub Actions"},
+  {"rule":"tmp-path","file":"tests/measurement-fixture-lifetime.test.ts","count":1,"reason":"checks a fixture brain's path against its mkdtemp prefix"}
 ]

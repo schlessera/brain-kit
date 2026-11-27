@@ -1,4 +1,4 @@
-// Refuses a local copy of a test need that has a shared owner (#4835, #4838).
+// Refuses a local copy of a test need that has a shared owner (#4835, #4838, #4840).
 //
 // Why: a test that waits for a condition, runs Git or boots an app writes the
 // same few lines as the next file, and the copies drift apart (bounds,
@@ -83,6 +83,11 @@ const SLEEPS = /\bsetTimeout\b|\bsetImmediate\b|\bsleep\s*\(/;
 
 // `resolveServerConfig({ … })` with both keys a test app boots with.
 const BOOT_CONFIG = /\bresolveServerConfig\s*\(\s*\{/g;
+// A path built under the shared temp root. Only `mkdtemp` makes one that is
+// unpredictable; anything else needs a `// tmp-path: <reason>` marker.
+const TMP_PATH = /\b(?:join|resolve)\(\s*(?:os\.)?tmpdir\(\)\s*,/g;
+const MKDTEMP_ARGUMENT = /\bmkdtemp(?:Sync)?\(\s*$/;
+const TMP_PATH_MARKER = /\/\/\s*tmp-path:\s*\S/;
 const configKeys = (literal: string) => new Set([...literal.matchAll(/\b([A-Z][A-Z0-9_]{3,})\s*:/g)].map((match) => match[1]!));
 
 export const RULES: readonly Rule[] = [
@@ -109,6 +114,23 @@ export const RULES: readonly Rule[] = [
       for (const match of text.matchAll(BOOT_CONFIG)) {
         const keys = configKeys(declarationText(text, match.index! + match[0].length - 1));
         if (keys.has("AUTH_MODE") && keys.has("HOST")) found.push({ line: lineAt(text, match.index!), name: "resolveServerConfig" });
+      }
+      return found;
+    },
+  },
+  {
+    id: "tmp-path",
+    refused: "a path under tmpdir() that mkdtemp did not make",
+    instead: "make the directory with `tempDirs` from tests/helpers/temp.ts, or mark a path that must stay with `// tmp-path: <reason>` on the line or the line above",
+    allowed: ["tests/helpers/temp.ts"],
+    sites(text) {
+      const lines = text.split("\n");
+      const found: Array<{ line: number; name: string }> = [];
+      for (const match of text.matchAll(TMP_PATH)) {
+        const line = lineAt(text, match.index!);
+        const before = text.slice(text.lastIndexOf("\n", match.index!) + 1, match.index!);
+        if (MKDTEMP_ARGUMENT.test(before) || TMP_PATH_MARKER.test(lines[line - 1]!) || (line > 1 && TMP_PATH_MARKER.test(lines[line - 2]!))) continue;
+        found.push({ line, name: match[0].replace(/\s+/g, "").replace(/,$/, "") });
       }
       return found;
     },
