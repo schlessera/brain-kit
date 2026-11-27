@@ -50,7 +50,7 @@ describe("noFollowParent", () => {
     const before = descriptors();
     let failure: unknown;
     try { closeSync(noFollowParent(root, rel, INVALID).fd); } catch (error) { failure = error; }
-    expect(codes, "COMPONENT_REFUSED").toContain((failure as NodeJS.ErrnoException | undefined)?.code);
+    expect(codes, "COMPONENT_REFUSED").toContain(String((failure as NodeJS.ErrnoException | undefined)?.code));
     expect(descriptors(), "NO_HANDLE_LEFT_OPEN").toBe(before);
   });
 });
