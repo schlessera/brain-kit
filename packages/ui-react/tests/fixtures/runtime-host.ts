@@ -118,9 +118,6 @@ export async function startRuntimeHost(options: RuntimeHostOptions): Promise<Run
         { cwd: repo, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
       const [bundleOut, bundleErr, bundleCode] = await hook.child("client-build", bundle);
       if (bundleCode !== 0) throw new Error(`Runtime client build failed (${bundleCode}): ${bundleOut}\n${bundleErr}`);
-      for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]] as const) {
-        await writeFile(resolve(paths.assets, file), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
-      }
       let app: FixtureApp | undefined;
       if (options.app) {
         const { backend, config, fetch, ...rest } = options.app;
@@ -129,7 +126,14 @@ export async function startRuntimeHost(options: RuntimeHostOptions): Promise<Run
         const started = app;
         releases.push(async () => { started.cancelActiveTurns(); await started.close(); });
       }
-      await hook.phase("page", async () => writeFile(resolve(paths.assets, "index.html"), typeof options.page === "string" ? options.page : await options.page(app, paths)));
+      await hook.phase("page", async () => {
+        const page = typeof options.page === "string" ? options.page : await options.page(app, paths);
+        await writeFile(resolve(paths.assets, "index.html"), page);
+        // Only the stylesheets the page links: a file's package build need not have made the others.
+        for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]] as const) {
+          if (page.includes(`href="/${file}"`)) await writeFile(resolve(paths.assets, file), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
+        }
+      });
       const server = app
         ? Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: options.app!.fetch?.(app) ?? app.fetch, websocket: app.websocket })
         : Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => {
