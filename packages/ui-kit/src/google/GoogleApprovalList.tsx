@@ -54,10 +54,12 @@ import {
  *
  * `failed` is a read that finished without a list: it says so and claims
  * neither that there are none nor that anything is still loading, with Try
- * again when the host passes `onRetry`. `unshown` counts approvals the host
- * holds but cannot name; while it is above zero the list never says "None
- * yet", and a notice under the rows says how many and where the CLI lists
- * them.
+ * again when the host passes `onRetry`. The failure is drawn inside a status
+ * region the list keeps for its whole life, so reaching it while the list is
+ * on screen (a Try again that fails again, say) is announced once, politely;
+ * loading is not. `unshown` counts approvals the host holds but cannot name;
+ * while it is above zero the list never says "None yet", and a notice under
+ * the rows says how many and where the CLI lists them.
  */
 export interface GoogleApprovalListProps {
   state: "ready" | "loading" | "unavailable" | "failed";
@@ -100,7 +102,7 @@ export function GoogleApprovalList(p: GoogleApprovalListProps) {
       <p style={EXPLAINER}>{EXPLAINER_TEXT}</p>
       {p.state === "loading" ? <Placeholder variant="loading" lines={2} /> : null}
       {p.state === "unavailable" ? <Callout tone="amber" variant="boxed" icon="unverified" text={UNAVAILABLE_TEXT} /> : null}
-      {p.state === "failed" ? <FailedRead message={FAILED_TEXT} detail={FAILED_DETAIL} onRetry={retry} /> : null}
+      <FailedRead failed={p.state === "failed"} message={FAILED_TEXT} detail={FAILED_DETAIL} onRetry={retry} />
       {p.state === "ready" && groups.length === 0 && unshown === 0 ? <Placeholder variant="empty" message={EMPTY_TEXT} /> : null}
       {groups.length > 0 ? (
         <div className="bk-google-rows" style={{ display: "flex", flexDirection: "column", gap: 12 }}>

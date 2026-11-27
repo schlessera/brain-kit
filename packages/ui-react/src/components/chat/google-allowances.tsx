@@ -8,9 +8,10 @@ import { allowanceGrants, completedAllowanceWrites, googleStandingApi, standingF
 const HIDE = [401, 403, 404];
 
 /**
- * How long after a card's end the expiry read waits: the host drops a row
- * once its end has passed, and this device's clock may run a little ahead of
- * the host's.
+ * How long after a card's end the expiry read waits, and how long after an
+ * answer that lists an end already past the reconcile read waits: the host
+ * drops a row once its end has passed, and this device's clock may run a
+ * little ahead of the host's.
  */
 const EXPIRY_GRACE_MS = 1_000;
 
@@ -18,11 +19,13 @@ interface Shown {
   state: GoogleAllowanceListProps["state"];
   grants: GoogleAllowanceListProps["grants"];
   unshown: number;
-  /** The earliest end among the shown cards, in host time. */
+  /** The earliest shown end still ahead when the answer arrived, in host time. */
   nextEnd: number | null;
+  /** The read whose answer listed an end already past that no earlier answer had: one reconcile read follows it. */
+  reconcile: number | null;
 }
 
-const NONE: Omit<Shown, "state"> = { grants: [], unshown: 0, nextEnd: null };
+const NONE: Omit<Shown, "state"> = { grants: [], unshown: 0, nextEnd: null, reconcile: null };
 
 /**
  * A restricted chat's Gmail allowances (#4212): the container for the kit's
@@ -38,21 +41,29 @@ const NONE: Omit<Shown, "state"> = { grants: [], unshown: 0, nextEnd: null };
  * empty state and its focus rule. Allowances the host cannot name are
  * counted (`unshown`), so the kit never says nothing is allowed.
  *
- * Every read and every revoke answer maps the same way: a 503 is the kit's
- * unavailable state; 401, 403 and 404 hide the list; anything else, a
- * malformed success included, is the kit's failed state, with Try again.
+ * Every read maps the same way: a 503 is the kit's unavailable state; 401,
+ * 403 and 404 hide the list; anything else, a malformed success included, is
+ * the kit's failed state, with Try again. A revoke answered 503, 401, 403 or
+ * 404 maps the same way and reads nothing more. Any other failed revoke keeps
+ * its banner over whatever the read that follows finds, unless that read
+ * hides the list, since its answer may have been lost after the host revoked.
  *
  * What is left of a card and when it ends belong to the host, so the list
  * reads again, with no polling:
- * - after every revoke answer, and after a failed revoke, whose answer may
- *   have been lost after the host revoked;
+ * - after every successful revoke answer, and after a failed revoke whose
+ *   outcome is uncertain;
  * - when a Gmail modify or draft call in this chat has its result, since it
  *   may have spent a card's changes or granted a new card;
- * - just after the earliest end among the shown cards;
+ * - just after the earliest shown end still ahead;
+ * - once, just after an answer that lists an end already past by this
+ *   device's clock, for each such end: the host still decides that the card
+ *   is live, so the card stays shown, and if the next answer still lists that
+ *   end nothing more is scheduled for it;
  * - when the page becomes visible again.
  * Each read formats the times afresh. An answer applies only to the
  * appearance that asked for it (`lifetime`) and only if no later read has
- * started (`reads`).
+ * started (`reads`); a revoke answer that changes the list's state starts
+ * none, but supersedes every read started before it.
  */
 export function GoogleAllowancesPanel({ sessionId }: { sessionId: string }) {
   const root = useBrainUiRoot();
@@ -64,6 +75,8 @@ export function GoogleAllowancesPanel({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState<string | null>(null);
   const writes = useChatStore(s => completedAllowanceWrites(s.buffers[sessionId]?.messages));
   const seenWrites = useRef(writes);
+  /** Every end already past when an answer listed it, this appearance: each is reconciled once. */
+  const reconciled = useRef(new Set<number>());
 
   function fail(err: unknown) {
     const failure = standingFailure(err, HIDE);
@@ -76,8 +89,11 @@ export function GoogleAllowancesPanel({ sessionId }: { sessionId: string }) {
     try {
       const allowances = await api.allowances(sessionId);
       if (generation !== lifetime.current || read !== reads.current) return;
-      const { grants, unshown, nextEnd } = allowanceGrants(allowances, Date.now());
-      setShown(was => (was === null && grants.length === 0 && unshown === 0 ? null : { state: "ready", grants, unshown, nextEnd }));
+      const { grants, unshown, nextEnd, pastEnds } = allowanceGrants(allowances, Date.now());
+      const fresh = pastEnds.filter(end => !reconciled.current.has(end));
+      for (const end of fresh) reconciled.current.add(end);
+      const reconcile = fresh.length > 0 ? read : null;
+      setShown(was => (was === null && grants.length === 0 && unshown === 0 ? null : { state: "ready", grants, unshown, nextEnd, reconcile }));
     } catch (err) {
       if (generation !== lifetime.current || read !== reads.current) return;
       fail(err);
@@ -86,6 +102,7 @@ export function GoogleAllowancesPanel({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     const generation = ++lifetime.current;
+    reconciled.current = new Set();
     setShown(null);
     setBusy(null);
     setError(null);
@@ -109,18 +126,28 @@ export function GoogleAllowancesPanel({ sessionId }: { sessionId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [writes]);
 
-  // Just after the earliest end among the shown cards. An end already past
-  // schedules nothing: the host has dropped that card, or will by the next read.
+  // Just after the earliest shown end still ahead. A read that answers the
+  // same end re-arms nothing; an end that has passed by then is reconciled below.
   const nextEnd = shown?.state === "ready" ? shown.nextEnd : null;
   useEffect(() => {
     if (nextEnd === null) return;
-    const wait = nextEnd - Date.now();
-    if (wait <= 0) return;
     const generation = lifetime.current;
-    const timer = setTimeout(() => void load(generation), wait + EXPIRY_GRACE_MS);
+    const timer = setTimeout(() => void load(generation), Math.max(0, nextEnd - Date.now()) + EXPIRY_GRACE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextEnd]);
+
+  // Once, just after an answer that listed an end already past for the first
+  // time. If the host still lists it, its clock runs behind this device's:
+  // nothing more is scheduled for that end, and the other reads remain.
+  const reconcile = shown?.state === "ready" ? shown.reconcile : null;
+  useEffect(() => {
+    if (reconcile === null) return;
+    const generation = lifetime.current;
+    const timer = setTimeout(() => void load(generation), EXPIRY_GRACE_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reconcile]);
 
   async function revoke(cardId: string) {
     if (busy !== null) return;
@@ -134,8 +161,11 @@ export function GoogleAllowancesPanel({ sessionId }: { sessionId: string }) {
       await load(generation);
     } catch (err) {
       if (generation !== lifetime.current) return;
-      if (standingFailure(err, HIDE) !== "failed") fail(err);
-      else {
+      if (standingFailure(err, HIDE) !== "failed") {
+        // Newer than any read already sent: none of them may undo it. A read started after it still may.
+        reads.current++;
+        fail(err);
+      } else {
         setError(err instanceof Error ? err.message : "Could not revoke");
         await load(generation);
       }

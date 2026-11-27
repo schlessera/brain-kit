@@ -25,18 +25,22 @@ const NONE: Omit<Shown, "state"> = { accounts: [], unshown: 0 };
  * kit's empty state and its focus rule, not a vanished list. Approvals the
  * host cannot name are counted (`unshown`), so the kit never calls them none.
  *
- * Every read and every revoke answer maps the same way: a 503 is the kit's
- * unavailable state; 401, 403 and 404 hide the section; anything else,
- * a malformed success included, is the kit's failed state, with Try again.
+ * Every read maps the same way: a 503 is the kit's unavailable state; 401,
+ * 403 and 404 hide the section; anything else, a malformed success included,
+ * is the kit's failed state, with Try again.
  *
  * A revoke answered `revoked: true` drops the row here. `revoked: false` means
  * it was already gone, so the list is read again rather than reporting an
- * error. Any other failed revoke keeps its banner and reads the list again,
- * because a revoke whose answer was lost may still have happened.
+ * error. A revoke answered 503, 401, 403 or 404 maps as a read does and reads
+ * nothing more. Any other failed revoke keeps its banner over whatever the
+ * read that follows finds, unless that read hides the section, because a
+ * revoke whose answer was lost may still have happened.
  *
  * Every answer is applied only to the visit and the read that asked for it:
  * closing Settings or switching tabs ends the visit (`lifetime`), and a read
- * answers only if no later read has started (`reads`).
+ * answers only if no later read has started (`reads`). A revoke answer that
+ * removes a row or changes the section's state supersedes every read started
+ * before it.
  */
 export function GoogleApprovalsSection({ active }: { active: boolean }) {
   const root = useBrainUiRoot();
@@ -98,8 +102,11 @@ export function GoogleApprovalsSection({ active }: { active: boolean }) {
       } else await load(generation);
     } catch (err) {
       if (generation !== lifetime.current) return;
-      if (standingFailure(err, HIDE) !== "failed") fail(err);
-      else {
+      if (standingFailure(err, HIDE) !== "failed") {
+        // As for a removed row: no read sent before this answer may undo it.
+        reads.current++;
+        fail(err);
+      } else {
         setError(err instanceof Error ? err.message : "Could not revoke");
         await load(generation);
       }

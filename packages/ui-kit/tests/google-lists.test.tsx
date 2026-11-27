@@ -487,6 +487,46 @@ describe("Try again, in a live tree", () => {
       expect(document.activeElement, "failing again leaves focus on the heading").toBe(heading());
     });
 
+    test(`${list}: a retry fired while Try again did not hold focus moves focus nowhere`, async () => {
+      let calls = 0;
+      const onRetry = () => { calls++; };
+      await render(element("failed", onRetry));
+      expect(document.activeElement, "nothing holds focus").toBe(document.body);
+      // A script's click: Try again never took focus.
+      await act(async () => retryButton().click());
+      expect(calls, "the retry still runs").toBe(1);
+      await render(element("loading", onRetry));
+      expect(document.querySelector("[aria-busy='true']"), "the list is reading").not.toBeNull();
+      expect(document.activeElement, "KIT_GOOGLE_RETRY_FOCUS_ONLY_FROM_TRY_AGAIN").toBe(document.body);
+    });
+
+    test(`${list}: one polite status region for the list's whole life holds the failure, so failing again is announced and loading is not`, async () => {
+      const region = () => {
+        const all = document.querySelectorAll<HTMLElement>("[role='status']");
+        expect(all.length, "one status region").toBe(1);
+        return all[0]!;
+      };
+      await render(element("ready", noop));
+      const first = region();
+      expect(first.textContent, "empty while the list is not failed").toBe("");
+      expect(first.getAttribute("aria-live"), "role=status: polite by its role, never assertive").toBeNull();
+      expect(first.closest("[role='alert']"), "not an alert").toBeNull();
+      await render(element("failed", noop));
+      expect(region(), "KIT_GOOGLE_STATUS_PERSISTS").toBe(first);
+      const words = first.textContent!;
+      expect(words, "the failure is drawn inside the region").toMatch(/^Couldn't load .+\.Any you .+\.$/);
+      expect(document.body.textContent!.split(words).length - 1, "KIT_GOOGLE_STATUS_ONCE: the words are drawn once, not copied for the region").toBe(1);
+      expect(first.querySelector("[role='button']"), "Try again sits outside the region").toBeNull();
+      await render(element("loading", noop));
+      expect(region(), "KIT_GOOGLE_STATUS_PERSISTS").toBe(first);
+      expect(first.textContent, "KIT_GOOGLE_STATUS_NOT_LOADING: loading says nothing").toBe("");
+      expect(document.querySelector("[aria-busy='true']"), "the reading placeholder is drawn").not.toBeNull();
+      expect(first.querySelector("[aria-busy]"), "outside the region").toBeNull();
+      await render(element("failed", noop));
+      expect(region(), "failing again changes the same region's text").toBe(first);
+      expect(first.textContent).toBe(words);
+    });
+
     test(`${list}: focus the user moved elsewhere after Try again stays there`, async () => {
       const outside = document.createElement("button");
       document.body.append(outside);

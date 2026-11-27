@@ -222,6 +222,27 @@ export async function failedRead(list: List, claims: { failed: string; detail: s
   await expect(list.textContent, "no empty claim").not.toContain(claims.empty);
   await expect(list.textContent, "no unavailable claim").not.toContain(claims.unavailable);
   await expect(list.querySelector("[data-google-unshown]"), "no count notice").toBeNull();
+  // The failure is what the list's one status region holds: the drawn words, once.
+  const region = await statusRegion(list);
+  await expect(box!.contains(region), "the region is the failed box's").toBe(true);
+  await expect(spokenText(region), "the region holds the drawn failure").toBe(`${claims.failed}${claims.detail}`);
+  await expect(region.querySelector("[role='button']"), "Try again sits outside the region").toBeNull();
+  await expect(spokenText(list).split(`${claims.failed}${claims.detail}`).length - 1, "the failure is drawn once, never copied for the region").toBe(1);
+}
+
+/**
+ * The list's one status region (#4212 round 3), mounted for the list's whole
+ * life: polite by its role, never an alert. It holds the failed read's drawn
+ * words and is empty in every other state, so a failed read reached again is
+ * a change inside a watched region and loading announces nothing.
+ */
+export async function statusRegion(list: List): Promise<HTMLElement> {
+  const regions = within(list).queryAllByRole("status");
+  await expect(regions, "one status region").toHaveLength(1);
+  const region = regions[0]!;
+  await expect(region.getAttribute("aria-live"), "polite by its role, never assertive").toBeNull();
+  await expect(region.closest("[role='alert']"), "never inside an alert").toBeNull();
+  return region;
 }
 
 /**

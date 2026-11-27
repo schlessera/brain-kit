@@ -104,10 +104,17 @@ export function sinceTime(ms: number, now: number): GoogleHostTime {
   return { short: `${WEEKDAYS[at.getDay()]!.slice(0, 3)} ${at.getDate()} ${MONTHS[at.getMonth()]!.slice(0, 3)}${year}`, full: full(at) };
 }
 
-/** "until 18:02" today; an allowance lasts at most a day, so another day adds only its weekday ("Mon 18:02"). */
+/**
+ * "until 18:02" today; an allowance lasts at most a day, so a later day adds
+ * only its weekday ("Mon 18:02"). An end on an earlier day, which the host
+ * still lists while this device's clock runs ahead of it, adds its date
+ * ("Sat 11 Jul 23:59"): a bare weekday would read as the coming one.
+ */
 export function untilTime(ms: number, now: number): GoogleHostTime {
-  const at = new Date(ms), today = new Date(now).toDateString() === at.toDateString();
-  return { short: today ? clock(at) : `${WEEKDAYS[at.getDay()]!.slice(0, 3)} ${clock(at)}`, full: full(at) };
+  const at = new Date(ms);
+  if (new Date(now).toDateString() === at.toDateString()) return { short: clock(at), full: full(at) };
+  if (ms < now) return { short: `${sinceTime(ms, now).short} ${clock(at)}`, full: full(at) };
+  return { short: `${WEEKDAYS[at.getDay()]!.slice(0, 3)} ${clock(at)}`, full: full(at) };
 }
 
 const text = (value: unknown): value is string => typeof value === "string" && value.length > 0;
@@ -140,8 +147,13 @@ export function approvalAccounts(rows: readonly unknown[], now: number): { accou
  * The rows of a card share its budget and its end, so the card shows the
  * least left and the earliest end any of them reports. A card with a row the
  * kit cannot name is not shown at all: its Revoke would revoke more than it says.
+ *
+ * The host decides which cards are live, so a card it lists is shown even when
+ * its end has passed by this device's clock. `nextEnd` is the earliest shown
+ * end still after `now`; `pastEnds` are the shown ends at or before `now`,
+ * each once, earliest first.
  */
-export function allowanceGrants(rows: readonly unknown[], now: number): { grants: GoogleAllowanceListProps["grants"]; unshown: number; nextEnd: number | null } {
+export function allowanceGrants(rows: readonly unknown[], now: number): { grants: GoogleAllowanceListProps["grants"]; unshown: number; nextEnd: number | null; pastEnds: number[] } {
   const cards = new Map<string, { address: string; actions: GoogleStandingAction[]; remaining: number; until: number; broken: boolean }>();
   let unshown = 0;
   for (const raw of rows) {
@@ -157,12 +169,14 @@ export function allowanceGrants(rows: readonly unknown[], now: number): { grants
   }
   const grants: GoogleAllowanceListProps["grants"] = [];
   let nextEnd: number | null = null;
+  const past = new Set<number>();
   for (const [id, card] of cards) {
     if (card.broken || card.actions.length === 0) { unshown++; continue; }
     grants.push({ id, address: card.address, actions: card.actions, remaining: card.remaining, limit: GOOGLE_ALLOWANCE_ITEMS, until: untilTime(card.until, now) });
-    nextEnd = nextEnd === null ? card.until : Math.min(nextEnd, card.until);
+    if (card.until <= now) past.add(card.until);
+    else nextEnd = nextEnd === null ? card.until : Math.min(nextEnd, card.until);
   }
-  return { grants, unshown, nextEnd };
+  return { grants, unshown, nextEnd, pastEnds: [...past].sort((a, b) => a - b) };
 }
 
 /**

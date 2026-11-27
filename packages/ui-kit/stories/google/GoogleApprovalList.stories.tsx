@@ -21,6 +21,7 @@ import {
   type Expected,
   failedRead,
   loadingRows,
+  statusRegion,
   unshownNotice,
 } from "./_google.js";
 import { ROW_RING, ring } from "../_stage.js";
@@ -188,7 +189,7 @@ export const Revoking = meta.story({
 });
 export const RevokingNarrow = Revoking.extend({ ...narrow });
 
-const ERROR = "Couldn't revoke Archive. Brain didn't answer; it still runs without asking.";
+const ERROR = "Couldn't confirm Archive was revoked. Brain didn't answer, so it may still run without asking.";
 
 /** A revoke failed: the rows stay, and a red banner under them says why. */
 export const RevokeError = meta.story({
@@ -449,7 +450,7 @@ const reads: (() => void)[] = [];
 const finishRead = () => reads.shift()?.();
 
 /** The host's side of a retry: the list reads (loading), then lands with the mock's rows. */
-function RetryHost(p: GoogleApprovalListProps) {
+function RetryHost({ lands = "ready", ...p }: GoogleApprovalListProps & { lands?: "ready" | "failed" }) {
   const [state, setState] = useState<GoogleApprovalListProps["state"]>(() => {
     reads.length = 0;
     return "failed";
@@ -462,7 +463,7 @@ function RetryHost(p: GoogleApprovalListProps) {
       onRetry={() => {
         p.onRetry?.();
         setState("loading");
-        reads.push(() => setState("ready"));
+        reads.push(() => setState(lands));
       }}
     />
   );
@@ -480,6 +481,7 @@ export const RetryKeyboard = meta.story({
   play: async (context) => {
     const list = listIn(context.canvasElement);
     await failedRead(list, CLAIMS);
+    const region = await statusRegion(list);
     await userEvent.tab();
     await expect(document.activeElement).toBe(within(list).getByRole("button", { name: "Try again" }));
     const before = retries(context.args);
@@ -488,8 +490,13 @@ export const RetryKeyboard = meta.story({
     await waitFor(() => expect(list.getAttribute("data-google-approvals")).toBe("loading"));
     await loadingRows(list);
     await expect(document.activeElement, "focus waits on the heading while it reads").toBe(within(list).getByRole("heading"));
+    await expect(await statusRegion(list), "the status region stays mounted while it reads").toBe(region);
+    await expect(region.textContent, "loading announces nothing").toBe("");
+    await expect(region.querySelector("[aria-busy]"), "the reading placeholder is outside the region").toBeNull();
     finishRead();
     await waitFor(() => expect(list.getAttribute("data-google-approvals")).toBe("ready"));
+    await expect(await statusRegion(list), "and while the rows show, empty").toBe(region);
+    await expect(region.textContent).toBe("");
     await looksRight(context, expected({ names: ONE_ACCOUNT_NAMES, lists: [3], groups: [ODYSSEUS] }));
     await userEvent.tab();
     await expect(document.activeElement, "the next Tab reaches the first row").toBe(within(list).getByRole("button", { name: ONE_ACCOUNT_NAMES[0] }));
@@ -497,3 +504,36 @@ export const RetryKeyboard = meta.story({
   },
 });
 export const RetryKeyboardNarrow = RetryKeyboard.extend({ ...narrow });
+
+/**
+ * Tab to Try again, press Enter, and the read fails again: focus stays on the
+ * heading, and the status region that was empty while it read now holds the
+ * failure, a change a screen reader announces once, politely.
+ */
+export const RetryFailsAgain = meta.story({
+  ...desktop,
+  args: { onRetry: fn() },
+  render: (args) => <RetryHost {...args} lands="failed" />,
+  play: async (context) => {
+    const list = listIn(context.canvasElement);
+    await failedRead(list, CLAIMS);
+    const region = await statusRegion(list);
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(within(list).getByRole("button", { name: "Try again" }));
+    const before = retries(context.args);
+    await userEvent.keyboard("{Enter}");
+    await expect(retries(context.args), "Enter on Try again calls onRetry once").toBe(before + 1);
+    await waitFor(() => expect(list.getAttribute("data-google-approvals")).toBe("loading"));
+    await loadingRows(list);
+    await expect(await statusRegion(list), "the region stays mounted while it reads").toBe(region);
+    await expect(region.textContent, "loading announces nothing").toBe("");
+    finishRead();
+    await waitFor(() => expect(list.getAttribute("data-google-approvals")).toBe("failed"));
+    await failedRead(list, CLAIMS);
+    await expect(await statusRegion(list), "failing again fills the same region: announced, not a new region").toBe(region);
+    await expect(document.activeElement, "focus stays on the heading").toBe(within(list).getByRole("heading"));
+    await looksRight(context, expected({ copy: [FAILED, FAILED_DETAIL], names: [], controls: ["Try again"], lists: [], groups: [] }));
+    blurActive();
+  },
+});
+export const RetryFailsAgainNarrow = RetryFailsAgain.extend({ ...narrow });

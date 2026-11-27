@@ -416,6 +416,12 @@ export function UnshownNotice({ count, children }: { count: number; children: Re
   );
 }
 
+/** The failed read's box: the error state, then Try again under it. */
+const FAILED_BOX: CSSProperties = { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, minWidth: 0 };
+/** Not failed: the box is empty and out of flow, so the list's gap does not count it. */
+const FAILED_QUIET: CSSProperties = { position: "absolute", width: 0, height: 0, overflow: "hidden" };
+const STATUS: CSSProperties = { alignSelf: "stretch", minWidth: 0 };
+
 /**
  * A read that finished and failed: the kit's error state (red hairline, the
  * failure named, what it means underneath), never the loading ghost, which
@@ -424,20 +430,36 @@ export function UnshownNotice({ count, children }: { count: number; children: Re
  * as every kit retry does; it is a reaching `Button` as Live service settings'
  * Try again is, rather than `Placeholder`'s own pill, which paints under 24px
  * and has no coarse-pointer reach (#3252).
+ *
+ * The list draws this box in every state, so its `role="status"` region lives
+ * as long as the list does, empty unless the read failed. Reaching the failed
+ * state while the list is on screen (after Try again, or after a read the
+ * host started) is then a change inside a region screen readers already
+ * watch: they announce it once, politely, as Live service settings' persistent
+ * status line is announced. The words are the ones drawn, not a hidden copy,
+ * so browse mode reads them once. Loading draws its placeholder outside the
+ * region, so nothing announces it; Try again sits outside it too.
  */
-export function FailedRead({ message, detail, onRetry }: { message: string; detail: string; onRetry?: () => void }) {
+export function FailedRead({ failed, message, detail, onRetry }: { failed: boolean; message: string; detail: string; onRetry?: () => void }) {
   return (
-    <div data-google-failed="" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
-      <Placeholder variant="error" message={message} detail={detail} />
-      {onRetry ? <Button label="Try again" icon="retry" tone="ghost" size="sm" block={false} reach onClick={onRetry} /> : null}
+    <div data-google-failed={failed ? "" : undefined} style={failed ? FAILED_BOX : FAILED_QUIET}>
+      <div role="status" data-google-status="" style={STATUS}>
+        {failed ? <Placeholder variant="error" message={message} detail={detail} /> : null}
+      </div>
+      {failed && onRetry ? <Button label="Try again" icon="retry" tone="ghost" size="sm" block={false} reach onClick={onRetry} /> : null}
     </div>
   );
 }
 
+/** Try again, found in the list it belongs to. */
+const RETRY = "[data-google-failed] [role='button']";
+
 /**
- * Try again leaves the failed state, and with it the button: when the press
- * took focus with it, focus goes to the heading, the list's focus target when
- * nothing else is left to hold it. Focus the user moved elsewhere stays.
+ * Try again leaves the failed state, and with it the button: when Try again
+ * held focus as it was pressed, focus goes to the heading, the list's focus
+ * target when nothing else is left to hold it. A retry fired while focus was
+ * anywhere else (a script's click, say) moves nothing, and focus the user
+ * moved elsewhere after pressing stays.
  */
 export function useFocusAfterRetry(state: string, root: RefObject<HTMLElement | null>, heading: RefObject<HTMLElement | null>, onRetry?: () => void) {
   const pressed = useRef(false);
@@ -452,7 +474,8 @@ export function useFocusAfterRetry(state: string, root: RefObject<HTMLElement | 
   }, [state, root, heading]);
   if (!onRetry) return undefined;
   return () => {
-    pressed.current = true;
+    const retry = root.current?.querySelector(RETRY) ?? null;
+    pressed.current = retry !== null && retry.ownerDocument.activeElement === retry;
     onRetry();
   };
 }

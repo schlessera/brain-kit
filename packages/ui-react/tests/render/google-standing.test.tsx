@@ -448,6 +448,72 @@ async function pageBecomes(state: "visible" | "hidden") {
   }
 }
 
+/** The panel's `EXPIRY_GRACE_MS`: how long after an end, or after an answer listing an end already past, it reads. */
+const EXPIRY_GRACE = 1_000;
+
+/** One pending timer: the token `setTimeout` returned, when it falls due, and its callback. */
+interface Due { at: number; run(): void }
+
+/**
+ * Controlled time for the panel's own timers. `Date.now()` and every
+ * `setTimeout` with a positive delay follow `advance()`, which runs each
+ * callback that falls due at its own time, inside `act`, so the reads and
+ * effects it causes land before the next one. Zero-delay timers, the
+ * harness's event-loop yields, stay real. A token this returns is never
+ * handed to the real `clearTimeout`. Call `restore()` once the tree is gone.
+ */
+function controlledTime() {
+  let now = NOW;
+  const due = new Set<Due>();
+  const issued = new WeakSet<object>();
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  clock!.mockImplementation(() => now);
+  const set = spyOn(globalThis, "setTimeout").mockImplementation(((run: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    if (!(typeof ms === "number" && ms > 0)) return realSetTimeout(run, ms, ...args);
+    const timer: Due = { at: now + ms, run: () => run(...args) };
+    issued.add(timer);
+    due.add(timer);
+    return timer;
+  }) as unknown as typeof setTimeout);
+  const clear = spyOn(globalThis, "clearTimeout").mockImplementation(((timer?: unknown) => {
+    if (typeof timer === "object" && timer !== null && issued.has(timer)) { due.delete(timer as Due); return; }
+    realClearTimeout(timer as Parameters<typeof clearTimeout>[0]);
+  }) as unknown as typeof clearTimeout);
+  return {
+    now: () => now,
+    /** When each pending timer falls due, earliest first. */
+    dueTimes: () => [...due].map(timer => timer.at).sort((a, b) => a - b),
+    /** The pending timer that falls due at `at`. */
+    at: (at: number) => [...due].find(timer => timer.at === at) ?? null,
+    pending: (timer: Due) => due.has(timer),
+    async advance(ms: number) {
+      const end = now + ms;
+      for (;;) {
+        const next = [...due].sort((a, b) => a.at - b.at)[0];
+        if (!next || next.at > end) break;
+        due.delete(next);
+        now = next.at;
+        await act(async () => { next.run(); });
+      }
+      now = end;
+    },
+    restore: () => { set.mockRestore(); clear.mockRestore(); },
+  };
+}
+type Time = ReturnType<typeof controlledTime>;
+
+/** Run `body` on controlled time; the tree is unmounted before the real timers return. */
+async function onControlledTime(body: (time: Time) => Promise<void>) {
+  const time = controlledTime();
+  try {
+    await body(time);
+  } finally {
+    await act(async () => { cleanup(); });
+    time.restore();
+  }
+}
+
 describe("a restricted chat: Gmail allowances", () => {
   test("GOOGLE_CHAT_RESTRICTED_ONLY: a normal chat reads nothing; the list follows the chat into and out of restriction", async () => {
     const c = chat("normal");
@@ -495,7 +561,7 @@ describe("a restricted chat: Gmail allowances", () => {
     expect(log()).toEqual([READ_ALLOWANCES, revokeAllowance("card-ithaca")]);
   });
 
-  test("GOOGLE_CHAT_REFETCH_AFTER_REVOKE: every revoke answer is followed by a fresh read, whose rows the list shows", async () => {
+  test("GOOGLE_CHAT_REFETCH_AFTER_REVOKE: a successful revoke answer, false or true, is followed by a fresh read, whose rows the list shows", async () => {
     const c = chat();
     await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
     fireEvent.click(within(c.list()!).getByRole("button", { name: "Revoke Save drafts" }));
@@ -557,6 +623,29 @@ describe("a restricted chat: Gmail allowances", () => {
       fireEvent.click(within(d.list()!).getByRole("button", { name: "Revoke Save drafts" }));
       await last(REVOKE_ALLOWANCE_PATH).answer({ error: "no" }, status);
       expect(d.list()).toBeNull();
+    });
+  }
+
+  for (const [status, state] of [[503, "unavailable"], [403, null], [404, null]] as const) {
+    test(`GOOGLE_CHAT_REVOKE_SUPERSEDES_READ: a read sent before a revoke answered ${status} cannot undo it; a read sent after it can`, async () => {
+      const c = chat();
+      await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
+      await pageBecomes("visible");
+      const earlier = last(ALLOWANCES_PATH);
+      fireEvent.click(within(c.list()!).getByRole("button", { name: "Revoke Save drafts" }));
+      await last(REVOKE_ALLOWANCE_PATH).answer({ error: "no" }, status);
+      const drawn = () => c.list()?.getAttribute("data-google-allowances") ?? null;
+      expect(c.view.container.querySelector("[data-session-safety]"), "the safety notice is still drawn").not.toBeNull();
+      expect(drawn(), `a revoke answered ${status}`).toBe(state);
+      await earlier.answer({ allowances: ALLOWANCES });
+      expect(drawn(), "an answer to a read sent before the revoke's answer is discarded").toBe(state);
+      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES, revokeAllowance("card-drafts")]);
+      // A fresh read, sent after the revoke's answer, may still recover the list.
+      await pageBecomes("visible");
+      await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES.slice(0, 2) });
+      expect(drawn()).toBe("ready");
+      expect(revokes(c.list()!)).toEqual(["Revoke Archive and Mark as read"]);
+      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES, revokeAllowance("card-drafts"), READ_ALLOWANCES]);
     });
   }
 
@@ -641,29 +730,133 @@ describe("a restricted chat: Gmail allowances", () => {
     expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
   });
 
-  test("GOOGLE_CHAT_REREAD_AT_EXPIRY: one read just after the earliest end, and no other timer from the same end", async () => {
-    const timers = spyOn(globalThis, "setTimeout");
-    try {
+  test("GOOGLE_CHAT_REREAD_AT_EXPIRY: one read just after the earliest end; a host still listing it is reconciled once; the next end follows", async () => {
+    await onControlledTime(async time => {
       const c = chat();
       await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
-      const atEnd = (end: number) => timers.mock.calls.filter(([, ms]) => ms === end - NOW + 1_000);
-      expect(atEnd(UNTIL_1802), "one timer for the earliest end").toHaveLength(1);
-      expect(atEnd(UNTIL_2140), "none for a later one").toHaveLength(0);
-      await act(async () => { (atEnd(UNTIL_1802)[0]![0] as () => void)(); });
-      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
-      // The host still lists that card (its clock runs behind): the same end arms no second timer.
+      expect(time.dueTimes(), "one timer, for the earliest end").toEqual([UNTIL_1802 + EXPIRY_GRACE]);
+      await time.advance(UNTIL_1802 + EXPIRY_GRACE - NOW - 1);
+      expect(log(), "nothing before the end and its grace").toEqual([READ_ALLOWANCES]);
+      await time.advance(1);
+      expect(log(), "one read at the end and its grace").toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
+      // The host still lists that card (its clock runs behind): the card stays, and one reconcile read follows.
       await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
-      expect(atEnd(UNTIL_1802), "the same end is never re-armed: no polling").toHaveLength(1);
-      // The card has gone: the next end arms one timer.
-      await act(async () => { (atEnd(UNTIL_1802)[0]![0] as () => void)(); });
-      await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES.slice(2) });
-      expect(revokes(c.list()!)).toEqual(["Revoke Save drafts"]);
-      expect(atEnd(UNTIL_2140)).toHaveLength(1);
+      expect(revokes(c.list()!)).toEqual(["Revoke Archive and Mark as read", "Revoke Save drafts"]);
+      expect(time.dueTimes(), "a reconcile read for the end the host still lists, and the next end's").toEqual([UNTIL_1802 + 2 * EXPIRY_GRACE, UNTIL_2140 + EXPIRY_GRACE]);
+      await time.advance(EXPIRY_GRACE);
       expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES]);
-    } finally {
-      timers.mockRestore();
-    }
+      await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
+      expect(time.dueTimes(), "that end is never reconciled again, and the next end keeps its timer: no polling").toEqual([UNTIL_2140 + EXPIRY_GRACE]);
+      await time.advance(UNTIL_2140 + EXPIRY_GRACE - time.now() - 1);
+      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES]);
+      await time.advance(1);
+      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES]);
+      // By now the host has dropped both cards.
+      await last(ALLOWANCES_PATH).answer({ allowances: [] });
+      expect(c.list()?.textContent).toContain("Nothing is allowed in this chat.");
+      expect(time.dueTimes(), "no end is left to wait for").toEqual([]);
+    });
   });
+
+  test("GOOGLE_CHAT_EXPIRED_ON_ARRIVAL: a card whose end passed in transit stays as the host listed it, and one read reconciles it", async () => {
+    await onControlledTime(async time => {
+      const c = chat();
+      // The host read this card live at NOW; its answer lands two seconds later, a second past the card's end.
+      await time.advance(2_000);
+      await last(ALLOWANCES_PATH).answer({ allowances: [allowance("card-boundary", "gmail.modify", "star", 40, NOW + 1_000)] });
+      expect(c.list()?.getAttribute("data-google-allowances"), "the host decides the card is live: the list is drawn").toBe("ready");
+      expect(revokes(c.list()!), "the host decides the card is live").toEqual(["Revoke Star"]);
+      expect(metas(c.list()!)).toEqual([`40 of ${GOOGLE_ALLOWANCE_ITEMS} changes left · until 09:41`]);
+      expect(time.dueTimes(), "one reconcile read").toEqual([NOW + 2_000 + EXPIRY_GRACE]);
+      await time.advance(EXPIRY_GRACE - 1);
+      expect(log()).toEqual([READ_ALLOWANCES]);
+      await time.advance(1);
+      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
+      // The host has dropped it by now.
+      await last(ALLOWANCES_PATH).answer({ allowances: [] });
+      expect(revokes(c.list()!)).toEqual([]);
+      expect(c.list()?.textContent).toContain("Nothing is allowed in this chat.");
+      expect(time.dueTimes()).toEqual([]);
+    });
+  });
+
+  test("GOOGLE_CHAT_STALE_END_NO_STARVE: an end already past never holds back a later end's read", async () => {
+    await onControlledTime(async time => {
+      const c = chat();
+      const rows = [allowance("card-stale", "gmail.modify", "star", 40, NOW - 60_000), ...ALLOWANCES.slice(2)];
+      await last(ALLOWANCES_PATH).answer({ allowances: rows });
+      expect(revokes(c.list()!)).toEqual(["Revoke Star", "Revoke Save drafts"]);
+      expect(time.dueTimes(), "a reconcile read, and the later end's own").toEqual([NOW + EXPIRY_GRACE, UNTIL_2140 + EXPIRY_GRACE]);
+      await time.advance(EXPIRY_GRACE);
+      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
+      // The host still lists the stale card: only the later end is left to wait for.
+      await last(ALLOWANCES_PATH).answer({ allowances: rows });
+      expect(time.dueTimes(), "only the later end is left to wait for").toEqual([UNTIL_2140 + EXPIRY_GRACE]);
+      await time.advance(UNTIL_2140 + EXPIRY_GRACE - time.now() - 1);
+      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
+      await time.advance(1);
+      expect(log(), "the later end's read").toEqual([READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES]);
+    });
+  });
+
+  test("GOOGLE_CHAT_PAST_END_ONCE: one past end is reconciled once however often the host lists it; another is reconciled in its turn", async () => {
+    await onControlledTime(async time => {
+      const c = chat();
+      const stale = allowance("card-stale", "gmail.modify", "star", 40, NOW - 60_000);
+      await last(ALLOWANCES_PATH).answer({ allowances: [stale] });
+      await time.advance(EXPIRY_GRACE);
+      expect(log(), "one reconcile read for the past end").toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
+      await last(ALLOWANCES_PATH).answer({ allowances: [stale] });
+      expect(time.dueTimes(), "nothing more for that end").toEqual([]);
+      // A read for another reason lists it again: still nothing more.
+      await pageBecomes("visible");
+      await last(ALLOWANCES_PATH).answer({ allowances: [stale] });
+      expect(time.dueTimes()).toEqual([]);
+      await time.advance(86_400_000);
+      expect(log(), "one reconcile read in all").toEqual([READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES]);
+      // A day on, a card whose end has just passed: its own one reconcile read. The stale end, a day back, reads with its date.
+      await pageBecomes("visible");
+      await last(ALLOWANCES_PATH).answer({ allowances: [stale, allowance("card-late", "gmail.modify", "archive", 9, time.now() - 5_000)] });
+      expect(metas(c.list()!), "an end on an earlier day reads with its date").toEqual([
+        `40 of ${GOOGLE_ALLOWANCE_ITEMS} changes left · until Sun 12 Jul 09:40`,
+        `9 of ${GOOGLE_ALLOWANCE_ITEMS} changes left · until 09:40`,
+      ]);
+      expect(time.dueTimes()).toEqual([time.now() + EXPIRY_GRACE]);
+      await time.advance(EXPIRY_GRACE);
+      await last(ALLOWANCES_PATH).answer({ allowances: [stale, allowance("card-late", "gmail.modify", "archive", 9, time.now() - 6_000)] });
+      expect(time.dueTimes(), "each end once").toEqual([]);
+      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES]);
+    });
+  });
+
+  for (const [timer, rows, dueAt] of [
+    ["the expiry timer", () => ALLOWANCES, UNTIL_1802 + EXPIRY_GRACE],
+    ["the reconcile timer", () => [allowance("card-stale", "gmail.modify", "star", 40, NOW - 60_000)], NOW + EXPIRY_GRACE],
+  ] as const) {
+    for (const [exit, leave] of [
+      ["unmounting", async (c: ReturnType<typeof chat>) => { act(() => { c.view.unmount(); }); }],
+      ["switching chats", async (c: ReturnType<typeof chat>) => { act(() => { c.root.stores.chat.setState({ activeSessionId: OTHER_SESSION }); }); }],
+      ["leaving ready", async (c: ReturnType<typeof chat>) => {
+        await pageBecomes("visible");
+        await last(ALLOWANCES_PATH).answer({ error: "Internal" }, 500);
+        expect(c.list()?.getAttribute("data-google-allowances")).toBe("failed");
+      }],
+    ] as const) {
+      test(`GOOGLE_CHAT_TIMER_CLEANUP: ${exit} cancels ${timer}, the one scheduled, and it never reads`, async () => {
+        await onControlledTime(async time => {
+          const c = chat();
+          await last(ALLOWANCES_PATH).answer({ allowances: rows() });
+          const scheduled = time.at(dueAt);
+          expect(scheduled, `${timer} is scheduled`).not.toBeNull();
+          await leave(c);
+          expect(time.pending(scheduled!), `${exit} cancels it`).toBe(false);
+          const reads = requests(ALLOWANCES_PATH).length;
+          await time.advance(dueAt - time.now() + 60_000);
+          expect(requests(ALLOWANCES_PATH).length, "nothing reads this chat once it has gone").toBe(reads);
+        });
+      });
+    }
+  }
 
   test("GOOGLE_CHAT_REREAD_ON_VISIBLE: the page becoming visible reads again and formats the times afresh; hidden reads nothing", async () => {
     const MON_0730 = new Date(2026, 6, 13, 7, 30).getTime();
@@ -765,13 +958,30 @@ describe("mapping", () => {
     expect(sinceTime(new Date(2025, 11, 31, 23, 5).getTime(), NOW)).toEqual({ short: "Wed 31 Dec 2025", full: "Wednesday 31 December 2025 at 23:05" });
     expect(untilTime(UNTIL_1802, NOW)).toEqual({ short: "18:02", full: "Sunday 12 July 2026 at 18:02" });
     expect(untilTime(new Date(2026, 6, 13, 7, 30).getTime(), NOW)).toEqual({ short: "Mon 07:30", full: "Monday 13 July 2026 at 07:30" });
+    // An end on an earlier day, while this device's clock runs ahead of the host's: never a bare weekday, which reads as the coming one.
+    expect(untilTime(new Date(2026, 6, 11, 23, 59).getTime(), NOW)).toEqual({ short: "Sat 11 Jul 23:59", full: "Saturday 11 July 2026 at 23:59" });
+    expect(untilTime(new Date(2026, 6, 12, 8, 0).getTime(), NOW), "earlier today is still its clock").toEqual({ short: "08:00", full: "Sunday 12 July 2026 at 08:00" });
   });
 
-  test("a card shows the least left and the earliest end any of its rows reports; the list's next end is the earliest shown", () => {
-    const { grants, nextEnd } = allowanceGrants([allowance("card-a", "gmail.modify", "star", 9, UNTIL_2140), allowance("card-a", "gmail.modify", "archive", 7, UNTIL_1802)], NOW);
+  test("a card shows the least left and the earliest end any of its rows reports; the list's next end is the earliest shown still ahead", () => {
+    const { grants, nextEnd, pastEnds } = allowanceGrants([allowance("card-a", "gmail.modify", "star", 9, UNTIL_2140), allowance("card-a", "gmail.modify", "archive", 7, UNTIL_1802)], NOW);
     expect(grants).toEqual([{ id: "card-a", address: ODYSSEUS, actions: [{ kind: "star" }, { kind: "archive" }], remaining: 7, limit: 100, until: untilTime(UNTIL_1802, NOW) }]);
     expect(nextEnd).toBe(UNTIL_1802);
+    expect(pastEnds).toEqual([]);
     expect(allowanceGrants([CALENDAR_CARD], NOW).nextEnd, "an unshown card arms no timer").toBeNull();
+  });
+
+  test("a shown card whose end is past by this device's clock stays, and its end is a past end, each once", () => {
+    const { grants, nextEnd, pastEnds } = allowanceGrants([
+      allowance("card-a", "gmail.modify", "star", 9, NOW - 1_000),
+      allowance("card-b", "gmail.modify", "archive", 7, UNTIL_2140),
+      allowance("card-c", "gmail.modify", "mark_read", 5, NOW - 60_000),
+      allowance("card-d", "gmail.modify", "unstar", 5, NOW - 1_000),
+      allowance("card-e", "gmail.modify", "archive", 3, NOW),
+    ], NOW);
+    expect(grants.map(grant => grant.id), "the host decides which cards are live").toEqual(["card-a", "card-b", "card-c", "card-d", "card-e"]);
+    expect(nextEnd, "the earliest end still ahead").toBe(UNTIL_2140);
+    expect(pastEnds, "an end at or before now, each once, earliest first").toEqual([NOW - 60_000, NOW - 1_000, NOW]);
   });
 
   test("accounts sort by address and approvals run newest first, however the host ordered them", () => {

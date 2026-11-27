@@ -48,10 +48,13 @@ import {
  *
  * `failed` is a read that finished without a list: it says so and claims
  * neither that nothing is allowed nor that anything is still loading, with
- * Try again when the host passes `onRetry`. `unshown` counts allowances the
- * host holds but cannot name; while it is above zero the list never says
- * "Nothing is allowed", and a notice under the rows says how many and that
- * they still apply.
+ * Try again when the host passes `onRetry`. The failure is drawn inside a
+ * status region the list keeps for its whole life, so reaching it while the
+ * list is on screen (a Try again that fails again, say) is announced once,
+ * politely; loading is not. `unshown` counts allowances the host holds but
+ * cannot name; while it is above zero the list never says "Nothing is
+ * allowed", and a notice under the rows says how many and that they still
+ * apply.
  *
  * When the host drops a revoked row, focus goes to the next row's Revoke,
  * else the previous one, else the heading.
@@ -99,7 +102,7 @@ export function GoogleAllowanceList(p: GoogleAllowanceListProps) {
       <p style={EXPLAINER}>{grants.length > 0 ? EXPLAINER_TEXT : EXPLAINER_LEAD}</p>
       {p.state === "loading" ? <Placeholder variant="loading" lines={2} /> : null}
       {p.state === "unavailable" ? <Callout tone="amber" variant="boxed" icon="unverified" text={UNAVAILABLE_TEXT} /> : null}
-      {p.state === "failed" ? <FailedRead message={FAILED_TEXT} detail={FAILED_DETAIL} onRetry={retry} /> : null}
+      <FailedRead failed={p.state === "failed"} message={FAILED_TEXT} detail={FAILED_DETAIL} onRetry={retry} />
       {p.state === "ready" && grants.length === 0 && unshown === 0 ? <Placeholder variant="empty" message={EMPTY_TEXT} /> : null}
       {grants.length > 0 ? (
         <Surface pad={0}>
