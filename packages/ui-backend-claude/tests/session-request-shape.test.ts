@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { lstatSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { INFERENCE_PLACEHOLDER, sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
 import { installTestHome } from "../../../scripts/test-home.js";
@@ -157,4 +157,37 @@ test("migration refuses before an encoded snapshot would cross its read limit", 
   writeFileSync(path(id), before);
   expect(() => retain(id, true), "MIGRATION_NEVER_WRITES_AN_UNREADABLE_CONTEXT").toThrow("storage limit");
   expect(readFileSync(path(id), "utf8")).toBe(before);
+});
+
+test("a context file written before the owner accessor reads back as the same shape, byte-identically (#4826)", () => {
+  const id = session();
+  // Captured from the tree before #4826: retainAppend, then a new session's shape with tool search "false".
+  const bytes = '{"delivered":{},"turns":{},"append":"Odysseus checks Ithaca.","claudeRequestShapeInitialized":true,"claudeRequestShape":{"version":4,"selectionDigest":"af84139a9c488614cdff468b92d18f1209bc305c1164aec26fcc8e5b61970312","disallowedTools":["AskUserQuestion","mcp__brain__brain_add","mcp__brain__brain_update","mcp__brain__brain_archive","CronCreate","CronDelete","CronList","ScheduleWakeup","RemoteTrigger","SendMessage","ListAgents"],"toolSearch":"false"}}';
+  writeFileSync(path(id), bytes);
+  expect(retain(id, true)).toEqual({ version: 4, selectionDigest: selectionDigest(current, "false"), disallowedTools: current, toolSearch: "false" });
+  expect(readFileSync(path(id), "utf8"), "SAVED_SHAPE_BYTES_UNCHANGED").toBe(bytes);
+  const store = claudePromptContext(brain, id), sent = store.prepare("Penelope checks Ithaca.", { device: "tablet" });
+  store.acknowledge(sent.id);
+  const shapeKeys = (text: string) => { const state = JSON.parse(text); return JSON.stringify([state.claudeRequestShapeInitialized, state.claudeRequestShape]); };
+  expect(shapeKeys(readFileSync(path(id), "utf8")), "SHAPE_KEYS_BYTE_IDENTICAL_AFTER_WRITES").toBe(shapeKeys(bytes));
+});
+
+test("missing, append-less, aliased and oversized contexts refuse without writing (#4826)", () => {
+  const missing = crypto.randomUUID();
+  expect(() => retain(missing)).toThrow();
+  expect(() => readFileSync(path(missing)), "MISSING_CONTEXT_NOT_CREATED").toThrow();
+  const bare = session(), bareBytes = JSON.stringify({ delivered: {}, turns: {} });
+  writeFileSync(path(bare), bareBytes);
+  expect(() => retain(bare)).toThrow();
+  expect(readFileSync(path(bare), "utf8"), "APPEND_LESS_CONTEXT_UNCHANGED").toBe(bareBytes);
+  const aliased = session(), dir = dirname(path(aliased)), real = `${dir}.real`;
+  renameSync(dir, real); symlinkSync(real, dir);
+  const aliasedBytes = readFileSync(path(aliased), "utf8");
+  expect(() => retain(aliased), "DIRECTORY_ALIAS_REFUSED").toThrow("directory aliases");
+  expect(readFileSync(path(aliased), "utf8")).toBe(aliasedBytes);
+  rmSync(dir); renameSync(real, dir);
+  const large = session();
+  writeFileSync(path(large), Buffer.alloc(64 * 1024 * 1024 + 1, 0x20));
+  expect(() => retain(large), "OVERSIZED_CONTEXT_REFUSED").toThrow();
+  expect(lstatSync(path(large)).size).toBe(64 * 1024 * 1024 + 1);
 });

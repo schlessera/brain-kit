@@ -1,11 +1,14 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "fs";
+import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/server";
 
+import { sessionPromptContext, sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
 import { normalizeMessages, getPiHistory, listPiSessions } from "../src/history";
 
 describe("normalizeMessages (pure)", () => {
@@ -137,3 +140,97 @@ function emptyUsage() {
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
   };
 }
+
+describe("one session's history opens its fixed-name transcript directly (#4858)", () => {
+  const dirs: string[] = [];
+  const temp = (prefix: string) => { const dir = mkdtempSync(join(tmpdir(), prefix)); dirs.push(dir); return dir; };
+  afterAll(() => { for (const dir of dirs) rmSync(dir, { recursive: true, force: true }); });
+  const expected: SessionHistoryMessage[] = [
+    { role: "user", content: "Odysseus asks for the way home.", toolCalls: [] },
+    { role: "assistant", content: "Sail west past the island.", toolCalls: [], parts: [{ kind: "text", text: "Sail west past the island." }] },
+  ];
+  /** A current-version transcript, written once by the SDK under its own managed name. */
+  function transcript(cwd: string) {
+    const scratch = temp("pi-history-sdk-"), sm = SessionManager.create(cwd, scratch);
+    sm.appendMessage({ role: "user", content: "Odysseus asks for the way home.", timestamp: 1 } as never);
+    sm.appendMessage({ role: "assistant", content: [{ type: "text", text: "Sail west past the island." }], api: "anthropic-messages",
+      provider: "anthropic", model: "m", usage: emptyUsage(), stopReason: "stop", timestamp: 2 } as never);
+    const [file] = readdirSync(scratch).filter(name => name.endsWith(".jsonl"));
+    return { id: sm.getSessionId(), name: file!, bytes: readFileSync(join(scratch, file!)) };
+  }
+  async function read(cwd: string, id: string, sessionDir: string) {
+    const list = spyOn(SessionManager, "list");
+    try { return { history: await getPiHistory(cwd, id, sessionDir), listings: list.mock.calls.length }; }
+    finally { list.mockRestore(); }
+  }
+  const snapshot = (dir: string) => readdirSync(dir).sort().map(name => {
+    const path = join(dir, name), stat = lstatSync(path);
+    return [name, stat.mtimeMs, stat.isFile() ? readFileSync(path).toString("base64") : ""];
+  });
+
+  test("a transcript under the fixed name is read without listing the session directory", async () => {
+    const cwd = temp("pi-history-cwd-"), saved = transcript(cwd);
+    const canonical = temp("pi-history-dir-"), legacy = temp("pi-history-dir-");
+    writeFileSync(join(canonical, `${saved.id}.jsonl`), saved.bytes);
+    writeFileSync(join(legacy, saved.name), saved.bytes);
+    const direct = await read(cwd, saved.id, canonical);
+    expect(direct.history).toEqual(expected);
+    expect(direct.listings, "FIXED_NAME_NEVER_LISTS").toBe(0);
+    const listed = await read(cwd, saved.id, legacy);
+    expect(listed.listings, "OLDER_NAME_LISTS_ONCE").toBe(1);
+    expect(listed.history, "OLDER_NAME_STILL_RETURNED").toEqual(expected);
+    expect(direct.history, "DIRECT_EQUALS_LISTING").toEqual(listed.history);
+  });
+
+  test("a fixed-name file naming another session or another brain, or a symlink, is not opened directly", async () => {
+    const cwd = temp("pi-history-cwd-"), other = temp("pi-history-cwd-"), id = crypto.randomUUID();
+    const foreignId = transcript(cwd), foreignBrain = transcript(other), aliased = transcript(cwd);
+    const wrongId = temp("pi-history-dir-"), wrongBrain = temp("pi-history-dir-"), symlinked = temp("pi-history-dir-");
+    writeFileSync(join(wrongId, `${id}.jsonl`), foreignId.bytes);
+    writeFileSync(join(wrongBrain, `${foreignBrain.id}.jsonl`), foreignBrain.bytes);
+    const target = join(temp("pi-history-target-"), "voyage.jsonl");
+    writeFileSync(target, aliased.bytes); symlinkSync(target, join(symlinked, `${aliased.id}.jsonl`));
+    const byId = await read(cwd, id, wrongId);
+    expect(byId.history, "FOREIGN_SESSION_HEADER_NOT_USED").toEqual([]);
+    expect(byId.listings).toBe(1);
+    const byBrain = await read(cwd, foreignBrain.id, wrongBrain);
+    expect(byBrain.history, "FOREIGN_BRAIN_HEADER_NOT_USED").toEqual([]);
+    expect(byBrain.listings).toBe(1);
+    // The listing path still follows the link, exactly as before.
+    expect((await read(cwd, aliased.id, symlinked)).listings, "SYMLINK_NOT_OPENED_DIRECTLY").toBe(1);
+  });
+
+  test("reading known and unknown sessions leaves the session directory untouched", async () => {
+    const cwd = temp("pi-history-cwd-"), saved = transcript(cwd), dir = temp("pi-history-dir-");
+    writeFileSync(join(dir, `${saved.id}.jsonl`), saved.bytes);
+    const before = snapshot(dir);
+    await read(cwd, saved.id, dir);
+    await read(cwd, crypto.randomUUID(), dir);
+    expect(snapshot(dir), "HISTORY_READ_WRITES_NOTHING").toEqual(before);
+  });
+});
+
+test("a history read opens the prompt-context file once, whatever the number of user messages (#4859)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-history-opens-cwd-")), sessionDir = mkdtempSync(join(tmpdir(), "pi-history-opens-dir-"));
+  try {
+    const sm = SessionManager.create(cwd, sessionDir), session = sm.getSessionId(), store = sessionPromptContext(sessionDir, cwd, session);
+    store.retainAppend("Odysseus keeps the log.");
+    for (let turn = 0; turn < 20; turn++) {
+      const sent = store.prepare(`Turn ${turn}: which way to Ithaca?`, { device: turn % 2 ? "phone" : "tablet" });
+      const id = sm.appendMessage({ role: "user", content: [{ type: "text", text: sent.text }], timestamp: turn * 2 } as never);
+      store.acknowledge(sent.id, id);
+      sm.appendMessage({ role: "assistant", content: [{ type: "text", text: "Sail west." }], api: "anthropic-messages",
+        provider: "anthropic", model: "m", usage: emptyUsage(), stopReason: "stop", timestamp: turn * 2 + 1 } as never);
+    }
+    const { dir, name } = sessionPromptContextLocation(sessionDir, cwd, session);
+    const open = spyOn(fs, "openSync");
+    let history, opens;
+    try {
+      history = await getPiHistory(cwd, session, sessionDir);
+      opens = open.mock.calls.filter(([path]) => path === join(dir, name)).length;
+    } finally { open.mockRestore(); }
+    expect(opens, "ONE_PROMPT_CONTEXT_READ_PER_HISTORY").toBe(1);
+    expect(history.filter(message => message.role === "user").map(message => message.content))
+      .toEqual(Array.from({ length: 20 }, (_, turn) => `Turn ${turn}: which way to Ithaca?`));
+  } finally { rmSync(cwd, { recursive: true, force: true }); rmSync(sessionDir, { recursive: true, force: true }); }
+});
