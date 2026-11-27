@@ -1,4 +1,5 @@
 import { sessionPromptContext, sessionReplay } from "@schlessera/brain-ui-sdk/internal";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 /**
  * Session listing + history normalization for the pi backend.
@@ -13,7 +14,7 @@ import { dirname, join } from "node:path";
  * back onto the assistant tool call they belong to.
  */
 
-import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { parseSessionEntries, SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type {
   AssistantMessage,
@@ -89,6 +90,24 @@ function fixedNameTranscript(cwd: string, sessionId: string, sessionDir: string 
   return header?.type === "session" && header.id === sessionId && header.cwd === cwd ? { path } : undefined;
 }
 
+/**
+ * A transcript's active branch, loaded without writing it (#4866).
+ * `SessionManager.open` rewrites an older-version transcript in its migrated
+ * form, an empty one with a new header, and a torn last line with a newline. A
+ * history read migrates in memory instead, so opening a chat never changes the
+ * bytes its next resumed turn starts from. A non-empty file that is not a pi
+ * session is still refused by `open`, which refuses it before any write.
+ */
+function transcriptBranch(path: string, sessionDir: string | undefined, cwd: string): SessionEntry[] {
+  let content: string;
+  try { content = readFileSync(path, "utf8"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+  if (content === "") return [];
+  const entries = parseSessionEntries(content), header = entries[0];
+  if (header?.type !== "session" || typeof header.id !== "string") return SessionManager.open(path, sessionDir).getBranch();
+  return SessionManager.inMemory(cwd, undefined, entries).getBranch();
+}
+
 async function readPiHistory(cwd: string, sessionId: string, sessionDir?: string): Promise<SessionHistoryMessage[]> {
   const info = fixedNameTranscript(cwd, sessionId, sessionDir)
     ?? (await SessionManager.list(cwd, sessionDir)).find((i) => i.id === sessionId);
@@ -97,7 +116,7 @@ async function readPiHistory(cwd: string, sessionId: string, sessionDir?: string
   // A committed direct effect may be the session's only retained history.
   // Reading host metadata must not manufacture a provider transcript to find it.
   // getBranch() returns the active path root → leaf (chronological order).
-  const branch = info ? SessionManager.open(info.path, sessionDir).getBranch() : [];
+  const branch = info ? transcriptBranch(info.path, sessionDir, cwd) : [];
   const omitted = retriedAttempts(branch);
   const context = sessionDir ? sessionPromptContext(sessionDir, cwd, sessionId) : undefined;
   // One prompt-context read per history read, taken at the first user message (#4859).

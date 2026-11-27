@@ -17,7 +17,7 @@
  * clock and a fake robots fetcher and touches no network at all.
  */
 import { DEFAULT_USER_AGENT } from "../config/env.js";
-import { BodyTooLargeError, readBoundedText } from "./bounded-body.js";
+import { BodyTooLargeError, checkMaxBytes, readBoundedText } from "./bounded-body.js";
 import { RateLimiter, hostOf } from "../politeness/rate-limit.js";
 import { RobotsCache } from "../politeness/robots.js";
 import { checkPublicUrl, fetchPinned } from "../politeness/address.js";
@@ -81,7 +81,10 @@ export interface FetchOptions {
    * The most bytes `getJson`, `getPage` and `getText` read of a response body
    * for this call, the body of a non-2xx response included. A longer body is
    * refused as it streams in, and the request fails. Unset reads the whole
-   * body. `get` returns its `Response` unread and unbounded either way.
+   * body. `get` returns its `Response` unread and unbounded either way. A
+   * whole number of bytes, `0` or more: anything else (`NaN`, `Infinity`, a
+   * negative or fractional value) is refused with a `RangeError` before any
+   * request is made.
    */
   maxBytes?: number;
 }
@@ -407,6 +410,7 @@ export class ScrapeClient {
 
   /** GET and parse JSON, throwing on a non-2xx. */
   async getJson<T = unknown>(url: string, opts: FetchOptions = {}): Promise<T> {
+    if (opts.maxBytes !== undefined) checkMaxBytes(opts.maxBytes, "FetchOptions.maxBytes");
     const response = await this.get(url, {
       ...opts,
       headers: { Accept: "application/json", ...opts.headers },
@@ -423,6 +427,7 @@ export class ScrapeClient {
    * of them covers both rather than leaving the other reaching the network.
    */
   async getPage(url: string, opts: FetchOptions = {}): Promise<FetchedPage> {
+    if (opts.maxBytes !== undefined) checkMaxBytes(opts.maxBytes, "FetchOptions.maxBytes");
     const response = await this.get(url, opts);
     if (!response.ok) throw await httpFailure(response, url, opts.maxBytes);
     const body = opts.maxBytes === undefined ? await response.text() : await readBoundedText(response, opts.maxBytes);
