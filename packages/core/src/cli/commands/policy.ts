@@ -4,6 +4,7 @@ import type { CoreCommand } from "../types.js";
 
 export const policyCommand: CoreCommand = {
   summary: "Validate the read-only governance policy without loading brain configuration",
+  flags: { boolean: [], value: [] },
   helpBlock: "brain policy check [--json]\n\nReads context/policies/governance.md. Unknown keys and non-tier-B releases refuse.\nMissing policy uses built-in defaults. No file is changed and no brain configuration executes.",
   async run(args, cli) {
     const { args: positional, flags } = parseArgs(args);

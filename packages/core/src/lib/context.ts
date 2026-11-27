@@ -7,9 +7,9 @@ import { loadModules } from "./module-loader.js";
 import { buildTaxonomy, Taxonomy } from "./taxonomy.js";
 
 /**
- * Everything the libraries need to operate on one brain. Created once per
- * process (CLI entry, MCP server start, test setup) and passed or fetched
- * via getContext().
+ * Everything the libraries need to operate on one brain. Created by
+ * initContext() at each entry (CLI, MCP server start, host, test setup) and
+ * passed to the code that needs it.
  */
 export interface BrainContext {
   root: string;
@@ -22,8 +22,6 @@ export interface BrainContext {
   taxonomy: Taxonomy;
 }
 
-let current: BrainContext | null = null;
-
 export interface InitContextOptions {
   /** Explicit root; default: BRAIN_ROOT env → config-file walk-up → git root → cwd. */
   root?: string;
@@ -31,7 +29,7 @@ export interface InitContextOptions {
 
 /**
  * Resolve root, load + validate config, load modules, build the effective
- * taxonomy. Also sets the process-wide context returned by getContext().
+ * taxonomy.
  */
 export async function initContext(opts: InitContextOptions = {}): Promise<BrainContext> {
   const root = resolveRoot(opts.root);
@@ -39,7 +37,7 @@ export async function initContext(opts: InitContextOptions = {}): Promise<BrainC
   const modules = await loadModules(loaded.config, root);
   const taxonomy = buildTaxonomy({ user: loaded.config, modules });
 
-  current = {
+  return {
     root,
     dbPath: indexDbPath(root),
     config: loaded.config,
@@ -48,20 +46,4 @@ export async function initContext(opts: InitContextOptions = {}): Promise<BrainC
     modules,
     taxonomy,
   };
-  return current;
-}
-
-/** The process-wide context. Throws when initContext() has not run. */
-export function getContext(): BrainContext {
-  if (!current) {
-    throw new Error("Brain context not initialized — call initContext() first");
-  }
-  return current;
-}
-
-/** Test helper: swap the process-wide context (returns the previous one). */
-export function setContext(ctx: BrainContext | null): BrainContext | null {
-  const prev = current;
-  current = ctx;
-  return prev;
 }

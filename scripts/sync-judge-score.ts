@@ -14,7 +14,7 @@
  *   `scripts/measure-sync-judge.ts --min-precision` checks.
  */
 
-import type { FileDecision, PairDecision } from "./types.js";
+import type { FileDecision, PairDecision } from "../packages/core/src/lib/sync/types.ts";
 
 /** One item in one repeat of a run. */
 export interface JudgeSample<L extends string = string> {

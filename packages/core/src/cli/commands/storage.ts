@@ -7,6 +7,7 @@ import type { CoreCommand } from "../types.js";
 
 export const storageCommand: CoreCommand = {
   summary: "Bounded storage inventory and non-destructive Git packing",
+  flags: { boolean: ["dry-run"], value: [] },
   helpBlock: `brain storage inventory --json
 brain storage pack [--dry-run] --json
 

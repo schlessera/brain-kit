@@ -21,6 +21,7 @@ it is.`;
 
 export const readCommand: CoreCommand = {
   summary: "Read and print a document from the brain",
+  flags: { boolean: [], value: ["max-tokens", "section"] },
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);
