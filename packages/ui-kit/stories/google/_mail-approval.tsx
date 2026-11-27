@@ -75,7 +75,7 @@ export async function holds(canvasElement: HTMLElement, width: "narrow" | "deskt
 }
 
 /** A node's text as drawn: text as written, each hidden-character chip as the marker it shows (never its `data-hidden-char`), gutter numbers and screen-reader words left out. */
-function drawnText(el: Element): string {
+export function drawnText(el: Element): string {
   let out = "";
   for (const child of el.childNodes) {
     if (child.nodeType === Node.TEXT_NODE) out += child.nodeValue ?? "";

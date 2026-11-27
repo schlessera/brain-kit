@@ -294,6 +294,11 @@ describe("hidden characters", () => {
     // The display name, the subject twice, then the body: each a chip, the body's as the envelope's.
     expect(markers).toEqual(["‹U+202E›", "‹U+200B›", "‹U+202E›", "‹U+202E›", "‹U+200B›", "‹U+200B ×3›"]);
     expect(doc.querySelector("[data-google-subject] [data-hidden-char]")!.getAttribute("data-hidden-char")).toBe("‹U+200B›");
+    // What a reader sees in the envelope, read from the drawn markers, not their names.
+    expect(drawnText(doc.querySelector("[data-google-subject]")!)).toBe("Invoice‹U+200B› for the ‹U+202E›tfar");
+    expect(drawnText(doc.querySelector("[data-google-recipient='to'] .bk-gma-who")!)).toBe("penelope@example.com “Penel‹U+202E›epo”");
+    const chips = [...doc.querySelectorAll("[data-hidden-char]")];
+    expect(chips.map((chip) => drawnText(chip))).toEqual(chips.map((chip) => chip.getAttribute("data-hidden-char")));
     const body = bodyOf(doc);
     expect(drawnBody(body)).toBe("The ship's name is in the attachment: Argo‹U+202E›gro.\nMeet at the harbour‹U+200B›master's house‹U+200B ×3› at dusk.");
     expect(body.textContent).not.toMatch(/[\u{200B}\u{202E}]/u);

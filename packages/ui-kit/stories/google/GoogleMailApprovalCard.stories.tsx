@@ -10,7 +10,7 @@ import {
 import { GOOGLE_SEND_RECIPIENT_REFUSAL, GoogleMailApprovalCard, type GoogleMailApprovalCardProps } from "../../src/index.js";
 import { color, font } from "../../src/tokens.js";
 import { stage } from "../_stage.js";
-import { Hosted, MARKUP, cardIn, desktop, drawnBody, drawnLines, drawnRow, holds, narrow, noStandingChoice, printed, widthOf } from "./_mail-approval.js";
+import { Hosted, MARKUP, cardIn, desktop, drawnBody, drawnLines, drawnRow, drawnText, holds, narrow, noStandingChoice, printed, widthOf } from "./_mail-approval.js";
 
 /**
  * The approval card for one Gmail write (#4215; brief of 2026-11-20, rulings
@@ -169,6 +169,11 @@ export const SendHiddenChars = meta.story({
     // The display name, the subject twice, then the body: every one a chip.
     await expect([...card.querySelectorAll("[data-hidden-char]")].map((m) => m.getAttribute("data-hidden-char"))).toEqual(["‹U+202E›", "‹U+200B›", "‹U+202E›", "‹U+202E›", "‹U+200B›", "‹U+200B ×3›"]);
     for (const marker of card.querySelectorAll<HTMLElement>("[data-hidden-char]")) await expect(marker).toBeVisible();
+    // What a reader sees in the envelope, read from the drawn markers, not their names.
+    await expect(drawnText(card.querySelector("[data-google-subject]")!)).toBe("Invoice‹U+200B› for the ‹U+202E›tfar");
+    await expect(drawnText(card.querySelector("[data-google-recipient='to'] .bk-gma-who")!)).toBe("penelope@example.com “Penel‹U+202E›epo”");
+    const chips = [...card.querySelectorAll("[data-hidden-char]")];
+    await expect(chips.map((chip) => drawnText(chip)), "each chip shows its own marker").toEqual(chips.map((chip) => chip.getAttribute("data-hidden-char")));
     await expect(card.querySelector("[data-google-hidden-summary]")).toHaveTextContent("3 hidden characters in To and Subject are shown as ‹U+…›.");
     await expect(drawnBody(card.querySelector("[data-google-body-region]")!)).toBe("The ship's name is in the attachment: Argo‹U+202E›gro.\nMeet at the harbour‹U+200B›master's house‹U+200B ×3› at dusk.");
     await expect(card.querySelector("[data-google-body-header]")!.textContent).toBe("Body · 2 lines · 104 bytes · plain text · 5 hidden characters");
