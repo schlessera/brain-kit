@@ -7,6 +7,7 @@ import { buildTaxonomy, getMarkdownFiles, safeResolve } from "@schlessera/brain/
 import type { Taxonomy } from "@schlessera/brain";
 import type { ValidationIssue } from "@schlessera/brain/module";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
+import { frontmatterBlock } from "@schlessera/brain-common/internal/frontmatter-block";
 
 function parseYaml(text: string): object {
   const data = yaml.load(text, { schema: yaml.JSON_SCHEMA });
@@ -103,7 +104,23 @@ export interface TravelCorpus {
   issues: ValidationIssue[];
 }
 
-/** Read canonical files; no index/database write or stored aggregate is trusted. */
+/**
+ * Whether a frontmatter block could declare a travel type. The test is on the
+ * whole block, not a `type:` line, so a type given through an anchor and
+ * alias, a flow mapping or quotes is found; a backslash admits a
+ * double-quoted scalar that spells one with an escape.
+ */
+function couldBeTravel(source: string): boolean {
+  const block = frontmatterBlock(source);
+  if (!block) return false;
+  return /travel|trip|place|\\/.test(source.slice(block.innerStart, block.innerEnd));
+}
+
+/**
+ * Read canonical files; no index/database write or stored aggregate is trusted.
+ * Only a file whose frontmatter could be a journey, trip or place is parsed,
+ * so malformed frontmatter elsewhere is left to `brain validate`.
+ */
 export function readTravelCorpus(root: string, taxonomy: Taxonomy = buildTaxonomy({})): TravelCorpus {
   const documents = new Map<string, TravelDocument>();
   const issues: ValidationIssue[] = [];
@@ -111,6 +128,7 @@ export function readTravelCorpus(root: string, taxonomy: Taxonomy = buildTaxonom
   for (const path of getMarkdownFiles(root, taxonomy)) {
     try {
       const source = readFileSync(join(root, path), "utf8");
+      if (!couldBeTravel(source)) continue;
       const type = parseFrontmatter(source, { dataOnly: true }).data.type;
       if (type !== "travel" && type !== "trip" && type !== "place") continue;
       documents.set(path, parseTravelDocument(source));
@@ -176,11 +194,22 @@ export interface PlaceVisitSummary {
   visits: { document: string; visit: string; date: string | null }[];
 }
 
+type VisitReference = { document: string; visit: string; date: string | null };
+
+function summary(path: string, references: Map<string, VisitReference>): PlaceVisitSummary {
+  const visits = [...references.entries()].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, value]) => value);
+  const dates = visits.flatMap((visit) => visit.date ? [visit.date] : []).sort();
+  const allDatesKnown = visits.every((visit) => visit.date !== null);
+  return { path, visit_count: visits.length,
+    first_visit: allDatesKnown ? dates[0] ?? null : null,
+    last_visit: allDatesKnown ? dates.at(-1) ?? null : null, visits };
+}
+
 /** One event per document path + visit id, regardless of duplicate references. */
 export function summarizePlaceVisits(corpus: TravelCorpus, path: string): PlaceVisitSummary {
   const place = corpus.documents.get(path);
   if (!place || place.type !== "place") throw new Error(`Not a place: ${path}`);
-  const references = new Map<string, { document: string; visit: string; date: string | null }>();
+  const references = new Map<string, VisitReference>();
   const add = (document: string, visitId: string): void => {
     const owner = corpus.documents.get(document);
     if (!owner || owner.type === "place") return;
@@ -194,10 +223,36 @@ export function summarizePlaceVisits(corpus: TravelCorpus, path: string): PlaceV
       if (owner.places?.includes(path) || visit.places?.includes(path)) add(document, visit.id);
     }
   }
-  const visits = [...references.entries()].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, value]) => value);
-  const dates = visits.flatMap((visit) => visit.date ? [visit.date] : []).sort();
-  const allDatesKnown = visits.every((visit) => visit.date !== null);
-  return { path, visit_count: visits.length,
-    first_visit: allDatesKnown ? dates[0] ?? null : null,
-    last_visit: allDatesKnown ? dates.at(-1) ?? null : null, visits };
+  return summary(path, references);
+}
+
+/**
+ * `summarizePlaceVisits` for each of `paths`, in that order, from one pass
+ * over the journeys and trips rather than one per place.
+ */
+export function summarizeAllPlaceVisits(corpus: TravelCorpus, paths: readonly string[]): Map<string, PlaceVisitSummary> {
+  const references = new Map<string, Map<string, VisitReference>>();
+  for (const path of paths) {
+    if (corpus.documents.get(path)?.type !== "place") throw new Error(`Not a place: ${path}`);
+    references.set(path, new Map());
+  }
+  // The first visit with an id wins, as `find` does in `summarizePlaceVisits`.
+  const byId = new Map<string, VisitReference>();
+  for (const [document, owner] of corpus.documents) {
+    if (owner.type === "place") continue;
+    for (const visit of owner.visits ?? []) {
+      const key = JSON.stringify([document, visit.id]);
+      const reference = { document, visit: visit.id, date: visit.date ?? null };
+      if (!byId.has(key)) byId.set(key, reference);
+      for (const target of new Set([...owner.places ?? [], ...visit.places ?? []])) references.get(target)?.set(key, reference);
+    }
+  }
+  for (const path of paths) {
+    const place = corpus.documents.get(path) as Place;
+    for (const reference of place.visits ?? []) {
+      const key = JSON.stringify([reference.document, reference.visit]), found = byId.get(key);
+      if (found) references.get(path)!.set(key, found);
+    }
+  }
+  return new Map(paths.map((path) => [path, summary(path, references.get(path)!)]));
 }

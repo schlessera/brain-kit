@@ -73,7 +73,10 @@ Other intervals contribute sampling uncertainty to the bounds. This is an
 estimate; the bounds express its precision. The default maximum spacing is
 `max(0.1, min(5, toleranceM / 4))` metres; explicit spacing is above zero and at
 most 1,000 m. A maximum of 100,000 samples or 5,000,000 edge comparisons bounds
-work. Exceeding it yields unknown, with no fabricated percentage. Zero usable
+work. Each sample is compared only with the edges of B that can lie within the
+tolerance plus half a step of it, so the comparison bound counts comparisons
+performed, and an input is refused only when that count is reached. Exceeding
+either bound yields unknown, with no fabricated percentage. Zero usable
 length in A, no usable line in B and antipodal ambiguity also yield reasons.
 Partial inputs retain counts and partial status. Neither input's gaps are filled;
 isolated points remain nearest-point evidence but contribute no covered line.
@@ -141,7 +144,9 @@ follow redirects to an unconfigured service.
 and is bounded to 30 days. Caches are disposable, private files rather than
 authoritative content. Cache keys include endpoint, query/body, method, service
 and application identity. Expired, future-dated or malformed entries cannot answer
-as fresh evidence. Network replies are bounded to 5 MiB and `timeoutMs` (default
+as fresh evidence. After it writes a new entry, a process deletes entries (and
+temporaries left by an interrupted write) older than 30 days, the longest
+`cacheTtlMs` any process sharing the directory may use, at most once an hour. Network replies are bounded to 5 MiB and `timeoutMs` (default
 5 s, range 100 ms–60 s), including body consumption.
 An aborted request cancels response bodies that have not acquired a reader,
 including responses delivered after timeout or failed admission persistence.
