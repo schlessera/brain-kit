@@ -20,6 +20,7 @@ import {
   readScratchPins,
 } from "../src/lib/media-inventory";
 import { assess } from "../src/lib/sync/assess";
+import { git } from "./git-fixture";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -31,10 +32,6 @@ const DRAFT = ".brain/scratch/2026-07-12/loom-draft-03.png";
 const VOYAGE = ["pi", "voyage-home"];
 const key = (backend: string, session: string) => JSON.stringify([backend, session]);
 
-function git(cwd: string, ...args: string[]): void {
-  const r = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", cwd, ...args]);
-  if (r.exitCode !== 0) throw new Error(r.stderr.toString());
-}
 
 function put(root: string, path: string, bytes: string | Uint8Array): void {
   mkdirSync(dirname(join(root, path)), { recursive: true });

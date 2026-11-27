@@ -1,4 +1,4 @@
-// Refuses a local copy of a test need that has a shared owner (#4835, #4838, #4840).
+// Refuses a local copy of a test need that has a shared owner (#4835, #4838, #4840, #4837).
 //
 // Why: a test that waits for a condition, runs Git or boots an app writes the
 // same few lines as the next file, and the copies drift apart (bounds,
@@ -89,6 +89,8 @@ const BOOT_CONFIG = /\bresolveServerConfig\s*\(\s*\{/g;
 const TMP_PATH = /\b(?:join|resolve)\(\s*(?:os\.)?tmpdir\(\)\s*,/g;
 const MKDTEMP_ARGUMENT = /\bmkdtemp(?:Sync)?\(\s*$/;
 const TMP_PATH_MARKER = /\/\/\s*tmp-path:\s*\S/;
+// A Git runner named `git`: a function declaration or a `const` binding.
+const GIT_RUNNER = /^[ \t]*(?:export\s+)?(?:async\s+)?(?:function\s+git\s*\(|const\s+git\s*(?::[^=\n]+)?=(?!=))/gm;
 const configKeys = (literal: string) => new Set([...literal.matchAll(/\b([A-Z][A-Z0-9_]{3,})\s*:/g)].map((match) => match[1]!));
 
 export const RULES: readonly Rule[] = [
@@ -117,6 +119,15 @@ export const RULES: readonly Rule[] = [
         if (keys.has("AUTH_MODE") && keys.has("HOST")) found.push({ line: lineAt(text, match.index!), name: "resolveServerConfig" });
       }
       return found;
+    },
+  },
+  {
+    id: "git-runner",
+    refused: "a local Git runner (`function git(` or `const git =`)",
+    instead: "run Git with `git` or `gitResult` from packages/core/tests/git-fixture.ts, which ignores the host's system and global Git configuration",
+    allowed: ["packages/core/tests/git-fixture.ts"],
+    sites(text) {
+      return [...text.matchAll(GIT_RUNNER)].map((match) => ({ line: lineAt(text, match.index!), name: "git" }));
     },
   },
   {
