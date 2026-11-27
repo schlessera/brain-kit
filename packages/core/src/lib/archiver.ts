@@ -5,7 +5,7 @@ import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { openDatabase, migrateVecSchema, storedVectorWidth } from "./db.js";
-import { EMBEDDING_DIMENSIONS } from "./models.js";
+import { EMBEDDING_DIMENSIONS } from "./llm-defaults.js";
 import { updateDocument } from "./frontmatter-edit.js";
 import { safeResolve, WriteRefusedError, writeFileSafely } from "./safe-path.js";
 

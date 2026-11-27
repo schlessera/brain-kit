@@ -4,7 +4,7 @@ import { SEARCH_SORTS, type ChunkMatch, type SearchResult, type SearchOptions } 
 import type { EmbeddingProvider, RerankCandidate, Reranker } from "./seams.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
-import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn } from "./db.js";
+import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn, indexShape, vecStoreHasRows } from "./db.js";
 import { nameKey } from "./name-key.js";
 import {
   assertPermutation,
@@ -238,10 +238,7 @@ export function filterSearch(db: Database, opts: SearchOptions): SearchResult[] 
 
   const sql = `
     SELECT
-      d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline, ${generatedFromColumn(db)} AS generatedFrom,
-      (SELECT GROUP_CONCAT(t.name, ', ')
-       FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
-       WHERE dt.document_id = d.id) as tags,
+      ${ftsDocColumns(db)},
       0 as score,
       '' as snippet
     FROM documents d
@@ -306,20 +303,7 @@ function sanitizeFtsQuery(query: string, stopwords: boolean): string {
   return [...new Set(content.map(quoteFtsTerm))].join(" OR ");
 }
 
-/** Whether the index has the chunk full-text table (schema 13 and later). */
-function hasChunksFts(db: Database): boolean {
-  return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'chunks_fts'").get() !== null;
-}
-
 type FtsRow = Omit<SearchResult, "chunks">;
-
-/** Whether `documents_fts` has its own aliases column (schema 14 and later). */
-function hasAliasesColumn(db: Database): boolean {
-  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'documents_fts'").get() as
-    | { sql: string }
-    | null;
-  return !!row && /\baliases\b/.test(row.sql);
-}
 
 
 /**
@@ -338,7 +322,7 @@ function promoteExactNames(db: Database, query: string, candidates: SearchResult
   const key = nameKey(query);
   if (!key) return candidates;
   let named: Set<string>;
-  if (hasNameKeys(db)) {
+  if (indexShape(db).nameKeys) {
     const filters = buildFilters(opts);
     named = new Set(
       (
@@ -374,11 +358,6 @@ function promoteExactNames(db: Database, query: string, candidates: SearchResult
             .map(({ content, ...row }) => ({ ...row, score: 0, snippet: makeSnippet(content) }))
         );
   return [...candidates.filter((r) => named.has(r.path)), ...fetched, ...candidates.filter((r) => !named.has(r.path))];
-}
-
-/** Whether the index has the exact-name lookup table (schema 14 and later). */
-function hasNameKeys(db: Database): boolean {
-  return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'name_keys'").get() !== null;
 }
 
 /** The document fields a full-text row carries, as SQL. */
@@ -423,7 +402,7 @@ function ftsSearch(
 
 function ftsSearchInSnapshot(db: Database, query: string, opts: SearchOptions, candidates: number): SearchResult[] {
   const filters = buildFilters(opts);
-  const match = sanitizeFtsQuery(query, ftsIsEnglish(db));
+  const match = sanitizeFtsQuery(query, ftsIsEnglish(indexShape(db).ftsTokenizer));
   const columns = ftsDocColumns(db);
 
   // bm25() returns negative values (better = more negative), hence the
@@ -443,7 +422,7 @@ function ftsSearchInSnapshot(db: Database, query: string, opts: SearchOptions, c
          LIMIT ?`
       )
       .all(expression, ...filters.params, limit) as SearchResult[];
-  if (!hasChunksFts(db)) return wholeDocument(match, candidates);
+  if (!indexShape(db).chunksFts) return wholeDocument(match, candidates);
 
   const byDocument = db
     .prepare(
@@ -456,7 +435,7 @@ function ftsSearchInSnapshot(db: Database, query: string, opts: SearchOptions, c
        ORDER BY bm25(documents_fts, 5.0, 3.0, 0.0, 2.0, 5.0)
        LIMIT ?`
     )
-    .all(`{${hasAliasesColumn(db) ? "title summary tags aliases" : "title summary tags"}} : (${match})`, ...filters.params, candidates) as FtsRow[];
+    .all(`{${indexShape(db).ftsAliases ? "title summary tags aliases" : "title summary tags"}} : (${match})`, ...filters.params, candidates) as FtsRow[];
 
   // Each document's best chunk, chosen over every matching chunk before the
   // document limit applies: a document whose best section is strong is not
@@ -680,10 +659,7 @@ async function vectorSearch(
     const placeholders = chunkIds.map(() => "?").join(",");
     const sql = `
       SELECT
-        d.path, d.title, d.type, d.relevance, d.status, d.summary, d.updated, d.deadline, ${generatedFromColumn(db)} AS generatedFrom,
-        (SELECT GROUP_CONCAT(t.name, ', ')
-         FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
-         WHERE dt.document_id = d.id) as tags,
+        ${ftsDocColumns(db)},
         c.id as chunk_id,
         c.content as chunk_content
       FROM chunks c
@@ -800,16 +776,6 @@ export function weightedRankFusion(
       ...entry.result,
       score: entry.score,
     }));
-}
-
-/** True when at least one vector is stored (cheap EXISTS probe). */
-function vecStoreHasRows(db: Database): boolean {
-  try {
-    const row = db.prepare("SELECT EXISTS(SELECT 1 FROM vec_chunks) AS n").get() as { n: number };
-    return row.n === 1;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -992,12 +958,12 @@ export async function hybridSearch(
 function withChunks(db: Database, results: SearchResult[], query: string, warnings: string[]): SearchResult[] {
   if (results.length === 0) return results;
   const none = () => results.map((r) => ({ ...r, chunks: [] as ChunkMatch[] }));
-  if (!hasLexicalTerm(query) || !hasChunksFts(db)) return none();
+  if (!hasLexicalTerm(query) || !indexShape(db).chunksFts) return none();
   let rows: ChunkMatch[];
   try {
     // The tokenizer is read and the query run in one read transaction, as ftsSearch does.
     rows = db.transaction(() => {
-      const match = sanitizeFtsQuery(query, ftsIsEnglish(db));
+      const match = sanitizeFtsQuery(query, ftsIsEnglish(indexShape(db).ftsTokenizer));
       return db
         .prepare(
           `SELECT d.path, c.chunk_index, c.heading, c.content, -bm25(chunks_fts, 2.0, 1.0) AS score
@@ -1032,10 +998,10 @@ function hasLexicalTerm(query: string): boolean {
  * folded together holds the match.
  */
 export function chunkMatchLine(db: Database, query: string, path: string, chunkIndex: number): string | null {
-  if (!hasLexicalTerm(query) || !hasChunksFts(db)) return null;
+  if (!hasLexicalTerm(query) || !indexShape(db).chunksFts) return null;
   try {
     const row = db.transaction(() => {
-      const match = sanitizeFtsQuery(query, ftsIsEnglish(db));
+      const match = sanitizeFtsQuery(query, ftsIsEnglish(indexShape(db).ftsTokenizer));
       return db
         .prepare(
           `SELECT highlight(chunks_fts, 1, char(1), char(2)) AS marked
@@ -1097,8 +1063,7 @@ function markSuperseded(db: Database, results: SearchResult[]): SearchResult[] {
  */
 function supersededByOf(db: Database, results: SearchResult[]): Map<string, string> {
   if (results.length === 0) return new Map();
-  const hasTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supersedes'").get() !== null;
-  if (!hasTable) return new Map();
+  if (!indexShape(db).supersedes) return new Map();
   const placeholders = results.map(() => "?").join(",");
   const rows = db
     .prepare(

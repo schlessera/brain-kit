@@ -2,9 +2,10 @@
  * Default model identifiers for the built-in LLM providers.
  *
  * These are overridable per provider via config (embeddings.model,
- * completion provider config). Kept in their own module so the seam layer has
- * a stable import even before a fuller models.ts lands; if models.ts is added
- * later it can re-export these to keep a single source of truth.
+ * completion provider config). This is the one place they are declared: the
+ * index schema's default vector width and embedding model and what the
+ * embedder requests both read them from here. Upgrade models here, not in
+ * call sites.
  */
 
 /** Gemini embedding model (GA). No taskType param — asymmetry via prompt prefixes. */
