@@ -14,7 +14,7 @@ import { join } from "node:path";
 import type { SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import type { WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { createWorkerSpawn } from "../../packages/ui-backend-claude/src/worker-spawn.js";
-import { processStateLedger } from "../../packages/ui-backend-claude/src/worker-state-budget.js";
+import { processStateLedger } from "../../packages/ui-sdk/src/server/worker-state-budget.js";
 
 const [scenario, root] = process.argv.slice(2) as [string, string];
 const MiB = 1024 * 1024;

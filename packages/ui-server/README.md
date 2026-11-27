@@ -18,6 +18,7 @@ import { renderPng, renderPdf, shutdownRenderer } from "./renderer.js";
 
 const app = await createApp({
   staticRoot: "./client/dist",        // optional: serve a built SPA + fallback
+  staticImmutablePrefix: "/assets/",  // optional: the build's content-hashed files; the rest is no-cache
   renderer: { renderPng, renderPdf }, // optional
   appName: "Brain UI",                // branding in status copy
   // config: resolveServerConfig(env) // optional: explicit configuration;

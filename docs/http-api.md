@@ -269,7 +269,13 @@ supported POST retains origin policy and its independent token/socket checks.
 checks to the management families after authentication. Public login ceremonies
 are mounted earlier. `ALL /*` supplies logging and security headers; with
 `staticRoot`, another `ALL /*` serves files and then normalized `GET /*` (declared as `"*"`) serves index.html
-for unresolved deep links. Missing index.html yields 404. That fallback can
+for unresolved deep links. Missing index.html yields 404. A file that is found
+carries `Cache-Control: no-cache`, or `public, max-age=31536000, immutable` when
+its path starts with the embedder's `staticImmutablePrefix`; the index.html
+fallback is always `no-cache`, so a missing hashed file never becomes
+immutable. A `.br`, `.zst` or `.gz` sibling is served with `Content-Encoding`
+and `Vary: Accept-Encoding` when the request accepts that encoding. There are
+no `ETag` or `Last-Modified` validators. That fallback can
 also answer an unmatched authenticated GET API path with HTML; clients must
 check status and content type. Without static serving, unmatched paths use
 Hono's 404. Wildcard middleware is not an additional independent resource API.

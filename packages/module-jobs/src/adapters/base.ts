@@ -22,6 +22,14 @@ import { hostOf } from "@schlessera/brain-scrape/internal";
 
 import type { RawJob, JobAdapter, Source, SourceStatus } from "../types.js";
 
+/**
+ * The most bytes one listing response may carry (#4768). The largest listing
+ * recorded under `tests/fixtures/boards/` was 1.3 MB in full; whole-board JSON
+ * APIs that return every posting at once are larger and unrecorded, so the
+ * bound leaves room for them. Past it the page fails, not the run.
+ */
+const LISTING_MAX_BYTES = 32 * 1024 * 1024;
+
 /** What one page an adapter attempted turned out to be. */
 export type PageReading = "parsed" | "empty" | "unrecognised" | "failed";
 
@@ -206,7 +214,7 @@ export abstract class BaseAdapter implements JobAdapter {
   /** Honor per-run fetch inputs while keeping board pacing as a floor. */
   protected fetchOptions(options: AdapterRunOptions, board: FetchOptions = {}): FetchOptions {
     return {
-      ...board, ...options.fetch,
+      maxBytes: LISTING_MAX_BYTES, ...board, ...options.fetch,
       headers: { ...board.headers, ...options.fetch?.headers },
       ...(board.delayMs === undefined ? {} : { delayMs: Math.max(board.delayMs, options.fetch?.delayMs ?? 0) }),
       proxy: options.proxy ?? options.fetch?.proxy ?? board.proxy,

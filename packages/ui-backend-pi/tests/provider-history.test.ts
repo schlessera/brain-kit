@@ -1,13 +1,18 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
 import { body, captureOffline, history, identical, main, messages, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { TOOL_SCENARIOS } from "../../../tests/fixtures/provider-history-scenarios.js";
+
+/** This backend's own plain-history scenarios; the host-tool ones are shared with the other backend. */
+const PLAIN_SCENARIOS = ["control", "repository", "facts", "promotion", "datatree", "safety", "budget"];
 
 let captures: Captures;
 beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "fixtures/provider-history-probe.ts")); }, 180_000);
 
 test("Pi captures three real resumed interactive turns and a tool result through Responses", () => {
+  expect(Object.keys(captures).sort(), "EVERY_SHARED_SCENARIO_CAPTURED").toEqual([...TOOL_SCENARIOS, ...PLAIN_SCENARIOS].sort());
   for (const [name, capture] of Object.entries(captures)) {
-    if (["reference", "renewal", "freshness", "immutable", "compute"].includes(name)) continue;
+    if (TOOL_SCENARIOS.includes(name)) continue;
     expect(capture.sessions).toHaveLength(3);
     expect(new Set(capture.sessions).size).toBe(1);
     expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 2]);
