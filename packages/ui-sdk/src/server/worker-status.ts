@@ -137,6 +137,14 @@ export function* createWorkerStatusPipeSteps() {
       childPidSteps,
       closeWriter() { if (!writerClosed) { writerClosed = true; closeSync(writer!); } },
       /**
+       * Kills the status-verified sandbox if it outlived its supervisor
+       * (#4881). bubblewrap reports the sandbox right after its clone, but
+       * the sandbox arms --die-with-parent only once its setup is done, so a
+       * supervisor that dies first leaves it running. Called once the
+       * supervisor has exited; a sandbox it reaped is never signalled.
+       */
+      killOrphan() { if (gated && alive(gated)) signal(gated.pid, "SIGKILL"); },
+      /**
        * Closes the channel. The in-sandbox start gate refuses on the gate's
        * EOF (#3392). As a second guard, an unreleased gate still stays open
        * until the supervisor and every process it gated are dead (#3387). Its

@@ -651,7 +651,7 @@ describe("per-turn members at each boundary", () => {
     expect(dequeueRequest(slot.turn)).toBe(entry);
     expectMembers(slot.turn, before, {
       shareId: KEPT, requestId: KEPT, draftRef: KEPT, attachmentFileIds: KEPT, work: KEPT, revision: KEPT, startedAt: KEPT,
-      backendStarted: KEPT, retryRequest: KEPT, retryPrompt: KEPT, isManualRetry: KEPT, recorder: KEPT, turnId: "turn-queued",
+      backendStarted: KEPT, retryRequest: undefined, retryPrompt: undefined, isManualRetry: KEPT, recorder: KEPT, turnId: "turn-queued",
       abortController: KEPT, timeoutHandle: KEPT, handingOver: same(() => entry), timedOutTurnId: KEPT, hostStop: KEPT,
       lastResult: null, principalId: KEPT, authorization: KEPT,
     });

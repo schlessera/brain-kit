@@ -24,21 +24,21 @@ export function setup(db: Database) {
     passkeyCounter(id: string, rpId: string, counter: number, at: number) {
       const row = db.query("SELECT rp_id FROM passkey_credentials WHERE id = ?").get(id) as { rp_id: string } | null;
       if (!row || row.rp_id !== rpId) return false;
-      db.prepare("UPDATE passkey_credentials SET counter = ?, last_used_at = ? WHERE id = ?").run(counter, at, id);
+      db.query("UPDATE passkey_credentials SET counter = ?, last_used_at = ? WHERE id = ?").run(counter, at, id);
       return true;
     },
     registerPasskey(input: PasskeyRegistration) {
-      db.prepare(`INSERT INTO passkey_credentials
+      db.query(`INSERT INTO passkey_credentials
         (id, public_key, counter, transports, rp_id, aaguid, device_type, backed_up, label, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(input.id, input.publicKey, input.counter, input.transports, input.rpId, input.aaguid,
           input.deviceType, input.backedUp, input.label, input.createdAt);
     },
     labelPasskey(id: string, label: string | null) {
-      return db.prepare("UPDATE passkey_credentials SET label = ? WHERE id = ?").run(label, id).changes;
+      return db.query("UPDATE passkey_credentials SET label = ? WHERE id = ?").run(label, id).changes;
     },
     deletePasskey(id: string, at: number) {
-      const changes = db.prepare("DELETE FROM passkey_credentials WHERE id = ?").run(id).changes;
+      const changes = db.query("DELETE FROM passkey_credentials WHERE id = ?").run(id).changes;
       // Keep the original two autocommits and their order: delete first, then
       // revoke the credential's sessions, before runtime invalidation/HTTP.
       return { changes, revokedIds: changes ? revokeByCredential(db, id, at) : [] };

@@ -210,6 +210,44 @@ describe("one session's history opens its fixed-name transcript directly (#4858)
   });
 });
 
+describe("a history read never rewrites its transcript (#4866)", () => {
+  const dirs: string[] = [];
+  const temp = (prefix: string) => { const dir = mkdtempSync(join(tmpdir(), prefix)); dirs.push(dir); return dir; };
+  afterAll(() => { for (const dir of dirs) rmSync(dir, { recursive: true, force: true }); });
+  const expected: SessionHistoryMessage[] = [
+    { role: "user", content: "Penelope asks when the ship returns.", toolCalls: [] },
+    { role: "assistant", content: "Before the loom is finished.", toolCalls: [], parts: [{ kind: "text", text: "Before the loom is finished." }] },
+  ];
+  /** A current transcript as the SDK writes it, then rewritten into the form `variant` names. */
+  function transcript(cwd: string, variant: "version 1" | "version 2" | "no last newline") {
+    const scratch = temp("pi-history-sdk-"), sm = SessionManager.create(cwd, scratch);
+    sm.appendMessage({ role: "user", content: "Penelope asks when the ship returns.", timestamp: 1 } as never);
+    sm.appendMessage({ role: "assistant", content: [{ type: "text", text: "Before the loom is finished." }], api: "anthropic-messages",
+      provider: "anthropic", model: "m", usage: emptyUsage(), stopReason: "stop", timestamp: 2 } as never);
+    const [file] = readdirSync(scratch).filter(name => name.endsWith(".jsonl"));
+    const entries = readFileSync(join(scratch, file!), "utf8").trimEnd().split("\n").map(line => JSON.parse(line) as Record<string, unknown>);
+    if (variant === "version 1") for (const entry of entries) { if (entry.type === "session") entry.version = 1; else { delete entry.id; delete entry.parentId; } }
+    if (variant === "version 2") entries[0]!.version = 2;
+    const text = entries.map(entry => JSON.stringify(entry)).join("\n");
+    return { id: sm.getSessionId(), name: file!, bytes: variant === "no last newline" ? text : `${text}\n` };
+  }
+
+  test.each(["version 1", "version 2", "no last newline"] as const)("a %s transcript is read as pi migrates it, and its file keeps its bytes and time", async (variant) => {
+    const cwd = temp("pi-history-cwd-"), saved = transcript(cwd, variant);
+    const canonical = temp("pi-history-dir-"), legacy = temp("pi-history-dir-");
+    // The fixed name is opened directly; the SDK's own name is found by listing.
+    for (const [dir, name] of [[canonical, `${saved.id}.jsonl`], [legacy, saved.name]] as const) {
+      const path = join(dir, name);
+      writeFileSync(path, saved.bytes);
+      const before = lstatSync(path).mtimeMs;
+      expect(await getPiHistory(cwd, saved.id, dir), "HISTORY_AS_MIGRATED").toEqual(expected);
+      expect(readFileSync(path, "utf8"), "TRANSCRIPT_BYTES_UNCHANGED").toBe(saved.bytes);
+      expect(lstatSync(path).mtimeMs, "TRANSCRIPT_TIME_UNCHANGED").toBe(before);
+      expect(readdirSync(dir), "NO_OTHER_FILE_WRITTEN").toEqual([name]);
+    }
+  });
+});
+
 test("a history read opens the prompt-context file once, whatever the number of user messages (#4859)", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-history-opens-cwd-")), sessionDir = mkdtempSync(join(tmpdir(), "pi-history-opens-dir-"));
   try {

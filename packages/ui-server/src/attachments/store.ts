@@ -112,16 +112,16 @@ export function setRefs(db: Database, owner: AttachmentOwner, ownerId: string, f
   const keep = new Set(fileIds);
   for (const id of previous) {
     if (keep.has(id)) continue;
-    db.prepare("DELETE FROM attachment_refs WHERE file_id = ? AND owner = ? AND owner_id = ?").run(id, owner, ownerId);
-    if (!hasAnyRef(db, id)) db.prepare("UPDATE attachment_files SET unreferenced_since = ? WHERE file_id = ?").run(at, id);
+    db.query("DELETE FROM attachment_refs WHERE file_id = ? AND owner = ? AND owner_id = ?").run(id, owner, ownerId);
+    if (!hasAnyRef(db, id)) db.query("UPDATE attachment_files SET unreferenced_since = ? WHERE file_id = ?").run(at, id);
   }
   for (const id of fileIds) addRef(db, id, owner, ownerId, at);
 }
 
 /** Insert one reference. Rebinding cancels any pending collection. */
 export function addRef(db: Database, fileId: string, owner: AttachmentOwner, ownerId: string, at: number): void {
-  db.prepare("INSERT OR IGNORE INTO attachment_refs (file_id, owner, owner_id, created_at) VALUES (?, ?, ?, ?)").run(fileId, owner, ownerId, at);
-  db.prepare("UPDATE attachment_files SET ever_referenced = 1, unreferenced_since = NULL WHERE file_id = ?").run(fileId);
+  db.query("INSERT OR IGNORE INTO attachment_refs (file_id, owner, owner_id, created_at) VALUES (?, ?, ?, ?)").run(fileId, owner, ownerId, at);
+  db.query("UPDATE attachment_files SET ever_referenced = 1, unreferenced_since = NULL WHERE file_id = ?").run(fileId);
 }
 
 /**
@@ -168,7 +168,7 @@ export function draftReferencedBytes(db: Database): number {
 }
 
 export function insertAttachment(db: Database, draftId: string, file: NewAttachment, principalId: string, at: number): void {
-  db.prepare(
+  db.query(
     `INSERT INTO attachment_files (file_id, draft_id, sha256, bytes, stored_name, incoming_name, media_type, kind, reader,
        track_rejected, track_json, state, created_at, created_by, ever_referenced, unreferenced_since)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stored', ?, ?, 0, NULL)`
@@ -195,7 +195,7 @@ export function markForDeletion(db: Database, at: number): Array<{ fileId: strin
     // Re-checked per row inside the same transaction: a reference inserted
     // since the select would already have been serialized before it.
     if (hasAnyRef(db, row.file_id)) continue;
-    if (row.state === "stored") db.prepare("UPDATE attachment_files SET state = 'deleting' WHERE file_id = ? AND state = 'stored'").run(row.file_id);
+    if (row.state === "stored") db.query("UPDATE attachment_files SET state = 'deleting' WHERE file_id = ? AND state = 'stored'").run(row.file_id);
     marked.push({ fileId: row.file_id, state: row.state === "missing" ? "missing" : "deleting" });
   }
   const leftover = db.query("SELECT file_id FROM attachment_files WHERE state = 'deleting'").all() as { file_id: string }[];
@@ -206,9 +206,9 @@ export function markForDeletion(db: Database, at: number): Array<{ fileId: strin
 /** Sweep step 2's record half: forget files whose directory is gone. */
 export function forgetDeleted(db: Database, fileIds: readonly string[]): void {
   for (const id of fileIds) {
-    const gone = db.prepare("DELETE FROM attachment_files WHERE file_id = ? AND state IN ('deleting', 'missing')").run(id).changes > 0;
-    db.prepare("DELETE FROM attachment_receipts WHERE file_id = ?").run(id);
-    if (gone) db.prepare("DELETE FROM attachment_reads WHERE file_id = ?").run(id);
+    const gone = db.query("DELETE FROM attachment_files WHERE file_id = ? AND state IN ('deleting', 'missing')").run(id).changes > 0;
+    db.query("DELETE FROM attachment_receipts WHERE file_id = ?").run(id);
+    if (gone) db.query("DELETE FROM attachment_reads WHERE file_id = ?").run(id);
   }
 }
 
@@ -227,7 +227,7 @@ export function toAttachmentReadEntry(read: AttachmentReadRecord & { at: number 
 }
 
 export function insertAttachmentRead(db: Database, read: AttachmentReadRecord, at: number): void {
-  db.prepare("INSERT INTO attachment_reads (file_id, session_id, turn_id, outcome, scope_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+  db.query("INSERT INTO attachment_reads (file_id, session_id, turn_id, outcome, scope_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
     .run(read.fileId, read.sessionId, read.turnId, read.outcome, read.scope ? JSON.stringify(read.scope) : null, at);
 }
 
