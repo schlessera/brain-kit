@@ -17,7 +17,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 
 import { chunkContextKey, forgetCachedEnrichment, getAssetFiles, indexAll, type IndexStats } from "../src/lib/indexer";
-import { loadAssetCache, loadContextCache, pruneSidecarCaches } from "../src/lib/indexer/caches";
+import { forgetAssetEntries, loadAssetCache, loadContextCache, pruneSidecarCaches } from "../src/lib/indexer/caches";
 import { JOURNAL_SIZE_LIMIT_BYTES, openDatabase, migrateVecSchema } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { collectStats } from "../src/lib/stats";
@@ -1212,6 +1212,30 @@ describe("sidecar cache pruning", () => {
     const stats = await runIndex(root);
     expect(stats.deleted).toBe(2);
     expect(readContextCache(root)).toEqual(before.filter((e) => !dropped.has(e.k)));
+  });
+
+  test("a line whose key is not a string is left alone and does not stop the prune", async () => {
+    const root = makeCorpus({ "note.md": mdSections("Note", ["oar", "mast"]), "assets/logo.png": FAKE_PNG });
+    await runIndex(root, withEnrichment());
+    const assets = join(root, ".brain-cache/assets.jsonl");
+    const contexts = join(root, ".brain-cache/contexts.jsonl");
+    const odd = JSON.stringify({ k: 7, v: "a key that is a number" });
+    const liveAssets = sidecarLines(root, ".brain-cache/assets.jsonl");
+    const liveContexts = sidecarLines(root, ".brain-cache/contexts.jsonl");
+    writeCacheFile(assets, [...liveAssets, odd, JSON.stringify({ k: "deadbeef:Gone", v: "stale" })].sort().join("\n") + "\n");
+    writeCacheFile(contexts, [...liveContexts, JSON.stringify({ k: "stale-context", v: "stale" })].sort().join("\n") + "\n");
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    const warnings: string[] = [];
+    try {
+      expect(pruneSidecarCaches(db, root, (m) => warnings.push(m))).toEqual({ assets: 1, contexts: 1 });
+    } finally {
+      db.close();
+    }
+    expect(warnings).toEqual([]);
+    expect(sidecarLines(root, ".brain-cache/assets.jsonl")).toEqual([...liveAssets, odd].sort());
+    expect(sidecarLines(root, ".brain-cache/contexts.jsonl")).toEqual(liveContexts);
+    expect(forgetAssetEntries(root, "deadbeef")).toBe(0);
+    expect(sidecarLines(root, ".brain-cache/assets.jsonl")).toEqual([...liveAssets, odd].sort());
   });
 
   test("a linked cache directory still refuses pruning when no cache file exists", async () => {

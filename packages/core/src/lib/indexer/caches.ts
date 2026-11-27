@@ -331,7 +331,13 @@ function removeSidecarLines(
   for (const { k } of lines) if (k) keys.add(k);
   if (keys.size === 0) return 0;
   const dropKey = drop(keys);
-  const kept = lines.filter(({ k }) => !k || !dropKey(k)).map(({ line }) => line);
+  const kept = lines.filter(({ k }) => {
+    try {
+      return !k || !dropKey(k);
+    } catch {
+      return true; // a key of another shape (a number, say) is malformed too
+    }
+  }).map(({ line }) => line);
   if (kept.length === lines.length) return 0;
   writeCache(root, path, kept.length ? kept.join("\n") + "\n" : "");
   return lines.length - kept.length;
