@@ -1,6 +1,7 @@
 /** Fixed privileged OverlayFS setup and metadata inspection for the native broker. */
 import { NATIVE_CHECKPOINT_READER_PROGRAM, type NativeCheckpointReadRequest } from "./native-checkpoint-reader.js";
 import { readFileSync } from "node:fs";
+import { parseProcStat } from "./proc-identity.js";
 import { NativeBrainManagerError, NATIVE_CONTROL_BYTES, type NativeStage, type NativeStageChange } from "./native-brain-manager-protocol.js";
 
 // No repository code, caller program, environment, path discovery or shell
@@ -104,7 +105,7 @@ finally:
 `;
 
 function processStart(pid: number): string {
-  return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!;
+  return parseProcStat(readFileSync(`/proc/${pid}/stat`, "utf8")).start;
 }
 
 /** The response identifies a fixed keeper, never a requester-selected PID or mount. */

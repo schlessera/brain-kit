@@ -79,7 +79,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 const ledger = createStateLedger();
 const startupView = createFixtureWorkerStartupView(brain);
-const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile, areas: [] });
+const sandbox = prepareFixtureWorkerSandbox(brain, { profile, areas: [] });
 const spawner = createWorkerSpawn(brain, { wrapper }, abort.signal, undefined, sandbox, undefined, undefined, { ledger }, undefined,
   live => { worker = live as LaunchedWorker; }, startupView);
 const requireSdk = createRequire(createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk"));

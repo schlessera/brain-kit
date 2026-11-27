@@ -598,68 +598,80 @@ test("an expiry skipped while a turn reconciles applies once that turn finishes"
 });
 
 test("bases are kept only where no worker can see them, and a crashed server's are swept", async () => {
-  const reports: string[] = [];
-  // Workers replace /tmp, including any checkout there, with private storage.
-  // /var/tmp is independent of both the checkout and the ambient TMPDIR.
-  const outside = realpathSync(mkdtempSync("/var/tmp/odysseus-visible-tmp-")); cleanup.push(() => rmSync(outside, { recursive: true, force: true }));
-  const maskPaths: string[] = [];
-  expect(["/tmp", ...maskPaths].filter(masked => outside === masked || outside.startsWith(`${masked}/`)),
-    "THE_VISIBLE_PARENT_IS_OUTSIDE_EVERY_HIDDEN_ROOT").toEqual([]);
-  const b = bench({ report: message => reports.push(message) });
-  const previous = process.env.TMPDIR;
-  process.env.TMPDIR = outside;
+  // Expiry runs on the cache's clock: real time on a loaded runner must not expire a base mid-test.
+  const clock = privateIndexClock();
   try {
-    expect((await b.prepare("one", { maskPaths })).kind).toBe("built");
-    expect(await b.prepare("one", { maskPaths }), "NO_BASE_ON_A_WORKER_VISIBLE_TMPDIR").toMatchObject({ kind: "built", reason: "no hidden place to keep a base" });
-    expect(readdirSync(outside).filter(name => name.startsWith("brain-private-index-base-")), "NOTHING_KEPT_THERE").toEqual([]);
-    expect(reports.filter(report => report.startsWith("private index cache disabled")).length, "REPORTED_ONCE").toBe(1);
-    // A masked operational-state path is hidden from every worker.
-    expect((await b.prepare("two", { maskPaths: [outside] })).kind).toBe("built");
-    expect((await b.prepare("two", { maskPaths: [outside] })).kind, "A_MASKED_PARENT_KEEPS_BASES").toBe("reused");
-  } finally { if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous; }
-  // A base whose server process is gone is removed by the next cache that looks; a live one stays.
-  const sweeper = bench();
-  const dead = Bun.spawnSync(["/bin/true"]).pid, orphan = join(tmpdir(), `brain-private-index-base-${dead}-odysseus`);
-  const alive = join(tmpdir(), `brain-private-index-base-${process.ppid}-odysseus`);
-  for (const dir of [orphan, alive]) mkdirSync(dir);
-  expect((await sweeper.prepare("one")).kind).toBe("built");
-  expect(existsSync(orphan), "A_DEAD_SERVERS_BASE_IS_SWEPT").toBe(false);
-  expect(existsSync(alive), "A_LIVE_SERVERS_BASE_STAYS").toBe(true);
+    const reports: string[] = [];
+    // Workers replace /tmp, including any checkout there, with private storage.
+    // /var/tmp is independent of both the checkout and the ambient TMPDIR.
+    const outside = realpathSync(mkdtempSync("/var/tmp/odysseus-visible-tmp-")); cleanup.push(() => rmSync(outside, { recursive: true, force: true }));
+    const maskPaths: string[] = [];
+    expect(["/tmp", ...maskPaths].filter(masked => outside === masked || outside.startsWith(`${masked}/`)),
+      "THE_VISIBLE_PARENT_IS_OUTSIDE_EVERY_HIDDEN_ROOT").toEqual([]);
+    const b = bench({ report: message => reports.push(message) });
+    const previous = process.env.TMPDIR;
+    process.env.TMPDIR = outside;
+    try {
+      expect((await b.prepare("one", { maskPaths })).kind).toBe("built");
+      expect(await b.prepare("one", { maskPaths }), "NO_BASE_ON_A_WORKER_VISIBLE_TMPDIR").toMatchObject({ kind: "built", reason: "no hidden place to keep a base" });
+      expect(readdirSync(outside).filter(name => name.startsWith("brain-private-index-base-")), "NOTHING_KEPT_THERE").toEqual([]);
+      expect(reports.filter(report => report.startsWith("private index cache disabled")).length, "REPORTED_ONCE").toBe(1);
+      // A masked operational-state path is hidden from every worker.
+      expect((await b.prepare("two", { maskPaths: [outside] })).kind).toBe("built");
+      expect((await b.prepare("two", { maskPaths: [outside] })).kind, "A_MASKED_PARENT_KEEPS_BASES").toBe("reused");
+    } finally { if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous; }
+    // A base whose server process is gone is removed by the next cache that looks; a live one stays.
+    const sweeper = bench();
+    const dead = Bun.spawnSync(["/bin/true"]).pid, orphan = join(tmpdir(), `brain-private-index-base-${dead}-odysseus`);
+    const alive = join(tmpdir(), `brain-private-index-base-${process.ppid}-odysseus`);
+    for (const dir of [orphan, alive]) mkdirSync(dir);
+    expect((await sweeper.prepare("one")).kind).toBe("built");
+    expect(existsSync(orphan), "A_DEAD_SERVERS_BASE_IS_SWEPT").toBe(false);
+    expect(existsSync(alive), "A_LIVE_SERVERS_BASE_STAYS").toBe(true);
+  } finally { clock.restore(); }
 });
 
 test("a turn arriving during an advance waits for it and reuses what it made", async () => {
-  const b = bench();
-  expect((await b.prepare("one")).kind).toBe("built");
-  writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
-  let release!: () => void;
-  b.state.gate = new Promise<void>(resolve => { release = resolve; });
-  const entered = reached(b, "entered");
-  const advancing = b.advance();
-  // The advance holds the base's queue once its delta is running.
-  await entered;
-  // The turn queues behind it synchronously, before anything is released.
-  const arriving = b.prepare("one");
-  release();
-  expect((await advancing).map(result => result.kind), "THE_ADVANCE_UPDATES").toEqual(["updated"]);
-  expect((await arriving).kind, "THE_TURN_REUSES_THE_ADVANCED_BASE").toBe("reused");
-  expect(readFileSync(join(tmpdir(), b.bases()[0]!, "brain.db"), "utf8"), "THE_ADVANCED_BASE_IS_THE_UPDATE").toBe("one+added");
+  // Expiry runs on the cache's clock: real time on a loaded runner must not expire a base mid-test.
+  const clock = privateIndexClock();
+  try {
+    const b = bench();
+    expect((await b.prepare("one")).kind).toBe("built");
+    writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
+    let release!: () => void;
+    b.state.gate = new Promise<void>(resolve => { release = resolve; });
+    const entered = reached(b, "entered");
+    const advancing = b.advance();
+    // The advance holds the base's queue once its delta is running.
+    await entered;
+    // The turn queues behind it synchronously, before anything is released.
+    const arriving = b.prepare("one");
+    release();
+    expect((await advancing).map(result => result.kind), "THE_ADVANCE_UPDATES").toEqual(["updated"]);
+    expect((await arriving).kind, "THE_TURN_REUSES_THE_ADVANCED_BASE").toBe("reused");
+    expect(readFileSync(join(tmpdir(), b.bases()[0]!, "brain.db"), "utf8"), "THE_ADVANCED_BASE_IS_THE_UPDATE").toBe("one+added");
+  } finally { clock.restore(); }
 });
 
 test("an advance whose update rewrote rows keeps the old base, and close stops an advance in flight", async () => {
-  const b = bench();
-  expect((await b.prepare("one", { stdout: '{"updated":1,"deleted":0,"added":1}' })).kind).toBe("built");
-  writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
-  expect(await b.advance(), "UNPROVED_UPDATES_ARE_NOT_PROMOTED").toMatchObject([{ kind: "kept", reason: "the incremental index changed existing rows" }]);
-  expect(readFileSync(join(tmpdir(), b.bases()[0]!, "brain.db"), "utf8"), "THE_OLD_BASE_STAYS").toBe("one");
-  expect(b.live(b.views[0]!), "STILL_BOUND_TO_ITS_OWN_CHECKPOINT").toBe(true);
-  b.state.gate = new Promise<void>(() => {});
-  const entered = reached(b, "entered");
-  const stuck = b.advance();
-  await entered;
-  await b.cache.close();
-  expect(await stuck, "CLOSE_ENDS_THE_ADVANCE").toMatchObject([{ kind: "kept", reason: "closing" }]);
-  expect(b.views.map(b.live), "CLOSE_RELEASES_EVERY_CHECKPOINT").toEqual(b.views.map(() => false));
-  expect(b.bases(), "CLOSE_REMOVES_EVERY_BASE_AND_STAGING").toEqual([]);
+  // Expiry runs on the cache's clock: real time on a loaded runner must not expire a base mid-test.
+  const clock = privateIndexClock();
+  try {
+    const b = bench();
+    expect((await b.prepare("one", { stdout: '{"updated":1,"deleted":0,"added":1}' })).kind).toBe("built");
+    writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
+    expect(await b.advance(), "UNPROVED_UPDATES_ARE_NOT_PROMOTED").toMatchObject([{ kind: "kept", reason: "the incremental index changed existing rows" }]);
+    expect(readFileSync(join(tmpdir(), b.bases()[0]!, "brain.db"), "utf8"), "THE_OLD_BASE_STAYS").toBe("one");
+    expect(b.live(b.views[0]!), "STILL_BOUND_TO_ITS_OWN_CHECKPOINT").toBe(true);
+    b.state.gate = new Promise<void>(() => {});
+    const entered = reached(b, "entered");
+    const stuck = b.advance();
+    await entered;
+    await b.cache.close();
+    expect(await stuck, "CLOSE_ENDS_THE_ADVANCE").toMatchObject([{ kind: "kept", reason: "closing" }]);
+    expect(b.views.map(b.live), "CLOSE_RELEASES_EVERY_CHECKPOINT").toEqual(b.views.map(() => false));
+    expect(b.bases(), "CLOSE_REMOVES_EVERY_BASE_AND_STAGING").toEqual([]);
+  } finally { clock.restore(); }
 });
 
 test("advances share one checkpoint, move bases without renewing them, and fail safe without one", async () => {
@@ -715,16 +727,20 @@ test("advances share one checkpoint, move bases without renewing them, and fail 
 });
 
 test("close stops an advance whose build is running", async () => {
-  const b = bench();
-  expect((await b.prepare("one")).kind).toBe("built");
-  writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
-  b.state.holdRuns = true;
-  const started = reached(b, "running");
-  const running = b.advance();
-  await started;
-  await b.cache.close();
-  expect(await running, "THE_RUN_IS_STOPPED").toMatchObject([{ kind: "kept", reason: "the incremental index failed: killed" }]);
-  expect(b.bases(), "NOTHING_IS_KEPT").toEqual([]);
+  // Expiry runs on the cache's clock: real time on a loaded runner must not expire a base mid-test.
+  const clock = privateIndexClock();
+  try {
+    const b = bench();
+    expect((await b.prepare("one")).kind).toBe("built");
+    writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
+    b.state.holdRuns = true;
+    const started = reached(b, "running");
+    const running = b.advance();
+    await started;
+    await b.cache.close();
+    expect(await running, "THE_RUN_IS_STOPPED").toMatchObject([{ kind: "kept", reason: "the incremental index failed: killed" }]);
+    expect(b.bases(), "NOTHING_IS_KEPT").toEqual([]);
+  } finally { clock.restore(); }
 });
 
 test("an external build command is identified by its files, not only its name", () => {
