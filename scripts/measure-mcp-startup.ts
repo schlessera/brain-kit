@@ -9,7 +9,7 @@ import coreManifest from "../packages/core/package.json" with { type: "json" };
 
 const root = resolve(import.meta.dir, "..");
 const corpus = join(root, "packages/core/fixtures/corpus");
-const phases = ["context", "import", "database", "moduleTools", "vector", "connect"] as const;
+const phases = ["static", "context", "import", "database", "moduleTools", "vector", "connect"] as const;
 const metrics = ["initializeMs", "toolsListMs", "exitMs", ...phases] as const;
 type Sample = Partial<Record<typeof metrics[number], number>>;
 

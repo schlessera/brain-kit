@@ -1,5 +1,5 @@
-import { ingest } from "../../lib/ingestion.js";
 import { openDatabase } from "../../lib/db.js";
+import { addDocument, splitTags } from "../../lib/ops/write.js";
 import type { CoreCommand } from "../types.js";
 import { stringFlag } from "../flags.js";
 import { emit, parseArgs, UsageError } from "../io.js";
@@ -36,22 +36,15 @@ export const addCommand: CoreCommand = {
     const type = stringFlag(flags, "type");
     const title = stringFlag(flags, "title");
     const tagList = stringFlag(flags, "tags");
-    const tags = tagList ? tagList.split(",").map((t) => t.trim()) : undefined;
+    // As for brain_add: trimmed, empties dropped, and no tags left means none given.
+    const split = tagList ? splitTags(tagList) : [];
+    const tags = split.length > 0 ? split : undefined;
 
     const db = openDatabase(cli.brain.dbPath);
     try {
-      // ingest() reindexes internally (incremental, no embeddings) via its
-      // injected reindex → indexAll hook.
-      const result = await ingest(
-        {
-          content,
-          type,
-          title,
-          tags,
-        },
-        db,
-        { root: cli.brain.root, taxonomy: cli.brain.taxonomy }
-      );
+      // The operation behind brain_add: classify, write, and reindex
+      // (incremental, no embeddings).
+      const result = await addDocument({ db, root: cli.brain.root, taxonomy: cli.brain.taxonomy }, { content, type, title, tags });
 
       emit(cli.json, result, () => {
         console.log(`${result.action}: ${result.path}`);
