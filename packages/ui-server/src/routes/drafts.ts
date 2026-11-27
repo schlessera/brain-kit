@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { readBodyBytes } from "../middleware/body-limit.js";
 import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_IMAGE_BYTES, SESSION_DRAFT_LIMITS, type DraftOutgoing, type DraftSnapshotWrite } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { AppEnv } from "../app-env.js";
@@ -34,23 +35,9 @@ function invalid(message: string): DraftError {
 
 /** Read at most `limit` bytes, whatever Content-Length claims. */
 async function readCapped(c: Context, limit: number): Promise<Uint8Array> {
-  const declared = Number(c.req.header("content-length"));
-  if (Number.isFinite(declared) && declared > limit) throw new BodyTooLarge();
-  const reader = c.req.raw.body?.getReader();
-  if (!reader) return new Uint8Array();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel().catch(() => {});
-      throw new BodyTooLarge();
-    }
-    chunks.push(value);
-  }
-  return new Uint8Array(Buffer.concat(chunks));
+  const body = await readBodyBytes(c.req.raw, limit);
+  if (!body) throw new BodyTooLarge();
+  return new Uint8Array(Buffer.concat(body.chunks, body.bytes));
 }
 
 async function readJson(c: Context, limit: number): Promise<Record<string, unknown>> {

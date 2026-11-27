@@ -1,5 +1,6 @@
 import type { StorageGuidance } from "../storage/guidance.js";
 import { Hono } from "hono";
+import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 import type { AppEnv } from "../app-env.js";
 import type { StorageFilter, StorageTreeFilter } from "@schlessera/brain-ui-sdk/protocol";
@@ -29,7 +30,8 @@ export function createStorageRoutes(storage: StorageCoordinator, guidance?: Stor
   }
   routes.get("/storage", c => c.json(storage.status(c.get("principal")!.id)));
   routes.post("/storage/scans", requireJson(), async c => {
-    let body: unknown; try { body = await c.req.json(); } catch { return c.json({ error: "Expected an empty JSON object." }, 400); }
+    let body: unknown; try { body = await readJsonBody(c); } catch { return c.json({ error: "Expected an empty JSON object." }, 400); }
+    if (body instanceof Response) return body;
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) return c.json({ error: "Storage roots and options are host configured." }, 400);
     return c.json(await storage.start(c.get("principal")!.id), 202);
   });

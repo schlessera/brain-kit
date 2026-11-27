@@ -42,7 +42,7 @@ import { Database, constants as sqlite } from "bun:sqlite";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { isEnvName } from "@schlessera/brain-common/internal/protected-paths";
-import { envMaskedPaths, launchAgentWorker, nativeTurnTreeManager, prepareWorkerSandbox, PROVIDER_CACHE_DIR, PROVIDER_CACHE_FILES, retainWorkerStartupView, workerIdentityHelper, WORKER_DATA_ROOT,
+import { envMaskedPaths, launchAgentWorkerAsync, nativeTurnTreeManager, prepareWorkerSandbox, PROVIDER_CACHE_DIR, PROVIDER_CACHE_FILES, retainWorkerStartupView, workerIdentityHelper, WORKER_DATA_ROOT,
   type WorkerDataTree, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { createIndexBatch, type IndexBatch } from "./index-batch.js";
 import { isProviderMasked } from "./provider-mask-refusal.js";
@@ -313,9 +313,10 @@ async function runOnTree(options: {
     dataTree: { ...options.tree, ...(options.writeIndex ? { indexWritable: true } : {}) },
     ...(options.masks ? { providerMasks: Object.freeze({ folders: Object.freeze([...options.masks.buildFolders]), index: options.tree.index }) } : {}) };
   const view = retainWorkerStartupView(options.view);
-  let worker: ReturnType<typeof launchAgentWorker>;
+  let worker: Awaited<ReturnType<typeof launchAgentWorkerAsync>>;
   try {
-    worker = launchAgentWorker({ brainPath: options.brainPath, startupView: view, sandbox,
+    // Awaited, so a loaded host's sandbox setup does not stall the event loop (#4862).
+    worker = await launchAgentWorkerAsync({ brainPath: options.brainPath, startupView: view, sandbox,
       env: { PATH: [dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"].join(":"), HOME: "/tmp", NO_COLOR: "1" },
       command: [process.execPath, MAINTENANCE_ENTRY] });
   } catch (error) { await view.cleanup(); throw error; }
@@ -325,6 +326,8 @@ async function runOnTree(options: {
   const timer = setTimeout(() => { timedOut = true; stop(); }, timeoutMs);
   options.signal?.addEventListener("abort", stop, { once: true });
   try {
+    // An abort that landed while the launch was pending fired no listener.
+    if (options.signal?.aborted) stop();
     worker.stdin.end(JSON.stringify({ ...options.request, root: WORKER_DATA_ROOT }));
     const read = async (stream: unknown) => {
       const kept: Uint8Array[] = []; let length = 0;
