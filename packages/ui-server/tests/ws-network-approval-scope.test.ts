@@ -7,7 +7,7 @@
 import { afterEach, expect, test } from "bun:test";
 import type { NetworkApprovalOffer } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk/server";
-import { watchdogMs } from "../../../scripts/test-deadlines.js";
+import { until } from "../../../tests/helpers/until";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createUiDb } from "../src/db/client";
 import type { WSContext } from "../src/ws/clients";
@@ -18,14 +18,6 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 import { TurnCoordinator, type RunningTurn } from "../src/ws/turns";
 import { testPrincipal } from "./helpers/principal";
 
-/** Polls a condition; the watchdog only stops a hang and scales under load. */
-async function until(cond: () => boolean, timeoutMs = watchdogMs(10_000)): Promise<void> {
-  const start = Date.now();
-  while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error("until: timed out");
-    await new Promise(r => setTimeout(r, 5));
-  }
-}
 const settle = () => new Promise(r => setTimeout(r, 25));
 let cleanup: (() => void) | null = null;
 afterEach(() => { cleanup?.(); cleanup = null; });

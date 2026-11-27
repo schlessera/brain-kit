@@ -17,17 +17,13 @@ import { occurrence } from "../src/governance/occurrence.js";
 import { prepareTurnEgress } from "../src/brain/turn-egress.js";
 import type { OriginTrust } from "../src/brain/origin-trust.js";
 import { connectedSafetySession } from "./helpers/connected-safety.js";
-import { watchdogMs } from "../../../scripts/test-deadlines.js";
+import { until } from "../../../tests/helpers/until";
 
 function get(socketPath: string, target: string): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = request({ socketPath, path: target }, response => { response.resume(); response.once("end", () => resolve(response.statusCode!)); response.once("error", reject); });
     child.once("error", reject); child.end();
   });
-}
-async function until(cond: () => boolean, timeoutMs = watchdogMs(10_000)): Promise<void> {
-  const start = Date.now();
-  while (!cond()) { if (Date.now() - start > timeoutMs) throw new Error("until: timed out"); await new Promise(r => setTimeout(r, 5)); }
 }
 
 for (const scope of ["once", "session"] as const) test(`after a ${scope} answer, another destination's withdrawn card asks again`, async () => {
