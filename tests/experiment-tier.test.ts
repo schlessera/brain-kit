@@ -10,14 +10,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DEFAULT_ROOTS } from "../scripts/test";
 import { discoverTests } from "../scripts/test-shards";
+import { copyScriptClosure, TEST_RUNNER_INPUTS } from "./helpers/script-closure";
 import {
   assertExperimentReceipt, candidate, COPY_INSTALL, danglingBins, EXPERIMENT_ROOT, externallyHardlinked, experimentRunArgv, missingTools, readJunit, RECEIPT_PATH,
   RECEIPT_SCHEMA, receiptProblems, REQUIRED_TOOLS, runProblems, type Candidate,
 } from "../scripts/test-experiments";
 
 const ROOT = join(import.meta.dir, "..");
-const SCRIPTS = ["test.ts", "offline-command.ts", "offline-command.py", "test-credential-names.json", "docker-test-files.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-experiments.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-home.ts",
-  "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs"];
 
 const passing = (name: string) => `import { expect, test } from "bun:test";\ntest(${JSON.stringify(name)}, () => expect(1).toBe(1));\n`;
 
@@ -34,7 +33,7 @@ async function checkout(use: (dir: string) => Promise<void>) {
   const dir = mkdtempSync(join(tmpdir(), "experiment-tier-"));
   try {
     mkdirSync(join(dir, "scripts"));
-    for (const script of SCRIPTS) cpSync(join(ROOT, "scripts", script), join(dir, "scripts", script));
+    copyScriptClosure(dir, ["scripts/test.ts", "scripts/test-experiments.ts"], TEST_RUNNER_INPUTS);
     // The actual preload also owns cleanup for the shared CLI harness.
     mkdirSync(join(dir, "packages/core/tests"), { recursive: true });
     cpSync(join(ROOT, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"));

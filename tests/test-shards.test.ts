@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { assertPartition, balanceTests, discoverTests } from "../scripts/test-shards";
 import { DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
 import { FLOOR_REPETITIONS } from "../scripts/determinism-plan";
+import { copyScriptClosure, TEST_RUNNER_INPUTS } from "./helpers/script-closure";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -61,9 +62,7 @@ describe("balanced shards run the root command for real", () => {
       mkdirSync(join(dir, "scripts"));
       const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
       writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture", scripts: { test: manifest.scripts.test } }));
-      for (const script of ["test.ts", "offline-command.ts", "offline-command.py", "test-credential-names.json", "docker-test-files.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-home.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs"]) {
-        cpSync(join(ROOT, "scripts", script), join(dir, "scripts", script));
-      }
+      copyScriptClosure(dir, ["scripts/test.ts"], TEST_RUNNER_INPUTS);
       mkdirSync(join(dir, "packages/core/tests"), { recursive: true });
       cpSync(join(ROOT, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"));
       for (const file of files) addTest(dir, file);
