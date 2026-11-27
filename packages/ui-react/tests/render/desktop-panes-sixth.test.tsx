@@ -4,7 +4,8 @@
 // off `render()` and never `screen`. The test window is 1024px wide, so the
 // `laptop:` shapes render; the `wide:` evidence rails are in the tree behind
 // a CSS class, which is exactly what §3a asks to be true.
-import { unregisterDesktopPanesDom as unregisterDom } from "./desktop-panes-sixth-dom.js";
+import { registerDesktopPanesDom, unregisterDesktopPanesDom as unregisterDom } from "./desktop-panes-sixth-dom.js";
+registerDesktopPanesDom();
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";

@@ -7,7 +7,8 @@
 // frames, once on the same turn replayed from `session_history`, with the
 // same assertion. The ruling on #40 is that replay draws exactly what live
 // drew, so a rule that only held live would be a failing test here.
-import { unregisterAnswerSuggestionsDom } from "./answer-suggestions-dom.js";
+import { registerAnswerSuggestionsDom, unregisterAnswerSuggestionsDom } from "./answer-suggestions-dom.js";
+registerAnswerSuggestionsDom();
 
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";

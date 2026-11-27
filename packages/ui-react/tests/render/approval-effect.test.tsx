@@ -3,7 +3,8 @@
 // description, and both places a pending approval is drawn show it. Same
 // containment contract as the smoke-*.test.tsx files: the DOM module first,
 // `afterAll(unregisterDom)`, queries off `render()` and never `screen`.
-import { unregisterApprovalEffectDom as unregisterDom } from "./approval-effect-dom.js";
+import { registerApprovalEffectDom, unregisterApprovalEffectDom as unregisterDom } from "./approval-effect-dom.js";
+registerApprovalEffectDom();
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
