@@ -76,16 +76,6 @@ export const HATCH_GLYPH = "▨";
 
 const SOLID_GLYPH = "■";
 
-const INKS: Record<Tone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 /** The source derives these two by concatenating a hex alpha suffix onto the
  * lane's colour (`c + '80'`, `c + '8c'`). A token cannot be concatenated, so
  * the two derived values are two real ramps — see `theme.css`. */
@@ -165,7 +155,7 @@ export function LaneChart(p: LaneChartProps) {
       <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
         {src.map((lane, i) => {
           const tone = lane.tone || "teal";
-          const ink = INKS[tone] || INKS.teal;
+          const ink = (accent[tone] ?? accent.teal).ink;
           return (
             <div data-lane-name={lane.name} key={`${lane.name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span
@@ -242,7 +232,7 @@ export function LaneChart(p: LaneChartProps) {
           const hatched = l.glyph === HATCH_GLYPH;
           return (
             <span key={`${l.label}-${i}`}>
-              <span style={{ color: hatched ? HATCH[tone] || HATCH.teal : INKS[tone] || INKS.teal }}>
+              <span style={{ color: hatched ? HATCH[tone] || HATCH.teal : (accent[tone] ?? accent.teal).ink }}>
                 {l.glyph || SOLID_GLYPH}
               </span>{" "}
               {l.label}

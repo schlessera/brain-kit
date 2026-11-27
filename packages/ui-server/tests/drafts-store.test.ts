@@ -4,7 +4,9 @@ import type { SessionDraftLimits } from "@schlessera/brain-ui-sdk/protocol";
 
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
-import { createDraftStore, DraftError, draftPreview, hasImageSignature } from "../src/drafts/store";
+import { createDraftStore, DRAFT_WRITE_METHODS, DraftError, draftPreview, hasImageSignature } from "../src/drafts/store";
+import { createDraftWrites } from "../src/drafts/writes";
+import type { SqliteWriter } from "../src/db/write-worker";
 import { queryPlan, recordStatements } from "./helpers/statement-recorder";
 
 const dbs: Database[] = [];
@@ -137,14 +139,18 @@ test("provisional dialogue adoption consumes the exact draft and moves only newe
  expect(store.get(owner,"newer")).toMatchObject({sessionId:"voyage",text:"And the departure note.",revision:3});
 });
 
-/** Whether a statement's bytecode reads `column` from `table`'s rows (not from one of its indexes). */
+/**
+ * Whether a statement's bytecode reads `column` from `table`'s rows (not from
+ * one of its indexes), through a read cursor or, for a write, the write cursor
+ * that rebuilds the row.
+ */
 function readsColumn(db: Database, sql: string, table: string, column: string) {
   const { rootpage } = db.query("SELECT rootpage FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table) as { rootpage: number };
   const { cid } = db.query("SELECT cid FROM pragma_table_info(?) WHERE name = ?").get(table, column) as { cid: number };
   const program = db.prepare(`EXPLAIN ${sql}`);
   try {
     const steps = program.all() as Array<{ opcode: string; p1: number; p2: number }>;
-    const cursors = new Set(steps.filter(step => step.opcode === "OpenRead" && step.p2 === rootpage).map(step => step.p1));
+    const cursors = new Set(steps.filter(step => (step.opcode === "OpenRead" || step.opcode === "OpenWrite") && step.p2 === rootpage).map(step => step.p1));
     return steps.some(step => step.opcode === "Column" && cursors.has(step.p1) && step.p2 === cid);
   } finally { program.finalize(); }
 }
@@ -172,4 +178,50 @@ test("saving new text to a draft with two images reads no image bytes, and the i
   expect(selects.filter(sql => readsColumn(db, sql, "session_draft_attachments", "bytes"))).toEqual([]);
   expect(store.get(owner, "draft-a")?.attachments.map(a => [a.attachmentId, a.name, a.bytes])).toEqual(
     ids.map((id, i) => [id, `shroud-${i}.png`, Buffer.from(images[i]!).toString("base64")]));
+});
+
+test("a text-only save over a draft with two attached images rewrites no image row (#4898)", () => {
+  const { db, owner } = setup();
+  const recorded = recordStatements(db), store = createDraftStore(recorded.db, { now: () => 1_000_000 });
+  const ids = [png(7, 48), png(9, 80)].map((bytes, i) => store.upload(owner, "draft-a", { idempotencyKey: `u${i}`, mime: "image/png", name: null, bytes }).attachmentId);
+  const attached = () => (db.query("SELECT attachment_id, attached FROM session_draft_attachments WHERE draft_id = 'draft-a' ORDER BY attachment_id").all() as Array<{ attachment_id: string; attached: number }>)
+    .map(row => [row.attachment_id, row.attached]);
+  // The first save that lists the fresh uploads still binds them.
+  store.save(owner, "draft-a", { ifMatch: 0, idempotencyKey: "s1", sessionId: null, text: "weave", attachmentIds: ids });
+  expect(attached()).toEqual(ids.map(id => [id, 1]).sort());
+  recorded.statements.length = 0;
+  store.save(owner, "draft-a", { ifMatch: 1, idempotencyKey: "s2", sessionId: null, text: "weave and unweave", attachmentIds: ids });
+  const executed = [...new Set(recorded.statements.map(statement => statement.sql))];
+  expect(executed.filter(sql => /\bUPDATE\s+session_draft_attachments\b/i.test(sql)), "TEXT_ONLY_SAVE_UPDATES_NO_IMAGE_ROW").toEqual([]);
+  expect(executed.filter(sql => readsColumn(db, sql, "session_draft_attachments", "bytes")), "TEXT_ONLY_SAVE_READS_NO_IMAGE_BYTES").toEqual([]);
+  // An image the save drops is still deleted.
+  store.save(owner, "draft-a", { ifMatch: 2, idempotencyKey: "s3", sessionId: null, text: "weave", attachmentIds: [ids[1]!] });
+  expect(attached()).toEqual([[ids[1]!, 1]]);
+});
+
+// Every mutating store method goes through the write channel (#4724); one
+// missing from DRAFT_WRITE_METHODS would commit on the app connection.
+const DRAFT_READ_METHODS = ["list", "get", "attachments", "attachmentRef", "attachmentReferenced", "attachmentInventory", "attachmentReads", "attachmentPoolBytes"];
+
+test("every draft store method is either a listed write or a known read", () => {
+  const { store } = setup();
+  const methods = Object.keys(store).filter(key => typeof (store as unknown as Record<string, unknown>)[key] === "function");
+  const unlisted = methods.filter(name => !(DRAFT_WRITE_METHODS as readonly string[]).includes(name) && !DRAFT_READ_METHODS.includes(name));
+  expect(unlisted, "DRAFT_MUTATIONS_ALL_LISTED").toEqual([]);
+  expect(DRAFT_WRITE_METHODS.filter(name => !methods.includes(name)), "DRAFT_WRITE_METHODS_EXIST").toEqual([]);
+});
+
+test("the draft write channel forwards every listed write", async () => {
+  const db = createUiDb(":memory:");
+  dbs.push(db);
+  const forwarded: unknown[] = [];
+  const writer: SqliteWriter = {
+    offloop: false,
+    channel: () => ({ ready: Promise.resolve(), call: <T>(_name: string, method: unknown) => { forwarded.push(method); return Promise.resolve(undefined as T); }, close: async () => {} }),
+    idle: async () => {},
+    close: async () => {},
+  };
+  const drafts = createDraftWrites(db, { now: () => 1_000_000 }, writer);
+  for (const method of DRAFT_WRITE_METHODS) await (drafts[method] as (...args: unknown[]) => Promise<unknown>)();
+  expect(forwarded, "EVERY_DRAFT_WRITE_FORWARDED").toEqual([...DRAFT_WRITE_METHODS]);
 });

@@ -128,7 +128,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   and (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:953-980`). Reuse the algorithm; the
   activity stream is bound to activity store methods and frame types.
 - **Runtime lifecycle:** (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:66-246`). Cron's scheduler
-  owns manual triggers/history; it does not tick the inbox.
+  owns the run recorder and the history; it does not tick the inbox.
 - **Two connections:** (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:28-45`) sets WAL,
   foreign keys and a 5-second busy timeout. Claims are immediate transactions.
 - **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:1143`) follows public routes;

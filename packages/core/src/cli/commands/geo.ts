@@ -57,7 +57,7 @@ omissions/nullable proximity; map includes artifact {path,format,bytes} or null,
 complete source/text/legend and kind/reason, with no embedded PNG/SVG bytes.
 --human prints source, unknowns, partial status and applicable attribution.
 Exit 0: valid result/fallback; 1: usage/input; 2: service/storage/renderer failure.`;
-const OPTIONS: Record<string, string[]> = {
+export const OPTIONS: Record<string, string[]> = {
   geocode: ["reverse"], route: ["mode"], poi: ["near", "along", "radius-m", "tag"],
   track: ["near", "compare", "tolerance-m", "sample-spacing-m"],
   map: ["pin", "point", "mode", "bbox", "title", "width", "no-background", "out"],
@@ -140,6 +140,10 @@ async function emitGeo(json: boolean, data: unknown, human: () => string): Promi
 
 export const geoCommand: CoreCommand = {
   summary: "Geocode, route, find POIs, measure tracks and export static maps",
+  flags: {
+    boolean: ["no-background"],
+    value: ["along", "bbox", "compare", "mode", "near", "out", "pin", "point", "radius-m", "reverse", "sample-spacing-m", "tag", "title", "tolerance-m", "width"],
+  },
   helpBlock: HELP,
   async run(argv, cli) {
     const { args, flags } = parseArgs(argv), operation = args.shift();

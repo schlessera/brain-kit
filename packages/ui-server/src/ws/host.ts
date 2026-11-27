@@ -733,8 +733,16 @@ export class WsHost {
     if (this.catalog.chatRetired?.({ sessionId })) throw new ChatRetiredError();
     // Turn ids first: boundaries were observed on the backend's own messages.
     messages = this.catalog.attachTurnBoundaries?.(sessionId, messages) ?? messages;
-    if (this.journal) messages = messages.map(message => message.role === "assistant" && message.turnId
-      ? { ...message, journal: { ...this.journal!.summary(message.turnId), ...(this.budgets?.saved(message.turnId) ? {budget:this.budgets.saved(message.turnId)} : {}) } } : message);
+    if (this.journal) {
+      // One batched read per kind for the whole chat, not one per turn (#4800).
+      const turnIds = messages.flatMap(message => message.role === "assistant" && message.turnId ? [message.turnId] : []);
+      const summaries = this.journal.summaries(turnIds), receipts = this.budgets?.savedReceipts(turnIds);
+      messages = messages.map(message => {
+        if (message.role !== "assistant" || !message.turnId) return message;
+        const budget = receipts?.get(message.turnId);
+        return { ...message, journal: { ...summaries.get(message.turnId)!, ...(budget ? { budget } : {}) } };
+      });
+    }
     messages = this.policyProposals?.attachHistory(sessionId, messages) ?? messages;
     messages = this.catalog.attachTurnFailures?.(sessionId, messages) ?? messages;
     const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];

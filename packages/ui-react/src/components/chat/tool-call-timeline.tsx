@@ -10,7 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
-} from "lucide-react";
+} from "../icons.js";
 import { awaitsDecision, useChatStore, type ToolCall } from "../../stores/chat-store.js";
 import { restoredApprovalWord } from "../../lib/restored-approvals.js";
 import { cn } from "../../lib/utils.js";
@@ -28,6 +28,7 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { useNow } from "../../hooks/use-now.js";
 import { SpanStatusDot } from "../activity/span-bits.js";
 import { CopyButton, EnclosingCopyControl } from "./copy-button.js";
+import { clockTime } from "../../lib/format-time.js";
 
 // Sessions that predate backend stamping (old servers, cleared stores) scope
 // to the shipped default backend.
@@ -381,7 +382,7 @@ function ToolCallEntryView({
         </p>
       )}
 
-      {toolCall.voicePermission?.word && <p data-voice-permission-receipt="" className="px-2 text-xs text-foreground">{toolCall.voicePermission.word}{toolCall.voicePermission.heardAt && <span> · heard “brain, stop” · {new Date(toolCall.voicePermission.heardAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}</p>}
+      {toolCall.voicePermission?.word && <p data-voice-permission-receipt="" className="px-2 text-xs text-foreground">{toolCall.voicePermission.word}{toolCall.voicePermission.heardAt && <span> · heard “brain, stop” · {clockTime(toolCall.voicePermission.heardAt)}</span>}</p>}
 
       {/* Live subagent state for tool fan-outs, fed by the activity stream. */}
       {renderer.subagentRows && <SubagentEntryRows agentToolUseId={toolCall.id} />}

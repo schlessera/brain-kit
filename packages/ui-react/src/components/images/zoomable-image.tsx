@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { IconButton } from "@schlessera/brain-ui-kit";
-import { Expand } from "lucide-react";
+import { Expand } from "../icons.js";
 import { imageFilenameFromSrc } from "../../lib/image-source.js";
 import { ImageViewer } from "./image-viewer.js";
 

@@ -114,6 +114,7 @@ function human(envelope: ApifyEnvelope): void {
 
 export const apifyCommand: CoreCommand = {
   summary: "Discover, inspect and run Apify Actors under the governance policy",
+  flags: { boolean: [], value: ["cursor", "input", "limit", "max-charge-usd", "session"] },
   helpBlock: USAGE,
   async run(args, cli) {
     const { args: positional, flags } = parseArgs(referencesAsPositional(args));

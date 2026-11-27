@@ -25,14 +25,10 @@ import {
   renderContractBlock,
 } from "../src/lib/skills/emitters/codex";
 import { geminiEmitter } from "../src/lib/skills/emitters/gemini";
-import {
-  INDEX_END,
-  INDEX_START,
-  renderIndexBlock,
-  upsertIndexBlock,
-} from "../src/lib/skills/emitters/index-block";
+import { INDEX_END, INDEX_START } from "../src/lib/skills/emitters/index-block";
 import { syncSkills } from "../src/lib/skills/sync";
 import type { SkillManifest } from "../src/lib/seams";
+import { renderIndexBlock } from "./skills-index-fixture";
 
 const tmpRoots: string[] = [];
 function mkRepo(): string {
@@ -260,8 +256,7 @@ describe("codexEmitter migrates a repo off the prompts and the index block", () 
     const audit = skill(root, "audit", "Report hygiene issues.");
     const agentsFile = join(root, "AGENTS.md");
     const preamble = "# My Repo\n\nHand-written.\n";
-    writeFileSync(agentsFile, preamble);
-    upsertIndexBlock(agentsFile, [add, audit]);
+    writeFileSync(agentsFile, preamble + "\n" + renderIndexBlock([add, audit]) + "\n");
     writeFileSync(agentsFile, readFileSync(agentsFile, "utf8") + "\nTrailing notes.\n");
     const promptsDir = join(root, ".codex", "prompts");
     legacyPrompt(root, "add", "Capture a note.");

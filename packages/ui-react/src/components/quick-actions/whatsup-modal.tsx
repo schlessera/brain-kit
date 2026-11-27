@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { BrainMarkdown } from "../chat/brain-markdown.js";
 import { BriefingOutput } from "./streaming-output.js";
+import { requestJson } from "../../lib/api-client.js";
 
 type State = "loading" | "done" | "empty" | "error" | "cancelled";
 
@@ -41,17 +42,15 @@ export function WhatsupPanel({
 
     (async () => {
       try {
-        const res = await root.request(root.backendUrl("/api/brain/briefing"), {
+        // A failure throws `ApiRequestError`, whose message is the host's text.
+        const body = await requestJson<{ content?: unknown } | null>(root.request, root.backendUrl("/api/brain/briefing"), {
           signal: controller.signal,
+        }).catch((err: unknown) => {
+          if (err instanceof SyntaxError) return null;
+          throw err;
         });
-        const body = (await res.json().catch(() => null)) as { content?: unknown; error?: unknown } | null;
         if (stale()) return;
 
-        if (!res.ok) {
-          setError(typeof body?.error === "string" && body.error ? body.error : `HTTP ${res.status}: ${res.statusText}`);
-          setState("error");
-          return;
-        }
         if (typeof body?.content !== "string") {
           setError("The briefing response carried no content.");
           setState("error");

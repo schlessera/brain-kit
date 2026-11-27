@@ -29,6 +29,7 @@ import { useEffect, useState } from "react";
 import { useBrainApi } from "../../../root-context.js";
 import type { CoastlineGeometry } from "../../../lib/api-client.js";
 import { geometryPaths } from "../../../lib/geometry-paths.js";
+import { clockTime } from "../../../lib/format-time.js";
 
 /** 4 decimal places is ~11 m — finer than any browser fix is honest about. */
 function coord(value: number): string {
@@ -124,7 +125,7 @@ export function LocationResultCard({
   const when = new Date(retrievedAt);
   const stamp = Number.isNaN(when.getTime())
     ? retrievedAt
-    : when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    : clockTime(when.getTime());
   const paths = geo ? geometryPaths(geo) : [];
   const land: MapLand | undefined = geo && geo.land.length ? { rings: geo.land } : undefined;
   const drawn = paths.length > 0 || land !== undefined;

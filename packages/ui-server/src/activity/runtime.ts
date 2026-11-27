@@ -13,7 +13,7 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { ActivityQuery, ActivityQueryResult } from "@schlessera/brain-ui-sdk/server";
 
-import { createActivityStore, type AwaitableActivityStore, type RollupPricing } from "./store.js";
+import { ACTIVITY_DETAIL_RETENTION_DAYS, createActivityStore, type AwaitableActivityStore, type RollupPricing } from "./store.js";
 import { afterWrite, createOffloopActivityStore, observeWrite, type ActivityPricingConfig } from "./store-writes.js";
 import type { SqliteWriter } from "../db/write-worker.js";
 import { createActivityStream, type ActivityStream } from "./stream.js";
@@ -28,7 +28,7 @@ import { createSettingsWrites, type SettingsWrites } from "../db/settings-writes
 import { createRuntimeStatus, type RuntimeStatus, type RuntimeStatusSnapshot } from "./runtime-status.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
-import { getDetailRetentionDays, getSetting } from "../db/settings.js";
+import { getSetting } from "../db/settings.js";
 
 // Activity lifecycle cadence. The stale threshold must comfortably exceed
 // the cron wrapper's heartbeat interval (~30s) so a live writer is never
@@ -213,10 +213,9 @@ export function createActivityRuntime(
         observeWrite(store.prune({
           // Full detail survives until the digest has covered it AND the
           // retention window has passed; the hard ceiling bounds growth even
-          // if the digest job silently dies. The setting is read every pass
-          // so a change applies without a restart.
+          // if the digest job silently dies.
           digestFloorAt: digestRetentionFloor(db),
-          detailRetentionMs: getDetailRetentionDays(db, log) * 24 * 60 * 60 * 1000,
+          detailRetentionMs: ACTIVITY_DETAIL_RETENTION_DAYS * 24 * 60 * 60 * 1000,
           hardCeilingMs: ACTIVITY_HARD_CEILING_MS,
         }), tickFailed);
         observeWrite(notifier.pruneAcknowledged(INTENT_RETENTION_MS), tickFailed);

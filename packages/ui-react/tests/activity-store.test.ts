@@ -14,8 +14,6 @@ import {
   payloadEventsFor,
   runEvents,
   spanForTool,
-  subagentSpans,
-  timingFor,
 } from "../src/stores/activity-store";
 
 function span(overrides: Partial<ActivitySpan> & { spanId: string; runId: string }): ActivitySpan {
@@ -273,7 +271,7 @@ describe("snapshot-then-delta (AE6 client half)", () => {
 });
 
 describe("selectors", () => {
-  test("childSpans and subagentSpans shape the fan-out tree", () => {
+  test("childSpans shapes the fan-out tree", () => {
     const s = useActivityStore.getState();
     s.applySnapshot({
       type: "activity_snapshot",
@@ -297,7 +295,6 @@ describe("selectors", () => {
     });
     const state = useActivityStore.getState();
     expect(childSpans(state, "agent-1").map((x) => x.spanId)).toEqual(["sub-b", "sub-a"]);
-    expect(subagentSpans(state, "sess").map((x) => x.spanId)).toEqual(["agent-1"]);
     expect(spanForTool(state, "sub-a")!.runId).toBe("t");
   });
 
@@ -463,25 +460,6 @@ describe("selectors", () => {
     expect(runEvents(state, "unknown-run")).toHaveLength(0);
   });
 
-  test("timingFor uses the wait/execution boundary and server clock", () => {
-    const s = useActivityStore.getState();
-    s.applySnapshot({
-      type: "activity_snapshot",
-      view: "run",
-      runId: "r1",
-      spans: [
-        span({ spanId: "gated", runId: "r1", startedAt: 100, waitUntil: 400, endedAt: 900 }),
-      ],
-      events: [],
-      highWaterSeq: { r1: 1 },
-    });
-    // Approval wait (100..400) must not inflate the duration.
-    expect(timingFor(useActivityStore.getState(), "gated")).toEqual({
-      startedAt: 400,
-      endedAt: 900,
-    });
-    expect(timingFor(useActivityStore.getState(), "unknown")).toBeNull();
-  });
 });
 
 

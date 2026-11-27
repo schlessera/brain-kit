@@ -158,6 +158,20 @@ describe("graph-store", () => {
     expect(s.error?.reason).toBe("not_computed");
   });
 
+  test("503 with both texts records the gating reason and the host's error (#4725)", async () => {
+    mockFetch({ "/graph/clusters": { status: 503, body: { error: "graph_unavailable", reason: "schema" } } });
+    useGraphStore.getState().setMode("clusters");
+    await settle();
+    expect(useGraphStore.getState().error).toEqual({ kind: "unavailable", reason: "schema", message: "graph_unavailable" });
+  });
+
+  test("a failure body with only a reason reads as that reason, with its status kept (#4725)", async () => {
+    mockFetch({ "/graph/clusters": { status: 503, body: { reason: "index_missing" } } });
+    useGraphStore.getState().setMode("clusters");
+    await settle();
+    expect(useGraphStore.getState().error).toEqual({ kind: "unavailable", reason: "not_computed", message: "index_missing" });
+  });
+
   test("identical scene requests hit the cache", async () => {
     const calls = mockFetch({ "/graph/neighborhood": { body: SUBGRAPH } });
     useGraphStore.getState().setLocalParams({ center: "cache-test.md" });

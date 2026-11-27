@@ -8,7 +8,7 @@
  * A pull that cannot merge says whether git refused or stopped on conflicts.
  */
 
-import { withoutSigningForEach } from "./git-fixture";
+import { git, withoutSigningForEach } from "./git-fixture";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -28,11 +28,6 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function git(cwd: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", "-C", cwd, ...args]);
-  if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
-  return result.stdout.toString().trim();
-}
 
 /** A clone of a bare remote with one commit, the cache tracked, and an unrelated file staged and another modified. */
 function fixture(): { root: string; remote: string } {

@@ -45,7 +45,7 @@ export function saveLocalExchange(
   delivered: boolean,
   now = Date.now()
 ): void {
-  db.prepare(
+  db.query(
     `INSERT INTO local_exchanges
        (session_id, exchange_id, command, prompt, answer, context, created_at, delivered_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)

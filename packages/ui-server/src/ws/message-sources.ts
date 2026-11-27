@@ -51,7 +51,7 @@ export function saveMessageSource(
     const row = db
       .query("SELECT COUNT(*) AS n FROM message_sources WHERE session_id = ? AND text_hash = ?")
       .get(sessionId, hash) as { n: number };
-    db.prepare(
+    db.query(
       `INSERT INTO message_sources (session_id, text_hash, ordinal, source, created_at, thinking_level, turn_id, track_files, attachment_files)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(sessionId, hash, row.n, source, at, effort?.thinkingLevel ?? null, effort?.turnId ?? null, effort?.files?.length ? JSON.stringify(effort.files) : null,
@@ -60,7 +60,7 @@ export function saveMessageSource(
 }
 
 export function saveEffectiveThinkingLevel(db: Database, sessionId: string, turnId: string, level: ThinkingLevel): void {
-  db.prepare("UPDATE message_sources SET effective_thinking_level = ? WHERE session_id = ? AND turn_id = ? AND thinking_level IS NOT NULL")
+  db.query("UPDATE message_sources SET effective_thinking_level = ? WHERE session_id = ? AND turn_id = ? AND thinking_level IS NOT NULL")
     .run(level, sessionId, turnId);
 }
 

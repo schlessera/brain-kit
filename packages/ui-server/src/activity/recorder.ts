@@ -49,7 +49,7 @@ import { inputTaintSignals, outputTaintSignals, searchOutputContext, type Ingest
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { MAX_PROVIDER_UNAVAILABLE_PER_TURN, providerUnavailablePayloads } from "../governance/provider-unavailable.js";
 import type { AwaitableActivityStore, SpanOutcome, SpanUsage } from "./store.js";
-import { orderedWrites } from "./store-writes.js";
+import { orderedWrites } from "./ordered-writes.js";
 import { HOST_STOP_REASONS } from "../ws/host-stop.js";
 
 export interface TurnRecorderDeps {

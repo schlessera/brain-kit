@@ -166,3 +166,33 @@ for (const width of [320, 900]) {
     }
   });
 }
+
+// #4729: the caret restore lives in the shared strip-sheet hook; this is the
+// same case `session-strip.visual.tsx` runs for the working-session half.
+test("keyboard-open summary blurs the composer and restores its caret", async () => {
+  const mode = pointerScene();
+  await mount({ width: 390, theme: "light", working: 0, followUps: [...pendingFollowUps, longFollowUp].slice(0, 3), keyboardOpen: true });
+  const sheet = () => document.body.querySelector<HTMLElement>("[data-pending-sheet]");
+  const composer = host!.querySelector<HTMLTextAreaElement>("[data-composer]")!;
+  composer.value = "Raft list for Ithaca";
+  const [summary] = pendingItems();
+  expect(summary!.getAttribute("data-pending-summary")).toBe("keyboard");
+  composer.focus();
+  composer.setSelectionRange(5, 9);
+  if (mode === "fine") await userEvent.click(summary!);
+  else {
+    const r = rect(summary!);
+    await commands.rankTouch("touchStart", [{ x: r.left + 0.5, y: r.top + 0.5 }]);
+    await commands.rankTouch("touchEnd", []);
+  }
+  await expect.poll(() => sheet()).not.toBeNull();
+  expect(document.activeElement, "the composer is blurred").not.toBe(composer);
+  expect(sheet()!.contains(document.activeElement), "focus is in the sheet").toBe(true);
+  // Chromium keeps a blurred field's selection, so move the caret while the
+  // sheet is open: only the strip's restore can bring it back.
+  composer.setSelectionRange(composer.value.length, composer.value.length);
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => sheet()).toBeNull();
+  await expect.poll(() => document.activeElement, { message: "focus returns to the composer" }).toBe(composer);
+  expect([composer.selectionStart, composer.selectionEnd], "with the caret restored").toEqual([5, 9]);
+});

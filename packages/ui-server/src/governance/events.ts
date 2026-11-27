@@ -298,7 +298,6 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
 
 export type GovernanceEventKind = keyof typeof GOVERNANCE_EVENT_SCHEMAS;
 export type GovernanceEventPayload<K extends GovernanceEventKind> = z.infer<(typeof GOVERNANCE_EVENT_SCHEMAS)[K]["payload"]>;
-export const GOVERNANCE_EVENT_KINDS = Object.keys(GOVERNANCE_EVENT_SCHEMAS) as GovernanceEventKind[];
 
 /**
  * Who caused the intervention: a turn of the named posture, the user acting

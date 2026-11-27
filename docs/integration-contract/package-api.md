@@ -476,7 +476,7 @@ and draws nothing for it on a `plain` surface. Omitted, the row is unchanged.
 `StatusIndicator`, there. The indicator replaces the save line that was under
 the field
 ([the D52 amendment](../decisions/design-kit/sessions-and-drafts.md)).
-`DraftSaveLine`'s behaviour is unchanged where it is still used.
+The save line itself was removed once nothing drew it (#4679).
 
 `BrainUiConnection.drafts` gains `checkSave(draftId)`. It is Check again for a
 draft save whose answer was lost: one `GET /api/drafts/:draftId`, never a save.
@@ -876,6 +876,7 @@ private member is.
 Entry points named `/internal` (`@schlessera/brain/internal`,
 `@schlessera/brain/internal/graph`, `@schlessera/brain/internal/apify` (additive, #3162),
 `@schlessera/brain-common/internal/apify` and `@schlessera/brain-common/internal/apify-operations` (additive, #3162),
+`@schlessera/brain-common/internal/module-settings-fields` (additive, #4716),
 `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`,
 `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-sdk/internal`,
 `@schlessera/brain-ui-sdk/internal/client`, `@schlessera/brain-ui-server/internal`,

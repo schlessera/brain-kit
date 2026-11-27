@@ -573,8 +573,8 @@ claims host durability for an unacknowledged save.
 > and keeps its slot. The `saving…` delay of 600ms no longer applies: an
 > unacknowledged edit shows the active glyph at once. Only that glyph
 > animates (the amendment above), and reduced motion keeps it still. The
-> line itself remains `DraftSaveLine` for the voice conversation strip,
-> which this amendment does not change. The record is
+> line itself is gone too: the voice conversation strip stopped drawing it
+> in #3735, and its component was removed in #4679. The record is
 > [chat attachments](../chat-attachments.md#what-3155-built-so-far).
 
 **Conflict.** `Compare drafts` shows this device's and the other device's

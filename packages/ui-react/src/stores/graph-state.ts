@@ -6,6 +6,7 @@ import type {
   GraphNodePayload,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreEnvironment } from "./store-environment.js";
+import { ApiRequestError, requestJson } from "../lib/api-client.js";
 import { discoveryFingerprint, discoveryRootIdentity } from "../lib/discovery-layout.js";
 import { buildQuery, mergeSubgraphs } from "../lib/graph-helpers.js";
 import {
@@ -326,36 +327,28 @@ export function createGraphStore(env: StoreEnvironment) {
     sceneCache.set(key, value);
   }
 
-  async function fetchGraphJson<T>(pathAndQuery: string, signal?: AbortSignal): Promise<T> {
-    const res = await fetch(`${apiBase()}/graph${pathAndQuery}`, signal ? { signal } : undefined);
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}) as Record<string, unknown>);
-      const err = new Error(
-        (body as { error?: string }).error || `HTTP ${res.status}`
-      ) as Error & { status: number; reason?: string };
-      err.status = res.status;
-      err.reason = (body as { reason?: string }).reason;
-      throw err;
-    }
-    return res.json() as Promise<T>;
+  function fetchGraphJson<T>(pathAndQuery: string, signal?: AbortSignal): Promise<T> {
+    return requestJson<T>(fetch, `${apiBase()}/graph${pathAndQuery}`, signal ? { signal } : undefined);
   }
 
   function toGraphError(err: unknown): GraphError {
-    const e = err as Error & { status?: number; reason?: string };
-    if (e.status === 404) {
+    const status = err instanceof ApiRequestError ? err.status : undefined;
+    if (status === 404) {
       return {
         kind: "unsupported",
         message: "This server does not know the graph API yet.",
       };
     }
-    if (e.status === 503) {
+    const message = (err as { message?: string } | null)?.message;
+    if (status === 503) {
+      const reason = ((err as ApiRequestError).body as { reason?: unknown } | null | undefined)?.reason;
       return {
         kind: "unavailable",
-        reason: e.reason === "core_unavailable" ? "core_unavailable" : e.reason === "schema" ? "schema" : "not_computed",
-        message: e.message || "graph_unavailable",
+        reason: reason === "core_unavailable" ? "core_unavailable" : reason === "schema" ? "schema" : "not_computed",
+        message: message || "graph_unavailable",
       };
     }
-    return { kind: "network", message: e.message || "Request failed" };
+    return { kind: "network", message: message || "Request failed" };
   }
 
   function sceneRequest(state: GraphState): { endpoint: string; query: string } | null {

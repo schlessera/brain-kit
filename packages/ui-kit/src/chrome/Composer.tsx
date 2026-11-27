@@ -584,6 +584,9 @@ function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "
       }
       className={act ? (tip ? "bk-control bk-tip-host" : "bk-control") : undefined}
       role={act ? "button" : undefined}
+      // The same hook as the caller-supplied mic's wrapper: a host finds the
+      // mic by it, whichever is drawn, never by its accessible name.
+      data-composer-mic={props.icon === "mic" ? "" : undefined}
       aria-label={act ? props.label : undefined}
       aria-disabled={unavailable !== undefined ? true : undefined}
       aria-describedby={unavailable !== undefined ? reasonId : undefined}

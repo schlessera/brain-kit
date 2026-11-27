@@ -105,6 +105,11 @@
       "bun": "./src/taint-trust.ts",
       "types": "./dist/taint-trust.d.ts",
       "default": "./dist/taint-trust.js"
+    },
+    "./internal/module-settings-fields": {
+      "bun": "./src/module-settings-fields.ts",
+      "types": "./dist/module-settings-fields.d.ts",
+      "default": "./dist/module-settings-fields.js"
     }
   },
   "files": [

@@ -6,7 +6,6 @@ import {
   ATTACHMENT_MAX_FILE_BYTES,
   ATTACHMENT_MAX_TOTAL_BYTES,
   ATTACHMENT_POOL_DEFAULT_BYTES,
-  type AttachmentErrorResponse,
   type AttachmentFile,
   type DraftOutgoing,
   type DraftSnapshot,
@@ -19,7 +18,6 @@ import {
   type Draft,
   type DraftAttachmentResponse,
   type DraftBindResponse,
-  type DraftErrorResponse,
   type DraftListResponse,
   type DraftRef,
   type DraftSaveResponse,
@@ -27,12 +25,12 @@ import {
   type SessionDraftLimits,
 } from "@schlessera/brain-ui-sdk/protocol";
 
-import { createDraftWrites } from "./writes.js";
+import { DraftAuthError, DraftError, invalid } from "./errors.js";
+import { legacyOutgoing, nextSnapshots, snapshotFiles } from "./snapshot-list.js";
 import {
   addRef, draftEnvelope, draftReferencedBytes, FILE_ID, forgetDeleted, hasAnyRef, insertAttachment, insertAttachmentRead, listAttachmentReads, markForDeletion,
   poolCharged, readAttachment, readAttachments, setRefs, toAttachmentFile, type NewAttachment,
 } from "../attachments/store.js";
-import type { SqliteWriter } from "../db/write-worker.js";
 
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { isRetired } from "../ws/chat-lifecycle.js";
@@ -55,23 +53,7 @@ import { isRetired } from "../ws/chat-lifecycle.js";
 
 export type DraftImageType = (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
 
-/** A refusal with its HTTP status and typed body. */
-export class DraftError extends Error {
-  readonly bodyJson: string;
-  constructor(readonly status: 400 | 404 | 409 | 410 | 413 | 428 | 507, readonly body: DraftErrorResponse | AttachmentErrorResponse) {
-    super(body.message);
-    this.name = "DraftError";
-    this.bodyJson = JSON.stringify(body);
-  }
-}
-
-/** The calling principal is no longer usable (revoked, expired or gone). */
-export class DraftAuthError extends Error {
-  constructor() {
-    super("Authentication required");
-    this.name = "DraftAuthError";
-  }
-}
+export { DraftAuthError, DraftError };
 
 /** A stored upload not named by any save is removed this long after upload. */
 const PENDING_ATTACHMENT_TTL_MS = 60 * 60 * 1_000;
@@ -247,10 +229,6 @@ export function hasImageSignature(mime: DraftImageType, bytes: Uint8Array): bool
   }
 }
 
-function invalid(message: string): DraftError {
-  return new DraftError(400, { error: "DRAFT_INVALID", message });
-}
-
 function notFound(): DraftError {
   return new DraftError(404, { error: "DRAFT_NOT_FOUND", message: "No draft with this id is stored on this host." });
 }
@@ -263,8 +241,10 @@ function deleted(row: DraftRow): DraftError {
   });
 }
 
-export type DraftWrite = "save" | "upload" | "remove" | "bind" | "accept" | "reserveAttachment" | "commitAttachment" | "releaseReservation"
-  | "discardReservations" | "sweepMark" | "sweepForget" | "markMissing" | "adoptOrphan" | "releaseSession" | "recordAttachmentRead";
+/** Every mutating method of the store: the write channel forwards exactly these (#4724). */
+export const DRAFT_WRITE_METHODS = ["save", "upload", "remove", "bind", "accept", "reserveAttachment", "commitAttachment", "releaseReservation",
+  "discardReservations", "sweepMark", "sweepForget", "markMissing", "adoptOrphan", "releaseSession", "recordAttachmentRead"] as const;
+export type DraftWrite = (typeof DRAFT_WRITE_METHODS)[number];
 export type AwaitableDraftStore = Omit<DraftStore, DraftWrite> & {
   [K in DraftWrite]: (...args: Parameters<DraftStore[K]>) => ReturnType<DraftStore[K]> | Promise<ReturnType<DraftStore[K]>>;
 } & { settled?(): Promise<void> };
@@ -275,14 +255,7 @@ export interface DraftStoreOptions {
   attachmentPoolBytes?: number;
 }
 
-export function createDraftStore(db: Database, options?: DraftStoreOptions): DraftStore;
-export function createDraftStore(db: Database, options: DraftStoreOptions, writer: SqliteWriter): AwaitableDraftStore;
-export function createDraftStore(
-  db: Database,
-  options: DraftStoreOptions = {},
-  writer?: SqliteWriter
-): AwaitableDraftStore {
-  if (writer) return createDraftWrites(db, options, writer);
+export function createDraftStore(db: Database, options: DraftStoreOptions = {}): DraftStore {
   const now = options.now ?? Date.now;
   const limits: Readonly<SessionDraftLimits> = Object.freeze({ ...SESSION_DRAFT_LIMITS, ...options.limits });
   const poolBytes = options.attachmentPoolBytes ?? ATTACHMENT_POOL_DEFAULT_BYTES;
@@ -330,17 +303,6 @@ export function createDraftStore(
     return JSON.parse(row.outgoing_snapshots) as DraftSnapshot[];
   }
 
-  /** The single-slot view: the newest snapshot still held or unconfirmed. */
-  function legacyOutgoing(snapshots: readonly DraftSnapshot[]): DraftSnapshot | null {
-    for (let i = snapshots.length - 1; i >= 0; i--) if (snapshots[i]!.state !== "returned") return snapshots[i]!;
-    return null;
-  }
-
-  /** Every file a draft's snapshots own, once each. */
-  function snapshotFiles(snapshots: readonly DraftSnapshotWrite[]): string[] {
-    return [...new Set(snapshots.flatMap((s) => s.fileIds))];
-  }
-
   /**
    * Live snapshots of the chat a draft belongs to, outside that draft: every
    * other live draft bound to the same session, whichever tab or device saved
@@ -352,68 +314,6 @@ export function createDraftStore(
       "SELECT COALESCE(SUM(json_array_length(outgoing_snapshots)), 0) AS n FROM session_drafts WHERE session_id = ? AND draft_id != ? AND deleted_at IS NULL"
     ).get(sessionId, draftId) as { n: number };
     return row.n;
-  }
-
-  function outgoingInvalid(message: string): DraftError {
-    return invalid(message);
-  }
-
-  /**
-   * The list a save leaves, from the stored list and what the request names.
-   * Edits happen in place and never need a free slot; `created` lists the new
-   * snapshots, which the caller counts against the chat's capacity.
-   */
-  function nextSnapshots(stored: readonly DraftSnapshot[], input: SaveDraftInput, at: number): { list: DraftSnapshot[]; created: DraftSnapshot[] } {
-    if (input.snapshots !== undefined && input.outgoing !== undefined) throw outgoingInvalid("Send either outgoing or snapshots, not both.");
-    if (input.snapshots === undefined && input.outgoing === undefined) return { list: [...stored], created: [] };
-    const byId = new Map(stored.map((s) => [s.snapshotId, s]));
-    if (input.outgoing === null) {
-      // The single-slot clear removes the snapshot that slot shows, as #3153 did.
-      const shown = legacyOutgoing(stored);
-      return { list: stored.filter((s) => s !== shown), created: [] };
-    }
-    const writes: DraftSnapshotWrite[] = input.outgoing !== undefined
-      ? (() => {
-        // The single-slot write addresses the snapshot of its request.
-        const o = input.outgoing;
-        const existing = stored.find((s) => s.requestId === o.requestId);
-        const write = { snapshotId: existing?.snapshotId ?? o.requestId, requestId: o.requestId, text: o.text, fileIds: o.fileIds, state: o.state };
-        return existing ? stored.map((s) => (s === existing ? write : s)) : [...stored, write];
-      })()
-      : input.snapshots!;
-    const seen = new Set<string>();
-    const requests = new Set<string>();
-    const list: DraftSnapshot[] = [];
-    const created: DraftSnapshot[] = [];
-    for (const write of writes) {
-      if (seen.has(write.snapshotId)) throw outgoingInvalid("A snapshot is listed twice.");
-      if (requests.has(write.requestId)) throw outgoingInvalid("Two snapshots name the same requestId.");
-      seen.add(write.snapshotId); requests.add(write.requestId);
-      const prior = byId.get(write.snapshotId);
-      if (!prior) {
-        if (write.state === "returned") throw outgoingInvalid("A new snapshot is held or dispatched.");
-        if (stored.some((s) => s.requestId === write.requestId)) throw outgoingInvalid("Another snapshot already sends this requestId.");
-        const snapshot = { ...write, fileIds: [...write.fileIds], createdAt: at };
-        list.push(snapshot); created.push(snapshot);
-        continue;
-      }
-      // Nothing of a snapshot changes but its state, and a held one's files.
-      if (write.requestId !== prior.requestId || write.text !== prior.text) throw outgoingInvalid("A snapshot's text and requestId do not change.");
-      const sameFiles = write.fileIds.length === prior.fileIds.length && write.fileIds.every((id, i) => id === prior.fileIds[i]);
-      if (!sameFiles && prior.state !== "held") throw outgoingInvalid("Only a held snapshot's files change.");
-      const allowed = write.state === prior.state
-        || (prior.state === "held" && (write.state === "returned" || write.state === "dispatched"))
-        || (prior.state === "dispatched" && write.state === "returned");
-      if (!allowed) throw outgoingInvalid(`A ${prior.state} snapshot cannot become ${write.state}.`);
-      list.push({ ...prior, fileIds: [...write.fileIds], state: write.state });
-    }
-    // Leaving a snapshot out deletes it, which only a returned one may be.
-    for (const prior of stored) {
-      if (!seen.has(prior.snapshotId) && prior.state !== "returned") {
-        throw outgoingInvalid(`A ${prior.state} snapshot is not deleted; return it first.`);
-      }
-    }
-    return { list, created };
   }
 
   function toDraft(row: DraftRow): Draft {
@@ -455,7 +355,7 @@ export function createDraftStore(
   }
 
   function sweepPending(at: number): void {
-    db.prepare("DELETE FROM session_draft_attachments WHERE attached = 0 AND created_at < ?").run(at - PENDING_ATTACHMENT_TTL_MS);
+    db.query("DELETE FROM session_draft_attachments WHERE attached = 0 AND created_at < ?").run(at - PENDING_ATTACHMENT_TTL_MS);
   }
 
   function totalBytes(): number {
@@ -522,10 +422,10 @@ export function createDraftStore(
   }
 
   function recordReceipt(draftId: string, operation: "save" | "attachment", key: string, fingerprint: string, response: unknown, principalId: string, at: number): void {
-    db.prepare(
+    db.query(
       "INSERT INTO session_draft_receipts (draft_id, operation, idempotency_key, fingerprint, response_json, created_at, principal_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ).run(draftId, operation, key, fingerprint, JSON.stringify(response), at, principalId);
-    db.prepare(
+    db.query(
       `DELETE FROM session_draft_receipts WHERE draft_id = ?1 AND operation = ?2 AND idempotency_key NOT IN (
          SELECT idempotency_key FROM session_draft_receipts WHERE draft_id = ?1 AND operation = ?2
          ORDER BY created_at DESC, rowid DESC LIMIT ${RECEIPTS_PER_DRAFT})`
@@ -534,16 +434,16 @@ export function createDraftStore(
 
   /** Turn a live draft into a tombstone at the next revision. */
   function tombstone(row: DraftRow, reason: "deleted" | "sent", principalId: string, at: number): void {
-    db.prepare(
+    db.query(
       `UPDATE session_drafts SET revision = ?, text = '', attachment_ids = '[]', size_bytes = 0,
          updated_at = ?, updated_by = ?, deleted_at = ?, deleted_reason = ? WHERE draft_id = ?`
     ).run(row.revision + 1, at, principalId, at, reason, row.draft_id);
-    db.prepare("DELETE FROM session_draft_attachments WHERE draft_id = ?").run(row.draft_id);
+    db.query("DELETE FROM session_draft_attachments WHERE draft_id = ?").run(row.draft_id);
     // The draft's own bindings go; a message reference written by an
     // acceptance keeps protecting what was sent.
     setRefs(db, "draft", row.draft_id, [], at);
     setRefs(db, "outgoing", row.draft_id, [], at);
-    db.prepare("UPDATE session_drafts SET file_ids = '[]', outgoing_snapshots = '[]' WHERE draft_id = ?").run(row.draft_id);
+    db.query("UPDATE session_drafts SET file_ids = '[]', outgoing_snapshots = '[]' WHERE draft_id = ?").run(row.draft_id);
   }
 
   return {
@@ -679,11 +579,11 @@ export function createDraftStore(
         const revision = (row?.revision ?? 0) + 1;
         const ids = JSON.stringify(input.attachmentIds);
         if (row) {
-          db.prepare(
+          db.query(
             "UPDATE session_drafts SET revision = ?, text = ?, attachment_ids = ?, file_ids = ?, outgoing_snapshots = ?, size_bytes = ?, updated_at = ?, updated_by = ? WHERE draft_id = ?"
           ).run(revision, input.text, ids, JSON.stringify(fileIds), JSON.stringify(snapshots), textBytes + imageBytes, at, principalId, draftId);
         } else {
-          db.prepare(
+          db.query(
             `INSERT INTO session_drafts (draft_id, session_id, revision, text, attachment_ids, file_ids, outgoing_snapshots, size_bytes, created_at, created_by, updated_at, updated_by)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(draftId, input.sessionId, revision, input.text, ids, JSON.stringify(fileIds), JSON.stringify(snapshots), textBytes + imageBytes, at, principalId, at, principalId);
@@ -696,12 +596,14 @@ export function createDraftStore(
         setRefs(db, "draft", draftId, fileIds, at);
         setRefs(db, "outgoing", draftId, owned, at);
         // An image the previous revision listed and this one dropped is gone;
-        // an upload no revision has listed yet waits for its own save.
+        // an upload no revision has listed yet waits for its own save. An
+        // image already attached is left alone: the update would rewrite its
+        // whole row, BLOB included (#4898).
         for (const attachment of stored.values()) {
           if (keep.has(attachment.attachment_id)) {
-            db.prepare("UPDATE session_draft_attachments SET attached = 1 WHERE attachment_id = ?").run(attachment.attachment_id);
+            if (attachment.attached !== 1) db.query("UPDATE session_draft_attachments SET attached = 1 WHERE attachment_id = ?").run(attachment.attachment_id);
           } else {
-            db.prepare("DELETE FROM session_draft_attachments WHERE attachment_id = ? AND attached = 1").run(attachment.attachment_id);
+            db.query("DELETE FROM session_draft_attachments WHERE attachment_id = ? AND attached = 1").run(attachment.attachment_id);
           }
         }
         const response: DraftSaveResponse = { revision, updatedAt: at };
@@ -723,7 +625,7 @@ export function createDraftStore(
           if (kept) return replay;
           // The bytes are gone (swept, dropped or deleted): a receipt for them
           // would acknowledge an id no save can use. Store the upload afresh.
-          db.prepare("DELETE FROM session_draft_receipts WHERE draft_id = ? AND operation = 'attachment' AND idempotency_key = ?")
+          db.query("DELETE FROM session_draft_receipts WHERE draft_id = ? AND operation = 'attachment' AND idempotency_key = ?")
             .run(draftId, input.idempotencyKey);
         }
 
@@ -746,7 +648,7 @@ export function createDraftStore(
           throw new DraftError(507, { error: "DRAFT_CAPACITY", message: "This host's attachment space is full.", limit: poolBytes, bound: "total" });
         }
         const attachmentId = crypto.randomUUID();
-        db.prepare(
+        db.query(
           `INSERT INTO session_draft_attachments (attachment_id, draft_id, mime, name, bytes, size_bytes, attached, created_at, created_by)
            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`
         ).run(attachmentId, draftId, input.mime, input.name, input.bytes, input.bytes.byteLength, at, principalId);
@@ -801,7 +703,7 @@ export function createDraftStore(
         if (row.session_id === input.sessionId) return { revision: row.revision };
         if (row.session_id !== null) throw conflict(row);
         const revision = row.revision + 1;
-        db.prepare("UPDATE session_drafts SET session_id = ?, revision = ?, updated_at = ?, updated_by = ? WHERE draft_id = ?")
+        db.query("UPDATE session_drafts SET session_id = ?, revision = ?, updated_at = ?, updated_by = ? WHERE draft_id = ?")
           .run(input.sessionId, revision, at, principalId, draftId);
         return { revision };
       }).immediate();
@@ -825,14 +727,14 @@ export function createDraftStore(
         const released = Boolean(settled && kept && kept.length !== snapshotsOf(settled).length);
         if (released) {
           setRefs(db, "outgoing", draftId, snapshotFiles(kept!), at);
-          db.prepare("UPDATE session_drafts SET outgoing_snapshots = ? WHERE draft_id = ?").run(JSON.stringify(kept), draftId);
+          db.query("UPDATE session_drafts SET outgoing_snapshots = ? WHERE draft_id = ?").run(JSON.stringify(kept), draftId);
         }
         if (!input.resumed && input.requestId) {
-          db.prepare(
+          db.query(
             `INSERT OR IGNORE INTO session_draft_sends (draft_id, request_id, session_id, revision, principal_id, accepted_at)
              VALUES (?, ?, ?, ?, ?, ?)`
           ).run(draftId, input.requestId, input.sessionId, revision, input.principalId, at);
-          db.prepare(
+          db.query(
             `DELETE FROM session_draft_sends WHERE draft_id = ?1 AND request_id NOT IN (
                SELECT request_id FROM session_draft_sends WHERE draft_id = ?1
                ORDER BY accepted_at DESC, rowid DESC LIMIT ${SENDS_PER_DRAFT})`
@@ -845,7 +747,7 @@ export function createDraftStore(
         // back as a new dispatched one (#3733).
         const keep = (): "kept" => {
           if (released && row && row.deleted_at === null)
-            db.prepare("UPDATE session_drafts SET revision = ?, updated_at = ?, updated_by = ? WHERE draft_id = ?")
+            db.query("UPDATE session_drafts SET revision = ?, updated_at = ?, updated_by = ? WHERE draft_id = ?")
               .run(row.revision + 1, at, input.principalId, draftId);
           return "kept";
         };
@@ -856,7 +758,7 @@ export function createDraftStore(
           // Edits made after submission stay with the same chat when its first
           // real task names it. Version the ownership move for concurrent saves.
           if (input.sourceSessionId && !input.resumed && input.requestId) {
-            db.prepare("UPDATE session_drafts SET session_id=?,revision=?,updated_at=?,updated_by=? WHERE draft_id=?")
+            db.query("UPDATE session_drafts SET session_id=?,revision=?,updated_at=?,updated_by=? WHERE draft_id=?")
               .run(input.sessionId,row.revision+1,at,input.principalId,draftId);
             return "kept";
           }
@@ -868,8 +770,8 @@ export function createDraftStore(
           // never evicted with it: the draft stays, at the next revision, with
           // an empty composer and those snapshots.
           setRefs(db, "draft", draftId, [], at);
-          db.prepare("DELETE FROM session_draft_attachments WHERE draft_id = ?").run(draftId);
-          db.prepare(
+          db.query("DELETE FROM session_draft_attachments WHERE draft_id = ?").run(draftId);
+          db.query(
             "UPDATE session_drafts SET revision = ?, text = '', attachment_ids = '[]', file_ids = '[]', size_bytes = 0, updated_at = ?, updated_by = ? WHERE draft_id = ?"
           ).run(row.revision + 1, at, input.principalId, draftId);
           return "consumed";
@@ -893,7 +795,7 @@ export function createDraftStore(
         // immediate transaction: concurrent uploads cannot multiply the cap.
         if (poolCharged(db) + input.bytes > poolBytes) throw poolFull();
         const reservationId = crypto.randomUUID();
-        db.prepare("INSERT INTO attachment_reservations (reservation_id, bytes, instance_id, draft_id, created_at) VALUES (?, ?, ?, ?, ?)")
+        db.query("INSERT INTO attachment_reservations (reservation_id, bytes, instance_id, draft_id, created_at) VALUES (?, ?, ?, ?, ?)")
           .run(reservationId, input.bytes, input.instanceId, draftId, at);
         return { reservationId };
       }).immediate();
@@ -904,7 +806,7 @@ export function createDraftStore(
         const at = now();
         authorize(principalId);
         const reservation = db.query("SELECT bytes FROM attachment_reservations WHERE reservation_id = ?").get(input.reservationId) as { bytes: number } | null;
-        const release = () => db.prepare("DELETE FROM attachment_reservations WHERE reservation_id = ?").run(input.reservationId);
+        const release = () => db.query("DELETE FROM attachment_reservations WHERE reservation_id = ?").run(input.reservationId);
         const receiptRow = db.query("SELECT fingerprint, file_id FROM attachment_receipts WHERE draft_id = ? AND idempotency_key = ?")
           .get(draftId, input.idempotencyKey) as { fingerprint: string; file_id: string } | null;
         if (receiptRow) {
@@ -915,7 +817,7 @@ export function createDraftStore(
           const earlier = readAttachment(db, receiptRow.file_id);
           if (earlier && earlier.state === "stored") { release(); return { file: toAttachmentFile(earlier), replay: true }; }
           // The earlier file is gone: its receipt must not acknowledge it. Store afresh.
-          db.prepare("DELETE FROM attachment_receipts WHERE draft_id = ? AND idempotency_key = ?").run(draftId, input.idempotencyKey);
+          db.query("DELETE FROM attachment_receipts WHERE draft_id = ? AND idempotency_key = ?").run(draftId, input.idempotencyKey);
         }
         const row = readDraft(draftId);
         if (row?.deleted_at != null) { release(); throw deleted(row); }
@@ -938,9 +840,9 @@ export function createDraftStore(
         if (poolCharged(db) - reservation.bytes + input.file.bytes > poolBytes) { release(); throw poolFull(); }
         release();
         insertAttachment(db, draftId, input.file, principalId, at);
-        db.prepare("INSERT INTO attachment_receipts (draft_id, idempotency_key, fingerprint, file_id, created_at) VALUES (?, ?, ?, ?, ?)")
+        db.query("INSERT INTO attachment_receipts (draft_id, idempotency_key, fingerprint, file_id, created_at) VALUES (?, ?, ?, ?, ?)")
           .run(draftId, input.idempotencyKey, input.fingerprint, input.file.fileId, at);
-        db.prepare(
+        db.query(
           `DELETE FROM attachment_receipts WHERE draft_id = ?1 AND idempotency_key NOT IN (
              SELECT idempotency_key FROM attachment_receipts WHERE draft_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT ${RECEIPTS_PER_DRAFT})`
         ).run(draftId);
@@ -949,11 +851,11 @@ export function createDraftStore(
     },
 
     releaseReservation(reservationId) {
-      db.prepare("DELETE FROM attachment_reservations WHERE reservation_id = ?").run(reservationId);
+      db.query("DELETE FROM attachment_reservations WHERE reservation_id = ?").run(reservationId);
     },
 
     discardReservations(instanceId) {
-      db.prepare("DELETE FROM attachment_reservations WHERE instance_id <> ?").run(instanceId);
+      db.query("DELETE FROM attachment_reservations WHERE instance_id <> ?").run(instanceId);
     },
 
     sweepMark() {
@@ -966,7 +868,7 @@ export function createDraftStore(
 
     markMissing(fileIds) {
       db.transaction(() => {
-        for (const id of fileIds) db.prepare("UPDATE attachment_files SET state = 'missing' WHERE file_id = ? AND state = 'stored'").run(id);
+        for (const id of fileIds) db.query("UPDATE attachment_files SET state = 'missing' WHERE file_id = ? AND state = 'stored'").run(id);
       }).immediate();
     },
 
@@ -975,7 +877,7 @@ export function createDraftStore(
         const at = now();
         if (readAttachment(db, file.fileId)) return;
         insertAttachment(db, "", file, "host", at);
-        db.prepare("UPDATE attachment_files SET ever_referenced = 1, unreferenced_since = ? WHERE file_id = ?").run(at, file.fileId);
+        db.query("UPDATE attachment_files SET ever_referenced = 1, unreferenced_since = ? WHERE file_id = ?").run(at, file.fileId);
       }).immediate();
     },
 
@@ -984,10 +886,10 @@ export function createDraftStore(
         const at = now();
         const ids = (db.query("SELECT file_id FROM attachment_refs WHERE owner = 'message' AND owner_id = ?").all(sessionId) as { file_id: string }[]).map((r) => r.file_id);
         for (const id of ids) {
-          db.prepare("DELETE FROM attachment_refs WHERE file_id = ? AND owner = 'message' AND owner_id = ?").run(id, sessionId);
-          if (!hasAnyRef(db, id)) db.prepare("UPDATE attachment_files SET unreferenced_since = ? WHERE file_id = ?").run(at, id);
+          db.query("DELETE FROM attachment_refs WHERE file_id = ? AND owner = 'message' AND owner_id = ?").run(id, sessionId);
+          if (!hasAnyRef(db, id)) db.query("UPDATE attachment_files SET unreferenced_since = ? WHERE file_id = ?").run(at, id);
         }
-        db.prepare("DELETE FROM attachment_reads WHERE session_id = ?").run(sessionId);
+        db.query("DELETE FROM attachment_reads WHERE session_id = ?").run(sessionId);
       }).immediate();
     },
 

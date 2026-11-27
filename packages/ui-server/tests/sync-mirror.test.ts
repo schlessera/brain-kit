@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createNativeBrainManagerClient, maintenanceLaunch, probeWorkerHost, runMaintenanceWorker } from "@schlessera/brain-ui-sdk/internal";
 import { workerCommand } from "../../ui-sdk/src/server/worker-launcher";
@@ -14,6 +14,7 @@ import { createOwnerPolicyReviews, OwnerPolicyReviewError } from "../src/brain/o
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 import { privateMaintenanceTest } from "./helpers/private-maintenance-test.js";
+import { installFakeBrain } from "./helpers/fake-brain-cli";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const TOKEN = "fixture-sync-token-never-for-the-brain";
@@ -67,9 +68,7 @@ appendFileSync((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/config.
   writeFileSync(join(brain, ".gitattributes"), "notes/harbor.md filter=sentinel\n");
   writeFileSync(join(brain, "filter.conf"), `[filter "sentinel"]\n\tclean = "sh -c 'printf \\\"filter:%s\\\\n\\\" \\\"$BRAIN_UI_SYNC_GITHUB_TOKEN\\\" >> \"$BRAIN_WORKER_DATA_ROOT/filter.sentinel\"; cat'"\n\tsmudge = cat\n\trequired = true\n`);
   git(brain, "config", "include.path", "../filter.conf");
-  mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-  const cli = join(brain, "node_modules/.bin/brain");
-  writeFileSync(cli, `#!/usr/bin/env bun\nawait import(${JSON.stringify(join(ROOT, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
+  installFakeBrain(brain, { real: true });
   const native = createNativeAppFixture(brain); nativeCleanup.push(native.close);
   const nativeManager = createNativeBrainManagerClient(native.nativeBrain);
   return { root, brain, remote, state, nativeManager, dbPath: join(state, "ui.db") };

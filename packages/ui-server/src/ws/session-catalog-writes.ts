@@ -170,13 +170,13 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     upsertSession(row: SessionRow) {
       live(row.id);
       const owner = row.ownerPrincipalId;
-      if (!owner) { db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId); return; }
+      if (!owner) { db.query(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId); return; }
       db.transaction(() => {
         const created = !db.query("SELECT 1 FROM sessions WHERE id=?").get(row.id);
-        db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId);
+        db.query(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId);
         if (created) {
           // Its durable account from the creator's own row (#4138), deletion evidence once the login is pruned.
-          db.prepare("INSERT OR IGNORE INTO chat_session_owners(session_id,principal_id,principal_account,created_at) VALUES(?,?,?,?)").run(row.id, owner, principalAccount(db, owner), row.at);
+          db.query("INSERT OR IGNORE INTO chat_session_owners(session_id,principal_id,principal_account,created_at) VALUES(?,?,?,?)").run(row.id, owner, principalAccount(db, owner), row.at);
           safetyCatalogCreated(db,row.id,owner,row.creatorTurnId);
         }
       })();
@@ -205,7 +205,7 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     },
     label(sessionId: string, label: string, source: string) {
       live(sessionId);
-      db.prepare("UPDATE sessions SET label = ?, label_source = ? WHERE id = ?").run(label, source, sessionId);
+      db.query("UPDATE sessions SET label = ?, label_source = ? WHERE id = ?").run(label, source, sessionId);
     },
     dialogueClose: (conversationId:string,principalId:string,epoch:number,partial:boolean) => closeDialogue(db,conversationId,principalId,epoch,partial),
     dialogueOpen: (input: import("./dialogue-storage.js").DialogueOpen, activeEpochs?:ReadonlyMap<string,import("./dialogue-storage.js").ActiveDialogueEpoch>, pending?:readonly import("./dialogue-storage.js").PendingDialogueEpoch[]) => openDialogue(db, input, activeEpochs, pending),
@@ -219,7 +219,7 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     localExchange: (sessionId: string, exchange: LocalExchange, delivered: boolean, at: number) => { live(sessionId); return saveLocalExchange(db, sessionId, exchange, delivered, at); },
     exchangesDelivered: (sessionId: string, exchangeIds: string[], at: number) => { live(sessionId); return markLocalExchangesDelivered(db, sessionId, exchangeIds, at); },
     addCost(sessionId: string, costUsd: number) {
-      db.prepare("UPDATE sessions SET total_cost_usd = COALESCE(total_cost_usd, 0) + ? WHERE id = ?").run(costUsd, sessionId);
+      db.query("UPDATE sessions SET total_cost_usd = COALESCE(total_cost_usd, 0) + ? WHERE id = ?").run(costUsd, sessionId);
     },
   };
 }

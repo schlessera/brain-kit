@@ -18,6 +18,7 @@ import { createAuthLock } from "./lib/auth-lock.js";
 import { createLocalWork, type LocalWork } from "./lib/local-work.js";
 import { createLocalWorkFlow } from "./lib/local-work-flow.js";
 import { shareNotificationZoneReports } from "./lib/push-registration.js";
+import { VPN_CHECK_PATH } from "./lib/vpn-check.js";
 import { registerBuiltinContentRenderers } from "./content-renderers/index.js";
 
 /** One IndexedDB database per app origin holds every root's and every account's partitions (#1014). */
@@ -122,11 +123,11 @@ export function createRoot(
     const authRoute = /\/api\/auth\/(?:login|logout|methods|passkey\/login-(?:options|verify))$/.test(path);
     const epoch = authLock?.epoch();
     const phase = authLock?.state.getState().phase;
-    if (!authRoute && phase && phase !== "active" && phase !== "restoring" && path !== "/api/vpn-check") throw new DOMException("Sign in again", "AbortError");
+    if (!authRoute && phase && phase !== "active" && phase !== "restoring" && path !== VPN_CHECK_PATH) throw new DOMException("Sign in again", "AbortError");
     const response = await transport(url, init);
     if (!authRoute && epoch !== authLock?.epoch()) throw new DOMException("Account context changed", "AbortError");
     // The poller first checks whether a newer socket made its probe stale.
-    if (!authRoute && path !== "/api/vpn-check" && response.status === 401) await authLock?.expire();
+    if (!authRoute && path !== VPN_CHECK_PATH && response.status === 401) await authLock?.expire();
     // A body can still be decoding when auth is lost. Refuse that old
     // account payload before an async store callback can publish it.
     const responseEpoch = authLock?.epoch();

@@ -112,6 +112,7 @@ export function queuedFileCopy(item: QueuedFile): { status: string; detail?: str
 }
 
 /** A limit as the design states it: decimal megabytes for the round ones (25 MB, 50 MB). */
+// Not the shared `formatBytes` rule (#4735) for round limits: they are set in decimal megabytes.
 const limitBytes = (n: number): string => (n >= 1_000_000 && n % 1_000_000 === 0 ? `${n / 1_000_000} MB` : trackBytes(n));
 
 /** A refusal's copy: the host answered with a 4xx, so the file is known not stored. */

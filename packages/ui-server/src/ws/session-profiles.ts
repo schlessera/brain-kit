@@ -3,7 +3,7 @@ import { scopeLimits } from "../brain/turn-scope.js";
 import type { Database } from "bun:sqlite";
 import type { SessionWorkerProfile } from "@schlessera/brain-ui-sdk/protocol";
 import type { GovernedTurns } from "../brain/governed-turn.js";
-import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import { procedureCaller, trackedCaller, trackPendingEffect, type SqliteWriter } from "../db/write-worker.js";
 import * as writes from "./session-profile-writes.js";
 import { authorizeCodeChanges, authorizeProfile, draftProfile, SessionProfileError } from "./session-profile-writes.js";
 
@@ -27,19 +27,8 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
   // idempotent over the row they produce, so a read applies them to the
   // committed row whether or not they have landed yet.
   const pending = new Map<string, Effect[]>();
-  let tail: Promise<void> = Promise.resolve();
-  const write = (sessionId: string, effect: Effect, name: string, ...args: unknown[]) => {
-    const effects = pending.get(sessionId) ?? [];
-    effects.push(effect);
-    pending.set(sessionId, effects);
-    const done = submit(name, ...args);
-    tail = done.then(() => {}, () => {});
-    void tail.then(() => {
-      effects.splice(effects.indexOf(effect), 1);
-      if (effects.length === 0 && pending.get(sessionId) === effects) pending.delete(sessionId);
-    });
-    return done;
-  };
+  const tracked = trackedCaller(submit);
+  const write = (sessionId: string, effect: Effect, name: string, ...args: unknown[]) => trackPendingEffect(pending, sessionId, effect, tracked.call(name, ...args));
   const exists = (id: string) => options.catalog?.hasSession?.(id) ?? db.query("SELECT 1 FROM sessions WHERE id = ?").get(id) !== null;
   const session = (id: string) => {
     if (!exists(id)) throw new SessionProfileError(404, "This chat is not known to the host.");
@@ -56,8 +45,7 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
   /** Settles once every bind and record submitted before it, and the catalog rows they need, have settled. */
   const settled = async () => {
     await options.catalog?.settled?.();
-    let waiting: Promise<void>;
-    do { waiting = tail; await waiting; } while (waiting !== tail);
+    await tracked.settled();
   };
   const facts = (preference: Profile, origin: "interactive" | "voice", actualProfile?: Profile): SessionWorkerProfile => {
     const resolved = turns.facts(origin);

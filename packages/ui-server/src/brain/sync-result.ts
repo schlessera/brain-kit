@@ -1,10 +1,9 @@
 /**
  * The result `brain sync --json` prints (#290,
- * docs/integration-contract.md), read by both scheduling paths: the
- * in-process scheduler through `BrainClient.sync`, and the container cron
- * wrapper for its `sync` job. Both record it on the run's root span with
+ * docs/integration-contract.md), read by the container cron wrapper for its
+ * `sync` job. It records it on the run's root span with
  * {@link syncActivityAttrs}, the attributes chat's `runtime_observed` writes,
- * so `/api/status` reads one representation whichever path ran.
+ * so `/api/status` reads one representation.
  */
 
 /** Whether the sync invoked an agent, and what that agent reported. */

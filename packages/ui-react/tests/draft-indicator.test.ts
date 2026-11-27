@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AttachmentFile } from "@schlessera/brain-ui-sdk/protocol";
-import { draftAcknowledged, draftIndicatorAtRisk, draftIndicatorView, type DraftIndicatorInput } from "../src/lib/draft-indicator.ts";
+import { draftAcknowledged, draftIndicatorView, type DraftIndicatorInput } from "../src/lib/draft-indicator.ts";
 import type { QueuedFile } from "../src/lib/attachment-queue.ts";
 import type { ComposerDraft } from "../src/stores/draft-state.ts";
 
@@ -42,7 +42,6 @@ describe("success is this exact revision", () => {
     const d = acked(draft({ files: [{ file: permit, lineage: "draft-ithaca" }, { file: minutes, lineage: "draft-ithaca" }] }));
     const v = view(d);
     expect(v).toMatchObject({ key: "saved", state: "success", summary: "Draft saved 10:42: this text and 2 files." });
-    expect(draftIndicatorAtRisk(v)).toBe(false);
   });
 
   test("an acknowledgement of an older edit is never success", () => {
@@ -62,7 +61,6 @@ describe("success is this exact revision", () => {
     const v = view(acked(draft()), { queued: [queued("minutes-2026-07-12.docx", "uploading")] });
     expect(v).toMatchObject({ key: "queued", state: "queued", summary: "Not saved yet: minutes-2026-07-12.docx is still uploading. Your text is kept in this tab." });
     expect(v.key !== "none" && v.facts).toEqual([{ key: "Waiting for", value: "minutes-2026-07-12.docx" }]);
-    expect(draftIndicatorAtRisk(v)).toBe(true);
   });
 
   test("a file carried from another draft id is not bound here", () => {
@@ -75,7 +73,6 @@ describe("the rev 4 §1 matrix", () => {
   test("empty: hidden, with nothing at risk", () => {
     const v = view(draft({ text: "" }));
     expect(v).toEqual({ key: "none" });
-    expect(draftIndicatorAtRisk(v)).toBe(false);
     expect(view(undefined)).toEqual({ key: "none" });
   });
 
@@ -102,7 +99,7 @@ describe("the rev 4 §1 matrix", () => {
   test("a space refusal: refused, with Open Storage; another refusal has no Storage action", () => {
     const v = view(draft(), { queued: [queued("crew-roster.xlsx", "refused", { refusal: "space" })] });
     expect(v).toMatchObject({ key: "upload_refused", state: "refused", summary: "Draft not saved: attachment space is full.", action: "storage" });
-    expect(v.key !== "none" && v.facts).toEqual([{ key: "Not stored", value: "crew-roster.xlsx, 4.1 KB" }, { key: "Space", value: "attachment space full" }]);
+    expect(v.key !== "none" && v.facts).toEqual([{ key: "Not stored", value: "crew-roster.xlsx, 4 KB" }, { key: "Space", value: "attachment space full" }]);
     const size = view(draft(), { queued: [queued("crew-roster.xlsx", "refused", { refusal: "size" })] });
     expect(size).toMatchObject({ state: "refused", summary: "Draft not saved: 1 file wasn't stored." });
     expect(size.key !== "none" && size.action).toBeUndefined();
