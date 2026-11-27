@@ -30,12 +30,13 @@ function fixture() {
   const locks = new Set<string>();
   Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { async request(name: string, _opts: unknown, callback: (lock: unknown) => Promise<unknown>) { if (locks.has(name)) return callback(null); locks.add(name); try { return await callback({ name }); } finally { locks.delete(name); } } } } });
   const reads: Record<string, Reads> = {};
+  const faults = { deletes: false };
   const counted = (partition: string, data: Map<string, unknown>) => {
     const count: Reads = reads[partition] = { list: {}, get: 0 };
     return {
       async get(k: string) { count.get++; return structuredClone(data.get(k)); },
       async put(k: string, v: unknown) { data.set(k, structuredClone(v)); },
-      async write(cs: Array<{ delete?: string; put?: string; value?: unknown }>) { for (const c of cs) { if (c.delete) data.delete(c.delete); else data.set(c.put!, structuredClone(c.value)); } },
+      async write(cs: Array<{ delete?: string; put?: string; value?: unknown }>) { if (faults.deletes && cs.some((c) => c.delete?.startsWith("recording:index:"))) throw new DOMException("Device busy", "UnknownError"); for (const c of cs) { if (c.delete) data.delete(c.delete); else data.set(c.put!, structuredClone(c.value)); } },
       async list(prefix: string) { count.list[prefix] = (count.list[prefix] ?? 0) + 1; return [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); },
     };
   };
@@ -52,7 +53,7 @@ function fixture() {
   const total = () => Object.values(reads).reduce((sum, r) => sum + r.get + Object.values(r.list).reduce((a, b) => a + b, 0), 0);
   const row = (id: string, state: string, extra: Record<string, unknown> = {}) =>
     data.set(`recording:index:${id}`, { id, state, mime: "audio/webm", durationMs: 1000, bytes: 3, savedThroughMs: 1000, contentHash: `hash-${id}`, chunkCount: 1, ...extra });
-  return { data, reads, connection, make, reset, total, requests, row, respondWith(fn: typeof respond) { respond = fn; } };
+  return { data, reads, connection, make, reset, total, requests, row, faults, respondWith(fn: typeof respond) { respond = fn; } };
 }
 
 describe("a connection write that changes nothing the recordings depend on", () => {
@@ -118,6 +119,32 @@ describe("a connection write that changes nothing the recordings depend on", () 
     f.connection.setState({ lastError: "The socket closed" });
     await settle();
     expect(f.total()).toBe(0);
+  });
+});
+
+describe("a deletion owed to the host", () => {
+  test("a discard whose local delete fails still sends its DELETE at the poll's pace", async () => {
+    jest.useFakeTimers();
+    const f = fixture();
+    f.row("aeolia", "transcript-ready", { transcribeRequestId: "req-aeolia", transcript: "The bag of winds" });
+    f.respondWith(() => new Response("{}", { status: 200 }));
+    const store = f.make();
+    await settle();
+    // Nothing is pending: an unchanged write reads nothing.
+    f.reset();
+    f.connection.setState({ lastError: "The socket closed" });
+    await settle();
+    expect(f.total()).toBe(0);
+
+    f.faults.deletes = true;
+    await expect(store.discard(ACCOUNT, "aeolia")).rejects.toThrow();
+    expect(f.data.has("recording:tombstone:aeolia")).toBe(true);
+    f.faults.deletes = false;
+    f.reset();
+    jest.advanceTimersByTime(15_000);
+    await settle();
+    expect(f.requests.filter((r) => r.startsWith("DELETE"))).toHaveLength(1);
+    expect(f.data.has("recording:tombstone:aeolia")).toBe(false);
   });
 });
 

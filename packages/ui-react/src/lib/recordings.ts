@@ -506,6 +506,9 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     // Store the explicit deletion request before losing the local index. Offline
     // acceptance/discard stays local; reconnection can only replay this DELETE.
     await partitions.open(partition).put(`recording:tombstone:${id}`, { id, disposition });
+    // A durable DELETE is owed now, whatever happens next (#4744).
+    syncLeftWork = true;
+    keepPace();
   }
   let syncing = false;
   let syncPending = false;
