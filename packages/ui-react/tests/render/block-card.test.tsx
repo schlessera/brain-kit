@@ -400,17 +400,28 @@ describe("an inline block across the frames of its answer (#4749)", () => {
   });
 
   test("a call replaced by a new object with a new output redraws the block from it", () => {
-    const view = render(<MessageBubble message={streaming(blockTool(BLOCKS.table), "The nights")} {...handlers} />);
-    expect(view.container.querySelector('[data-block="table"]')?.textContent).toContain("Ogygia");
-    const replayed: Block = {
-      kind: "table",
-      columns: [{ label: "Island" }, { label: "Nights" }],
-      rows: [{ cells: [{ v: "Thrinacia" }, { v: "30" }] }],
-    };
-    act(() => view.rerender(<MessageBubble message={streaming(blockTool(replayed), "The nights")} {...handlers} />));
-    const table = view.container.querySelector('[data-block="table"]')?.textContent ?? "";
-    expect(table).toContain("Thrinacia");
-    expect(table).not.toContain("Ogygia");
+    const parse = countSafeParse(SHOW_BLOCK_CONTRACT.payload);
+    try {
+      const view = render(<MessageBubble message={streaming(blockTool(BLOCKS.table), "The nights")} {...handlers} />);
+      expect(view.container.querySelector('[data-block="table"]')?.textContent).toContain("Ogygia");
+      const replayed: Block = {
+        kind: "table",
+        columns: [{ label: "Island" }, { label: "Nights" }],
+        rows: [{ cells: [{ v: "Thrinacia" }, { v: "30" }] }],
+      };
+      const parsedBefore = parse.calls;
+      act(() => view.rerender(<MessageBubble message={streaming(blockTool(replayed), "The nights")} {...handlers} />));
+      const table = view.container.querySelector('[data-block="table"]')?.textContent ?? "";
+      expect(table).toContain("Thrinacia");
+      expect(table).not.toContain("Ogygia");
+      expect(parse.calls).toBe(parsedBefore + 1);
+      // The cache key is the object, not the id: a new object with the same id
+      // and the same output is parsed again, once.
+      act(() => view.rerender(<MessageBubble message={streaming(blockTool(replayed), "The nights at sea")} {...handlers} />));
+      expect(parse.calls).toBe(parsedBefore + 2);
+    } finally {
+      parse.restore();
+    }
   });
 
   test("a memoized card renders for its mount only while its parent re-renders with the same payload", () => {

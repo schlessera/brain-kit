@@ -185,6 +185,11 @@ describe("a bound renderer's payload", () => {
       expect(view.container.textContent).toContain("to Ithaca");
       expect(view.container.querySelector("[data-voyage]")?.textContent).toBe("Aeaea to Ithaca");
       expect(parse.calls).toBe(parsedBefore + 1);
+      // The cache key is the object, not the id: a new object with the same id
+      // and the same output is parsed again, once.
+      act(() => update(streaming([leg("Aeaea", "Ithaca")], "Setting sail again, home")));
+      expect(view.container.querySelector("[data-voyage]")?.textContent).toBe("Aeaea to Ithaca");
+      expect(parse.calls).toBe(parsedBefore + 2);
     } finally {
       parse.restore();
     }
