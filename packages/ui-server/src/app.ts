@@ -241,7 +241,8 @@ export interface CreateAppOptions {
    * read from the process environment: child-process environments
    * (`subprocessEnv`, at each spawn), the reference, Apify and GitHub-tools
    * credentials (`referenceCredentialValues`, `apifyTokenSource`,
-   * `githubToolsTokenSource`, once per app), the web-search provider keys
+   * `githubToolsTokenSource`, once per app), the Apify ledger path
+   * (`apifyLedgerPath`, once per app), the web-search provider keys
    * (`resolveWebSearchEnv`) and the standalone pricing fallback
    * (`resolveStandalonePricingConfig`). Two apps in one process share those.
    */
@@ -404,9 +405,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const config: ServerConfig & { exec: ExecWrapperConfig } = {
     ...resolved,
     // A compute state directory derived from the resolved DB_PATH follows the
-    // folded path, like every other path derived from it below (#4821).
+    // folded path, like every other path derived from it below (#4821), and
+    // the handle reports the settings compute uses (#4904).
     ...(options.dbPath !== undefined ? { dbPath: options.dbPath,
-      ...(resolved.compute ? { compute: computeConfigForDbPath(resolved.compute, options.dbPath) } : {}) } : {}),
+      compute: resolved.compute ? computeConfigForDbPath(resolved.compute, resolved.dbPath, options.dbPath) : resolveComputeConfig({}, options.dbPath) } : {}),
     exec: resolved.exec ?? ambientExecConfig(),
   };
   const speechProviders = createSpeechProviderRegistry(config.voice, options);

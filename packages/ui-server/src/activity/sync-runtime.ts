@@ -1,9 +1,8 @@
 /**
  * What `/api/status` says about the runtime `brain sync` ran (#290), beside
- * chat's `runtime.lastObserved`. Read from the activity store, where both
- * scheduling paths record a sync run's root span — the in-process scheduler
- * and the container cron wrapper, which is another process — with the
- * attributes `syncActivityAttrs` writes.
+ * chat's `runtime.lastObserved`. Read from the activity store, where the
+ * container cron wrapper, which is another process, records a sync run's
+ * root span with the attributes `syncActivityAttrs` writes.
  *
  * Two answers, kept apart so an old observation never reads as the latest
  * run's: `latest` is the most recent sync run and only what that run itself

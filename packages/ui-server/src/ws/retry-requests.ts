@@ -12,14 +12,14 @@ export interface RetainedRetry {
 
 /** One eligible original per session. The next accepted input removes its bytes. */
 export function saveRetryRequest(db: Database, sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure) {
-  db.prepare(`INSERT INTO retry_requests (session_id, turn_id, principal_id, request_json, prompt, failure_message)
+  db.query(`INSERT INTO retry_requests (session_id, turn_id, principal_id, request_json, prompt, failure_message)
     VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET turn_id=excluded.turn_id,
     principal_id=excluded.principal_id, request_json=excluded.request_json, prompt=excluded.prompt, failure_message=excluded.failure_message`)
     .run(sessionId, turnId, principalId, JSON.stringify(request), prompt, failure.message);
 }
 
 export function clearRetryRequest(db: Database, sessionId: string) {
-  db.prepare("DELETE FROM retry_requests WHERE session_id = ?").run(sessionId);
+  db.query("DELETE FROM retry_requests WHERE session_id = ?").run(sessionId);
 }
 
 export function retained(db: Database, sessionId: string): RetainedRetry | null {
@@ -42,7 +42,7 @@ export function retryReceipt(db: Database, sessionId: string, requestId: string,
 
 /** Refusals also remain queryable if their immediate acknowledgement is lost. */
 export function refuseRetry(db: Database, sessionId: string, requestId: string, principalId: string, message: string): ServerRetryReceipt {
-  db.prepare("INSERT OR IGNORE INTO retry_receipts (request_id, session_id, principal_id, state) VALUES (?, ?, ?, 'refused')")
+  db.query("INSERT OR IGNORE INTO retry_receipts (request_id, session_id, principal_id, state) VALUES (?, ?, ?, 'refused')")
     .run(requestId, sessionId, principalId);
   const receipt = retryReceipt(db, sessionId, requestId, principalId);
   return receipt.state === "accepted" ? receipt : { ...receipt, state: "refused", message };
@@ -66,7 +66,7 @@ export function reserveRetry(db: Database, sessionId: string, failedTurnId: stri
     }
     if (expectedPrompt !== undefined && original.prompt !== expectedPrompt) return { receipt: refuseRetry(db, sessionId, requestId, principalId, "The retained request changed while its attachments were checked.") };
     const request = { ...original.request, sessionId };
-    db.prepare("INSERT INTO retry_receipts (request_id, session_id, principal_id, state) VALUES (?, ?, ?, 'accepted')")
+    db.query("INSERT INTO retry_receipts (request_id, session_id, principal_id, state) VALUES (?, ?, ?, 'accepted')")
       .run(requestId, sessionId, principalId);
     clearRetryRequest(db, sessionId);
     return { receipt: retryReceipt(db, sessionId, requestId, principalId), request, prompt: original.prompt };

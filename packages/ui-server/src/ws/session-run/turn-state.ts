@@ -40,8 +40,9 @@ export function takeNextRequest(turn: RunningTurn, entry: QueuedFollowUp | null)
     // Assigned at turn start, at admission or by the backend entry.
     abortController: turn.abortController,
     timeoutHandle: turn.timeoutHandle,
-    retryRequest: turn.retryRequest,
-    retryPrompt: turn.retryPrompt,
+    // The previous turn's request and prompt are not this one's (#4982).
+    retryRequest: undefined,
+    retryPrompt: undefined,
     isManualRetry: turn.isManualRetry,
     // Keyed by turn id: a reader compares the id, so a stale value never applies to this turn.
     timedOutTurnId: turn.timedOutTurnId,
