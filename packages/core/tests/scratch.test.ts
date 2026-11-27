@@ -16,7 +16,6 @@ import {
   SCRATCH_TTL_MS,
   assertScratchWritable,
   cleanScratch,
-  ensureScratch,
   ignoreScratch,
   isInScratch,
   pruneScratch,
@@ -230,7 +229,6 @@ describe("a symlinked scratch", () => {
     symlinkSync(outside.dir, join(root, SCRATCH_DIR));
     expect(() => pruneScratch(root, NOW)).toThrow(ScratchRedirectedError);
     expect(() => cleanScratch(root)).toThrow(ScratchRedirectedError);
-    expect(() => ensureScratch(root)).toThrow(ScratchRedirectedError);
     expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).toThrow(
       ScratchRedirectedError,
     );
@@ -248,7 +246,7 @@ describe("a symlinked scratch", () => {
     symlinkSync(outside.dir, join(root, ".brain"));
     expect(() => pruneScratch(root, NOW)).toThrow(ScratchRedirectedError);
     expect(() => cleanScratch(root)).toThrow(ScratchRedirectedError);
-    expect(() => ensureScratch(root)).toThrow(ScratchRedirectedError);
+    expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).toThrow(ScratchRedirectedError);
     expect(existsSync(join(outside.dir, "scratch", "old.pdf"))).toBe(true);
   });
 
@@ -551,10 +549,10 @@ describe("gitignore guard", () => {
   test("outside a git repository the ignore line is required all the same, and git reads it", () => {
     // A later `git init` would put an unignored scratch into the first commit.
     expect(scratchIgnored(root)).toBe(false);
-    expect(() => ensureScratch(root)).toThrow(ScratchNotIgnoredError);
+    expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).toThrow(ScratchNotIgnoredError);
     expect(ignoreScratch(root)).toBe(true);
     expect(scratchIgnored(root)).toBe(true);
-    expect(() => ensureScratch(root)).not.toThrow();
+    expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).not.toThrow();
     expect(ignoreScratch(root)).toBe(false);
     // The same rules git would apply: a later negation cancels the line.
     writeFileSync(join(root, ".gitignore"), ".brain/scratch/\n!.brain/scratch/\n");
@@ -565,11 +563,11 @@ describe("gitignore guard", () => {
     git("init", "-q");
     writeFileSync(join(root, ".gitignore"), "node_modules");
     expect(scratchIgnored(root)).toBe(false);
-    expect(() => ensureScratch(root)).toThrow(ScratchNotIgnoredError);
+    expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).toThrow(ScratchNotIgnoredError);
     expect(ignoreScratch(root)).toBe(true);
     expect(scratchIgnored(root)).toBe(true);
     expect(ignoreScratch(root)).toBe(false);
-    expect(() => ensureScratch(root)).not.toThrow();
+    expect(() => assertScratchWritable(root, join(realpathSync(root), SCRATCH_DIR, "x.pdf"))).not.toThrow();
   });
 
   test("only the directory's own exclusion counts: a `/*` rule with a negation is refused, and the fix repairs it", () => {

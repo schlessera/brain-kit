@@ -127,7 +127,7 @@ export const CORE_COMMANDS: Record<string, CoreCommandEntry> = {
     load: async () => (await import("./skills.js")).skillsCommand,
   },
   module: {
-    summary: "List and lint brain-kit modules",
+    summary: "List, lint, enable or disable brain-kit modules and edit their settings",
     load: async () => (await import("./module.js")).moduleCommand,
   },
   config: {
