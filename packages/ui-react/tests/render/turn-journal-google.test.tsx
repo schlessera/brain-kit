@@ -55,13 +55,15 @@ test("reversible calls get their own section, ahead of the irreversible outward 
     "Gmail trash · Refused",
     "Git push · Approved · github.com/odysseus/voyage.git",
   ]);
+  const outwardTargets = [...view.getByRole("heading", { name: "Outward actions" }).closest("section")!.querySelectorAll("[data-google-journal-target]")];
+  expect(outwardTargets.map(span => [span.textContent, span.className]), "OUTWARD_DRAFT_ID_MONO").toEqual([[draft, "bk-google-mono-id"]]);
   expect(view.queryByRole("button", { name: /Revert|Undo/ }), "GOOGLE_ROWS_HAVE_NO_REVERT").toBeNull();
 });
 
 test("an operation outside the five reads Google call plus its id in mono", async () => {
   const { view, rows } = await journal({ outwardActions: [outward(1, "policy_allowed", "evt-penelope", "calendar.event.delete")] });
   expect(rows("Outward actions")).toEqual(["Google call calendar.event.delete · Allowed by policy · evt-penelope"]);
-  expect(view.container.querySelector("[data-google-operation-id]")?.className).toContain("font-mono");
+  expect(view.container.querySelector("[data-google-operation-id]")?.className).toBe("bk-google-mono-id");
 });
 
 test("a Google receipt without operation facts keeps the generic words and its target", async () => {

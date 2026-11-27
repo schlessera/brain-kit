@@ -11,6 +11,9 @@ import { TurnJournal } from "../../src/components/chat/turn-journal.js";
 // alone (`@schlessera/brain-ui-react/styles.css`), the only CSS a ui-react host
 // loads: the kit list's rhythm must come from the kit tokens it imports.
 const turnId = "odysseus-journal", draft = "r-8f2c41d9e0b7a6c5", at = Date.UTC(2026, 6, 12);
+// The longest draft id Gmail's pattern admits (`GMAIL_DRAFT_ID_PATTERN`,
+// packages/common/src/google/ids.ts:19): a letter, a hyphen and 24 digits.
+const longestDraft = `r-${"12072026".repeat(3)}`;
 const summary: TurnJournalSummary = { state: "complete", changedFiles: 1, steeringFiles: 0, keptFiles: 1, costUsd: null, costIsEstimate: null, profile: "governed", actor: "interactive", model: null, policyHash: null, sharedAttribution: false, observedAt: at };
 const version = { kind: "file" as const, mode: 420, bytes: 32, hash: "odysseus-retained", ignored: false };
 const reversible = (id: number, operation: string, decision: "allowed" | "approved" | "declined", target: string, admission: "session_allowance" | null) =>
@@ -20,7 +23,7 @@ const google = (id: number, decision: JournalOutwardAction["decision"], target: 
 const details: TurnJournalDetails = { turnId, sessionId: "ithaca", summary, missing: [],
   changes: [{ sequence: 2, path: "notes/voyage.md", scope: "", class: "content", actor: "agent", before: version, after: version, overlappingTurnIds: [] }],
   googleActions: [reversible(11, "gmail.modify", "allowed", "gmail.modify", "session_allowance"), reversible(12, "gmail.draft.save", "approved", draft, null), reversible(13, "gmail.modify", "declined", "gmail.modify", null)],
-  outwardActions: [google(21, "approved", draft, "gmail.draft.send"), google(22, "refused", "gmail.trash", "gmail.trash"),
+  outwardActions: [google(21, "approved", draft, "gmail.draft.send"), google(22, "refused", "gmail.trash", "gmail.trash"), google(24, "approved", longestDraft, "gmail.draft.delete"),
     { id: 23, at, tool: "Bash", action: "git_push", target: "github.com/odysseus/voyage.git", decision: "approved", historyRewrite: false, revertible: false }] };
 
 let renderer: Root | undefined, root: BrainUiRoot | undefined, host: HTMLDivElement | undefined, styles: HTMLStyleElement;
@@ -57,7 +60,16 @@ for (const width of [320, 1280]) for (const theme of ["light", "dark"]) {
     expect(second!.top - first!.bottom, "rows are actually spaced by that gap").toBeCloseTo(parseFloat(getComputedStyle(list).rowGap), 0);
     expect(getComputedStyle(list).marginTop).toBe("8px");
     expect(getComputedStyle(list).listStyleType).toBe("none");
-    expect([...outward.querySelectorAll("li")].map(li => li.textContent?.trim()).slice(0, 2)).toEqual([`Gmail send · Approved · ${draft}`, "Gmail trash · Refused"]);
+    expect([...outward.querySelectorAll("li")].map(li => li.textContent?.trim()).slice(0, 3)).toEqual([`Gmail send · Approved · ${draft}`, "Gmail trash · Refused", `Gmail draft delete · Approved · ${longestDraft}`]);
+    const ids = [...outward.querySelectorAll<HTMLElement>("[data-google-journal-target]")];
+    expect(ids.map(id => id.textContent)).toEqual([draft, longestDraft]);
+    for (const id of ids) {
+      const style = getComputedStyle(id);
+      expect([style.fontFamily.split(",")[0], style.fontSize, style.display], "outward draft ids take the reversible list's mono").toEqual(['"JetBrains Mono"', "11.5px", "inline-block"]);
+      const range = document.createRange(); range.selectNodeContents(id);
+      expect(new Set([...range.getClientRects()].map(rect => Math.round(rect.top))).size, `${id.textContent} stays whole on one line`).toBe(1);
+      expect(id.getBoundingClientRect().right, `${id.textContent} fits its row`).toBeLessThanOrEqual(id.closest("li")!.getBoundingClientRect().right + 1);
+    }
     expect(host.scrollWidth, "journal has no horizontal overflow").toBeLessThanOrEqual(host.clientWidth + 1);
     for (const block of [section, outward as HTMLElement]) expect(block.scrollWidth, "each Google block fits the journal column").toBeLessThanOrEqual(block.clientWidth + 1);
     await commands.formViewport(width, Math.ceil(host.scrollHeight) + 32); await page.viewport(width, Math.ceil(host.scrollHeight) + 32);

@@ -131,7 +131,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {!!details?.outwardActions?.length && <section className="min-w-0"><h3 className="font-medium">Outward actions</h3>
           <p className="mt-2">These receipts record approval, not external completion. External actions are irreversible here; restoring local files cannot undo them.</p>
           <ul className="grid gap-2 mt-2">{details.outwardActions.map(action => <li key={action.id} className="break-all min-w-0">
-            <OutwardActionWords action={action} /> · {({ policy_allowed: "Allowed by policy", approved: "Approved", declined: "Declined", refused: "Refused" })[action.decision]}{outwardTarget(action)}{action.historyRewrite ? " · Remote history rewrite" : ""}
+            <OutwardActionWords action={action} /> · {({ policy_allowed: "Allowed by policy", approved: "Approved", declined: "Declined", refused: "Refused" })[action.decision]}<OutwardTarget action={action} />{action.historyRewrite ? " · Remote history rewrite" : ""}
           </li>)}</ul>
           {details.outwardActionsTruncated && <p className="mt-2">Showing the first 1,000 outward receipts. More remain in the retained governance records.</p>}
         </section>}
@@ -176,11 +176,16 @@ const OUTWARD_WORDS: Record<JournalOutwardAction["action"], string> = { git_push
 function OutwardActionWords({ action }: { action: JournalOutwardAction }) {
   if (!action.google) return <>{OUTWARD_WORDS[action.action]}</>;
   const words = googleOperationWords(action.google.operation);
-  return <>{words.text}{words.mono !== undefined && <> <span className="font-[family-name:var(--font-mono)]" data-google-operation-id="">{words.mono}</span></>}</>;
+  return <>{words.text}{words.mono !== undefined && <> <span className="bk-google-mono-id" data-google-operation-id="">{words.mono}</span></>}</>;
 }
 
-/** A Google target equal to its operation id says nothing new, so it is left out, as in the reversible list. */
-function outwardTarget(action: JournalOutwardAction): string {
-  if (action.google && action.target === action.google.operation) return "";
-  return ` · ${action.target ?? "Destination unresolved"}`;
+/**
+ * A Google target is drawn as in the reversible list: left out when it equals
+ * the operation id, which says nothing new, and otherwise a draft id in the
+ * kit's mono, kept whole when it fits the line.
+ */
+function OutwardTarget({ action }: { action: JournalOutwardAction }) {
+  if (!action.google || action.target === null) return <>{` · ${action.target ?? "Destination unresolved"}`}</>;
+  if (action.target === action.google.operation) return null;
+  return <> · <span className="bk-google-mono-id" data-google-journal-target="">{action.target}</span></>;
 }

@@ -23,11 +23,15 @@ const details: TurnJournalDetails = { turnId, sessionId: "ithaca", summary, chan
 // #4216: the journal's two Google classes, reversible calls in their own section
 // and irreversible ones with the outward receipts, in the operation's words.
 const draft = "r-8f2c41d9e0b7a6c5";
+// The longest draft id Gmail's pattern admits: a letter, a hyphen and 24 digits.
+const longestDraft = `r-${"12072026".repeat(3)}`;
 const google = (id: number, operation: string, decision: "allowed" | "approved" | "declined", target: string, tainted: boolean, admission: "session_allowance" | null) =>
   ({ id, at: summary.observedAt!, callId: `call-${id}`, tool: "brain_google_gmail", operation, effect: "reversible" as const, target, tainted, decision, admission, revertible: false as const, undoAvailable: false as const });
 const googleDetails: TurnJournalDetails = { ...details,
   googleActions: [google(11, "gmail.modify", "allowed", "gmail.modify", true, "session_allowance"), google(12, "gmail.draft.save", "approved", draft, true, null), google(13, "gmail.modify", "declined", "gmail.modify", true, null)],
-  outwardActions: [...(["approved", "refused"] as const).map((decision, i) => ({ id: 21 + i, at: summary.observedAt!, tool: "brain_google_gmail", action: "google_write" as const, target: i ? "gmail.trash" : draft, decision, historyRewrite: false, revertible: false as const, google: { callId: `call-${21 + i}`, operation: i ? "gmail.trash" : "gmail.draft.send", effect: "irreversible" as const } })), ...details.outwardActions!],
+  outwardActions: [...(["approved", "refused"] as const).map((decision, i) => ({ id: 21 + i, at: summary.observedAt!, tool: "brain_google_gmail", action: "google_write" as const, target: i ? "gmail.trash" : draft, decision, historyRewrite: false, revertible: false as const, google: { callId: `call-${21 + i}`, operation: i ? "gmail.trash" : "gmail.draft.send", effect: "irreversible" as const } })),
+    { id: 24, at: summary.observedAt!, tool: "brain_google_gmail", action: "google_write" as const, target: longestDraft, decision: "approved" as const, historyRewrite: false, revertible: false as const, google: { callId: "call-24", operation: "gmail.draft.delete", effect: "irreversible" as const } },
+    ...details.outwardActions!],
 };
 
 function JournalTheme({ onOperation, withGoogle = false }: { width: number; onOperation: (body: unknown) => void; withGoogle?: boolean }) {
@@ -157,7 +161,15 @@ export const GooglePhone = meta.story({
       "Gmail label change · Declined",
     ]);
     const receipts = [...outward.closest("section")!.querySelectorAll("li")].map(li => li.textContent?.trim());
-    await expect(receipts.slice(0, 2)).toEqual([`Gmail send · Approved · ${draft}`, "Gmail trash · Refused"]);
+    await expect(receipts.slice(0, 3)).toEqual([`Gmail send · Approved · ${draft}`, "Gmail trash · Refused", `Gmail draft delete · Approved · ${longestDraft}`]);
+    const ids = [...outward.closest("section")!.querySelectorAll<HTMLElement>("[data-google-journal-target]")];
+    await expect(ids.map(id => id.textContent)).toEqual([draft, longestDraft]);
+    for (const id of ids) {
+      await expect(getComputedStyle(id).fontFamily, "outward draft ids take the reversible list's mono").toMatch(/JetBrains Mono/);
+      await expect(getComputedStyle(id).fontSize).toBe("11.5px");
+      const range = document.createRange(); range.selectNodeContents(id);
+      await expect(new Set([...range.getClientRects()].map(rect => Math.round(rect.top))).size, `${id.textContent} stays whole on one line`).toBe(1);
+    }
     await expect(screen.queryByRole("button", { name: /Revert.*(Gmail|Google)|Undo/ })).toBeNull();
     await bounds(section, "reversible Google calls");
     await bounds(outward.closest<HTMLElement>("section")!, "outward receipts");
