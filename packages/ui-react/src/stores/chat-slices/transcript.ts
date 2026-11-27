@@ -5,7 +5,7 @@
  */
 import type { AskUserExchange, ChatMessage, ChatState, MessagePart, SessionChat, ToolCall } from "../chat-state.js";
 import type { ChatSliceContext } from "./buffers.js";
-import { appendPart, emptyChat, evictStale, observeToolNames, revokeAttachmentUrls } from "./buffers.js";
+import { appendPart, emptyChat, evictStale, revokeAttachmentUrls } from "./buffers.js";
 
 
 /**
@@ -49,26 +49,6 @@ function includesDrawnText(text: string, drawn: string): boolean {
 }
 
 /** Shared tools keep their chronological IDs even when either copy missed a call. */
-/** Every copy a replay brings, held or received, feeds the buffer's
- * grow-only name map (#4513). A received copy of the live answer without a
- * turn of its own resolves to the live turn. */
-function observeReplay(prior: SessionChat["toolNames"], held: readonly ChatMessage[], received: readonly ChatMessage[]): SessionChat["toolNames"] {
-  const live = held.at(-1)?.isStreaming ? held.at(-1) : undefined;
-  return observeToolNames(observeToolNames(prior, held), received, live?.turnId ?? live?.streamTurnId);
-}
-
-/** Each call's identity within its list. The runtime can reuse one
- * tool-use ID for several calls (#4513): the n-th call under an ID matches
- * the n-th call under it in another copy, never the first. */
-function ordinalKeys(calls: readonly ToolCall[]): string[] {
-  const seen = new Map<string, number>();
-  return calls.map((t) => { const n = seen.get(t.id) ?? 0; seen.set(t.id, n + 1); return `${n}\0${t.id}`; });
-}
-function byOrdinal(calls: readonly ToolCall[]): Map<string, ToolCall> {
-  const keys = ordinalKeys(calls);
-  return new Map(calls.map((t, i) => [keys[i]!, t]));
-}
-
 function compatibleToolOrder(a: ToolCall[], b: ToolCall[]): boolean {
   const aIds = new Set(a.map((t) => t.id)), bIds = new Set(b.map((t) => t.id));
   const sharedA = a.filter((t) => bIds.has(t.id)), sharedB = b.filter((t) => aIds.has(t.id));
@@ -139,9 +119,9 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
       content: unclippedContent,
       thinking: keepUnclippedText(received.thinking, old.thinking),
       parts: restoreClippedParts(received.parts.filter((part) => !boundedTools || part.kind !== "text" || part.text !== toolsElided![0]), old),
-      toolCalls: ((calls: ToolCall[]) => { const prior = byOrdinal(old.toolCalls); return calls.map((tool, k) => ({
-        ...tool, output: keepUnclippedText(tool.output, prior.get(ordinalKeys(calls)[k]!)?.output),
-      })); })([...received.toolCalls, ...(boundedTools ? old.toolCalls.filter((t) => !received.toolCalls.some((n) => n.id === t.id)) : [])]),
+      toolCalls: [...received.toolCalls, ...(boundedTools ? old.toolCalls.filter((t) => !received.toolCalls.some((n) => n.id === t.id)) : [])].map((tool) => ({
+        ...tool, output: keepUnclippedText(tool.output, old.toolCalls.find((t) => t.id === tool.id)?.output),
+      })),
     };
     if (/\n…\[\d+ chars elided\]/.test(content)) m.content = drawnText(m);
     if (content !== unclippedContent && unclippedContent === old.content && drawnText(old).startsWith(drawnText(m))) m.content = old.content;
@@ -248,20 +228,19 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
   const base = unresolvedClip || !includesDrawnText(drawnText(m), drawnText(old))
     || (drawnText(old).length === drawnText(m).length && !moreThinking && m.toolCalls.length <= old.toolCalls.length) ? old : m;
   const other = base === old ? m : old;
-  const theirs = byOrdinal(other.toolCalls), baseKeys = ordinalKeys(base.toolCalls);
+  const theirs = new Map(other.toolCalls.map((t) => [t.id, t]));
   // A tool the other copy saw finish is that copy's, state and all: an
   // approval the host settled meanwhile is not offered again.
-  const toolCalls = base.toolCalls.map((t, k) => {
-    const o = theirs.get(baseKeys[k]!);
+  const toolCalls = base.toolCalls.map((t) => {
+    const o = theirs.get(t.id);
     if (!o && t.status === "pending_approval") return { ...t, restored: true as const, approvalTurnId: undefined };
     return o && ((o.output !== undefined && t.output === undefined) || ((t.status === "streaming" || t.status === "pending_approval") && o.status !== t.status)) ? o : t;
   });
   let parts = [...base.parts];
-  const otherKeys = ordinalKeys(other.toolCalls), held = new Set(baseKeys);
-  for (const [k, t] of other.toolCalls.entries()) {
-    if (held.has(otherKeys[k]!)) continue;
+  for (const t of other.toolCalls) {
+    if (toolCalls.some((b) => b.id === t.id)) continue;
     {
-      const sourceAt = other.parts.findIndex((p) => p.kind === "tool" && other.toolCalls[p.toolIndex] === t);
+      const sourceAt = other.parts.findIndex((p) => p.kind === "tool" && other.toolCalls[p.toolIndex]?.id === t.id);
       const following = sourceAt < 0 ? [] : other.parts.slice(sourceAt + 1);
       const preceding = sourceAt < 0 ? [] : other.parts.slice(0, sourceAt).filter((p) => p.kind === "tool").map((p) => other.toolCalls[p.toolIndex]!.id);
       const start = parts.findLastIndex((p) => p.kind === "tool" && preceding.includes(toolCalls[p.toolIndex]!.id)) + 1;
@@ -297,11 +276,10 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
   }
   // The union's flat order must agree with its drawn chronology: the next
   // replay compares this list too, including a tool inserted in an old gap.
-  // By object, not ID: two calls under a reused ID stay two calls (#4513).
   const beforeOrder = [...toolCalls];
-  const rank = new Map(parts.filter((p) => p.kind === "tool").map((p, i) => [beforeOrder[p.toolIndex]!, i]));
-  toolCalls.sort((a, b) => (rank.get(a) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b) ?? Number.MAX_SAFE_INTEGER));
-  parts = parts.map((p) => p.kind === "tool" ? { ...p, toolIndex: toolCalls.indexOf(beforeOrder[p.toolIndex]!) } : p);
+  const rank = new Map(parts.filter((p) => p.kind === "tool").map((p, i) => [beforeOrder[p.toolIndex]!.id, i]));
+  toolCalls.sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  parts = parts.map((p) => p.kind === "tool" ? { ...p, toolIndex: toolCalls.findIndex((t) => t.id === beforeOrder[p.toolIndex]!.id) } : p);
   // Thinking stays between the text/tool parts that bracketed it. Host
   // aggregates add separators, so compare the drawn blocks, not that field.
   const body = parts.filter((p) => p.kind !== "thinking");
@@ -379,7 +357,7 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
         if (key === null) {
           if (state.draft) revokeAttachmentUrls(state.draft.messages);
           return {
-            draft: { ...emptyChat(), messages, toolNames: observeToolNames(undefined, messages) },
+            draft: { ...emptyChat(), messages },
           };
         }
         const existing = state.buffers[key];
@@ -391,9 +369,8 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
         const buffers = {
           ...state.buffers,
           [key]: base
-            ? { ...emptyChat(), ...drawn, replay: { base, received: messages }, historyConfirmed: true as const,
-              toolNames: observeReplay(existing!.toolNames, base.messages, messages) }
-            : { ...emptyChat(), messages, historyConfirmed: true as const, toolNames: observeToolNames(undefined, messages) },
+            ? { ...emptyChat(), ...drawn, replay: { base, received: messages }, historyConfirmed: true as const }
+            : { ...emptyChat(), messages, historyConfirmed: true as const },
         };
         const restoreFailures = { ...state.restoreFailures };
         delete restoreFailures[key];
@@ -433,8 +410,7 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
           return {
             buffers: {
               ...state.buffers,
-              [key]: { ...existing, ...drawn, replay: { base: current, received: all }, lastTouched: Date.now(),
-            toolNames: observeReplay(observeToolNames(existing.toolNames, current.messages), existing.messages, all) },
+              [key]: { ...existing, ...drawn, replay: { base: current, received: all }, lastTouched: Date.now() },
             },
           };
         }
@@ -445,7 +421,6 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
               ...existing,
               messages: [...existing.messages, ...messages],
               lastTouched: Date.now(),
-              toolNames: observeToolNames(existing.toolNames, messages),
             },
           },
         };

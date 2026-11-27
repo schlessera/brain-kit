@@ -6,12 +6,12 @@ import { Button, Icon, IconButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { activeChat, useChatStore, type ChatMessage, type ToolCall } from "../../stores/chat-store.js";
-import { isReusedToolId } from "../../stores/chat-slices/buffers.js";
 import { READING_COLUMN_ATTR } from "../../lib/client-environment.js";
 import { entryEvidence, safetyEvidence, type SafetyEvidence } from "../../lib/safety-evidence.js";
 import { createSafetyReviewer, type SafetyReviewProgress } from "../../lib/safety-reviewer.js";
 import { isAskExchangeTool, isShowBlockTool } from "../../lib/tool-names.js";
-import { SHOW_BLOCK_CONTRACT, parseToolPayload } from "@schlessera/brain-ui-sdk/client";
+import { SHOW_BLOCK_CONTRACT } from "@schlessera/brain-ui-sdk/client";
+import { cachedToolPayload } from "./renderers/payload-cache.js";
 
 const formatAuthority = ({host,port}:{host:string;port:number}) => `${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`;
 
@@ -25,7 +25,7 @@ const sources:Record<SafetyEvidence["occurrence"]["source"],string>={web_fetch:"
 function timelineSteps(message:ChatMessage):ToolCall[] {
   return message.parts.flatMap(part=>{
     const tool=part.kind==="tool"?message.toolCalls[part.toolIndex]:undefined;
-    return tool&&!isAskExchangeTool(tool.name)&&!(isShowBlockTool(tool.name)&&parseToolPayload(SHOW_BLOCK_CONTRACT,tool.output))?[tool]:[];
+    return tool&&!isAskExchangeTool(tool.name)&&!(isShowBlockTool(tool.name)&&cachedToolPayload(SHOW_BLOCK_CONTRACT,tool))?[tool]:[];
   });
 }
 
@@ -42,15 +42,6 @@ export function ToolSafetyIndicator({turnId,toolCalls}:{turnId?:string;toolCalls
   const entries=useMemo(()=>entryEvidence(records,turnId,ids),[records,turnId,ids]);
   const named=useMemo(()=>[...new Set([...turn.flatMap(m=>m.toolCalls),...toolCalls])],[turn,toolCalls]);
   return <SafetyIndicator entries={entries} toolCalls={named} turnId={turnId}/>;
-}
-
-/** The action a tool-use ID proves: its one tool name in the turn, `null`
- * when differently named calls share the ID, `undefined` when no call has it. */
-export function attributedTool(calls:readonly ToolCall[]|undefined,toolUseId:string|undefined,reused?:boolean):string|null|undefined {
-  if(!toolUseId)return undefined;
-  if(reused)return null;
-  const names=new Set(calls?.filter(tool=>tool.id===toolUseId).map(tool=>tool.name));
-  return names.size>1?null:[...names][0];
 }
 
 /** Kept outside message text, including events with no provable entry join. */
@@ -134,9 +125,6 @@ function unresolvedInput(entry:SafetyEvidence) {
 
 function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:SafetyEvidence[];toolCalls?:readonly ToolCall[];turnId?:string}) {
   const root=useBrainUiRoot(),sessionId=useChatStore(s=>s.activeSessionId),auth=useStore(root.authLock.state,s=>s.phase);
-  // Grow-only: once two names were seen under an ID, a replay holding one
-  // of them proves nothing (#4513).
-  const names=useChatStore(s=>activeChat(s).toolNames);
   const supported=useStore(root.stores.safety,s=>s.supported),readReason=useStore(root.stores.safety,s=>s.reason);
   const readStatus=useStore(root.stores.safety,s=>s.status),historyScopeKey=useStore(root.stores.safety,s=>s.historyScopeKey);
   const chatCount=useStore(root.stores.safety,s=>s.status==="ready"&&s.identity&&"sessionId" in s.identity&&s.identity.sessionId===sessionId?s.projection?.unresolvedCount:undefined);
@@ -200,13 +188,13 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
       style={{...position,width:"min(384px, calc(100vw - 24px))",maxHeight:"min(65vh, 520px)",overflowWrap:"anywhere"}}>
       <div className="flex items-center justify-between gap-2"><strong>{name}</strong><IconButton icon="dismiss" name="Close safety details" style={{minWidth:44,minHeight:44}} onClick={close}/></div>
       <p className="mb-3 text-xs">Marking an input safe accepts that input for this chat. Its contents stay in the model’s context.</p>
-      {entries.slice(0,limit).map(entry=><SafetyTrigger key={entry.occurrence.id} entry={entry} nextIndicator={nextIndicator} showNext={showNext} toolName={entry.occurrence.turnId===turnId ? attributedTool(toolCalls,entry.occurrence.entry?.toolUseId,!!turnId&&!!entry.occurrence.entry&&isReusedToolId({toolNames:names},turnId,entry.occurrence.entry.toolUseId)) : undefined}/>)}
+      {entries.slice(0,limit).map(entry=><SafetyTrigger key={entry.occurrence.id} entry={entry} nextIndicator={nextIndicator} showNext={showNext} toolName={entry.occurrence.turnId===turnId ? toolCalls?.find(tool=>tool.id===entry.occurrence.entry?.toolUseId)?.name : undefined}/>)}
       {entries.length>limit&&<Button label="Show more inputs" tone="quiet" reach onClick={()=>setLimit(n=>n+20)}/>}
     </div>,document.body)}
   </span>;
 }
 
-function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvidence;toolName?:string|null;nextIndicator:()=>HTMLButtonElement|null|undefined;showNext:()=>void}) {
+function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvidence;toolName?:string;nextIndicator:()=>HTMLButtonElement|null|undefined;showNext:()=>void}) {
   const root=useBrainUiRoot(),state=useStore(root.stores.safety),auth=useStore(root.authLock.state,s=>s.phase);
   const [savedRule,setSavedRule]=useState<string|null>(null);
   const [future,setFuture]=useState(false),[recipient,setRecipient]=useState(false),[prepared,setPrepared]=useState<SafetyFuturePrepared|null>(null);
@@ -264,8 +252,7 @@ function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvid
     <p>Observed · {r.detector==="tool_search_output"?"Local search result":sources[r.source]} · <time dateTime={new Date(r.observedAt).toISOString()}>{new Date(r.observedAt).toLocaleString()}</time></p>
     {toolName&&<p>Action · {["Grep","grep","Glob"].includes(toolName)?`Local search (${toolName})`:toolName}</p>}
     {r.provenance&&<p>Destination · {provenance}</p>}
-    {toolName===null&&<p>Action · Unknown. Several tools in this turn used the same call ID, so none of them is proven to be the source of this input.</p>}
-    {r.source==="egress_connection"&&toolName===undefined&&<p>The proxy saw this connection. It could not identify which tool opened it.</p>}
+    {r.source==="egress_connection"&&!toolName&&<p>The proxy saw this connection. It could not identify which tool opened it.</p>}
     {noDelivery&&<p>The fetch never ran. This attempt stays in history and needs no review.</p>}
     {!noDelivery&&!r.provenance&&<p>{r.detector==="tool_search_output"?searchSource :"The host did not record a verified origin for this input."}</p>}
     {savedRule&&<p role="status">{savedRule}</p>}

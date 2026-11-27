@@ -325,13 +325,6 @@ export interface SessionChat {
    * selected session before its history comes back is not, however empty.
    */
   historyConfirmed?: true;
-  /**
-   * @internal Every tool name this client has observed under each
-   * `turn\0toolUseId` (#4513), from live frames and every replay copy.
-   * Grow-only: no merge or replay removes a name, so a later copy that
-   * carries one call cannot make its action look proven.
-   */
-  toolNames?: Readonly<Record<string, readonly string[]>>;
 }
 
 /**
