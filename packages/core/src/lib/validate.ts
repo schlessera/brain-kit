@@ -147,16 +147,21 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
     }
     const { data } = parsed;
     // Aliases and `supersedes` count whether or not the fences check passes,
-    // as they always have.
-    if (data.supersedes !== undefined) supersedes.set(path, data.supersedes);
-    if (Array.isArray(data.aliases)) {
-      for (const alias of data.aliases) {
-        const key = String(alias).toLowerCase().trim();
-        if (!key) continue;
-        const paths = aliasMap.get(key) ?? [];
-        paths.push(path);
-        aliasMap.set(key, paths);
+    // as they always have. An alias that cannot be read as text ends this
+    // file's collection, never the run: the file is still checked below.
+    try {
+      if (data.supersedes !== undefined) supersedes.set(path, data.supersedes);
+      if (Array.isArray(data.aliases)) {
+        for (const alias of data.aliases) {
+          const key = String(alias).toLowerCase().trim();
+          if (!key) continue;
+          const paths = aliasMap.get(key) ?? [];
+          paths.push(path);
+          aliasMap.set(key, paths);
+        }
       }
+    } catch {
+      // As before #4785: collection stops for this file only.
     }
     parsedFiles.push({ path, block, data, links: block ? extractWikiLinks(parsed.content) : [] });
   }

@@ -113,6 +113,17 @@ describe("validateDetailed reads each file once", () => {
     expect(invalid[0].message.length).toBeGreaterThan("Invalid YAML frontmatter: ".length);
   });
 
+  test("an alias that cannot be read as text stops only that file's collection", () => {
+    const root = makeCorpus({
+      "notes/odd.md": doc({ type: "note", title: "Odd", tags: "[a]", aliases: "[Scheria, {toString: Ithaca}]" }, "See [[Scheria]]."),
+      "notes/ithaca.md": doc({ type: "note", title: "Ithaca", tags: "[a]" }, "See [[ithaca]]."),
+    });
+    const issues = validateDetailed(root, taxonomy);
+    // The alias before the unreadable one still resolves, and both files are checked.
+    expect(issues.filter((issue) => issue.detail.rule === "link-unresolved")).toEqual([]);
+    expect(issues.filter((issue) => issue.level === "error")).toEqual([]);
+  });
+
   test("a file that cannot be read fails the call, as the check pass always made it", () => {
     const root = makeCorpus({
       "notes/ithaca.md": doc({ type: "note", title: "Ithaca", tags: "[a]" }),
