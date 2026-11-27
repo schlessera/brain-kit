@@ -2,14 +2,17 @@
 import { mkdtempSync, mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
+import { cleanTestEnvironment } from "./offline-command";
 
 const flag = process.argv.indexOf("--root");
 if (flag === -1 || !process.argv[flag + 1]) throw new Error("check-pi-query-package requires --root <consumer install>");
 const consumer = resolve(process.argv[flag + 1]);
 const probeDir = mkdtempSync(join(consumer, ".pi-query-package-probe-"));
 const brainPath = mkdtempSync(join(tmpdir(), "pi-query-package-"));
-const env: Record<string, string | undefined> = { ...process.env, BRAIN_ROOT: brainPath };
-for (const name of ["GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "TYPESAFE_API_KEY", "BRAIN_RERANK_MODE"]) delete env[name];
+// The canonical credential rule (scripts/test-credential-names.json), and no
+// rerank mode switch: the probe reads with the default ranking.
+const env: Record<string, string | undefined> = { ...cleanTestEnvironment(process.env), BRAIN_ROOT: brainPath };
+delete env.BRAIN_RERANK_MODE;
 
 async function run(args: string[]): Promise<void> {
   const child = Bun.spawn([process.execPath, ...args], { cwd: consumer, env, stdout: "pipe", stderr: "pipe", stdin: "ignore" });

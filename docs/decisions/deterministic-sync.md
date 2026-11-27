@@ -171,6 +171,12 @@ Accepted pair decisions, by true label: same-fact 36 of 42, distinct 42 of
 cleared its line was harmful, meaning none dropped a passage that should have
 been kept.
 
+The judge's cost inside a whole sync is timed separately:
+`bun scripts/measure-sync-run.ts --repeat 20` runs the real `brain sync run`,
+keyless and with the judge off, over the four states it meets most (nothing to
+do, local edits only, two clones editing different files, two clones editing
+the same note) and prints each one's p50 and p95 wall time and per-step p50.
+
 ## What it says
 
 - **At these lines, Jev is safe to act on.** Every decision that cleared its

@@ -39,7 +39,7 @@ export function score(c: Case, after: Files, mapping: { kind: string; opportunit
     const body = parseFrontmatter(after[status] ?? "").content;
     checks.history = c.facts.reason ? body.includes(c.facts.reason) : c.facts.startsAt ? hasDate(body, c.facts.startsAt.slice(0, 10)) && hasTime(body, c.facts.startsAt.slice(11, 16)) && body.includes(c.facts.contact.name) : /offer/i.test(body);
     const contactSections = [...(after[status] ?? "").matchAll(/## [^\n]*contacts[^\n]*\n([\s\S]*?)(?=\n## |$)/gi)].map(m => m[1]).join("\n");
-    checks.contacts = e.contacts.every(name => contactSections.split("\n").some(line => line.startsWith("|") ? line.split("|").some(cell => cell.replace(/[*`]/g, "").trim() === name) : /^- /.test(line) && new RegExp(`^${name}(?:[ ;:(]|$)`).test(line.slice(2).replace(/[*`]/g, ""))));
+    checks.contacts = e.contacts.every(name => contactSections.split("\n").some(line => line.startsWith("|") ? line.split("|").some(cell => cell.replace(/[*`]/g, "").trim() === name) : line.startsWith("- ") && new RegExp(`^${name}(?:[ ;:(]|$)`).test(line.slice(2).replace(/[*`]/g, ""))));
     const activePrep = (after[prep] ?? "").split(/## Upcoming calls|## The call/i).at(-1)?.split(/\n## |\n<!-- \/brain:/)[0] ?? "";
     checks.calls = e.calls.every(call => {
       const [round, rest] = call.split(" with "), name = rest?.split(", ")[0];

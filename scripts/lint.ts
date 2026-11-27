@@ -25,6 +25,7 @@ const LINTS = [
   "check-layer-direction.ts", // ui-react stores/, lib/ and connection.ts never import components/ (#1380)
   "check-icon-imports.ts", // ui-react names lucide-react only in components/icons.ts, which re-exports only used glyphs (#4737)
   "check-unused-exports.ts", // ui-server, ui-kit and ui-react exports no other file imports (#2536)
+  "check-import-cycles.ts", // runtime import cycles between the source files of a package (#4816)
   "check-oxlint.ts", // oxlint correctness pass (ruleset in .oxlintrc.json)
   "check-ci-workflows.ts", // Single GitHub provider, safe fork execution and no active Depot definitions (#1320)
 ];

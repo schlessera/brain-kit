@@ -467,6 +467,14 @@ record are exempt. Anything else that has to stay exported, such as a type
 that another file's declaration emit infers, gets an allowlist entry with a
 one-line reason in that script.
 
+A test's import is not a production use. The same gate also refuses a
+function, class, enum or variable that only tests, fixtures, stories or evals
+import and that its own file never references, because no production path
+can run it: delete it with its tests, or wire it in. A deliberate test seam
+stays with a `kind: "test-only"` allowlist entry. An entry waiting for another
+issue to remove or wire its name names that issue as its `owner`, and goes
+stale when that change lands.
+
 The invisible-character and leakage gates here are brain-kit's own. A
 deployment keeps its own copies with its own patterns, and a copy that runs
 before `bun install` stays dependency-free.
