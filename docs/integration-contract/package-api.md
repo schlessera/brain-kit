@@ -547,6 +547,36 @@ GitHub tool payloads to them; no tool, wire or payload contract changes here.
 `review-pending`. The package gains the `tldts` runtime dependency. No
 existing export, key, glyph or prop changes. This ships in a minor.
 
+## UI-kit Gmail components (additive, 0.46.0, #4209)
+
+`@schlessera/brain-ui-kit` exports the presentational Gmail components. They
+take props and callbacks only: no client, fetch or store, and the host formats
+every date. #4210 binds the Gmail tool payloads to them; no tool, wire or
+payload contract changes here.
+
+- `GmailResultList` (`GmailResultListProps`: `view` `"structured"` with
+  `GmailStructuredThread[]` or `"content"` with `GmailContentThread[]`, plus
+  optional `query`, `nextPage` and `initial`), `GmailThread`
+  (`GmailThreadProps`), `GmailMessage` (`GmailMessageProps`, with
+  `GmailStructuredMessage`, `GmailContentMessage`, `GmailAttachment`, and
+  `GmailBodyDetail` whose `GmailDetailState` is `"idle" | "loading" |
+  "loaded" | "error" | "rate-limited" | "unavailable" | "gone"`) and
+  `GmailLabels` (`GmailLabelsProps`). Shared types: `GmailDate`
+  (`{ short, full, iso? }`), `GmailFlags`, `GmailLabel` and `GmailSizeBucket`.
+- A structured view has no slot for anything a sender wrote. A content view
+  renders every sender-controlled string as untrusted text; a link opens only
+  through the full-address interstitial. When `bodyTruncated` is true the body
+  counts as cut, whatever `bodyLength` says.
+- `revealInvisibles(text)` and `invisibleSegments(text)` (`InvisibleSegment`)
+  show bidi controls, zero-width, tag and other hidden code points as
+  `‹U+XXXX›` markers, keeping only spelling that needs them: the three
+  recommended subdivision flags, a variation selector after a base it applies
+  to, and a joiner between letters or marks of one joining script.
+
+`GitHubDetailSection` is now a wrapper over an internal shared detail section;
+its API, copy and markup are unchanged. The semantic `IconName` gains `star`.
+No existing export, key, glyph or prop changes. This ships in a minor.
+
 ## Image markup tool (additive, 0.45.0, #3975)
 
 `request_image_markup` is described in
@@ -593,6 +623,35 @@ The CLI's PNG, JPEG and WebP header reader moves to
 `@schlessera/brain-common/internal/image-header` (`imageHeader`, `isPng`,
 `ImageHeader`), which has no compatibility promise. The images module
 re-exports it under its existing names, so its behaviour is unchanged.
+
+## UI-kit Google approval lists (additive, 0.46.0, #4212)
+
+`@schlessera/brain-ui-kit` exports two presentational lists for revoking
+standing Gmail permissions. They take props and callbacks only: no client,
+fetch or store, and the host formats every time. ui-react wires them to the
+owner-only HTTP pair (`docs/http-api.md`) after the maintainer signs off the
+stories; no tool, wire or payload contract changes here.
+
+- `GoogleApprovalList` (`GoogleApprovalListProps`: `state`
+  `"ready" | "loading" | "unavailable"`, `accounts` of `{ address, approvals:
+  { id, action, since }[] }`, optional `busy`, `error`, and `onRevoke(id)`)
+  lists remembered approvals for Settings, grouped under each account address.
+- `GoogleAllowanceList` (`GoogleAllowanceListProps`: `state`, `grants` of
+  `{ id, address, actions, remaining, limit, until }`, optional `busy`,
+  `error`, and `onRevoke(id)`) lists a restricted chat's allowances, one row
+  per granting card, with what is left of its budget and when it ends.
+- `GoogleStandingAction` is `{ kind: "archive" | "unarchive" | "mark_read" |
+  "mark_unread" | "star" | "unstar" | "drafts" }` or `{ kind: "label" |
+  "unlabel", labelId, labelName: string | null }`. `GoogleHostTime` is
+  `{ short, full }`. `googleActionWords(action)` returns the action's words.
+  A label name is set apart in curly quotes (Add label “Voyage”), in the
+  visible words and in the Revoke's accessible name; when the host withheld
+  the name, the words end with the label id in mono, unquoted.
+
+When the host drops a revoked row, focus moves to the next row still shown,
+else the previous one, else, when the host's response replaced the rows, the
+first row now shown; only an empty list sends focus to its heading. No
+existing export, key, glyph or prop changes. This ships in a minor.
 
 ## UI-kit enlarge icon (additive #3397)
 
