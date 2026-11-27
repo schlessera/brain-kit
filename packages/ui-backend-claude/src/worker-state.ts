@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { BackendRequestError, isSessionUuid, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { recoveredWorkerFile, recoveredWorkerFiles, sessionReplay, mib, resolveWorkerStateLimits, WORKER_STATE_BYTES_ENV, WorkerHostError, type WorkerNoteLimit, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
-import { processStateLedger, type Reservation, type StateLedger } from "./worker-state-budget.js";
+import { processStateLedger, type Reservation, type StateLedger } from "@schlessera/brain-ui-sdk/internal";
 
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 /** tmpfs allocates whole pages, so every byte count is rounded up to one. */

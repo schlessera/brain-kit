@@ -7,7 +7,7 @@ import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeBackend } from "../src/backend.js";
 import { backendModule } from "../src/module.js";
 import { SessionTooLargeError } from "../src/worker-state.js";
-import { processStateLedger, WorkerStateError } from "../src/worker-state-budget.js";
+import { processStateLedger, WorkerStateError } from "@schlessera/brain-ui-sdk/internal";
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 
 mockWorkerHostForSdkStream();

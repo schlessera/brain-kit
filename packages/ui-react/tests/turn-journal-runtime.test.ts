@@ -15,7 +15,7 @@ import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
 import { createWriterGate } from "../../ui-server/src/brain/writer-gate.js";
 import { recordGovernanceEvent } from "../../ui-server/src/governance/events.js";
 import { createClaudeWorkerState } from "../../ui-backend-claude/src/worker-state.js";
-import { createStateLedger } from "../../ui-backend-claude/src/worker-state-budget.js";
+import { createStateLedger } from "../../ui-sdk/src/server/worker-state-budget.js";
 import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.js";
 import { MIN_BRAIN_CLI_VERSION } from "../../ui-server/src/brain/client";
 const executablePath = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"].find(path => path && statSync(path, { throwIfNoEntry: false })?.isFile());
