@@ -13,7 +13,7 @@ import { openDialogue, appendDialogue, bindDialogue, closeDialogue } from "./dia
  * join history onto the committed rows.
  */
 import type { Database } from "bun:sqlite";
-import type { BillingMode, ClientChatMessage, LocalExchange, TurnFailure, MessageSource, PricingRoute, SharedFileMeta, StateRoomObservation, ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import type { BillingMode, ClientChatMessage, LocalExchange, OutputSpeed, TurnFailure, MessageSource, PricingRoute, SharedFileMeta, StateRoomObservation, ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { WriteProcedures } from "../db/write-worker.js";
 import { createActivityStore, priceUsage, type ActivityStore, type RollupPricing } from "../activity/store.js";
@@ -166,6 +166,11 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
       if (invalidatedRetries.has(sessionId)) return { receipt: retries.refuseRetry(db, sessionId, requestId, principalId,
         "The original request is unavailable or is no longer the latest turn.") };
       return retries.reserveRetry(db, sessionId, turnId, requestId, principalId, expectedPrompt);
+    },
+    /** The speed a new session started with (#4310); a stored speed never changes. */
+    recordOutputSpeed(sessionId: string, speed: OutputSpeed) {
+      live(sessionId);
+      db.prepare("UPDATE sessions SET output_speed = COALESCE(output_speed, ?) WHERE id = ?").run(speed, sessionId);
     },
     upsertSession(row: SessionRow) {
       live(row.id);

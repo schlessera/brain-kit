@@ -150,13 +150,13 @@ test("production gateway pin and deadline factor reach the runtime unchanged", (
   for (const capture of Object.values(captures)) expect(capture.qualification!.watchdogMs).toBe(watchdogMs(45_000));
 });
 
-test("fast-mode keyless relay qualification records requested and effective API and subscription speed", () => {
+test("a fast session's production assembly runs at fast speed through the relay on every turn with a byte-stable prefix (#4310)", () => {
   for (const name of ["fast-api", "fast-subscription"]) {
     const capture = captures[name]!;
     expect(capture.sessions).toHaveLength(3);
     expect(capture.rosters?.map(value => JSON.parse(value!))).toEqual(Array.from({ length: 3 }, () => ({ version: "2.1.293", state: "on" })));
-    expect((capture.budgets![0] as { requestedFast: boolean }).requestedFast).toBe(true);
-    for (const exchange of main(capture)) expect(body(exchange).speed, "FAST_MODE_RELAY_WIRE_QUALIFICATION").toBe("fast");
+    for (const input of capture.budgets as Array<{ requestedFast: boolean }>) expect(input.requestedFast, "PRODUCTION_ASSEMBLY_PINS_FAST_EVERY_TURN").toBe(true);
+    for (const exchange of main(capture)) expect(body(exchange).speed, "FAST_SPEED_ON_EVERY_REQUEST").toBe("fast");
     for (const [a, b] of pairs(capture)) {
       identical(body(a).tools, body(b).tools, "FAST_MODE_TOOLS_STABLE");
       identical(system(a), system(b), "FAST_MODE_SYSTEM_STABLE");

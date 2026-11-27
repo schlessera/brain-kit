@@ -30,6 +30,7 @@ export type {
 export {
   BackendBusyError,
   BackendRequestError,
+  FastOutputUnavailableError,
   SUBSCRIPTION_AUTH_INSTRUCTIONS,
   SUBSCRIPTION_RELOGIN_PROCEDURE,
   assertTurnPosture,

@@ -7,7 +7,7 @@ import type {
   StartTurnRequest,
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
-import { assertTurnPosture, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { assertTurnPosture, BackendRequestError, FastOutputUnavailableError } from "@schlessera/brain-ui-sdk/server";
 import { WorkerResourceLimitError } from "@schlessera/brain-ui-sdk/internal";
 import type { SessionRetirement } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
@@ -57,6 +57,8 @@ export function createPiTurnRunner(
     if (req.posture === "voice") {
       throw new BackendRequestError("The pi backend declares no voice tool posture; a voice turn cannot run on it.");
     }
+    // pi has no fast output mode (#4310); a fast session never runs at standard speed.
+    if (req.outputSpeed === "fast") throw new FastOutputUnavailableError("the pi backend has no fast output mode");
     // acquire() claims the session (per-session busy) and validates caller
     // input. Caller errors reject before frames; a session size refusal uses
     // the same classified terminal failure as an overflow during the turn.

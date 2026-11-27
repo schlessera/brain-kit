@@ -607,8 +607,14 @@ export function createActivityStore(
     const pricingRoute = isPricingRoute(attrRoute) ? attrRoute : undefined;
 
     const usage = usageForPricing(root, spans);
-    const priced =
-      usage.kind === "usage" ? priceUsage(usage.byModel, getPricing(), pricingRoute) : null;
+    // A fast run (#4310) costs the fast rate, which the host's catalog does
+    // not carry: it is never priced from standard rates here. Its cost is the
+    // backend's own report at the fast rate, real spend on every billing mode,
+    // or unknown when the backend reported none.
+    const fast = root.attrs["brain.output_speed"] === "fast";
+    const priced = fast
+      ? (root.usage.costUsd !== null && root.usage.costUsd !== undefined ? { costUsd: root.usage.costUsd, estimate: false } : null)
+      : usage.kind === "usage" ? priceUsage(usage.byModel, getPricing(), pricingRoute) : null;
 
     // Effective-cost semantics (NULL = unknown, 0 = genuinely free):
     // subscription → 0 regardless of tokens (AE1); api → the priced sum —
@@ -620,11 +626,11 @@ export function createActivityStore(
     // An unclassified run (missing/invalid billing attr) prices as unknown:
     // no subscription-zero, no api pricing.
     const effectiveCostUsd =
-      billingMode === null ? null : billingMode === "subscription" ? 0 : (priced?.costUsd ?? null);
+      billingMode === null ? null : billingMode === "subscription" && !fast ? 0 : (priced?.costUsd ?? null);
     const pricingEstimate =
       billingMode === null
         ? null
-        : billingMode === "subscription"
+        : billingMode === "subscription" && !fast
           ? 0
           : priced
             ? (priced.estimate ? 1 : 0)

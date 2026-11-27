@@ -1575,8 +1575,32 @@ the local relay still emits `speed: "fast"` for fake API credentials and the
 OAuth placeholder, while the native status reports `on`; omitting the setting
 reports `sdk_opt_in_required`. The explicit disable reports `disabled_by_env`
 and omits wire speed. These are keyless request-assembly observations, not
-account entitlement, pricing, throughput or spend evidence. No session speed
-control or billing change is introduced by this qualification.
+account entitlement, pricing, throughput or spend evidence.
+
+### 2026-11-27 — Per-session fast output (#4310)
+
+Option A of the 2026-11-20 ruling ships. A session's speed is chosen when it
+starts, stored in the host's session catalog, and passed unchanged on every
+turn, so a running or resumed session never changes speed. The backend pins
+it as the flag-tier `fastMode` setting, which outranks project settings. On
+the pinned runtime (SDK 0.3.293, CLI 2.1.293), production assembly sends
+`speed: "fast"` on every request through the Unix relay with `fast_mode_state:
+"on"` and a byte-stable prefix. The runtime does not gate fast output on a
+first-party base URL behind the relay, so no extra pin is needed. The host
+still offers it only when the selected upstream is the first-party origin and
+no cloud provider is selected; anything else is refused with
+`fast_output_unavailable` before anything persists. The prompt gate then
+requires the runtime to report `fast_mode_state: "on"` before releasing input.
+Any other state (`off` with its reason, `cooldown`, or no report) refuses the
+turn by name instead of running it at standard speed. A standard session that
+native settings turn fast is a `settings_conflict`. The CLI prices
+`claude-opus-5-5` fast output at its own fast rate ($8 input and $40 output
+per million tokens in the pinned binary). The host records that reported cost
+as real spend; see [cost tracking](cost-tracking.md#fast-output-runs-4310). The
+runtime may still drop an individual request to standard speed after a rate
+limit (`cooldown` mid-turn). The host cannot prevent that, and it does not yet
+surface it; that is tracked separately. The UI control is a separate design
+issue.
 
 The earlier system-role message content array-to-string rewrite is the CLI's
 cache-breakpoint carrier: the one message that carries the moving breakpoint is

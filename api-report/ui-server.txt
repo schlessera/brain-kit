@@ -2194,6 +2194,8 @@ signatures (every public export and the types it is made of)
         recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): boolean | void | Promise<boolean | void>;
         attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredProviderId(sessionId: string): string | null;
+        recordOutputSpeed?(sessionId: string, speed: OutputSpeed): void;
+        getStoredOutputSpeed?(sessionId: string): OutputSpeed | null;
         saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
         clearRetryRequest?(sessionId: string): void;
         peekRetry?(sessionId: string): retries.RetainedRetry | null;

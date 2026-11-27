@@ -225,6 +225,14 @@ export interface ClientChatMessage {
    * to the profile they started on.
    */
   providerId?: string;
+  /**
+   * Output speed for a NEW conversation (#4310). Like `providerId`, only
+   * honored when starting one: a resumed session keeps the speed it started
+   * with, and this field is ignored there. Absent means `standard`. A host
+   * whose backend, profile or upstream cannot serve `fast` refuses the turn
+   * with `fast_output_unavailable`; it never falls back to standard.
+   */
+  outputSpeed?: OutputSpeed;
   attachments?: ChatImageAttachment[];
   /** Server validates these staged file references and derives their measurements. */
   files?: ChatFileAttachment[];
@@ -1482,7 +1490,7 @@ export interface TurnFailure {
 type FirstPartyFailureClass =
   | "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold"
   | "verification_required" | "billing_error" | "subscription_required"
-  | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "rate_limit" | "overloaded" | "server_error"
+  | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "fast_output_unavailable" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
   | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit"
   | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "private_state_unverified" | "OperationalStateAliasVerificationUnavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
@@ -1504,6 +1512,7 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   auth_failure: "auth_failure",
   settings_conflict: "settings_conflict",
   session_roster_incompatible: "session_roster_incompatible",
+  fast_output_unavailable: "fast_output_unavailable",
   rate_limit: "rate_limit",
   overloaded: "overloaded",
   server_error: "server_error",
@@ -1830,6 +1839,22 @@ export interface SetHiddenModelsRequest {
  */
 export interface SetBillingOverridesRequest {
   billing: Record<string, BillingMode>;
+}
+
+/**
+ * A session's output speed (#4310). Chosen once when a conversation starts
+ * and fixed for its whole life: a resumed session keeps the speed it started
+ * with, because a different speed is a different provider request shape and
+ * cache. `fast` is the provider's faster output mode, priced as real spend
+ * at its own rate on every billing mode.
+ */
+export type OutputSpeed = "standard" | "fast";
+
+export const OUTPUT_SPEEDS: readonly OutputSpeed[] = ["standard", "fast"];
+
+/** THE membership check for {@link OutputSpeed} at validation boundaries. */
+export function isOutputSpeed(v: unknown): v is OutputSpeed {
+  return typeof v === "string" && (OUTPUT_SPEEDS as readonly string[]).includes(v);
 }
 
 /** Reasoning-effort levels (mirror of the pi SDK's ThinkingLevel union). */

@@ -1,4 +1,4 @@
-import type { BillingMode, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
+import type { BillingMode, OutputSpeed, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendRegistry } from "../../agent/backend.js";
 
 export type RunBilling = Awaited<ReturnType<typeof resolveRunBilling>>;
@@ -35,4 +35,14 @@ export async function resolveRunBilling(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * A fast session's runs are real spend at the fast rate on every billing mode
+ * (#4310): fast output on a subscription draws usage beyond the plan, so it
+ * is never priced as covered. Its list price is the backend's reported cost
+ * at that rate; the effective cost follows it instead of reading zero.
+ */
+export function outputSpeedBilling(billing: RunBilling, speed: OutputSpeed | null | undefined): RunBilling {
+  return billing && speed === "fast" ? { ...billing, billingMode: "api" } : billing;
 }

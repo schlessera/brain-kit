@@ -20,6 +20,21 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Per-session fast output (additive, 0.45.0, #4310)
+
+`chat_message.outputSpeed?: "standard" | "fast"` chooses a NEW conversation's
+output speed. The host stores it with the session, and every turn of that
+session runs at it, resumes included. A resumed session ignores the field.
+`fast` is priced as real spend at the fast rate on every billing mode and is
+never priced from standard rates. A route, profile or backend that cannot
+serve it refuses the turn with failure class `fast_output_unavailable`; it
+never falls back to standard. The SDK gains `OutputSpeed`, `OUTPUT_SPEEDS`,
+`isOutputSpeed`, `StartTurnRequest.outputSpeed`,
+`BackendCapabilities.fastOutput` and `FastOutputUnavailableError`. See
+[the wire component](integration-contract/wire.md#per-session-output-speed-additive-4310)
+and [the package API](integration-contract/package-api.md#per-session-output-speed-additive-4310).
+This ships in a minor.
+
 ## Storage events timeline (additive, 0.45.0, #4541)
 
 `GET /api/storage/events` returns a bounded, per-kind timeline of warning

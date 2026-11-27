@@ -5,7 +5,8 @@ import type { ActivityPricingConfig } from "../activity/store-writes.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
 import { resolveStandalonePricingConfig } from "../config/env.js";
 import type { ClaudeUsageEvidence } from "./claude-usage-accounting.js";
-import type { BillingMode, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
+import type { BillingMode, OutputSpeed, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
+import { isOutputSpeed } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type {
@@ -112,6 +113,13 @@ export interface SessionCatalog {
   attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /** The provider/profile a stored session is pinned to, or null. */
   getStoredProviderId(sessionId: string): string | null;
+  /**
+   * Record the output speed a new session started with (#4310). The first
+   * stored speed is kept: a later call never changes it.
+   */
+  recordOutputSpeed?(sessionId: string, speed: OutputSpeed): void;
+  /** The speed a session started with; null predates the choice (#4310). */
+  getStoredOutputSpeed?(sessionId: string): OutputSpeed | null;
   saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
   clearRetryRequest?(sessionId: string): void;
   /** Required to advertise Retry for file-backed requests; reads precede reservation. */
@@ -280,6 +288,14 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       if ("upsert" in effect && effect.upsert[key] !== null) return effect.upsert[key];
     }
     return null;
+  };
+  const speedEffects = new Map<string, OutputSpeed[]>();
+  const storedOutputSpeed = (sessionId: string): OutputSpeed | null => {
+    const pending = speedEffects.get(sessionId)?.[0];
+    if (pending) return pending;
+    const row = db().query("SELECT output_speed AS speed FROM sessions WHERE id = ?").get(sessionId) as { speed: string | null } | null;
+    const speed = row?.speed;
+    return isOutputSpeed(speed) ? speed : null;
   };
   const pendingRow = (sessionId: string) => (rowEffects.get(sessionId) ?? []).some(effect => "upsert" in effect);
   const storedBackendId = (sessionId: string) => pendingValue(sessionId, "backendId") ?? committedRow(sessionId)?.backendId ?? null;
@@ -500,6 +516,13 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     getStoredProviderId(sessionId) {
       return pendingValue(sessionId, "providerId") ?? committedRow(sessionId)?.providerId ?? null;
     },
+
+    recordOutputSpeed(sessionId, speed) {
+      // The first recorded speed wins, pending or committed, as the write's COALESCE does.
+      if (storedOutputSpeed(sessionId) !== null) return;
+      track(speedEffects, sessionId, speed, submit<void>("recordOutputSpeed", sessionId, speed)).catch(err => reportWriteFailure(sessionId, err));
+    },
+    getStoredOutputSpeed: storedOutputSpeed,
 
     getStoredBackendId: storedBackendId,
 

@@ -115,6 +115,8 @@ try {
     let turn: ReturnType<typeof createClaudeSdkTurn> | ReturnType<typeof legacySdkTurn>;
     try { turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ brainBridgeInventory: "core-only", backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
       applicationAuthority: scenario === "authority-upgrade" && turnIndex !== 1 ? undefined : "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
+      // #4310: a fast session's speed through production assembly, the same on every turn.
+      ...(scenario === "fast-api" || scenario === "fast-subscription" ? { outputSpeed: "fast" as const } : {}),
       workerSandbox: prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }),
       bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" }; } },
     }, profile: { id: "fixture", label: "Fixture", model: "claude-opus-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
@@ -164,7 +166,9 @@ try {
     }
     capture.qualification.mcpStartup = legacy ? "frozen blocking baseline" : "project .mcp.json, production non-blocking";
     if (scenario.startsWith("fast-")) {
-      turn.options.settings = { ...turn.options.settings as object, fastMode: true };
+      // Runtime-condition qualification only: production assembly set the
+      // product scenarios' speed above; these emulate refusals it cannot reach.
+      if (scenario === "fast-disabled" || scenario === "fast-thirdparty") turn.options.settings = { ...turn.options.settings as object, fastMode: true };
       if (scenario === "fast-disabled") {
         turn.options.env!.CLAUDE_CODE_DISABLE_FAST_MODE = "1";
         (turn.options.settings as any).env.CLAUDE_CODE_DISABLE_FAST_MODE = "1";

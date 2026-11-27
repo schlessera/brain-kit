@@ -1193,6 +1193,29 @@ Rules a consumer may rely on:
 
 No wire revision or required field changes.
 
+<a id="per-session-output-speed-additive-4310"></a>
+
+### Per-session output speed (additive, #4310)
+
+`chat_message.outputSpeed?: "standard" | "fast"` chooses the speed of a NEW
+conversation only. Like `providerId`, it is ignored on a message that resumes
+a session: the host stores the speed a session started with and runs every
+turn of it at that speed, so its provider request shape and cache never
+change mid-session. Absent on a new conversation means `standard`; a session
+that predates the field keeps the runtime's own default. An invalid value is
+rejected by frame validation. `fast` is the provider's faster output mode.
+Each fast run records the backend's reported cost at the fast rate as both
+its list and effective cost, on a subscription too, where it is usage beyond
+the plan. It is never priced from the host's standard rates; without a
+backend report its cost is unknown, never zero. Live budget accounting counts
+a fast turn's usage as unpriced, so the unpriced-token stops hold it, and the
+backend's own budget backstop prices it at the fast rate. A fast session that
+its backend, profile, account or upstream cannot serve is refused before any
+model request with `failure.errorClass: "fast_output_unavailable"`, whose
+message names the reason; it is never run at standard speed. A standard
+session whose native settings turn fast output on is refused with
+`settings_conflict`.
+
 <a id="per-message-reasoning-effort-additive-543"></a>
 
 ### Per-message reasoning effort (additive, #543)
@@ -1345,6 +1368,12 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   resume is refused before SDK startup, with the original roster and context
   unchanged. A compatible authority can resume it, or the owner can start a new
   conversation. It carries no authentication action.
+  `fast_output_unavailable` (additive, #4310) means a fast session could not
+  be served at fast speed: its backend has no fast mode, its upstream is not
+  the provider's first-party origin, or the runtime reported fast output off
+  (with its own reason, for example `model_not_allowed` or
+  `extra_usage_disabled`). The turn is refused before any model request and
+  never runs at standard speed. It carries no `authAction`.
   `settings_conflict` means the native runtime could not honor a retained host
   setting before prompt release, including an unreadable or rejected native
   settings-control request after successful initialization. It carries no `authAction`, emits no

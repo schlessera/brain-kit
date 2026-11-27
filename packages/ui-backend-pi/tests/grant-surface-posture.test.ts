@@ -15,6 +15,7 @@ import { describe, expect, test } from "bun:test";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import {
   BackendRequestError,
+  FastOutputUnavailableError,
   type BackendBridge,
   type ServerMessage,
   type StartTurnRequest,
@@ -39,7 +40,7 @@ function fakeSession(sessionId: string): PiSessionLike {
 }
 
 async function runTurn(
-  posture: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface" | "posture">
+  posture: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface" | "posture" | "outputSpeed">
 ): Promise<{ outcome: Promise<void>; frames: ServerMessage[]; sessions: () => number }> {
   const brain = makeEmptyBrain();
   let opened = 0;
@@ -182,5 +183,23 @@ describe("pi: the voice posture (#957)", () => {
 
     await expect(turn.outcome).rejects.toThrow(/voice-posture turn must declare enforceAllowedTools and noGrantSurface/);
     expect(turn.sessions()).toBe(0);
+  });
+});
+
+// #4310: pi has no fast output mode; a fast session is refused by name, never
+// run at standard speed, and a standard session runs as before.
+describe("pi: a session's output speed", () => {
+  test("a fast session is refused before a session exists", async () => {
+    const turn = await runTurn({ outputSpeed: "fast" });
+    await expect(turn.outcome).rejects.toBeInstanceOf(FastOutputUnavailableError);
+    await expect(turn.outcome).rejects.toThrow("fast_output_unavailable: the pi backend has no fast output mode");
+    expect(turn.frames).toHaveLength(0);
+    expect(turn.sessions()).toBe(0);
+  });
+
+  test("a standard session runs", async () => {
+    const turn = await runTurn({ outputSpeed: "standard" });
+    await expect(turn.outcome).resolves.toBeUndefined();
+    expectSucceeded(turn.frames);
   });
 });

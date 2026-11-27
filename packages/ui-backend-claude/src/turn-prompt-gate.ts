@@ -21,7 +21,7 @@ export interface PromptGateInputs {
   queryHandle: Promise<Query>;
   /** The CLI's one initialization handshake, shared with the per-turn report. */
   initialize(cli: Query): ReturnType<Query["initializationResult"]>;
-  sdkTurn: Pick<ClaudeSdkTurn, "subscriptionOnly" | "pinnedSettingsEnv"> & Partial<Pick<ClaudeSdkTurn, "options">>;
+  sdkTurn: Pick<ClaudeSdkTurn, "subscriptionOnly" | "pinnedSettingsEnv"> & Partial<Pick<ClaudeSdkTurn, "options" | "outputSpeed">>;
   /** The turn's relay, when its host prepared egress for it. */
   relay: TurnInferenceRelay | undefined;
   terminal: TurnTerminal;
@@ -69,10 +69,18 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
     inputs.log("warn", "inference transport check refused the turn", { "profile.id": inputs.profileId, reason });
     return terminal.withhold();
   };
-  const refuseSettings = (unreadable = false, bridgeConflict = false): false => {
+  const refuseFast = (reason: string): false => {
+    const message = `fast_output_unavailable: Claude Code reports fast output ${reason} for this profile and route. This conversation was started with fast output; start a new standard-speed conversation, or use a profile and account that serve fast output.`;
+    terminal.refused = { code: "CLAUDE_ERROR", message, failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.fast_output_unavailable, message } };
+    // Not an authentication failure: no auth_failure event, no subscription status change.
+    inputs.log("warn", "fast output check refused the turn", { "profile.id": inputs.profileId, reason });
+    return terminal.withhold();
+  };
+  const refuseSettings = (unreadable = false, bridgeConflict = false, speedConflict = false): false => {
     const message = unreadable
       ? "Claude native settings could not be read. Correct settings access before retrying."
       : bridgeConflict ? "Claude native settings refused the hosted brain bridge: the project brain stdio entry is not disabled. Correct the conflicting settings before retrying."
+      : speedConflict ? "Claude native settings turned on fast output for a standard-speed conversation. Correct the conflicting settings before retrying."
       : "Claude native settings refused the retained tool-search selection. Correct the conflicting settings before retrying.";
     terminal.refused = { code: "CLAUDE_ERROR", message, failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.settings_conflict, message } };
     // This is configuration, not failed authentication. No auth_failure event
@@ -83,11 +91,14 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
   return async () => {
     const cli = await inputs.queryHandle;
     let account: AccountInfo | undefined;
+    let fast: { state?: string; reason?: string } = {};
     let settings: CliSettingsReport | undefined;
     let readingSettings = false;
     try {
       const check = async () => {
-        account = (await inputs.initialize(cli)).account;
+        const initialized = await inputs.initialize(cli);
+        account = initialized.account;
+        fast = { state: initialized.fast_mode_state, reason: initialized.fast_mode_disabled_reason };
         if (!sdkTurn.subscriptionOnly && !relay?.egress && sdkTurn.pinnedSettingsEnv?.ENABLE_TOOL_SEARCH === undefined) return;
         // Not on the public Query type; the SDK sends the CLI's own
         // `get_settings` control request. Absent means unreadable,
@@ -109,6 +120,11 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
       return terminal.withhold();
     }
     if (abortController.signal.aborted) return terminal.withhold();
+    // A session's speed is fixed (#4310): the runtime must serve exactly it,
+    // never fall back to standard and never turn fast on by its own settings.
+    if (sdkTurn.outputSpeed === "fast" && fast.state !== "on")
+      return refuseFast(fast.state === undefined ? "unreported" : `${fast.state}${fast.reason ? ` (${fast.reason})` : ""}`);
+    if (sdkTurn.outputSpeed === "standard" && fast.state === "on") return refuseSettings(false, false, true);
     const discovery = sdkTurn.pinnedSettingsEnv?.ENABLE_TOOL_SEARCH;
     if (discovery !== undefined && settings?.effective?.env?.ENABLE_TOOL_SEARCH !== discovery)
       return refuseSettings();

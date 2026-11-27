@@ -1,6 +1,6 @@
 /** Completed-inference accounting. Activity terminal rows and live receipts never add twice. */
 import type { Database } from "bun:sqlite";
-import type { TurnUsage, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
+import type { OutputSpeed, TurnUsage, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { priceUsage, type RollupPricing } from "../activity/store.js";
 import { priceProviderAttempt } from "../pricing/provider-pricing.js";
@@ -359,9 +359,13 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
   };
   return {
     /** Settles once the turn's admission row and receipt have committed; rejects with `BudgetExceeded` when a session or day scope is blocked. */
-    async begin(id: string, sessionId: string | undefined, policy: EffectiveGovernancePolicy, route?: PricingRoute): Promise<TurnBudgetReceipt> {
+    async begin(id: string, sessionId: string | undefined, policy: EffectiveGovernancePolicy, route?: PricingRoute, speed?: OutputSpeed): Promise<TurnBudgetReceipt> {
       const rates = new Map<string, ReturnType<RollupPricing["resolve"]>>();
       active.set(id, { policy, sessionId: sessionId ?? null, route, pricing: { resolve(model, route) {
+            // A fast session's usage has no rate in the host catalog (#4310):
+            // it counts as unpriced, so the token stops hold it, never a
+            // standard price that would understate it.
+            if (speed === "fast") return null;
             const key = JSON.stringify([model, route]);
             if (!rates.has(key))
               rates.set(key, structuredClone(pricing.resolve(model, route)));

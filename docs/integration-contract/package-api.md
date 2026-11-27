@@ -329,6 +329,25 @@ session's row. A custom catalog that ignores the argument keeps today's
 behaviour, so typed-only chats stay undeletable. Semantics are in the
 [HTTP](../http-api.md#explicit-chat-deletion-additive-3230) component.
 
+<a id="per-session-output-speed-additive-4310"></a>
+
+## Per-session output speed (additive, #4310)
+
+`@schlessera/brain-ui-sdk/protocol` exports `OutputSpeed` (`"standard" |
+"fast"`), `OUTPUT_SPEEDS` and `isOutputSpeed`. `StartTurnRequest` adds optional
+`outputSpeed`: the session's fixed speed, which the host stores when the
+session starts and passes unchanged on every turn of it, resumes included;
+absent is a session that predates the choice. `BackendCapabilities` adds
+optional `fastOutput?: boolean`. A host refuses a fast session for a backend
+without it before the backend starts. `@schlessera/brain-ui-sdk/server`
+exports `FastOutputUnavailableError`, a `BackendRequestError` with
+`errorClass: "fast_output_unavailable"` and a named `reason`, which a backend
+throws instead of running a fast session at another speed. The Claude backend
+advertises the capability: it serves fast output only through a first-party
+upstream, pins the speed as a flag setting, and refuses before prompt release
+unless the runtime reports fast output on. The pi backend refuses fast
+sessions.
+
 ## Native history removal (additive, #3229)
 
 `BackendCapabilities` adds optional `historyRemoval?: boolean`, and

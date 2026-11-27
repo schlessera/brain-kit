@@ -19,7 +19,7 @@ import type {
   StartTurnRequest,
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
-import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
+import { buildSystemPromptAppend, FastOutputUnavailableError } from "@schlessera/brain-ui-sdk/server";
 import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWorkerSandbox, prepareWorkerSandboxAsync, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
@@ -78,6 +78,8 @@ export interface ClaudeSdkTurn {
   subscriptionOnly: boolean;
   /** Flag-settings env values the host pinned itself; the settings check accepts exactly these. */
   pinnedSettingsEnv?: Readonly<Record<string, string>>;
+  /** The session's fixed speed, which the prompt gate holds the runtime to (#4310). */
+  outputSpeed?: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed;
   /** Starts the owned forwarding worker alongside native runtime initialization. */
   startBrainTools?(): void;
   finishWorker(): Promise<void>;
@@ -122,6 +124,26 @@ export function firstPartyInferenceUpstream(env: Readonly<Record<string, string 
     const url = new URL(selectedInferenceUpstream(env));
     return url.origin === "https://api.anthropic.com" && !url.username && !url.password && !url.search && !url.hash;
   } catch { return false; }
+}
+
+/** Environment that routes the runtime to a cloud provider instead of the first-party API. */
+const CLOUD_PROVIDER_ENV = ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_AWS"] as const;
+
+/**
+ * Why a fast session cannot be served on this turn's route (#4310), before
+ * anything persists or starts; undefined when the route qualifies. The pinned
+ * runtime serves fast output through the relay (keyless qualification:
+ * `speed: "fast"` on the wire, `fast_mode_state: "on"`), so only the selected
+ * upstream gates it here: the first-party origin, never a cloud provider or
+ * another gateway. The runtime's own refusal (model, account) is checked at
+ * the prompt gate.
+ */
+export function fastOutputRouteRefusal(inheritedEnv: Readonly<Record<string, string | undefined>>, autonomous: boolean): string | undefined {
+  if (autonomous) return "autonomous turns run at standard speed";
+  const cloud = CLOUD_PROVIDER_ENV.find(name => { const value = inheritedEnv[name]; return value !== undefined && value !== "" && value !== "0" && value.toLowerCase() !== "false"; });
+  if (cloud) return `not_first_party: ${cloud} routes this profile to a cloud provider`;
+  if (!firstPartyInferenceUpstream(inheritedEnv)) return "not_first_party: this profile's upstream is not the provider's first-party origin";
+  return undefined;
 }
 
 /**
@@ -451,6 +473,9 @@ function assembleClaudeSdkTurn(
   const roster = computeToolRoster(req, options.allowedTools);
   const { turnTempTool, hosted, allowed } = roster;
   const { inferenceEnv, inheritedEnv, filteredEnv, childEnv, credentialEnv, providerKeys } = turnChildEnvironment(options, envelope);
+  // A fast session is refused before anything persists, never run at another speed (#4310).
+  const fastRefusal = req.outputSpeed === "fast" ? fastOutputRouteRefusal(inheritedEnv, Boolean(req.autonomous)) : undefined;
+  if (fastRefusal) throw new FastOutputUnavailableError(fastRefusal);
   const { sandbox, limits, stateLimits, turnTempLimits, sandboxNote, renderSandboxNote } = prepareSandboxNote(options, envelope, providerKeys, turnTempTool);
   const mandatory = ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...IN_WORKER_APIFY_TOOLS, ...((hosted || req.autonomous) ? [
       "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
@@ -597,6 +622,10 @@ function assembleClaudeSdkTurn(
   }
   sdkOptions.env = childEnv;
   applyTurnSettings(sdkOptions, envelope, subscriptionOnly, inferenceEnv);
+  // The session's speed, fixed by the host for its whole life (#4310), as a
+  // flag setting that outranks project settings. A session that predates the
+  // choice keeps the runtime's own default.
+  if (req.outputSpeed && !envelope) sdkOptions.settings = { ...sdkOptions.settings as object, fastMode: req.outputSpeed === "fast" };
   if (brainTools) sdkOptions.settings = { ...sdkOptions.settings as object, disabledMcpjsonServers: ["brain"] };
   if (selectionPin !== undefined) {
     sdkOptions.settings = { ...sdkOptions.settings as object,
@@ -614,6 +643,7 @@ function assembleClaudeSdkTurn(
     options: sdkOptions,
     subscriptionOnly,
     ...(brainTools ? { startBrainTools: brainTools.start } : {}),
+    ...(req.outputSpeed && !envelope ? { outputSpeed: req.outputSpeed } : {}),
     ...(envelope ? { pinnedSettingsEnv: envelope.pinned }
       : inferenceEnv || selectionPin !== undefined ? { pinnedSettingsEnv: { ...inferenceEnv, ...(selectionPin === undefined ? {} : { ENABLE_TOOL_SEARCH: selectionPin }) } } : {}),
     finishWorker: envelope

@@ -99,6 +99,9 @@ export function registerSessionSlot(
     // Only meaningful when the client had no session id to send.
     draftId: initial.sessionId ? null : (initial.draftId ?? null),
     providerId: profileId ?? null,
+    // A new session takes its requested speed (standard when absent); a
+    // resume keeps the speed it started with, whatever the client sends.
+    outputSpeed: initial.sessionId ? (host.catalog.getStoredOutputSpeed?.(initial.sessionId) ?? null) : (initial.outputSpeed ?? "standard"),
     backend,
     abortController: new AbortController(),
     timeoutHandle: setTimeout(() => {}, 0),

@@ -4,7 +4,7 @@ import type { QueuedFollowUp } from "../turns.js";
 import { recordPendingCancellations } from "./cancellations.js";
 import { admitGovernedTurn, admitWorkerHost, announceTurnStart, armTurnTimeout, confirmAdmission, createRunRecorder } from "./admission.js";
 import { openTurnBridge, prepareRelayedEgress, turnRequest } from "./backend-entry.js";
-import { resolveRunBilling } from "./billing.js";
+import { outputSpeedBilling, resolveRunBilling } from "./billing.js";
 import { budgetAttribution, budgetEvent, createTurnBudget, settleBudgetWrites } from "./budget.js";
 import { AdmissionRevoked, classifyCompletedTurn, classifyFailedTurn, UNCLASSIFIED_OUTCOME, type TurnOutcome } from "./outcome.js";
 import { teardownTurn } from "./teardown.js";
@@ -30,10 +30,10 @@ export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, li
   // admission, as one accepted during billing does.
   const abortController = new AbortController();
   turn.abortController = abortController;
-  const workerHost = await admitWorkerHost(host, backend, work);
+  const workerHost = await admitWorkerHost(host, backend, work, turn.outputSpeed);
   if (workerHost.kind === "denied") return { kind: "denied", error: workerHost.error };
   const timeoutHandle = armTurnTimeout(host, turn, abortController);
-  const billing = await resolveRunBilling(host.registry, backend.id, slot.profileId);
+  const billing = outputSpeedBilling(await resolveRunBilling(host.registry, backend.id, slot.profileId), turn.outputSpeed);
   const failureRecording = await host.failureReplay.begin(backend, slot.resumeId, turn.turnId, abortController.signal);
   // Revocation can land while routing or billing is in flight. This is the
   // final await boundary before startTurn, so an invalid principal never

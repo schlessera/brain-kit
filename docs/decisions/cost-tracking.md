@@ -239,3 +239,16 @@ without reported usage is unknown spend, and reported tokens without a price
 count toward the unpriced-token stops. The one known zero is a Gemini Files
 lifecycle attempt (upload, poll, delete) behind a relayed video (#2738): the
 Files API is free, and the video's tokens are charged on its generation.
+
+## Fast output runs (#4310)
+
+A run of a fast-output session carries `brain.output_speed: "fast"` on its
+root span and the `api` billing mode on every profile. Fast output on a
+subscription draws usage beyond the plan, so it is never covered. The host's
+pricing catalog has no fast rates, so a fast run is never priced from it. Its
+list and effective cost are the backend's own report at the fast rate, or
+unknown when the backend reported none; never zero and never a standard
+price. During the turn, budget accounting counts fast usage as unpriced, so
+the unpriced-token stops hold it, while the backend's budget backstop
+(`maxBudgetUsd`) prices it at the fast rate. Admission otherwise follows the
+same list-price rules as any paid run.

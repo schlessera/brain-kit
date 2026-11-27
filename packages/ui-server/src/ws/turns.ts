@@ -240,6 +240,11 @@ export interface RunningTurn {
   /** Host-minted id of the CURRENT turn in this slot; re-minted per queued follow-up. */
   turnId: string;
   providerId: string | null;
+  /**
+   * The session's fixed output speed (#4310): the new session's choice, or
+   * the speed a resumed session started with. Null predates the choice.
+   */
+  outputSpeed?: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed | null;
   backend: AgentBackend;
   abortController: AbortController;
   timeoutHandle: ReturnType<typeof setTimeout>;

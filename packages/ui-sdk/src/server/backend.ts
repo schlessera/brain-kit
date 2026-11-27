@@ -107,6 +107,12 @@ export interface BackendCapabilities {
    * before it retires anything.
    */
   historyRemoval?: boolean;
+  /**
+   * Serves `outputSpeed: "fast"` (#4310). Absent or false: the host refuses a
+   * fast session for this backend before it starts, with
+   * `fast_output_unavailable`, instead of running it at standard speed.
+   */
+  fastOutput?: boolean;
 }
 
 export type PermissionDecision =
@@ -649,6 +655,7 @@ export {
   SUBSCRIPTION_RELOGIN_PROCEDURE,
   subscriptionAuthAction,
 } from "../protocol.js";
+import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 export type { SubscriptionAuthAction } from "../protocol.js";
 
 /** @experimental Part of the `AgentBackend` seam. */
@@ -708,6 +715,15 @@ export interface StartTurnRequest {
    * pinned to their original profile.
    */
   profileId?: string;
+  /**
+   * The session's fixed output speed (#4310). The host chooses it when a
+   * session starts, stores it with the session and passes that same value on
+   * every turn, resumes included; absent is a session that predates the
+   * choice and keeps the runtime's own default. A backend that cannot serve
+   * `fast` refuses the turn with `fast_output_unavailable` and never runs it
+   * at another speed.
+   */
+  outputSpeed?: import("../protocol.js").OutputSpeed;
   /** One-turn effort override. Resumes re-read defaults; this does not pin effort to a session. */
   thinkingLevel?: ThinkingLevel;
   /** Host-owned cancellation (user cancel + host timeout). */
@@ -972,6 +988,19 @@ export class BackendRequestError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "BackendRequestError";
+  }
+}
+
+/**
+ * A fast session that cannot be served at fast speed (#4310): an unsupported
+ * backend, profile, model or upstream. Thrown before any provider request;
+ * the turn is refused rather than run at standard speed.
+ */
+export class FastOutputUnavailableError extends BackendRequestError {
+  readonly errorClass: typeof FIRST_PARTY_FAILURE_CLASSES.fast_output_unavailable = FIRST_PARTY_FAILURE_CLASSES.fast_output_unavailable;
+  constructor(readonly reason: string) {
+    super(`fast_output_unavailable: ${reason}. This conversation was started with fast output; start a new standard-speed conversation, or use a profile and upstream that serve fast output.`);
+    this.name = "FastOutputUnavailableError";
   }
 }
 
