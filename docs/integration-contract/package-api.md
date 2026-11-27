@@ -653,6 +653,39 @@ else the previous one, else, when the host's response replaced the rows, the
 first row now shown; only an empty list sends focus to its heading. No
 existing export, key, glyph or prop changes. This ships in a minor.
 
+## UI-kit Gmail approval cards (additive, 0.46.0, #4215)
+
+`@schlessera/brain-ui-kit` exports the approval card for one Gmail write. It
+takes props and callbacks only: no client, fetch or store, and the host
+formats every time. ui-react binds it to the Gmail write cards (#4216) after
+the maintainer signs off the stories; no tool, wire or payload contract
+changes here.
+
+- `GoogleMailApprovalCard` takes `GoogleMailApprovalCardProps`, a union on
+  `operation`: `GoogleMailSendProps` (`"gmail.draft.send"`),
+  `GoogleMailDraftSaveProps` (`"gmail.draft.save"`, with `action` `"create" |
+  "reply" | "update"`), `GoogleMailDraftDeleteProps` (`"gmail.draft.delete"`),
+  `GoogleMailTrashProps` (`"gmail.trash"`) and `GoogleMailModifyProps`
+  (`"gmail.modify"`). Each takes `tainted` and optional `onAllow`, `onDeny`
+  and `shortcuts`; draft save and modify also take `effect` (`GoogleEffect`,
+  `"reversible" | "irreversible"`), `offers` (`GoogleStandingOffers`:
+  `allowAlways`, `allowForSession`) and `onStanding`. Send, draft delete and
+  trash are irreversible only. Messages are `GoogleMailMessage` (`from`,
+  `to`, `cc`, `bcc`, `replyTo` of `GoogleMailbox` `{ address, displayName }`,
+  `subject`, `inReplyTo`, `body`); targets are `GoogleMailTarget`; a send's
+  `recipientMatches` are `GoogleRecipientMatch` `{ field, address, entry }`.
+- An irreversible card shows no standing choice and has no `a` key.
+  `googleApprovalKeys(effect)` returns the keys a card prints and the host
+  binds: `{ deny: "d" }` when irreversible, `{ allow: "a", deny: "d" }` when
+  reversible.
+- `GOOGLE_SEND_RECIPIENT_REFUSAL` is the sentence for a send the host refused
+  because a recipient is not on the send list.
+- `ApprovalCard` gains optional `top` (a banner between the head and the
+  payload), `alwaysLabel` and `alwaysNote` (the standing choice's words and
+  note), and `shortcuts.allow` becomes optional. A card that passes none of
+  them renders as before.
+- The icon map adds `mail`, `trash` and `hidden-copy`.
+
 ## UI-kit enlarge icon (additive #3397)
 
 The semantic `IconName` gains `enlarge`: open content in its dedicated
