@@ -10,7 +10,6 @@
  * requests still fail fast: they need a live client at that instant.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend, LocationFix } from "@schlessera/brain-ui-sdk/server";
 import { createWsHandlers as createAuthorizedWsHandlers } from "../src/ws/connection";
 import { resultFrame } from "./helpers/fake-backend";

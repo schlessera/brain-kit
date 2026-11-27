@@ -5,7 +5,6 @@
  * auto-answered — the seatbelt stays per-use. Plus the management routes.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   AgentBackend,
   PermissionDecision,
