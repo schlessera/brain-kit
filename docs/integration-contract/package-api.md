@@ -3077,7 +3077,9 @@ usable sections within tolerance of B's usable sections. Bounds use distance's
 1-Lipschitz property to expose uncertainty. The default spacing is
 `max(0.1,min(5,toleranceM/4))` metres; explicit spacing is >0 and ≤1,000 m.
 Tolerances are finite, nonnegative and at most Earth's half-circumference.
-100,000 samples / 5,000,000 comparisons bound analysis. Zero usable length in A,
+100,000 samples / 5,000,000 comparisons bound analysis; the comparison bound counts
+the edge comparisons performed, and an input is refused only when that count is
+reached (the sample bound still refuses before any comparison). Zero usable length in A,
 no usable line in B, ambiguous antipodal geometry and analysis-limit exhaustion
 return null ratio/covered length/bounds with reasons. Partial inputs remain partial;
 no gaps are filled and no denominator is invented. All helpers require validated

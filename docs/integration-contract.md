@@ -20,6 +20,17 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Track coverage counts comparisons performed (additive, 0.45.0, #4814)
+
+`trackCoverage` finds each sample's candidate edges of B through a spatial grid,
+so the 5,000,000-comparison bound now counts comparisons performed and refuses
+only when that count is reached. Inputs that returned
+`unknown: ["analysis_limit_exceeded"]` for the product of samples and edges now
+return a ratio; wherever a result was returned before it is exactly the same.
+Both limit values, every output field and every reason are unchanged. See
+[the package API](integration-contract/package-api.md#shared-geo-library-additive-525).
+This ships in a minor.
+
 ## Storage events timeline (additive, 0.45.0, #4541)
 
 `GET /api/storage/events` returns a bounded, per-kind timeline of warning
