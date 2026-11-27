@@ -1,5 +1,28 @@
-import { describe, test, expect } from "bun:test";
-import { embeddingIdentityMatches } from "../src/lib/db.js";
+import { afterAll, describe, test, expect } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+
+import { embeddingIdentityMatches, getMeta, openDatabase } from "../src/lib/db.js";
+import { geminiEmbeddings } from "../src/providers/embeddings/gemini.js";
+
+const dirs: string[] = [];
+afterAll(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+
+describe("the schema default embedding identity", () => {
+  test("a fresh database is built for the vectors the default Gemini embedder returns", () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-embedding-identity-"));
+    dirs.push(dir);
+    const db = openDatabase(join(dir, "brain.db"));
+    try {
+      const provider = geminiEmbeddings();
+      expect(Number(getMeta(db, "embedding_dimensions"))).toBe(provider.dimensions);
+      expect(embeddingIdentityMatches(getMeta(db, "embedding_model"), provider.id)).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
+});
 
 describe("embeddingIdentityMatches", () => {
   test("an exact id matches", () => {

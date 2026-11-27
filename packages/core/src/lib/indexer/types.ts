@@ -91,11 +91,12 @@ export interface IndexRun {
    */
   ftsRebuilt?: boolean;
   /**
-   * Markdown vectors a `--force` run held on to before wiping, by a hash of
-   * the text they were embedded from. Set only when the configured provider
-   * is the one that produced them; see `vectors.ts`.
+   * Whether a `--force` run carried its markdown vectors before wiping them,
+   * into the connection's carry table keyed by a hash of the text they were
+   * embedded from. Set only when the configured provider is the one that
+   * produced them; see `vectors.ts`.
    */
-  carriedVectors?: Map<string, Float32Array>;
+  carriedVectors?: boolean;
   /** Progress line, suppressed by `quiet`. */
   report(message: string): void;
   /** Warning line on stderr, including in quiet/JSON mode. */
@@ -135,11 +136,13 @@ export interface ParseResult {
   aliasMap: Map<string, string[]>;
 }
 
-/** An asset whose bytes changed (or whose description needs a retry). */
+/**
+ * An asset whose bytes changed (or whose description needs a retry). It
+ * carries no bytes: the description step reads the file and checks it
+ * against `hash`.
+ */
 export interface AssetTask {
   asset: Asset;
-  /** Bytes, when already read; null means "read lazily at describe time". */
-  raw: Buffer | null;
   docId: number;
   hash: string;
 }

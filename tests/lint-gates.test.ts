@@ -39,6 +39,7 @@ const SUPPORT: Record<string, string> = {
   "packages/ui-react/package.json": JSON.stringify({ name: "@fixture/ui-react", exports: { ".": { bun: "./src/index.ts" } } }),
   "packages/ui-react/src/index.ts": "",
   "packages/ui-react/src/components/chat/chat-page.tsx": "export const ChatPage = () => null;\n",
+  "packages/core/src/lib/harbour.ts": "export const harbour = 1;\n",
   "packages/ui-react/src/stores/chat-store.ts": "export const useChatStore = Object.assign(() => null, { getState: () => ({ draft: \"\" }) });\n",
   "packages/module-odyssey/package.json": JSON.stringify({ name: "@fixture/module-odyssey" }),
 };
