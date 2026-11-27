@@ -718,7 +718,7 @@ export function createActivityStore(
             AND origin = 'session' AND name = 'invoke_agent' AND rowid < (SELECT rowid FROM activity_spans WHERE span_id = ?)
             ORDER BY rowid DESC LIMIT 1)
           UNION ALL
-          SELECT rowid FROM (SELECT rowid FROM activity_spans WHERE parent_span_id IS NULL AND session_id IS NULL AND json_extract(attrs, '$."session.id"') = ?
+          SELECT rowid FROM (SELECT rowid FROM activity_spans WHERE parent_span_id IS NULL AND session_id IS NULL AND json_valid(attrs) AND json_extract(attrs, '$."session.id"') = ?
             AND origin = 'session' AND name = 'invoke_agent' AND rowid < (SELECT rowid FROM activity_spans WHERE span_id = ?)
             ORDER BY rowid DESC LIMIT 1))
         ORDER BY rowid DESC LIMIT 1`).get(sessionId, spanId, sessionId, spanId);

@@ -1306,6 +1306,7 @@ describe("activity store: a session's previous root span (#4801)", () => {
       const lookup = recorded.statements.find(statement => /FROM activity_spans/.test(statement.sql) && /invoke_agent/.test(statement.sql))!;
       const steps = queryPlan(db, lookup);
       expect(steps.some(step => step.includes("USING INDEX idx_activity_spans_root_session (session_id=? AND rowid<?)"))).toBe(true);
+      expect(steps.some(step => step.includes("USING INDEX idx_activity_spans_root_session_attr (<expr>=? AND rowid<?)"))).toBe(true);
       expect(steps.filter(step => /^SEARCH activity_spans USING INTEGER PRIMARY KEY \(rowid<\?\)$/.test(step) || /^SCAN activity_spans\b/.test(step))).toEqual([]);
     } finally { db.close(); }
   });
@@ -1334,6 +1335,23 @@ describe("activity store: a session's previous root span (#4801)", () => {
       expect(store.previousSessionRoot!("voyage-5-root", "ithaca")?.spanId).toBe("voyage-4-root");
       expect(store.previousSessionRoot!("voyage-4-root", "ithaca")?.spanId).toBe("voyage-3-root");
       expect(store.previousSessionRoot!("voyage-3-root", "ithaca")?.spanId).toBe("voyage-2-root");
+      expect(store.previousSessionRoot!("voyage-2-root", "ithaca")?.spanId).toBe("voyage-1-root");
+      expect(store.previousSessionRoot!("voyage-1-root", "ithaca")).toBeNull();
+    } finally { db.close(); }
+  });
+
+  test("a root whose attributes are not JSON neither fails the migration nor the lookup", () => {
+    const { store, db } = freshStore();
+    try {
+      for (const index of ["idx_activity_spans_root_session", "idx_activity_spans_root_session_attr", "idx_activity_spans_unfinished"]) db.run(`DROP INDEX ${index}`);
+      db.query(`INSERT INTO activity_spans (span_id, run_id, parent_span_id, name, kind, origin, session_id, attrs, started_at, writer)
+        VALUES ('torn-root', 'torn', NULL, 'invoke_agent', 'turn', 'session', NULL, '{"session.id": "ithaca"', 500, 'loom')`).run();
+      db.exec(readFileSync(join(import.meta.dir, "../migrations/101_activity_root_session_lookup.sql"), "utf8"));
+      // A later root whose attributes are not JSON still inserts once the index exists.
+      db.query(`INSERT INTO activity_spans (span_id, run_id, parent_span_id, name, kind, origin, session_id, attrs, started_at, writer)
+        VALUES ('torn-again', 'torn-again', NULL, 'invoke_agent', 'turn', 'session', NULL, '{"session.id"', 600, 'loom')`).run();
+      root(store, "voyage-1", { attribute: "ithaca" }, 1_000);
+      root(store, "voyage-2", { column: "ithaca" }, 2_000);
       expect(store.previousSessionRoot!("voyage-2-root", "ithaca")?.spanId).toBe("voyage-1-root");
       expect(store.previousSessionRoot!("voyage-1-root", "ithaca")).toBeNull();
     } finally { db.close(); }
