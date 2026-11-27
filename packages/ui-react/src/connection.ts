@@ -38,7 +38,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     url: () => root.wsUrl(),
     disposed: () => disposed,
     active: isActive,
-    noteSocketOpen: () => root.stores.connection.getState().noteSocketOpen(),
+    noteSocketCreated: () => root.stores.connection.getState().noteSocketCreated(),
     onMessage: (message) => { turnClock.frame(message); inbound.handleServerMessage(message); },
     onStatusChange: (status) => handleStatusChange(status),
     onClose: (close) => handleSocketClose(root, close, services.trackers),

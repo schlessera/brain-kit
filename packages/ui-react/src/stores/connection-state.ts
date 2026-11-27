@@ -59,6 +59,12 @@ export interface ConnectionState {
   recordWsClose: (opened: boolean, code: number) => void;
   /** A socket reached `open`: the refusal evidence so far is spent. */
   noteSocketOpen: () => void;
+  /**
+   * A new socket was created and is about to connect (#4755): the previous
+   * socket's capabilities and refusal evidence do not carry over to it. It
+   * has not reached `open`, so `socketOpens` does not move.
+   */
+  noteSocketCreated: () => void;
   reportError: (code: string, message: string) => void;
   clearError: () => void;
 }
@@ -106,6 +112,15 @@ export function createConnectionStore() {
         // must survive an open to be read, and must not outlive the next one.
         lastCloseCode: null,
         socketOpens: state.socketOpens + 1,
+      })),
+    noteSocketCreated: () =>
+      set((state) => ({
+        chatRequestAck: false,
+        sessionProfiles: false,
+        profileEpoch: state.profileEpoch + 1,
+        followUpQueue: false,
+        handshakeFailures: 0,
+        lastCloseCode: null,
       })),
     reportError: (code, message) => set({ lastError: { code, message, at: Date.now() } }),
     clearError: () => set({ lastError: null }),
