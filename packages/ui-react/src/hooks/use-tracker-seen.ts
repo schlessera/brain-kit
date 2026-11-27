@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { useBrainUiRoot, useRootStore } from "../root-context.js";
 import type { BrainUiRoot } from "../root.js";
 import { evidenceFromRecord, isCleared, seenKey } from "../lib/trackers.js";
@@ -32,15 +32,16 @@ export function observeTrackerSeen(root: BrainUiRoot, transcript: HTMLElement | 
   // The other modal surfaces that cover Chat: the mask editor and the handoff sheet.
   if (root.stores.mask.getState().request || root.stores.markup.getState().request || root.stores.handoff.getState().sheet) return false;
   if (typeof document === "undefined" || document.visibilityState !== "visible") return false;
-  // And any open modal dialog (a zoom viewer, a one-time credential, a sheet).
-  if (typeof document.querySelector === "function" && document.querySelector('[aria-modal="true"]')) return false;
   // An answer still being written proves nothing: its turn is the one the
   // live frames named before the reader left, which is correlation only,
   // and history links a turn only once it has ended (#964). Its replay
   // strips that turn; until the replay arrives the stale one must not
   // count, or reopening a running session would read as seeing it (#3406).
+  // Tested before the document query, which a streamed frame need not pay (#4743).
   const last = chat.buffers[sessionId]?.messages.at(-1);
   if (!last || last.isStreaming || last.turnId !== key.turnId) return false;
+  // And any open modal dialog (a zoom viewer, a one-time credential, a sheet).
+  if (typeof document.querySelector === "function" && document.querySelector('[aria-modal="true"]')) return false;
   if (transcript.clientHeight === 0) return false;
   if (transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight >= AT_BOTTOM_PX) return false;
   return trackers.observeSeen({ sessionId, ...key });
@@ -66,26 +67,30 @@ export function useTrackerSeen(transcript: RefObject<HTMLElement | null>, scroll
   useRootStore("mask", (s) => s.request !== null);
   useRootStore("markup", (s) => s.request !== null);
   useRootStore("handoff", (s) => s.sheet !== null);
+  // The transcript element itself: it mounts only once there is something to
+  // show, and its scroll listener has to follow it there (#4743).
+  const [element, setElement] = useState<HTMLElement | null>(null);
   useEffect(() => {
+    if (transcript.current !== element) setElement(transcript.current);
     observeTrackerSeen(root, transcript.current, scrollDisc);
   });
   // While this session has a tracker to clear, a modal dialog closing
-  // (they mount and unmount under the body) is a chance too.
+  // (they mount and unmount under the body) is a chance too. One observer
+  // for as long as that holds, not one per render (#4743).
   const waiting = useRootStore("trackers", (s) => !!sessionId && !!s.records[sessionId] && !isCleared(s.records[sessionId]!, s.evidence[sessionId] ?? evidenceFromRecord(s.records[sessionId])));
   useEffect(() => {
     if (!waiting || typeof MutationObserver === "undefined" || typeof document === "undefined") return;
     const observer = new MutationObserver(() => observeTrackerSeen(root, transcript.current, scrollDisc));
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-modal"] });
     return () => observer.disconnect();
-  });
+  }, [root, transcript, scrollDisc, waiting]);
   useEffect(() => {
     const check = () => observeTrackerSeen(root, transcript.current, scrollDisc);
-    const el = transcript.current;
-    el?.addEventListener("scroll", check, { passive: true });
+    element?.addEventListener("scroll", check, { passive: true });
     document.addEventListener("visibilitychange", check);
     return () => {
-      el?.removeEventListener("scroll", check);
+      element?.removeEventListener("scroll", check);
       document.removeEventListener("visibilitychange", check);
     };
-  });
+  }, [root, transcript, scrollDisc, element]);
 }
