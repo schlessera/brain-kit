@@ -12,10 +12,6 @@ import { SafetyRecordingUnavailable } from "./safety-store.js";
 import { safetyQueue } from "./safety-queue.js";
 import type { ReferenceTools } from "../brain/reference-tools.js";
 
-/** How long a turn's end waits for the denial of a fetch whose obligation
- * failed. The backend denies within the same hook that saw the rejection. */
-const DENIAL_WAIT_MS = 1_000;
-
 export function createSafetyCollector(db:Database,writes:GovernanceWrites,options:{turnId:string;bindingId:string;backendId:string;
  sessionId:()=>string|null;actor?:"interactive"|"voice";brainPath?:string;shellProxied:()=>boolean;signal:AbortSignal;onReady?:()=>void;stop?:(error:Error)=>void;policyHash?:string|null;
  grepCheckpoint?:GrepCheckpoint;referenceReads?:Pick<ReferenceTools,"observeResult">}):NonNullable<BackendBridge["inputSafety"]> {
@@ -24,7 +20,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
  // `refused`: the backend refused a call with this id, so nothing more for
  // that id is admitted or let run.
- type Operation={generation:symbol;tool:string;inputHashes:Set<string>;id:string;occurrences:string[];inputOccurrences:string[];resultStarted:boolean;done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;grepNote?:string;unqualifiedGrepContent?:boolean;owed:boolean;refused:boolean;uncertain:boolean;searchContext?:ReturnType<typeof searchOutputContext>;denial?:()=>void;claimed?:boolean};
+ type Operation={generation:symbol;tool:string;inputHashes:Set<string>;id:string;occurrences:string[];inputOccurrences:string[];resultStarted:boolean;done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;grepNote?:string;unqualifiedGrepContent?:boolean;owed:boolean;refused:boolean;uncertain:boolean;searchContext?:ReturnType<typeof searchOutputContext>};
 
  const operations=new Map<string,Operation>();
  // What the backend reported about each id: how many times the runtime asked
@@ -41,9 +37,6 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // under one tool name, and never allowed.
  const ambiguous=(call:{tools:Map<string,number>}|undefined)=>!!call&&(call.tools.size>1||[...call.tools.values()].some(n=>n>1));
  const once=(call:{tools:Map<string,number>;allowed:boolean}|undefined)=>!!call&&!call.allowed&&call.tools.size===1&&[...call.tools.values()][0]===1;
- // One input revision whose recorded signals are all fetch inputs.
- const fetchOnly=(op:Operation)=>!op.uncertain&&op.inputHashes.size===1&&op.signals.length>0
-   &&op.signals.every(s=>s.source==="web_fetch"&&s.detector==="tool_web_input");
  const operation=(tool:string):Operation=>({generation:Symbol(),tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],inputOccurrences:[],resultStarted:false,done:false,admitted:false,signals:[],owed:false,refused:false,uncertain:false});
  const base=()=>({turnId:options.turnId,sessionId:options.sessionId(),actor:options.actor??"interactive" as const,model:null,profile:null});
  const marked=(path:string)=>isMarkedUntrusted(db,path);
@@ -61,13 +54,11 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // A result already exists when result() records it, and the runtime may keep
  // it in its own session (the Claude runtime replays it on resume), so every
  // failure there is a loss after delivery and the chat keeps a permanent gap.
- // `contradicted`: fetch inputs whose never-ran claim this failure voids;
- // the failure notice's own write marks them unknown (#4514).
- const fail=async(error:unknown,held=false,contradicted?:readonly string[])=>{
+ const fail=async(error:unknown,held=false)=>{
   const failures=[error];
   try{options.stop?.(error instanceof Error?error:new Error(String(error)));}catch(stop){failures.push(stop);}
   if(held&&failures.length===1&&error instanceof SafetyRecordingUnavailable&&error.beforeDelivery)throw error;
-  try{await writes.safetyFail(options.turnId,error,contradicted);}
+  try{await writes.safetyFail(options.turnId,error);}
   catch(notice){throw new AggregateError([...failures,notice],`Safety input refused: ${String(error)}; failure notice could not commit`);}
   if(failures.length>1)throw new AggregateError(failures,`Safety input refused: ${String(error)}`);
   throw error;
@@ -103,15 +94,11 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // Invalidating first also covers reports lost before result() and ensures
   // failure containment cannot stop the record's owner before this commits.
   const op=operations.get(toolUseId);if(op)op.uncertain=true;
-  // Any result under the ID, recorded or lost, voids any claim that its
-  // fetch never ran: the failure notice carries the contradiction in its
-  // own write, behind the in-process loss latch (#4514).
-  const contradicted=op?.occurrences;
   try{
    for(const name of new Set([tool,operations.get(toolUseId)?.tool]))if(name)
     await options.referenceReads?.observeResult(options.turnId,toolUseId,name,"",false);
-  }catch(observation){return fail(new AggregateError([error,observation],"Reference result uncertainty could not commit"),false,contradicted);}
-  return fail(error,false,contradicted);
+  }catch(observation){return fail(new AggregateError([error,observation],"Reference result uncertainty could not commit"));}
+  return fail(error);
  };
  const collector:NonNullable<BackendBridge["inputSafety"]>={
   forAdmission(toolUseId,tool,root){
@@ -168,18 +155,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     if(!op.owed){await writes.safetyOblige(options.turnId,op.id,toolUseId,tool);op.owed=true;}
     op.admitted=true;
     assertLive();
-   }catch(error){
-    // Fetch inputs committed but the obligation did not: only the backend's
-    // denial, which follows this rejection, can settle them (#4514). The
-    // turn's end waits for it, bounded, so a stop that tears the turn down
-    // first cannot leave them open.
-    const op=operations.get(toolUseId);
-    if(op&&!op.owed&&!op.denial&&fetchOnly(op)){
-     let timer:ReturnType<typeof setTimeout>|undefined;
-     void recording(new Promise<void>(resolve=>{op.denial=()=>{clearTimeout(timer);resolve();};timer=setTimeout(op.denial,DENIAL_WAIT_MS);(timer as {unref?:()=>void}).unref?.();}));
-    }
-    return fail(error,true);
-   }
+   }catch(error){return fail(error,true);}
   });},
   // A result already exists when it reaches the host, and the runtime may keep
   // it in its session. So nothing between the tool running and its record
@@ -192,9 +168,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    return recording(serial(toolUseId,async()=>{
    try{
     if(segments&&segments.length>256)throw new Error("Safety result segment capacity exceeded");
-    // A claimed operation's denial said it never ran: its result is a
-    // contradiction, rejected like one with no admitted operation (#4514).
-    const op=operations.get(toolUseId);if(!op||op.tool!==tool||!op.admitted||op.claimed)throw new Error("Safety result has no admitted operation");
+    const op=operations.get(toolUseId);if(!op||op.tool!==tool||!op.admitted)throw new Error("Safety result has no admitted operation");
     const outputHash=hash(JSON.stringify([output,finalized,segments??null,outputStatus===undefined?null:Object.fromEntries(Object.entries(outputStatus).sort(([a],[b])=>a<b?-1:a>b?1:0))]));
     const conflicting=op.done&&op.outputHash!==outputHash;
     if(op.done&&!conflicting)return;
@@ -249,11 +223,6 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    let call=calls.get(toolUseId);
    if(!call){if(calls.size>=2000)return;calls.set(toolUseId,call={tools:new Map(),allowed:false});}
    if(call.tools.has(toolName)||call.tools.size<2)call.tools.set(toolName,(call.tools.get(toolName)??0)+1);
-   // A later admission voids a claim that the ID's call never ran (#4514):
-   // its fetch inputs become unknown and the chat keeps a permanent gap. The
-   // turn goes on, as it does for a reused ID with a durable obligation.
-   const op=operations.get(toolUseId);
-   if(op?.claimed)void recording(writes.safetyFail(options.turnId,new Error(`Safety claim voided: ${toolName||"a call"} (${toolUseId}) was admitted again after its denial`),op.occurrences).catch(()=>{}));
   },
   // The backend refused a call with this id; a later begin() or allow for the
   // id is refused too, so a parallel hook or request cannot reopen it. The
@@ -275,21 +244,11 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    const proves=denied&&once(calls.get(toolUseId));
    if(!op){if(operations.size<2000)operations.set(toolUseId,{...operation(""),refused:true});return;}
    op.refused=true;
-   try{
-    if(proves&&!op.done){
-     const sameFetch=calls.get(toolUseId)?.tools.has(op.tool)&&fetchOnly(op);
-     // Claimed in this synchronous segment, before either never-ran write is
-     // awaited: any later admission or result then voids the claim (#4514).
-     if(sameFetch&&(op.owed?op.admitted:!op.admitted))op.claimed=true;
-     if(op.owed)await discharge(op,sameFetch&&op.admitted?op.occurrences:undefined);
-     // begin() committed every fetch input, then its obligation failed: the
-     // call owes nothing, yet its inputs stay open unless this denial, which
-     // proves the call never ran, settles them (#4514). Only inputs whose
-     // write is known to have committed are settled.
-     else if(sameFetch&&!op.admitted)
-      try{await writes.safetyDischarge(options.turnId,op.id,op.occurrences);}catch{/* Still open: the chat stays restricted. */}
-    }
-   }finally{op.denial?.();}
+   if(proves&&!op.done){
+    const sameFetch=calls.get(toolUseId)?.tools.has(op.tool)&&!op.uncertain&&op.inputHashes.size===1&&op.admitted
+      &&op.signals.length>0&&op.signals.every(s=>s.source==="web_fetch"&&s.detector==="tool_web_input");
+    await discharge(op,sameFetch?op.occurrences:undefined);
+   }
   },true).catch(()=>{}));},
   // The backend's last check before it lets this call run, noted so that no
   // later refusal under the id proves the call never ran. A call whose id

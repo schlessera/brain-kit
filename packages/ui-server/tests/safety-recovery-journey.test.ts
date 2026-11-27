@@ -19,7 +19,6 @@ import { createSafetyCollector } from "../src/governance/safety-collector";
 import { prepareTurnEgress } from "../src/brain/turn-egress";
 import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { queryGovernanceEvents } from "../src/governance/events";
-import { pruneSafetyDetail } from "../src/governance/safety-store";
 import { createSafetyStore } from "../../ui-react/src/stores/safety-state";
 import { safetyHistoryFixture } from "./helpers/safety-history-fixture";
 
@@ -362,170 +361,6 @@ test("pre-execution fetch denial retains the audited attempt without a verdict o
   } finally { await f.close(); }
 });
 
-/** The fetch occurrence commits, the obligation insert then fails at the
- * storage layer, storage recovers, and the backend denies the sole admission
- * (#4514). The refusal still proves the fetch never ran. */
-async function partialFetchWrite(f: Fixture, id: string, writes: Fixture["writes"] = f.writes) {
-  const collector = createSafetyCollector(f.db, writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
-    sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
-  f.db.run("CREATE TRIGGER sirens_jam_the_ledger BEFORE INSERT ON safety_obligations BEGIN SELECT RAISE(ABORT,'disk I/O error'); END");
-  collector.admitting?.(id, "WebFetch");
-  await expectRejection(collector.begin(id, "WebFetch", { url: "https://ithaca.example/harbour" }));
-  f.db.run("DROP TRIGGER sirens_jam_the_ledger");
-  expect(f.db.query("SELECT COUNT(*) n FROM safety_obligations").get()).toEqual({ n: 0 });
-  return collector;
-}
-
-test("a fetch denied after its obligation failed to commit retains the audited attempt without an unresolved input", async () => {
-  const f = await safetyHistoryFixture();
-  try {
-    const independent = await f.add("connection", true);
-    const collector = await partialFetchWrite(f, "fetch");
-    expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(2);
-    await collector.refused?.("fetch", true);
-    await f.writes.safetyEnd("voyage");
-    expect(f.writes.safety(null, "ithaca").unresolvedCount, "PARTIAL_WRITE_REFUSAL_DELIVERED_NO_INPUT").toBe(1);
-    const restarted = createUiDb(f.path);
-    try {
-      const page = await new SafetyHistory(restarted, () => true, async () => {}).read(f.principal, { sessionId: "ithaca" }, null, 50, true, true, true);
-      expect(page.projection.unresolvedCount).toBe(1);
-      expect(page.projection.earliestUnresolvedId).toBe(independent.id);
-      expect(page.records.filter(record => record.kind === "occurrence")).toHaveLength(2);
-      expect(page.records.filter(record => record.kind === "exposure").map(record => record.state)).toEqual(["not_delivered"]);
-      expect(page.records.some(record => record.kind === "safe_decision")).toBe(false);
-    } finally { restarted.close(); }
-  } finally { await f.close(); }
-});
-
-test("a partial fetch write stays unresolved when its refusal cannot prove non-delivery", async () => {
-  for (const variant of ["reused", "cancelled", "contradicted", "lost"] as const) {
-    const f = await safetyHistoryFixture();
-    try {
-      const collector = await partialFetchWrite(f, "fetch");
-      if (variant === "reused") collector.admitting?.("fetch", "WebFetch");
-      if (variant === "contradicted") {
-        await collector.refused?.("fetch", true);
-        await expectRejection(collector.result("fetch", "WebFetch", "Harbour notes arrived after all", true));
-      } else if (variant === "lost") {
-        await collector.refused?.("fetch", true);
-        await collector.lost?.("fetch", "WebFetch", new Error("The harbour report was malformed"));
-      } else await collector.refused?.("fetch", variant !== "cancelled");
-      await f.writes.safetyEnd("voyage");
-      const state = f.writes.safety(null, "ithaca");
-      expect(state.restriction, variant).toBe("restricted");
-      if (variant === "contradicted" || variant === "lost") expect(state.coverage.state, variant).toBe("incomplete");
-      expect(state.unresolvedCount, variant).toBe(1);
-      // After a restart the contradicted attempt is unknown again, never "never ran".
-      const restarted = createUiDb(f.path);
-      try {
-        const page = await new SafetyHistory(restarted, () => true, async () => {}).read(f.principal, { sessionId: "ithaca" }, null, 50, true, true, true);
-        expect(page.projection.unresolvedCount, `${variant}_RESTART_KEEPS_THE_INPUT_UNRESOLVED`).toBe(1);
-        expect(page.records.filter(record => record.kind === "exposure").map(record => record.state).at(-1), variant).not.toBe("not_delivered");
-      } finally { restarted.close(); }
-    } finally { await f.close(); }
-  }
-});
-
-/** A later event under the ID voids any claim that the fetch never ran,
- * whenever it arrives: a lost or finalized result, or a second admission,
- * during the denial's own discharge, after it, or after the turn ended, and
- * after the row's detail was pruned (#4514). Fetch whose obligation failed,
- * and one whose obligation is durable. */
-const LATER_EVENTS = ["a lost result during the discharge", "a lost result after the denial", "a lost result after the turn ended",
-  "a second admission during the discharge", "a second admission after the denial", "a finalized result after the denial",
-  "a lost result after its detail was pruned"] as const;
-async function deniedFetch(f: Fixture, write: "partial" | "durable", writes: Fixture["writes"] = f.writes) {
-  if (write === "partial") return partialFetchWrite(f, "fetch", writes);
-  const collector = createSafetyCollector(f.db, writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
-    sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
-  collector.admitting?.("fetch", "WebFetch");
-  await collector.begin("fetch", "WebFetch", { url: "https://ithaca.example/harbour" });
-  return collector;
-}
-for (const write of ["partial", "durable"] as const) for (const event of LATER_EVENTS)
-  test(`${event} keeps a ${write} denied fetch unresolved after restart`, async () => {
-    const f = await safetyHistoryFixture();
-    try {
-      const during = event.endsWith("during the discharge");
-      let enter!: () => void, release!: () => void;
-      const entered = new Promise<void>(resolve => { enter = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });
-      const writes = { ...f.writes, safetyDischarge: async (...args: Parameters<Fixture["writes"]["safetyDischarge"]>) => {
-        if (during) { enter(); await gate; }
-        return f.writes.safetyDischarge(...args);
-      } };
-      const collector = await deniedFetch(f, write, writes);
-      const later = async () => {
-        if (event.startsWith("a second admission")) collector.admitting?.("fetch", "WebFetch");
-        else if (event.startsWith("a finalized result")) await expectRejection(collector.result("fetch", "WebFetch", "Harbour notes arrived after all", true));
-        else await collector.lost?.("fetch", "WebFetch", new Error("The harbour report was malformed"));
-      };
-      const denial = collector.refused?.("fetch", true);
-      if (during) { await entered; await later(); release(); await denial; }
-      else {
-        await denial;
-        if (event.endsWith("after the turn ended")) await f.writes.safetyEnd("voyage");
-        if (event.endsWith("was pruned")) pruneSafetyDetail(f.db, Number.MAX_SAFE_INTEGER);
-        await later();
-      }
-      await f.writes.safetyEnd("voyage");
-      const restarted = createUiDb(f.path);
-      try {
-        const page = await new SafetyHistory(restarted, () => true, async () => {}).read(f.principal, { sessionId: "ithaca" }, null, 50, true, true, true);
-        expect(page.projection.unresolvedCount, "LATER_EVENT_KEEPS_THE_FETCH_UNRESOLVED").toBe(1);
-        expect(page.records.filter(record => record.kind === "exposure").map(record => record.state).at(-1), "LATER_EVENT_IS_NEVER_NEVER_RAN").toBe("interrupted_unknown");
-      } finally { restarted.close(); }
-    } finally { await f.close(); }
-  });
-
-/** The contradiction rides the failure notice, behind the in-process loss
- * latch: a reader never sees normal policy while its write is queued. */
-for (const write of ["partial", "durable"] as const) test(`a lost result restricts a ${write} denied fetch before its write commits`, async () => {
-  const f = await safetyHistoryFixture();
-  try {
-    const collector = await deniedFetch(f, write);
-    await collector.refused?.("fetch", true);
-    const writer = await holdWriter(f);
-    const lost = collector.lost?.("fetch", "WebFetch", new Error("The harbour report was malformed"));
-    try {
-      for (let i = 0; i < 50; i++) await Promise.resolve();
-      expect(f.writes.safety(null, "ithaca").restriction, "QUEUED_CONTRADICTION_IS_ALREADY_RESTRICTED").toBe("restricted");
-    } finally { writer.release(); await writer.pending; await lost; }
-  } finally { await f.close(); }
-});
-
-/** Production order (#4514): the obligation failure stops the turn before
- * begin() rejects, so teardown can start before the backend's hook returns
- * its denial. The real permission hooks run here, and teardown starts at once. */
-test("a fetch whose obligation failed is settled by the hook's denial even when teardown starts first", async () => {
-  const f = await safetyHistoryFixture();
-  try {
-    const controller = new AbortController();
-    let ended: Promise<void> | undefined;
-    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
-      sessionId: () => "ithaca", shellProxied: () => true, signal: controller.signal,
-      stop: () => { controller.abort(); ended = f.writes.safetyEnd("voyage"); } });
-    const { hooks } = createPermissionWiring({
-      req: { prompt: "Read the harbour report", signal: controller.signal, bridge: { emit() {}, requestPermission: async () => ({ behavior: "allow" }), inputSafety: collector } },
-      allowedTools: ["WebFetch"], confirmPatterns: [], brainPath: f.root,
-      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never,
-      childEnv: {}, log() {},
-    });
-    f.db.run("CREATE TRIGGER sirens_jam_the_ledger BEFORE INSERT ON safety_obligations BEGIN SELECT RAISE(ABORT,'disk I/O error'); END");
-    const input = { url: "https://ithaca.example/harbour" };
-    const pre = hooks!.PreToolUse!.filter(group => !group.matcher || new RegExp(`^(?:${group.matcher})$`).test("WebFetch")).flatMap(group => group.hooks);
-    const outputs = await Promise.all(pre.map(hook => hook({ hook_event_name: "PreToolUse", tool_name: "WebFetch", tool_use_id: "fetch",
-      tool_input: input, cwd: f.root, session_id: "ithaca", transcript_path: "" }, "fetch", { signal: controller.signal })));
-    f.db.run("DROP TRIGGER sirens_jam_the_ledger");
-    expect(outputs.some(output => "hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse"
-      && output.hookSpecificOutput.permissionDecision === "deny"), "BACKEND_DENIES_THE_FETCH").toBe(true);
-    expect(ended, "TEARDOWN_STARTED_DURING_BEGIN").toBeDefined();
-    await ended;
-    expect(f.writes.safety(null, "ithaca").unresolvedCount, "TEARDOWN_WAITS_FOR_THE_DENIAL").toBe(0);
-    const history = await (await f.get("?nonDelivery=1")).json();
-    expect(history.records.filter((record: { kind: string }) => record.kind === "exposure").map((record: { state: string }) => record.state)).toEqual(["not_delivered"]);
-  } finally { await f.close(); }
-});
-
 test("ambiguous refusals and contradictory results stay unresolved", async () => {
   const f = await safetyHistoryFixture();
   try {
@@ -539,8 +374,7 @@ test("ambiguous refusals and contradictory results stay unresolved", async () =>
       await collector.refused?.(id, id !== "cancelled");
       if (id === "late") {
         expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(3);
-        // The denial claimed the fetch never ran: its result is a contradiction (#4514).
-        await expectRejection(collector.result(id, "WebFetch", "Interrupted after receiving harbour notes", false), "Safety result has no admitted operation");
+        await collector.result(id, "WebFetch", "Interrupted after receiving harbour notes", false);
       }
     }
     expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(4);

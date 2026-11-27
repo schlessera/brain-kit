@@ -392,16 +392,12 @@ export function openSafetyObligation(db:Database,turnId:string,id:string,toolUse
  }).immediate();
 }
 /** Its result is durably recorded. Once the collection ended the call's gap
- * is already committed: nothing to do. `neverDelivered`: the backend's denial
- * proved the fetch never ran, so its exact inputs gain the terminal
- * non-delivery fact. That needs no obligation row: the fetch input can commit
- * while its obligation insert fails, and the same denial still proves it
- * never ran (#4514). */
+ * is already committed: nothing to do. */
 export function dischargeSafetyObligation(db:Database,turnId:string,id:string,neverDelivered?:readonly string[]):void {
  if(neverDelivered?.length){
   db.transaction(()=>{
    const c=collection(db,turnId);
-   if(!c||c.ended)return;
+   if(!c||!db.query("SELECT 1 FROM safety_obligations WHERE id=? AND collection_id=?").get(id,c.id))return;
    live(db,c,true);
    for(const occurrenceId of neverDelivered){
     const row=one<RecordRow|null>(db,"SELECT * FROM safety_records WHERE id=? AND collection_id=?",occurrenceId,c.id);
@@ -416,23 +412,6 @@ export function dischargeSafetyObligation(db:Database,turnId:string,id:string,ne
   return;
  }
  db.query("DELETE FROM safety_obligations WHERE id=? AND collection_id=(SELECT id FROM safety_collections WHERE turn_id=? AND ended=0)").run(id,turnId);
-}
-/** A later event under a fetch's ID (an admission, a result, a lost
- * result) voids any claim that it never ran (#4514): each of these fetch
- * inputs still open or settled as never delivered becomes unknown. Keyed by
- * the occurrence IDs the collector holds, never by prunable payload. Runs
- * on an ended collection too: each occurrence reserved its terminal rows
- * when it was written. */
-export function contradictSafetyNonDelivery(db:Database,turnId:string,occurrenceIds:readonly string[]):void {
- if(!occurrenceIds.length)return;
- db.transaction(()=>{
-  const c=collection(db,turnId);if(!c)return;
-  const rows=db.query<RecordRow,string[]>(`SELECT r.* FROM safety_records r WHERE r.collection_id=? AND r.kind='occurrence'
-   AND r.source='web_fetch' AND r.detector='tool_web_input' AND r.id IN (${occurrenceIds.map(()=>"?").join(",")})
-   AND coalesce((SELECT x.state FROM safety_records x WHERE x.occurrence_id=r.id AND x.kind='exposure'
-     ORDER BY length(x.sequence) DESC,x.sequence DESC LIMIT 1),r.state) IN ('open','not_delivered')`).all(c.id,...occurrenceIds);
-  for(const row of rows)appendRecord(db,c,crypto.randomUUID(),"exposure",row.id,null,null,"interrupted_unknown",{},Date.now());
- }).immediate();
 }
 /** Every call still owing its result in these collections becomes their
  * chats' permanent gap, naming the first such call. Returns the causes. */

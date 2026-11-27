@@ -138,14 +138,9 @@ running under the tainted policy, not refusing.
 - For a refused web fetch, the collector may prove non-delivery when the
   backend denied the sole admission before allowing execution. The host
   appends that fact to the exact fetch inputs and discharges the obligation
-  in one transaction. When the fetch input committed but its obligation
-  insert failed, the same denial still proves non-delivery and appends that
-  fact with no obligation to discharge (#4514). The attempts remain in history, contribute zero
-  unresolved inputs, and receive no owner verdict. Any later event under the
-  ID (a later admission, or a result, recorded or lost) voids that claim
-  durably: the failure notice's own write marks those inputs
-  `interrupted_unknown`, also when it arrives during the denial's own write or
-  after the turn ended, and a non-delivery fact that would follow it is refused. A proxy refusal, interrupted connection, timeout, error message
+  in one transaction. The attempts remain in history, contribute zero
+  unresolved inputs, and receive no owner verdict. A later result supersedes
+  that fact. A proxy refusal, interrupted connection, timeout, error message
   or missing result alone cannot prove whether the fetch delivered input.
   Independent proxy observations retain their own disposition.
 - **Evidence store unwritable** (the chat fact cannot commit): the brain
