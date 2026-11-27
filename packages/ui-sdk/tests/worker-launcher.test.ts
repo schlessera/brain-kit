@@ -372,18 +372,20 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
         try {
           try { worker = await launchAgentWorkerAsync({ brainPath: f.brain, env: {}, command, startupView: view.startupView }); }
           finally { spy.mockRestore(); }
-          // Read before the kill: a dead supervisor's children are reparented.
-          const sandbox = sandboxOf(worker.pid);
-          worker.kill("SIGKILL");
           expect(held, "SANDBOX_HELD").toBeDefined();
-          expect(sandbox, "SANDBOX_HELD_IS_THE_REPORTED_ONE").toEqual([held!]);
+          expect(sandboxOf(worker.pid), "SANDBOX_HELD_IS_THE_REPORTED_ONE").toEqual([held!]);
+          // The stop is confirmed before the supervisor dies: once it has, the
+          // fix kills the held sandbox. Held, the sandbox cannot progress, so
+          // when the kill lands relative to the launch no longer matters.
           let stoppedState = readProcStat(held!.pid)?.state;
           const deadline = performance.now() + watchdogMs(10_000);
-          while (stoppedState !== "T" && performance.now() < deadline) { await Bun.sleep(1); stoppedState = readProcStat(held!.pid)?.state; }
+          while (stoppedState !== undefined && stoppedState !== "T" && performance.now() < deadline) { await Bun.sleep(1); stoppedState = readProcStat(held!.pid)?.state; }
           expect(stoppedState, "SANDBOX_STOPPED").toBe("T");
           // A child means it has forked the program's process, which comes
           // after its setup, so it may have armed the signal: try again.
-          if (procChildren(held!.pid).length) { reap([held!]); await worker.exited; continue; }
+          const forked = procChildren(held!.pid).length > 0;
+          worker.kill("SIGKILL");
+          if (forked) { reap([held!]); await worker.exited; continue; }
           await worker.exited;
           process.kill(held!.pid, "SIGCONT");
           await stopped(worker, [held!]);
