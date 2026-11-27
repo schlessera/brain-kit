@@ -14,7 +14,7 @@ export class SafetyReadUnavailable extends Error {
 }
 interface Snapshot { id:string; principalId:string; target:SafetyTarget; identity:SafetyIdentity; highWater:string;
   projection:SafetyPage["projection"]; membership:string; expiresAt:number; pruned:number; bytes:number; entries:boolean; admissions:boolean; nonDelivery:boolean; attribution:boolean }
-interface Row { id:string; sequence:string; observed_at:number; kind:string; occurrence_id:string|null; source:string|null;
+interface Row { id:string; sequence:string; observed_at:number; kind:string; occurrence_id:string; source:string|null;
   detector:string|null; state:string|null; payload:string; detail_pruned:number; turn_id:string; collection_id:string }
 const same = (a:unknown,b:unknown) => JSON.stringify(a)===JSON.stringify(b);
 const fingerprint = (value:unknown) => new Bun.CryptoHasher("sha256").update(JSON.stringify(value)).digest("hex");
@@ -26,7 +26,7 @@ const wireId = (value:string) => {
 
 export class SafetyHistory {
   private readonly subscriptions = new Map<object, { principal:Principal; identity:SafetyIdentity; revision:string; membership:string; projectionHash:string; valid:()=>boolean;
-    send:(value:SafetyUpdate|Unavailable)=>void; busy:boolean; entries:boolean; admissions:boolean; nonDelivery:boolean; attribution:boolean; reuse:string }>();
+    send:(value:SafetyUpdate|Unavailable)=>void; busy:boolean; entries:boolean; admissions:boolean; nonDelivery:boolean; attribution:boolean }>();
   private readonly snapshots = new Map<string, Snapshot>();
   private readonly cursors = new Map<string, {snapshotId:string; after:string}>();
   private retainedBytes = 0;
@@ -88,29 +88,6 @@ export class SafetyHistory {
     const {sql,args}=this.scope(identity);
     return (this.db.query(`SELECT COUNT(*) n FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE ${sql} AND r.detail_pruned=1`).get(...args) as {n:number}).n;
   }
-  /** Reuse facts the collector holds in memory until their write commits
-   * (#4513), as attribution records with sequence in (after, through]. */
-  private pendingReuse(identity:SafetyIdentity,after:string,through:string):SafetyRecord[] {
-    const local=safetyQueue(this.db).reuse;if(!local.size)return [];
-    const {sql,args}=this.scope(identity);
-    const rows=this.db.query(`SELECT c.id,c.turn_id FROM safety_collections c WHERE ${sql} LIMIT 129`).all(...args) as {id:string;turn_id:string}[];
-    const durable=(collectionId:string,key:string|null)=>!!(key===null
-      ?this.db.query("SELECT 1 FROM safety_tool_reuse WHERE collection_id=? AND tool_use_id IS NULL").get(collectionId)
-      :this.db.query("SELECT 1 FROM safety_tool_reuse WHERE collection_id=? AND (tool_use_id IS NULL OR tool_use_id=?)").get(collectionId,key));
-    const records:SafetyRecord[]=[];
-    for(const row of rows)for(const [key,fact] of local.get(row.turn_id)??[]){
-      const sequence=BigInt(fact.sequence);
-      if(sequence<=BigInt(after)||sequence>BigInt(through)||sequence===0n)continue;
-      if(durable(row.id,key))continue;
-      records.push({id:`pending_${fingerprint([row.id,key,fact.sequence]).slice(0,40)}`,sequence:fact.sequence,observedAt:fact.at,turnId:row.turn_id,bindingId:row.id,
-        detailPruned:false,kind:"attribution",toolUseId:key,attribution:"unknown"} as SafetyRecord);
-    }
-    return records;
-  }
-  /** Changes whenever the in-memory reuse facts in scope change. */
-  private reuseState(identity:SafetyIdentity):string {
-    return safetyQueue(this.db).reuse.size?fingerprint(this.pendingReuse(identity,"0",String(BigInt("18446744073709551615"))).map(r=>r.id)):"";
-  }
   private localState(identity:SafetyIdentity):{pending:number;failed:boolean} {
     const local=safetyQueue(this.db),{sql,args}=this.scope(identity);
     const rows=this.db.query(`SELECT c.turn_id FROM safety_collections c WHERE ${sql} LIMIT 129`).all(...args) as {turn_id:string}[];
@@ -119,34 +96,57 @@ export class SafetyHistory {
     const pending=[...local.pending].filter(r=>r.turnId!==null&&turns.has(r.turnId)||"sessionId" in identity&&r.sessionId===identity.sessionId).length;
     return {pending,failed:local.failed};
   }
-  private projection(identity:SafetyIdentity):SafetyPage["projection"] {
+  private projection(identity:SafetyIdentity,attribution=false):SafetyPage["projection"] {
     const p=safetyProjection(this.db,"turnId" in identity?identity.turnId:null,"sessionId" in identity?identity.sessionId:null);
     const {pending,failed}=this.localState(identity);
     if(pending||failed){p.restriction="restricted";p.pendingCount=Math.max(p.pendingCount,pending);
       if(pending&&!p.reasons.includes("recording_pending"))p.reasons.push("recording_pending");
       if(failed){p.coverage.state="incomplete";if(!p.reasons.includes("recording_failed"))p.reasons.push("recording_failed");}}
-    return p as SafetyPage["projection"];
+    // Display-only, for opted-in readers; enforcement never reads it (#4513).
+    return (attribution?{...p,attributionUnknown:this.attributionUnknown(identity)}:p) as SafetyPage["projection"];
   }
-  private records(identity:SafetyIdentity,after:string,through:string,limit:number,entries:boolean,admissions:boolean,nonDelivery:boolean,attribution:boolean):SafetyRecord[] {
+  /**
+   * The bindings whose collector observed differently named calls under a
+   * tool-use ID (#4513), with those IDs; `null` covers every ID of the
+   * binding. An open turn reads its live tracker, an ended one the column
+   * its own end wrote. A turn never checked (NULL) reads as before: nothing
+   * is reported. At most 64 IDs in all; a binding over that budget is
+   * reported turn-wide.
+   */
+  private attributionUnknown(identity:SafetyIdentity):{bindingId:string;toolUseIds:string[]|null}[] {
+    const {sql,args}=this.scope(identity),live=safetyQueue(this.db).attribution;
+    const rows=this.db.query(`SELECT c.id,c.turn_id,c.tool_reuse FROM safety_collections c WHERE ${sql} ORDER BY c.rowid LIMIT 129`).all(...args) as {id:string;turn_id:string;tool_reuse:string|null}[];
+    if(rows.length>128)throw new SafetyReadUnavailable("capacity");
+    const out:{bindingId:string;toolUseIds:string[]|null}[]=[];let budget=64;
+    for(const row of rows){
+      const tracker=live.get(row.turn_id);
+      let ids:string[]|null;
+      if(tracker)ids=tracker.all?null:[...tracker.reused];
+      else{
+        let stored:unknown=[];
+        try{stored=row.tool_reuse===null?[]:JSON.parse(row.tool_reuse);}catch{stored=[];}
+        ids=Array.isArray(stored)?(stored.includes("*")?null:stored.filter((id):id is string=>typeof id==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(id)).slice(0,8)):[];
+      }
+      if(ids&&!ids.length)continue;
+      if(ids&&ids.length>budget)ids=null;
+      if(ids)budget-=ids.length;
+      out.push({bindingId:row.id,toolUseIds:ids});
+    }
+    return out;
+  }
+  private records(identity:SafetyIdentity,after:string,through:string,limit:number,entries:boolean,admissions:boolean,nonDelivery:boolean):SafetyRecord[] {
     const {sql,args}=this.scope(identity);
-    // Opted-in readers also receive each tool-use ID the host saw under
-    // differently named calls (#4513), at its own revision.
-    const reuse=attribution?`UNION ALL SELECT a.id,a.collection_id,a.sequence,a.observed_at,'tool_reuse',a.tool_use_id,NULL,NULL,NULL,'{}',0,0,0,0,c.turn_id
-      FROM safety_tool_reuse a JOIN safety_collections c ON c.id=a.collection_id WHERE ${sql}`:"";
     const rows=this.db.query(`SELECT * FROM (
       SELECT r.*,c.turn_id FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE ${sql}
       UNION ALL SELECT d.id,r.collection_id,d.sequence,d.decided_at,'safe_decision',d.occurrence_id,NULL,NULL,NULL,
         json_object('session',json_object('sessionId',d.session_id,'historyOwnerId',d.history_owner_id,'historyGeneration',d.generation),
         'principalId',d.principal_id,'requestId',d.request_id,'channel',d.channel),0,0,0,0,c.turn_id
       FROM safety_decisions d JOIN safety_records r ON r.id=d.occurrence_id JOIN safety_collections c ON c.id=r.collection_id WHERE ${sql}
-      ${reuse}
     ) WHERE (length(sequence)>length(?) OR (length(sequence)=length(?) AND sequence>?))
       AND (length(sequence)<length(?) OR (length(sequence)=length(?) AND sequence<=?))
-    ORDER BY length(sequence),sequence LIMIT ?`).all(...args,...args,...(attribution?args:[]),after,after,after,through,through,through,limit) as Row[];
+    ORDER BY length(sequence),sequence LIMIT ?`).all(...args,...args,after,after,after,through,through,through,limit) as Row[];
     return rows.map(r=>{
-      if(r.kind==="tool_reuse")return {id:wireId(r.id),sequence:r.sequence,observedAt:r.observed_at,turnId:r.turn_id,bindingId:r.collection_id,detailPruned:false,
-        kind:"attribution",toolUseId:r.occurrence_id===null?null:wireId(r.occurrence_id),attribution:"unknown"} as SafetyRecord;
-      const common={id:wireId(r.id),sequence:r.sequence,observedAt:r.observed_at,turnId:r.turn_id,bindingId:r.collection_id,occurrenceId:wireId(r.occurrence_id!),detailPruned:!!r.detail_pruned};
+      const common={id:wireId(r.id),sequence:r.sequence,observedAt:r.observed_at,turnId:r.turn_id,bindingId:r.collection_id,occurrenceId:wireId(r.occurrence_id),detailPruned:!!r.detail_pruned};
       const p=JSON.parse(r.payload);
       if(r.kind==="safe_decision")return {...common,kind:"safe_decision",session:p.session,requestId:p.requestId,principalId:p.principalId,verdict:"safe",channel:p.channel} as SafetyRecord;
       if(r.kind==="exposure")return {...common,kind:"exposure",state:r.state==="not_delivered"&&!nonDelivery?"interrupted_unknown":r.state} as SafetyRecord;
@@ -188,21 +188,16 @@ export class SafetyHistory {
         if(this.pruned(identity)!==s.pruned)throw new SafetyReadUnavailable("expired");
       }else{
         if(this.snapshots.size>=256||[...this.snapshots.values()].filter(s=>s.principalId===principal.id).length>=32)throw new SafetyReadUnavailable("capacity");
-        const projection=this.projection(identity),size=bytes(projection)+2048;
+        const projection=this.projection(identity,attribution),size=bytes(projection)+2048;
         if(this.retainedBytes+size>4194304)throw new SafetyReadUnavailable("capacity");
         snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,membership:this.membership(identity,projection.evidenceRevision),expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size,entries,admissions,nonDelivery,attribution};
         this.snapshots.set(snapshot.id,snapshot);this.retainedBytes+=size;
       }
-      const fetched=this.records(identity,after,snapshot.highWater,limit+1,snapshot.entries,snapshot.admissions,snapshot.nonDelivery,snapshot.attribution),records:SafetyRecord[]=[];
+      const fetched=this.records(identity,after,snapshot.highWater,limit+1,snapshot.entries,snapshot.admissions,snapshot.nonDelivery),records:SafetyRecord[]=[];
       const page:SafetyPage={version:1,identity,snapshotId:snapshot.id,cursor,highWater:snapshot.highWater,projection:snapshot.projection,records,nextCursor:null,snapshotComplete:false,detailPruned:snapshot.pruned>0};
       for(const record of fetched.slice(0,limit)){if(bytes({...page,records:[...records,record]})>261000)break;records.push(record);}
       if(fetched.length&&!records.length)throw new SafetyReadUnavailable("capacity");
       page.snapshotComplete=records.length===fetched.length;
-      // The final page also carries reuse facts this process holds but has
-      // not yet made durable (#4513), each at the revision it was observed at.
-      if(page.snapshotComplete&&snapshot.attribution)for(const record of this.pendingReuse(identity,"0",snapshot.highWater)){
-        if(records.length>=100||bytes({...page,records:[...records,record]})>261000)break;records.push(record);
-      }
       if(!page.snapshotComplete){
         // One reusable position token per snapshot page; retries cannot grow
         // an unbounded cursor table. At most 100000 ledger rows per snapshot.
@@ -232,10 +227,9 @@ export class SafetyHistory {
     return Database.prototype.transaction.call(this.db,()=>{
       if(!same(this.authorize(principal,target),identity))throw new SafetyReadUnavailable("generation_changed");
       if(this.membership(identity,after)!==membership)throw new SafetyReadUnavailable("gap");
-      const projection=this.projection(identity);
+      const projection=this.projection(identity,attribution);
       if(BigInt(after)>BigInt(projection.evidenceRevision))throw new SafetyReadUnavailable("gap");
-      const records=this.records(identity,after,projection.evidenceRevision,101,entries,admissions,nonDelivery,attribution);
-      if(attribution)records.push(...this.pendingReuse(identity,after,projection.evidenceRevision));
+      const records=this.records(identity,after,projection.evidenceRevision,101,entries,admissions,nonDelivery);
       const update:SafetyUpdate={version:1,identity,fromRevision:after,toRevision:projection.evidenceRevision,projection,records};
       if(records.length>100||bytes(update)>262000)throw new SafetyReadUnavailable("capacity");
       this.authorize(principal,target);this.clock();
@@ -246,7 +240,7 @@ export class SafetyHistory {
   subscribe(key:object,principal:Principal,identity:SafetyIdentity,revision:string,snapshotId:string,valid:()=>boolean,send:(value:SafetyUpdate|Unavailable)=>void):void {
     if(!this.subscriptions.has(key)&&this.subscriptions.size>=256)throw new SafetyReadUnavailable("capacity");
     const anchor=this.anchor(principal,identity,revision,snapshotId);
-    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(anchor.projection),valid,send,busy:false,entries:anchor.entries,admissions:anchor.admissions,nonDelivery:anchor.nonDelivery,attribution:anchor.attribution,reuse:anchor.attribution?this.reuseState(identity):""});this.poll();
+    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(anchor.projection),valid,send,busy:false,entries:anchor.entries,admissions:anchor.admissions,nonDelivery:anchor.nonDelivery,attribution:anchor.attribution});this.poll();
   }
   unsubscribe(key:object):void {this.subscriptions.delete(key);}
   revoke(principalIds:readonly string[]):void {
@@ -286,13 +280,10 @@ export class SafetyHistory {
         // Local pending/loss latches can change even when their durable write
         // rolled back. Equal durable revisions do not prove equal read state.
         const projectionHash=fingerprint(update.projection);
-        // A reuse fact held only in memory carries no new revision: a reader
-        // past its sequence re-reads to receive it (#4513).
-        const reuse=s.attribution?this.reuseState(s.identity):"";
-        if(update.toRevision===s.revision&&(projectionHash!==s.projectionHash||reuse!==s.reuse)){
+        if(update.toRevision===s.revision&&projectionHash!==s.projectionHash){
           this.subscriptions.delete(key);s.send({version:1,reason:"gap"});return;
         }
-        if(update.toRevision!==s.revision){s.send(update);s.revision=update.toRevision;s.membership=membership;s.projectionHash=projectionHash;s.reuse=reuse;}
+        if(update.toRevision!==s.revision){s.send(update);s.revision=update.toRevision;s.membership=membership;s.projectionHash=projectionHash;}
       },error=>{
         if(this.subscriptions.get(key)!==s||!s.valid()||!this.valid(s.principal))return;
         this.subscriptions.delete(key);s.send({version:1,reason:error instanceof SafetyReadUnavailable?error.reason:"unavailable"});

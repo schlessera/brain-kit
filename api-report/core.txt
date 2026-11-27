@@ -195,7 +195,6 @@ export "./internal" (./src/internal.ts)
   readMany
   relevanceOnArchive
   rerankSetup
-  resolveCompletionProvider
   resolveComputeInstance
   resolveEmbeddingProvider
   resolveGovernancePolicy

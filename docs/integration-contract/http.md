@@ -1566,27 +1566,25 @@ The cursor and subsequent subscription retain that choice. Omitting it keeps
 the original strict version-1 record shape. This metadata grants no authority
 and never infers attribution for opaque transport.
 
-Additively for #4513, `attribution=1` requests the host's attribution facts.
-The host decides attribution: when its collector observes differently named
-calls under one tool-use ID in a turn (from any hook, result or loss report,
-nested calls included), it records that fact durably at its own revision. An
-opted-in page or subscription then carries a record
-`{kind:"attribution", toolUseId, attribution:"unknown", id, sequence,
-observedAt, turnId, bindingId, detailPruned}`. Every input of that binding
-joined to that tool-use ID has unknown attribution, whether it was recorded
-before or after the fact. A `null` `toolUseId` means the host lost track of
-individual IDs in that turn, so every input of the binding has unknown
-attribution. A fallback name for a report that lost its own (an empty or
-`unknown` tool name) is not a second name. A client shows no tool as the
-proven source of such an input, names none until the whole history has
-loaded, and never infers attribution from its own transcript. Facts are
-charged against the session and brain history row and byte ceilings like
-other history rows. Attribution is display-only: a fact the host could not
-yet write is served from memory to live readers and retried, and a failed
-write never gaps or restricts the chat. No other value
-or duplicate parameter is accepted; the cursor and subscription retain the
-choice. Readers that omit it keep their record shape. The fact changes no
-count, restriction, verdict or review authority.
+Additively for #4513, `attribution=1` requests the host's attribution
+verdicts. The host decides attribution: its collector notes every tool name it
+observes under each tool-use ID of a turn (from any hook, result or loss
+report, nested calls included; an empty or `unknown` fallback name is not a
+name). An opted-in projection then carries
+`attributionUnknown: [{bindingId, toolUseIds}]`: under each listed tool-use ID
+the host saw differently named calls, so every input of that binding joined to
+it has unknown attribution. `toolUseIds: null` means the host could not check
+every ID of that turn (more than 8 reused or 2,000 tracked IDs), so every
+input of the binding has unknown attribution. An open turn reports what its
+collector has seen so far; the collection's own end stores it. A turn never
+checked (one that predates this field, or ended any other way, such as a
+restart) reads as before: nothing is reported for it. A name first observed
+after the turn's end is not reported (#5004). A client shows no tool as the
+proven source of a flagged input and never infers attribution from its own
+transcript. The field is display-only: it changes no count, restriction,
+revision, verdict or review authority, and the enforcement projection never
+reads it. No other value or duplicate parameter is accepted; the cursor and
+subscription retain the choice. Readers that omit it keep their shape.
 
 ### Selectable dictation providers (additive, #3707)
 

@@ -147,7 +147,7 @@ function failSafetySession(db:Database,turnId:string|null,sessionId:string,reaso
     const owned=turnId??`lost_${crypto.randomUUID().replaceAll("-","")}`;
     ensureSafetyEventCollection(db,{sessionId,turnId:owned,at:cause.at} as GovernanceEventRow);
     if(!failSafetyCollection(db,owned,reason,cause))return false;
-    if(!turnId)db.query("UPDATE safety_collections SET ended=1,end_revision=COALESCE(end_revision,?) WHERE turn_id=?").run(advance(db),owned);
+    if(!turnId)db.query("UPDATE safety_collections SET ended=1,end_revision=COALESCE(end_revision,?),tool_reuse=NULL WHERE turn_id=?").run(advance(db),owned);
     return true;
   }).immediate();
 }
@@ -165,7 +165,7 @@ function live(db:Database,c:Collection,reserved=false):void {
  * it for good: the brain's room is spent only when they alone leave no room
  * for one more collection. */
 function unboundScope(db:Database):SafetyCapacityScope {
-  const ended=one<{n:number;bytes:number}>(db,`SELECT COUNT(*) n,COALESCE((SELECT SUM(r.reserved_bytes) FROM safety_usage r
+  const ended=one<{n:number;bytes:number}>(db,`SELECT COUNT(*) n,COALESCE((SELECT SUM(r.reserved_bytes) FROM safety_records r
     JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL AND c.ended=1),0) bytes
     FROM safety_collections WHERE session_id IS NULL AND ended=1`);
   return ended.n>=SAFETY_LIMITS.unbound||ended.bytes+(ended.n+1)*2048>SAFETY_LIMITS.unboundBytes?"brain":"turn";
@@ -174,7 +174,7 @@ function capacity(db:Database,c:Collection,rows:number,bytes:number):void {
   const all=meta(db);
   const {scope,args}=safetyScope(db,c.turn_id,c.session_id);
   const used=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes
-    FROM safety_usage r JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}`,...args);
+    FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}`,...args);
   const pending=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes FROM safety_pending p`);
   const localPending=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes
     FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE ${scope}`,...args);
@@ -187,7 +187,7 @@ function capacity(db:Database,c:Collection,rows:number,bytes:number):void {
     ||used.rows+localPending.rows+rows>SAFETY_LIMITS.sessionRows||used.bytes+localPending.bytes+bytes>SAFETY_LIMITS.sessionBytes)
     throw new SafetyCapacityExhausted("Safety ledger capacity exhausted","turn");
   if(c.session_id===null){
-    const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_usage r
+    const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r
       JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL`);
     if(unbound.bytes+pending.bytes+bytes+one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL").n*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted",unboundScope(db));
   }
@@ -233,7 +233,7 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   const n=one<{n:number}>(db, input.sessionId?"SELECT COUNT(*) n FROM safety_collections WHERE session_id=?":"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL",...(input.sessionId?[input.sessionId]:[]));
   if(n.n>=(input.sessionId?SAFETY_LIMITS.epochs:SAFETY_LIMITS.unbound))throw new SafetyCapacityExhausted("Safety coverage capacity exhausted",input.sessionId?"chat":unboundScope(db));
   if(input.sessionId===null){
-    const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_usage r JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL`);
+    const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL`);
     const pending=one<{bytes:number}>(db,`SELECT COALESCE(SUM(p.reserved_bytes),0) bytes FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE c.session_id IS NULL`);
     if(unbound.bytes+pending.bytes+(n.n+1)*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted",unboundScope(db));
   }
@@ -244,8 +244,8 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   if(input.policyHash!==undefined&&input.policyHash!==null&&!/^[a-f0-9]{64}$/.test(input.policyHash))throw new SafetyUnavailable("Invalid safety policy hash");
   const gap=restricted?"recording_failed":uncollectedOwner?"missing_history_owner_collection":input.sessionId&&!session?.principal_id?"unknown_history_owner":session?.backend_id&&session.backend_id!==input.backendId?"backend_history_not_reconstructed":null;
   // The account comes from the principal's own row, never from the input.
-  db.query(`INSERT INTO safety_collections(id,turn_id,session_id,principal_id,principal_account,history_owner_id,generation,backend_id,started_at,gap,start_revision)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(input.bindingId,input.turnId,input.sessionId,input.principalId,principalAccount(db,input.principalId),owner,generation,input.backendId,input.at,gap,advance(db));
+  db.query(`INSERT INTO safety_collections(id,turn_id,session_id,principal_id,principal_account,history_owner_id,generation,backend_id,started_at,gap,start_revision,tool_reuse)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,'[]')`).run(input.bindingId,input.turnId,input.sessionId,input.principalId,principalAccount(db,input.principalId),owner,generation,input.backendId,input.at,gap,advance(db));
   db.query("UPDATE safety_collections SET policy_hash=?,restricted_begin=? WHERE id=?").run(input.policyHash??null,restricted?1:0,input.bindingId);
   db.query("UPDATE safety_meta SET scope_rows=scope_rows+1,scope_bytes=scope_bytes+2048 WHERE singleton=1").run();
   if(input.sessionId)bindSafetyCollection(db,input.turnId,input.sessionId);
@@ -300,7 +300,7 @@ export function bindSafetyCollection(db:Database,turnId:string,sessionId:string)
  const {scope,args}=safetyScope(db,turnId,sessionId);
  const epochs=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_collections c WHERE ${scope}`,...args);
  if(epochs.n>128)throw new SafetyCapacityExhausted("Safety binding coverage capacity exhausted","chat");
- const totals=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_usage r
+ const totals=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r
   JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}`,...args);
  const pending=one<{rows:number;bytes:number;count:number;serializedBytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes,
   COUNT(*) count,COALESCE(SUM(p.bytes),0) serializedBytes FROM safety_pending p
@@ -369,33 +369,6 @@ export function appendSafetyEvent(db:Database,row:GovernanceEventRow,reserved=fa
   return null;
  }
 }
-/** A collection may hold this many per-ID reuse facts; past it one turn-wide fact covers every ID. */
-const TOOL_REUSE = 2048;
-/** Room each reuse fact holds against the session and brain byte ceilings. */
-const TOOL_REUSE_BYTES = 512;
-/**
- * The collector observed differently named calls under this tool-use ID in
- * this collection (#4513), from any hook, result or loss report, nested
- * calls included. `null`: under every tool-use ID of the collection. Durable
- * and idempotent; recorded after the collection ended too, since a late
- * report is still an observation. Charged like any other history row; past
- * the per-collection count it becomes the turn-wide fact. An ID that can
- * carry no entry join qualifies no input and is not kept.
- */
-export function recordSafetyToolReuse(db:Database,turnId:string,toolUseId:string|null,at=Date.now()):void {
- if(toolUseId!==null&&!/^[A-Za-z0-9_-]{1,128}$/.test(toolUseId))return;
- db.transaction(()=>{
-  const c=collection(db,turnId);if(!c)return;
-  const held=(id:string|null)=>!!db.query("SELECT 1 FROM safety_tool_reuse WHERE collection_id=? AND COALESCE(tool_use_id,'')=?").get(c.id,id??"");
-  if(held(null)||toolUseId!==null&&held(toolUseId))return;
-  const key=toolUseId!==null&&one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_tool_reuse WHERE collection_id=?",c.id).n>=TOOL_REUSE?null:toolUseId;
-  if(key===null&&held(null))return;
-  capacity(db,c,1,TOOL_REUSE_BYTES);
-  db.query("INSERT INTO safety_tool_reuse(id,collection_id,tool_use_id,sequence,observed_at,reserved_rows,reserved_bytes) VALUES(?,?,?,?,?,1,?)")
-   .run(crypto.randomUUID(),c.id,key,advance(db),at,TOOL_REUSE_BYTES);
-  db.query("UPDATE safety_meta SET used_rows=used_rows+1,used_bytes=used_bytes+? WHERE singleton=1").run(TOOL_REUSE_BYTES);
- }).immediate();
-}
 /** A collection may hold this many calls that still owe their results. */
 const OBLIGATIONS = 2048;
 const clipText=(text:string)=>clip(text.replace(/[\u0000-\u001f\u007f]/g," "),128);
@@ -456,10 +429,22 @@ function gapOwedResults(db:Database,collectionId:string|null,site:SafetyFailureS
  return causes;
 }
 const logOwed=(causes:SafetyFailureCause[])=>{for(const cause of causes)logSafetyRecording("safety recording failed for one chat",causeAttributes("chat","recording_failed",cause));};
-export function endSafetyCollection(db:Database,turnId:string):void {
+/** The collector's reuse finding as the column stores it (#4513): at most 8
+ * entry-shaped IDs, or ["*"]; anything else is NULL, never checked. */
+function toolReuseColumn(value:string|null):string|null {
+ if(value===null)return null;
+ try{
+  const ids=JSON.parse(value) as unknown;
+  if(!Array.isArray(ids)||ids.length>8||!ids.every(id=>typeof id==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(id)||id==="*")||ids.includes("*")&&ids.length!==1)return null;
+  return JSON.stringify(ids);
+ }catch{return null;}
+}
+/** `toolReuse`: what the turn's own collector found (#4513); any other end
+ * leaves it NULL, never checked. */
+export function endSafetyCollection(db:Database,turnId:string,toolReuse:string|null=null):void {
  const owed=db.transaction(()=>{const c=collection(db,turnId);if(!c||c.ended)return [];
  // Lost/incomplete hooks leave exposures open and therefore unresolved.
- db.query("UPDATE safety_collections SET ended=1,end_revision=? WHERE id=?").run(advance(db),c.id);
+ db.query("UPDATE safety_collections SET ended=1,end_revision=?,tool_reuse=? WHERE id=?").run(advance(db),toolReuseColumn(toolReuse),c.id);
  // A reservation still open at the end can never commit: an ended epoch
  // refuses late input. Its possibly delivered input becomes this chat's
  // permanent gap, so the chat runs restricted instead of staying pending.
@@ -550,7 +535,7 @@ function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|nu
 export function recoverSafetyCollections(db:Database):void {
  const owed=db.transaction(()=>{
   const n=one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE ended=0").n;
-  if(n){db.query("UPDATE safety_collections SET gap=COALESCE(gap,'host_restart_unknown'),ended=1,end_revision=? WHERE ended=0").run(advance(db));}
+  if(n){db.query("UPDATE safety_collections SET gap=COALESCE(gap,'host_restart_unknown'),ended=1,end_revision=?,tool_reuse=NULL WHERE ended=0").run(advance(db));}
   // A call that owed its result when the process died may have run: its
   // chat keeps the gap, as if its collection had ended with it owed.
   const owed=gapOwedResults(db,null,"boot-obligation");
@@ -613,7 +598,7 @@ export function migrateSafetyHistory(db:Database):boolean {
     try{db.transaction(()=>{
       ensureSafetyEventCollection(db,{sessionId:r.session_id,turnId,at:r.at,kind:r.kind,payload:r.payload,version:r.schema_version,actor:r.actor,model:r.model,profile:r.profile,dedupeKey:r.dedupe_key});
       failSafetyCollection(db,turnId,reason,cause);
-      db.query("UPDATE safety_collections SET ended=1,end_revision=COALESCE(end_revision,?) WHERE turn_id=?").run(advance(db),turnId);
+      db.query("UPDATE safety_collections SET ended=1,end_revision=COALESCE(end_revision,?),tool_reuse=NULL WHERE turn_id=?").run(advance(db),turnId);
      }).immediate();}
     catch(scoped){
       if(scoped instanceof ChatRetiredError){after=r.id;continue;}

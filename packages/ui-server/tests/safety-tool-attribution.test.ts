@@ -1,151 +1,224 @@
-/** The host decides attribution (#4513): differently named calls under one
- * tool-use ID in a turn, from any hook, result or loss report the collector
- * observes, nested calls included, make that ID's inputs unattributable.
- * The fact is durable and reaches only readers that opt in. Keyless. */
+/** The host decides attribution (#4513). Its collector notes every tool name
+ * it observes under each tool-use ID of a turn, in memory, and the
+ * collection's own end stores the reused IDs. Opted-in readers receive them
+ * in the projection; a turn never checked reads as before. Display-only:
+ * nothing here changes a revision, a count or enforcement. Keyless. */
 import { expect, test } from "bun:test";
 import { createUiDb } from "../src/db/client";
 import { SafetyHistory } from "../src/governance/safety-history";
 import { createSafetyCollector } from "../src/governance/safety-collector";
+import { recoverSafetyCollections } from "../src/governance/safety-store";
+import { safetyQueue } from "../src/governance/safety-queue";
+import { retireChat } from "../src/ws/chat-lifecycle";
 import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
 import { safetyHistoryFixture } from "./helpers/safety-history-fixture";
 
 type Fixture = Awaited<ReturnType<typeof safetyHistoryFixture>>;
 const harbour = { url: "https://ithaca.example/harbour" };
-function collect(f: Fixture, signal = new AbortController().signal) {
-  return createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
-    sessionId: () => "ithaca", shellProxied: () => true, signal });
+function collect(f: Fixture, turnId = "voyage") {
+  return createSafetyCollector(f.db, f.writes, { turnId, bindingId: f.bindingId, backendId: "claude",
+    sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
 }
-async function attributions(history: SafetyHistory, f: Fixture, optIn = true) {
-  const page = await history.read(f.principal, { sessionId: "ithaca" }, null, 50, true, true, true, optIn);
-  return page.records.filter(record => record.kind === "attribution");
+async function page(history: SafetyHistory, f: Fixture, optIn = true, limit = 50) {
+  return history.read(f.principal, { sessionId: "ithaca" }, null, limit, true, true, true, optIn);
 }
+async function flags(history: SafetyHistory, f: Fixture) {
+  return (await page(history, f)).projection.attributionUnknown;
+}
+async function reused(f: Fixture, collector = collect(f)) {
+  collector.admitting?.("fetch", "WebFetch");
+  await collector.begin("fetch", "WebFetch", harbour);
+  await collector.allowed?.("fetch");
+  await collector.result("fetch", "WebFetch", "Harbour notes", true);
+  collector.admitting?.("fetch", "Bash");
+  return collector;
+}
+const restarted = async <T>(f: Fixture, read: (history: SafetyHistory) => Promise<T>) => {
+  const db = createUiDb(f.path);
+  try { return await read(new SafetyHistory(db, () => true, async () => {})); } finally { db.close(); }
+};
 
-test("differently named calls under one ID make its attribution unknown, durably, for opted-in readers only", async () => {
+test("T1 reuse is reported live, after the end and after a reopen, on every page, to opted-in readers only", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    await f.add("connection", true); await f.add("loom");
+    await reused(f);
+    const expected = [{ bindingId: f.bindingId, toolUseIds: ["fetch"] }];
+    expect(await flags(f.history, f), "LIVE_REUSE_IS_REPORTED").toEqual(expected);
+    await f.writes.safetyEnd("voyage");
+    expect(await flags(f.history, f), "ENDED_REUSE_IS_REPORTED").toEqual(expected);
+    expect(await restarted(f, history => flags(history, f)), "REOPENED_REUSE_IS_REPORTED").toEqual(expected);
+    expect((await page(f.history, f, true, 2)).projection.attributionUnknown, "EVERY_PAGE_CARRIES_IT").toEqual(expected);
+    expect("attributionUnknown" in (await page(f.history, f, false)).projection, "LEGACY_READERS_KEEP_THEIR_SHAPE").toBe(false);
+  } finally { await f.close(); }
+});
+
+test("T2 one name, however often observed, keeps its attribution", async () => {
   const f = await safetyHistoryFixture();
   try {
     const collector = collect(f);
-    collector.admitting?.("fetch", "WebFetch");
+    for (let i = 0; i < 3; i++) collector.admitting?.("fetch", "WebFetch");
     await collector.begin("fetch", "WebFetch", harbour);
-    collector.admitting?.("fetch", "Bash");
     await f.writes.safetyEnd("voyage");
-    expect((await attributions(f.history, f)).map(record => record.kind === "attribution" && record.toolUseId), "REUSED_ID_ATTRIBUTION_UNKNOWN").toEqual(["fetch"]);
-    expect(await attributions(f.history, f, false), "LEGACY_READERS_KEEP_THEIR_SHAPE").toEqual([]);
-    const http = await (await f.get("?entries=1&attribution=1")).json();
-    expect(http.records.filter((record: { kind: string }) => record.kind === "attribution")).toHaveLength(1);
-    const restarted = createUiDb(f.path);
+    expect(await flags(f.history, f), "UNIQUE_NAME_STAYS_ATTRIBUTED").toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("T3 a turn that crashed before its end reads as before, with or without observed reuse", async () => {
+  for (const sawReuse of [true, false]) {
+    const f = await safetyHistoryFixture();
     try {
-      expect((await attributions(new SafetyHistory(restarted, () => true, async () => {}), f)).length, "ATTRIBUTION_SURVIVES_RESTART").toBe(1);
-    } finally { restarted.close(); }
-  } finally { await f.close(); }
+      const collector = collect(f);
+      if (sawReuse) { collector.admitting?.("fetch", "WebFetch"); collector.admitting?.("fetch", "Bash"); }
+      const db = createUiDb(f.path);
+      try {
+        recoverSafetyCollections(db);
+        expect(db.query("SELECT tool_reuse FROM safety_collections").all(), "RESTART_LEAVES_THE_TURN_UNCHECKED").toEqual([{ tool_reuse: null }]);
+        expect(await flags(new SafetyHistory(db, () => true, async () => {}), f), "NEVER_CHECKED_READS_AS_BEFORE").toEqual([]);
+      } finally { db.close(); }
+    } finally { await f.close(); }
+  }
 });
 
-test("a nested call reusing a top-level call's ID makes its attribution unknown", async () => {
+test("T4 a database from before the column, upgraded, reads as before", async () => {
   const f = await safetyHistoryFixture();
   try {
-    const controller = new AbortController();
-    const collector = collect(f, controller.signal);
-    const { hooks } = createPermissionWiring({
-      req: { prompt: "Read the harbour report", signal: controller.signal, bridge: { emit() {}, requestPermission: async () => ({ behavior: "allow" }), inputSafety: collector } },
-      allowedTools: ["WebFetch", "Read"], confirmPatterns: [], brainPath: f.root,
-      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never,
-      childEnv: {}, log() {},
-    });
-    const pre = (tool: string) => hooks!.PreToolUse!.filter(group => !group.matcher || new RegExp(`^(?:${group.matcher})$`).test(tool)).flatMap(group => group.hooks);
-    const run = (tool: string, input: Record<string, unknown>, nested: boolean) => Promise.all(pre(tool).map(hook => hook({ hook_event_name: "PreToolUse",
-      tool_name: tool, tool_use_id: "fetch", tool_input: input, cwd: f.root, session_id: "ithaca", transcript_path: "",
-      ...(nested ? { agent_id: "scout", agent_type: "general-purpose" } : {}) } as never, "fetch", { signal: controller.signal })));
-    await run("WebFetch", harbour, false);
-    await run("Read", { file_path: "notes/loom.md" }, true);
     await f.writes.safetyEnd("voyage");
-    expect((await attributions(f.history, f)).length, "NESTED_REUSE_IS_OBSERVED").toBe(1);
+    f.db.exec("ALTER TABLE safety_collections DROP COLUMN tool_reuse");
+    f.db.query("DELETE FROM _migrations WHERE filename='104_safety_tool_reuse.sql'").run();
+    expect(await restarted(f, async history => {
+      expect((history as unknown as { db: { query(sql: string): { all(): unknown } } }).db.query("SELECT tool_reuse FROM safety_collections").all()).toEqual([{ tool_reuse: null }]);
+      return flags(history, f);
+    }), "UPGRADED_TURN_READS_AS_BEFORE").toEqual([]);
   } finally { await f.close(); }
 });
 
-test("one tool name under an ID, however often observed, keeps its attribution", async () => {
+test("T5 a refused end keeps serving the live finding; a reopen reads as before", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    await reused(f);
+    f.db.run("CREATE TRIGGER sirens_hold_the_end BEFORE UPDATE OF ended ON safety_collections BEGIN SELECT RAISE(ABORT,'disk I/O error'); END");
+    let refused = false;
+    try { await f.writes.safetyEnd("voyage"); } catch { refused = true; }
+    expect(refused).toBe(true);
+    expect(await flags(f.history, f), "REFUSED_END_KEEPS_THE_LIVE_FINDING").toEqual([{ bindingId: f.bindingId, toolUseIds: ["fetch"] }]);
+    f.db.run("DROP TRIGGER sirens_hold_the_end");
+    expect(await restarted(f, history => flags(history, f)), "REOPEN_READS_AS_BEFORE").toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("T6 observing reuse changes no revision, usage or enforcement projection", async () => {
   const f = await safetyHistoryFixture();
   try {
     const collector = collect(f);
     collector.admitting?.("fetch", "WebFetch");
     await collector.begin("fetch", "WebFetch", harbour);
-    collector.admitting?.("fetch", "WebFetch");
-    await collector.result("fetch", "WebFetch", "Harbour notes", true);
-    await f.writes.safetyEnd("voyage");
-    expect(await attributions(f.history, f), "UNIQUE_NAME_STAYS_ATTRIBUTED").toEqual([]);
-  } finally { await f.close(); }
-});
-
-test("a transient attribution write failure gaps nothing, is served from memory, and commits on retry", async () => {
-  const f = await safetyHistoryFixture();
-  try {
-    let failing = true, attempts = 0;
-    const writes = { ...f.writes, safetyToolReuse: async (...args: Parameters<Fixture["writes"]["safetyToolReuse"]>) => {
-      attempts++;
-      if (failing) throw new Error("The ledger is busy with the suitors");
-      return f.writes.safetyToolReuse(...args);
-    } };
-    const collector = createSafetyCollector(f.db, writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
-      sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
-    collector.admitting?.("fetch", "WebFetch");
-    await collector.begin("fetch", "WebFetch", harbour);
-    await collector.allowed?.("fetch");
-    await collector.result("fetch", "WebFetch", "Harbour notes", true);
+    const meta = () => f.db.query("SELECT revision,used_rows,used_bytes,scope_rows,scope_bytes FROM safety_meta").get();
+    const before = { meta: meta(), enforcement: f.writes.safety(null, "ithaca") };
     collector.admitting?.("fetch", "Bash");
-    for (let i = 0; i < 200 && !attempts; i++) await new Promise(resolve => setTimeout(resolve, 5));
-    const served = await attributions(f.history, f);
-    expect(served.map(record => record.id.startsWith("pending_")), "MEMORY_SERVES_THE_UNSETTLED_FACT").toEqual([true]);
-    expect(f.writes.safety(null, "ithaca").reasons, "DISPLAY_FAILURE_GAPS_NOTHING").not.toContain("recording_failed");
-    failing = false;
-    collector.admitting?.("raft", "Read");
-    await f.writes.safetyEnd("voyage");
-    expect(f.writes.safety(null, "ithaca").reasons, "DISPLAY_FAILURE_GAPS_NOTHING").not.toContain("recording_failed");
-    const restarted = createUiDb(f.path);
-    try {
-      const durable = await attributions(new SafetyHistory(restarted, () => true, async () => {}), f);
-      expect(durable.map(record => record.kind === "attribution" && record.toolUseId), "RETRY_COMMITS_THE_FACT").toEqual(["fetch"]);
-    } finally { restarted.close(); }
+    expect({ meta: meta(), enforcement: f.writes.safety(null, "ithaca") }, "REUSE_IS_DISPLAY_ONLY").toEqual(before);
   } finally { await f.close(); }
 });
 
-test("past the collector's tracking room, every ID in the turn reads as unknown", async () => {
+test("T7 observation never touches the database", async () => {
   const f = await safetyHistoryFixture();
   try {
     const collector = collect(f);
-    for (let i = 0; i < 2000; i++) collector.admitting?.(`oar_${i}`, "Grep");
-    await collector.begin("fetch", "WebFetch", harbour);
+    const query = f.db.query;
+    f.db.query = (() => { throw new Error("The loom is unravelled"); }) as typeof query;
+    try {
+      expect(() => { collector.admitting?.("fetch", "WebFetch"); collector.admitting?.("fetch", "Bash"); }, "OBSERVATION_HAS_NO_DATABASE_PATH").not.toThrow();
+    } finally { f.db.query = query; }
+    expect(await flags(f.history, f)).toEqual([{ bindingId: f.bindingId, toolUseIds: ["fetch"] }]);
+  } finally { await f.close(); }
+});
+
+test("T8 reuse between the final read and subscribe makes the subscriber re-read", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const collector = collect(f);
+    collector.admitting?.("fetch", "WebFetch");
+    const read = await page(f.history, f);
+    collector.admitting?.("fetch", "Bash");
+    const sent: unknown[] = [];
+    f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent.push(value));
+    for (let i = 0; i < 100 && !sent.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(sent, "LIVE_CHANGE_AT_EQUAL_REVISION_GAPS").toEqual([{ version: 1, reason: "gap" }]);
+  } finally { await f.close(); }
+});
+
+test("T9 reuse followed by another record arrives in the update's projection", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const collector = collect(f);
+    collector.admitting?.("fetch", "WebFetch");
+    const read = await page(f.history, f);
+    const sent: { projection?: { attributionUnknown?: unknown } }[] = [];
+    f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent.push(value as never));
+    // Let the subscription's first poll settle at the snapshot's revision.
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(sent).toEqual([]);
+    const recorded = f.add("calypso");
+    collector.admitting?.("fetch", "Bash");
+    await recorded;
+    f.history.poll();
+    for (let i = 0; i < 100 && !sent.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(sent.at(-1)?.projection?.attributionUnknown, "UPDATE_CARRIES_THE_FINDING").toEqual([{ bindingId: f.bindingId, toolUseIds: ["fetch"] }]);
+  } finally { await f.close(); }
+});
+
+test("T10 reuse in another chat's turn reaches no subscriber of this chat", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const read = await page(f.history, f);
+    const sent: unknown[] = [];
+    f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent.push(value));
+    const elsewhere = collect(f, "aeaea");
+    elsewhere.admitting?.("circe", "WebFetch"); elsewhere.admitting?.("circe", "Bash");
+    f.history.poll();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(sent, "OTHER_CHATS_STAY_QUIET").toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("T11 reuse under an ID that can carry no entry join is not reported", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const collector = collect(f);
+    collector.admitting?.("call:1", "WebFetch"); collector.admitting?.("call:1", "Bash");
     await f.writes.safetyEnd("voyage");
-    expect((await attributions(f.history, f)).map(record => record.kind === "attribution" && record.toolUseId), "OVERFLOW_IS_TURN_WIDE").toEqual([null]);
+    expect(await flags(f.history, f), "UNJOINABLE_ID_IS_NOT_REPORTED").toEqual([]);
   } finally { await f.close(); }
 });
 
-test("past the store's per-turn count, one turn-wide fact covers every ID", async () => {
-  const f = await safetyHistoryFixture();
-  try {
-    for (let i = 0; i < 2049; i++) await f.writes.safetyToolReuse("voyage", `oar_${i}`);
-    const rows = f.db.query("SELECT tool_use_id FROM safety_tool_reuse ORDER BY length(sequence),sequence").all() as { tool_use_id: string | null }[];
-    expect(rows).toHaveLength(2049);
-    expect(rows.at(-1)!.tool_use_id, "STORE_OVERFLOW_IS_TURN_WIDE").toBeNull();
-    await f.writes.safetyToolReuse("voyage", "oar_late");
-    expect(f.db.query("SELECT COUNT(*) n FROM safety_tool_reuse").get(), "TURN_WIDE_COVERS_LATER_IDS").toEqual({ n: 2049 });
-  } finally { await f.close(); }
+test("T12 the end drops the tracker, also after the chat was scrubbed", async () => {
+  for (const scrub of [false, true]) {
+    const f = await safetyHistoryFixture();
+    try {
+      const collector = collect(f);
+      collector.admitting?.("fetch", "WebFetch"); collector.admitting?.("fetch", "Bash");
+      if (scrub) {
+        const result = retireChat(f.db, { operationId: "odysseus-retire", principalId: f.principal.id, target: { sessionId: "ithaca" }, expected: { backendId: "claude", generation: 1 }, removableBackends: ["claude"], at: Date.now() });
+        expect(result.status).toBe("retired");
+      }
+      await f.writes.safetyEnd("voyage").catch(() => {});
+      expect(safetyQueue(f.db).attribution.size, "TRACKER_IS_DROPPED").toBe(0);
+    } finally { await f.close(); }
+  }
 });
 
-test("reuse facts are charged against the history ceilings and refused at them", async () => {
-  const f = await safetyHistoryFixture();
-  try {
-    const before = f.db.query("SELECT used_rows,used_bytes FROM safety_meta").get() as { used_rows: number; used_bytes: number };
-    await f.writes.safetyToolReuse("voyage", "fetch");
-    const after = f.db.query("SELECT used_rows,used_bytes FROM safety_meta").get() as { used_rows: number; used_bytes: number };
-    expect({ rows: after.used_rows - before.used_rows, bytes: after.used_bytes - before.used_bytes }, "REUSE_ROW_IS_CHARGED").toEqual({ rows: 1, bytes: 512 });
-    expect(f.db.query("SELECT COALESCE(SUM(reserved_rows),0) n FROM safety_usage").get(), "USAGE_VIEW_COUNTS_IT").toEqual({ n: 1 + (f.db.query("SELECT COALESCE(SUM(reserved_rows),0) n FROM safety_records").get() as { n: number }).n });
-    f.db.run("UPDATE safety_meta SET used_rows=1000000");
-    let refused: unknown;
-    try { await f.writes.safetyToolReuse("voyage", "raft"); } catch (error) { refused = error; }
-    expect(String(refused), "CEILING_REFUSES_THE_FACT").toContain("capacity");
-    expect(f.db.query("SELECT COUNT(*) n FROM safety_tool_reuse").get()).toEqual({ n: 1 });
-  } finally { await f.close(); }
-});
-
-test("a fallback tool name is no name", async () => {
+test("T13 past what the host tracks one by one, the whole turn reads as unknown; fallback names and nested calls", async () => {
+  for (const shape of ["nine reused", "2001 tracked"] as const) {
+    const f = await safetyHistoryFixture();
+    try {
+      const collector = collect(f);
+      if (shape === "nine reused") for (let i = 0; i < 9; i++) { collector.admitting?.(`oar_${i}`, "Grep"); collector.admitting?.(`oar_${i}`, "Bash"); }
+      else for (let i = 0; i < 2001; i++) collector.admitting?.(`oar_${i}`, "Grep");
+      await f.writes.safetyEnd("voyage");
+      expect(await flags(f.history, f), `${shape}: TURN_WIDE_UNKNOWN`).toEqual([{ bindingId: f.bindingId, toolUseIds: null }]);
+      expect(f.db.query("SELECT tool_reuse FROM safety_collections").get(), shape).toEqual({ tool_reuse: '["*"]' });
+    } finally { await f.close(); }
+  }
   const f = await safetyHistoryFixture();
   try {
     const collector = collect(f);
@@ -153,7 +226,24 @@ test("a fallback tool name is no name", async () => {
     await collector.begin("fetch", "WebFetch", harbour);
     collector.admitting?.("fetch");
     await collector.lost?.("fetch", "unknown", new Error("The Pi report lost its tool name"));
-    await f.writes.safetyEnd("voyage");
-    expect(await attributions(f.history, f), "FALLBACK_NAME_IS_NO_SECOND_NAME").toEqual([]);
+    expect(await flags(f.history, f), "FALLBACK_NAME_IS_NO_SECOND_NAME").toEqual([]);
   } finally { await f.close(); }
+  const g = await safetyHistoryFixture();
+  try {
+    const controller = new AbortController();
+    const collector = createSafetyCollector(g.db, g.writes, { turnId: "voyage", bindingId: g.bindingId, backendId: "claude",
+      sessionId: () => "ithaca", shellProxied: () => true, signal: controller.signal });
+    const { hooks } = createPermissionWiring({
+      req: { prompt: "Read the harbour report", signal: controller.signal, bridge: { emit() {}, requestPermission: async () => ({ behavior: "allow" }), inputSafety: collector } },
+      allowedTools: ["WebFetch", "Read"], confirmPatterns: [], brainPath: g.root,
+      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, childEnv: {}, log() {},
+    });
+    const pre = (tool: string) => hooks!.PreToolUse!.filter(group => !group.matcher || new RegExp(`^(?:${group.matcher})$`).test(tool)).flatMap(group => group.hooks);
+    const run = (tool: string, input: Record<string, unknown>, nested: boolean) => Promise.all(pre(tool).map(hook => hook({ hook_event_name: "PreToolUse",
+      tool_name: tool, tool_use_id: "fetch", tool_input: input, cwd: g.root, session_id: "ithaca", transcript_path: "",
+      ...(nested ? { agent_id: "scout", agent_type: "general-purpose" } : {}) } as never, "fetch", { signal: controller.signal })));
+    await run("WebFetch", harbour, false);
+    await run("Read", { file_path: "notes/loom.md" }, true);
+    expect(await flags(g.history, g), "NESTED_REUSE_IS_OBSERVED").toEqual([{ bindingId: g.bindingId, toolUseIds: ["fetch"] }]);
+  } finally { await g.close(); }
 });

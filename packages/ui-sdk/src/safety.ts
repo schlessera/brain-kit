@@ -14,7 +14,11 @@ export const safetyProjectionSchema = z.strictObject({ session: safetySessionKey
   coverage: z.strictObject({ detectorVersion: z.literal(1), state: z.enum(["complete", "incomplete", "unknown"]),
     epochs: z.array(z.strictObject({ id, backendId: id, startSequence: revision, endSequence: revision.nullable(),
       mandatory: z.array(id).max(32), acknowledged: z.array(id).max(32), status: z.enum(["complete", "incomplete", "unknown"]), reason: text(512).nullable() })).max(128),
-    exclusions: z.array(id).max(4) }) });
+    exclusions: z.array(id).max(4) }),
+  // Opt-in (#4513), display-only: bindings whose collector observed
+  // differently named calls under a tool-use ID, with those IDs; `null`
+  // covers every ID of the binding. A turn never checked reports nothing.
+  attributionUnknown: z.array(z.strictObject({ bindingId: id, toolUseIds: z.array(id).max(8).nullable() })).max(128).optional() });
 const source = z.enum(["web_fetch", "web_search", "staged_share", "chat_attachment", "workspace_read", "mcp_document", "user_marked", "fetching_command", "unclassified_command", "compute_output", "apify_result", "github_result", "egress_connection", "legacy_unknown"]);
 const exposure = z.enum(["open", "finalized", "interrupted_unknown"]);
 const provenance = z.union([z.null(), z.strictObject({ kind: z.literal("web_origin"), origin: z.strictObject({scheme:z.enum(["http","https"]),host:text(253),port:z.number().int().min(1).max(65535)}), verifiedBy:z.literal("host_transport") }),
@@ -34,10 +38,6 @@ export const safetyRecordSchema = z.discriminatedUnion("kind", [
     summary:text(2048), entry:z.strictObject({kind:z.literal("tool"),toolUseId:id}).optional() }).strict(),
   z.strictObject({ ...common, kind:z.literal("exposure"), state:z.enum(["open","finalized","interrupted_unknown","not_delivered"]) }),
   z.strictObject({ ...common, kind:z.literal("safe_decision"), session:safetySessionKeySchema, requestId:id, principalId:id, verdict:z.literal("safe"), channel:z.enum(["owner_history","owner_settings"]) }),
-  // Opt-in (#4513): the host saw differently named calls under this
-  // tool-use ID in the binding's turn (`null`: under every one), so no tool
-  // is proven to be the source of an input joined to it.
-  z.strictObject({ id, sequence:revision, observedAt:time, turnId:id, bindingId:id, detailPruned:z.boolean(), kind:z.literal("attribution"), toolUseId:id.nullable(), attribution:z.literal("unknown") }),
 ]);
 export const safetyPageSchema = z.strictObject({ version:z.literal(1), identity:safetyIdentitySchema, snapshotId:id, cursor:z.string().max(512).nullable(), highWater:revision,
   projection:safetyProjectionSchema, records:z.array(safetyRecordSchema).max(100), nextCursor:z.string().max(512).nullable(), snapshotComplete:z.boolean(), detailPruned:z.boolean() });

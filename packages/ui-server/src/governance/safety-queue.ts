@@ -2,6 +2,11 @@
 import type { Database } from "bun:sqlite";
 import type { SessionTaint } from "./session-taint.js";
 type PendingSafety = {id:string;occurrenceId:string|null;turnId:string|null;sessionId:string|null;source:SessionTaint["source"];bytes:number};
+/** One turn's tool names per tool-use ID, as its collector observed them
+ * (#4513). `names`: the first name, or null once a second differed.
+ * `reused`: those IDs (at most 8). `all`: it could not track every ID.
+ * `closed`: its end is committing. Display-only, memory-only. */
+type ToolAttributionTracker = {names:Map<string,string|null>;reused:Set<string>;all:boolean;closed:boolean};
 const queues=new WeakMap<Database,{generation:bigint;pending:Set<PendingSafety>;bytes:number;failed:boolean;inflight:number;
 
  /** The safety revision when this process latched in memory; null when unreadable. */
@@ -11,13 +16,11 @@ const queues=new WeakMap<Database,{generation:bigint;pending:Set<PendingSafety>;
  lossCause:{errorClass:string;message:string;site:string;turnId:string|null;at:number;count:number}|null;
  /** Each turn's tool-result records under way; its collection's end waits for them. */
  recording:Map<string,Set<Promise<void>>>;
- /** Reuse facts observed but not yet durable (#4513), per turn; `null` covers
-  * every tool-use ID of the turn. History serves them to live readers until
-  * their write commits. Display-only: they never gap or restrict a chat. */
- reuse:Map<string,Map<string|null,{sequence:string;at:number}>>}>();
+ /** Each open turn's tool-name tracker (#4513); its end writes it once. */
+ attribution:Map<string,ToolAttributionTracker>}>();
 export function safetyQueue(db:Database){
  let queue=queues.get(db);
- if(!queue){queue={generation:0n,pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null,recording:new Map(),reuse:new Map()};queues.set(db,queue);}
+ if(!queue){queue={generation:0n,pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null,recording:new Map(),attribution:new Map()};queues.set(db,queue);}
  return queue;
 }
 

@@ -3831,12 +3831,11 @@ existing outcome or reason enum gains a value. This ships in a minor.
 
 A server advertising `sessionSafetyAttribution:true` accepts
 `includeAttribution:true` on `safety_read`. This opts the snapshot, all its
-pages and its subscription into `attribution` records: the host observed
-differently named calls under that tool-use ID in the binding's turn, so every
-input joined to it has unknown attribution (#4513). A `null` `toolUseId`
-covers every tool-use ID of that turn. Older readers never receive the record
-kind. The client takes attribution only from these records and names no
-action while the snapshot is still incomplete.
+pages and its subscription into the projection's optional
+`attributionUnknown` field (#4513): per binding, the tool-use IDs under which
+the host saw differently named calls, or `null` when it could not check every
+ID of that turn. A turn never checked reports nothing. Older readers never
+receive the field. The client takes attribution only from it.
 
 A server advertising `sessionSafetyNonDelivery:true` accepts
 `includeNonDelivery:true` on `safety_read`. This opts the snapshot, all its

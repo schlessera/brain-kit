@@ -8,7 +8,7 @@
  */
 import { retainSafetyLoss, safetyQueue, notifySafetyChanged } from "./safety-queue.js";
 import { prepareSafetyReview, commitSafetyReview, type SafetyReviewBody, type SafetyReviewer, type SafetyReviewReceipt } from "./safety-reviews.js";
-import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite, openSafetyObligation, dischargeSafetyObligation, recordSafetyToolReuse,
+import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite, openSafetyObligation, dischargeSafetyObligation,
   ensureSafetyEventCollection, recordSafetyFailure, recoverSafetyRecording, migrateSafetyHistory, logSafetyRecording, safetyRecordingStatus,
   SafetyCapacityExhausted, SafetyRecordingUnavailable, SafetyUnavailable, safetyScopeTurns, type SafetyCollectionInput, type SafetyProjection,
   type SafetyFailureSite, type SafetyRecovery, type SafetyRecordingStatus } from "./safety-store.js";
@@ -45,12 +45,11 @@ export function setup(db: Database): WriteProcedures {
     safetyReady: (turnId:string,backendId:string,version:number) => acknowledgeSafety(db,turnId,backendId,version),
     safetyOblige: (turnId:string,id:string,toolUseId:string,tool:string) => openSafetyObligation(db,turnId,id,toolUseId,tool),
     safetyDischarge: (turnId:string,id:string,neverDelivered?:readonly string[]) => dischargeSafetyObligation(db,turnId,id,neverDelivered),
-    safetyToolReuse: (turnId:string,toolUseId:string|null) => recordSafetyToolReuse(db,turnId,toolUseId),
-    safetyEnd: (turnId:string,loss=false) => {
+    safetyEnd: (turnId:string,loss=false,toolReuse:string|null=null) => {
       // Never seal an apparently complete epoch if its loss notice rolled
       // back. A failed retry leaves it open for restart classification.
       if(loss&&!retired(turnId))recordSafetyFailure(db,turnId,new SafetyUnavailable("Safety evidence was lost before its collection ended"),"safetyEnd");
-      endSafetyCollection(db,turnId);
+      endSafetyCollection(db,turnId,toolReuse);
     },
     safetyFail: (turnId:string|null,cause?:{name:string;message:string;stack?:string}) => {
       if(turnId&&retired(turnId))return null;
@@ -99,10 +98,6 @@ export interface GovernanceWrites {
    * the only admission under its id, never allowed, proves it never ran. A
    * failure leaves the obligation, and so the gap. */
   safetyDischarge(turnId:string,obligationId:string,neverDelivered?:readonly string[]):Promise<void>;
-  /** Differently named calls were observed under this tool-use ID in the
-   * turn (`null`: under every one): history reports its inputs' attribution
-   * as unknown (#4513). Display-only; a failure restricts nothing. */
-  safetyToolReuse(turnId:string,toolUseId:string|null):Promise<void>;
   /** Ends the turn's collection once its result records under way settle. */
   safetyEnd(turnId:string):Promise<void>;
   /** Marks the turn's chat failed (`cause` is error text only); the brain only when that cannot commit. */
@@ -286,7 +281,6 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       }
     },
     safetyDischarge: (turnId,obligationId,neverDelivered)=>call("safetyDischarge",turnId,obligationId,neverDelivered),
-    safetyToolReuse: (turnId,toolUseId)=>call("safetyToolReuse",turnId,toolUseId),
     async safetyEnd(turnId){
       // A tool result's record already under way finishes first: stopping a
       // turn refuses new tools, never the record of one that ran (#3812).
@@ -298,7 +292,13 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
         await Promise.race([Promise.allSettled([...under]),new Promise<void>(resolve=>{timer=setTimeout(resolve,SAFETY_END_RECORD_WAIT_MS);(timer as {unref?:()=>void}).unref?.();})]);
         clearTimeout(timer);
       }
-      await call<void>("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId));
+      // The turn's tool-name tracker is written once, by this end's own
+      // UPDATE (#4513). It stays served from memory until that commits; a
+      // failed end leaves it, and the collection open, for the restart.
+      const tracker=shared.attribution.get(turnId);
+      if(tracker)tracker.closed=true;
+      await call<void>("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId),tracker?(tracker.all?'["*"]':JSON.stringify([...tracker.reused])):null);
+      shared.attribution.delete(turnId);
     },
     safetyFail,
     safety: (turnId,sessionId,excludedPending=[])=>snapshot(()=>{

@@ -9,13 +9,8 @@ import { createCausalAdmissionSafety } from "./causal-admission.js";
 import { occurrence } from "./occurrence.js";
 import type { GovernanceWrites } from "./event-writes.js";
 import { SafetyRecordingUnavailable } from "./safety-store.js";
-import { notifySafetyChanged, safetyQueue } from "./safety-queue.js";
+import { safetyQueue } from "./safety-queue.js";
 import type { ReferenceTools } from "../brain/reference-tools.js";
-
-/** Bounded retries for a reuse fact the store refused; the turn's end waits for them. */
-const REUSE_RETRIES = 5, REUSE_RETRY_MS = 100;
-/** Reuse facts a turn holds in memory before one turn-wide fact covers it. */
-const REUSE_LOCAL = 256;
 
 export function createSafetyCollector(db:Database,writes:GovernanceWrites,options:{turnId:string;bindingId:string;backendId:string;
  sessionId:()=>string|null;actor?:"interactive"|"voice";brainPath?:string;shellProxied:()=>boolean;signal:AbortSignal;onReady?:()=>void;stop?:(error:Error)=>void;policyHash?:string|null;
@@ -43,57 +38,21 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  const ambiguous=(call:{tools:Map<string,number>}|undefined)=>!!call&&(call.tools.size>1||[...call.tools.values()].some(n=>n>1));
  const once=(call:{tools:Map<string,number>;allowed:boolean}|undefined)=>!!call&&!call.allowed&&call.tools.size===1&&[...call.tools.values()][0]===1;
  // Every tool name observed under each id, from any hook, result or loss
- // report, nested calls included (#4513). The second distinct name makes the
- // id's attribution unknown; an id past the tracking room makes every id's
- // unknown (`null`). The fact is display-only: history serves it from memory
- // at once and from its durable row once that commits. A failed write is
- // retried, on the next observation and on a bounded backoff the turn's end
- // waits for, and never gaps or restricts the chat. A fallback name (an
- // empty or "unknown" tool name for a report that lost its own) is no name.
- const names=new Map<string,Set<string>>();
- const reuse=safetyQueue(db).reuse;
- const unsettled=new Set<string|null>();
- let writing=false;
- const flushReuse=():void=>{
-  if(writing||!unsettled.size)return;
-  writing=true;
-  void recording((async()=>{
-   try{
-    for(let attempt=0;unsettled.size;attempt++){
-     let failed=false;
-     for(const key of unsettled.has(null)?[null]:[...unsettled]){
-      try{await writes.safetyToolReuse(options.turnId,key);}catch{failed=true;continue;}
-      // Durable now: history reads its row, so memory no longer serves it.
-      if(key===null)unsettled.clear();else unsettled.delete(key);
-      const local=reuse.get(options.turnId);
-      if(local){local.delete(key);if(!local.size)reuse.delete(options.turnId);}
-      notifySafetyChanged(db);
-     }
-     if(!failed)continue;
-     if(attempt>=REUSE_RETRIES)break;
-     await new Promise<void>(resolve=>{const timer=setTimeout(resolve,REUSE_RETRY_MS*2**attempt);(timer as {unref?:()=>void}).unref?.();});
-    }
-   }finally{writing=false;}
-  })());
- };
- const unknownAttribution=(key:string|null)=>{
-  let local=reuse.get(options.turnId);
-  if(!local){local=new Map();reuse.set(options.turnId,local);}
-  if(local.has(null))return;
-  if(key!==null&&local.size>=REUSE_LOCAL)key=null;
-  if(key===null){local.clear();unsettled.clear();}
-  // Served at the revision it was observed at, so readers order it stably.
-  const {revision}=db.query("SELECT revision FROM safety_meta WHERE singleton=1").get() as {revision:string};
-  local.set(key,{sequence:revision,at:Date.now()});unsettled.add(key);
-  notifySafetyChanged(db);
- };
+ // report, nested calls included (#4513). Synchronous and memory-only: no
+ // database access, no promise. History serves it live; the collection's
+ // end writes it once. A fallback name (an empty or "unknown" tool name for
+ // a report that lost its own) is no name; an id that can carry no entry
+ // join is not tracked. Past 2000 ids or 8 reused ones, the whole turn is
+ // unknown.
+ const tracker={names:new Map<string,string|null>(),reused:new Set<string>(),all:false,closed:false};
+ safetyQueue(db).attribution.set(options.turnId,tracker);
  const observeName=(toolUseId:string,tool:string|undefined)=>{
-  if(tool&&tool!=="unknown"){
-   let seen=names.get(toolUseId);
-   if(!seen){if(names.size<2000)names.set(toolUseId,seen=new Set());else if(!reuse.get(options.turnId)?.has(null))unknownAttribution(null);}
-   if(seen&&!seen.has(tool)&&seen.size<2){seen.add(tool);if(seen.size===2)unknownAttribution(toolUseId);}
-  }
-  flushReuse();
+  if(tracker.closed||tracker.all||!tool||tool==="unknown"||!/^[A-Za-z0-9_-]{1,128}$/.test(toolUseId))return;
+  const first=tracker.names.get(toolUseId);
+  if(first===undefined){if(tracker.names.size<2000)tracker.names.set(toolUseId,tool);else tracker.all=true;return;}
+  if(first===null||first===tool)return;
+  tracker.names.set(toolUseId,null);
+  if(tracker.reused.size<8)tracker.reused.add(toolUseId);else tracker.all=true;
  };
  const operation=(tool:string):Operation=>({generation:Symbol(),tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],inputOccurrences:[],resultStarted:false,done:false,admitted:false,signals:[],owed:false,refused:false,uncertain:false});
  const base=()=>({turnId:options.turnId,sessionId:options.sessionId(),actor:options.actor??"interactive" as const,model:null,profile:null});
