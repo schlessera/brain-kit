@@ -16,6 +16,9 @@ const MIN_BYTES = 30 * 16_000; // 30 seconds at a conservative 128 kbit/s.
 const SAFETY_BYTES = 1024 * 1024;
 const INDEX = "recording:index:";
 const CHUNKS = "recording:chunk:";
+const ACCEPTED = "recording:accepted:";
+/** The connectivity poll's pace while the host is reachable (`use-vpn-status.ts`). */
+const RECOVERY_PACE_MS = 15_000;
 const REMOVED = "recording:removed";
 const LOCK = "brain-ui:recording";
 // Same-page roots invalidate synchronously; other tabs receive the same identity.
@@ -133,6 +136,10 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   const { partitions } = options;
   const transcripts = new Set<string>();
   let inventoryVersion = 0;
+  // Whether the last sync left work only a later pass finishes (a status to
+  // read, a tombstone to retry); unknown until one completes.
+  let syncLeftWork = true;
+  let pacing: ReturnType<typeof setTimeout> | undefined;
   const listeners = new Set<() => void>();
   const events = new Set<(event: RecordingEvent) => void>();
   let running: Session | null = null;
@@ -162,7 +169,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     return repair?.source === fingerprint(row) ? repair.value : row;
   }
   const revoke = (url: string) => { URL.revokeObjectURL(url); urls.delete(url); };
-  const unwatchAccount = options.root.stores.connection.subscribe(() => {
+  const unwatchAccount = options.root.stores.connection.subscribe((next, previous) => {
+    if (next.accountKey === previous.accountKey) return;
     for (const key of transcripts) if (!key.startsWith("unassigned/") && !key.startsWith(`${heldPartition()}/`)) transcripts.delete(key);
     for (const [url, { partition }] of urls) if (partition !== "unassigned" && partition !== heldPartition()) revoke(url);
     for (const playback of pendingPlaybacks) if (playback.partition !== "unassigned" && playback.partition !== heldPartition()) playback.cancelled = true;
@@ -174,6 +182,9 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   };
   const invalidate = (change: RecordingChange) => {
     inventoryVersion++;
+    // A changed inventory may hold a new status to read or tombstone to retry.
+    syncLeftWork = true;
+    keepPace();
     const affected = (recording: { partition: PartitionId; id: string; generation: string }) => typeof change === "string" ? recording.id === change : recording.partition === change.partition && (!change.closed || closedGeneration(change.closed, recording.generation) || recording.generation === change.closed.token);
     if (typeof change !== "string" && (!change.closed || sameGeneration(change.partition, change.closed.token))) {
       for (const key of repaired.keys()) if (key.startsWith(`${change.partition}/`)) repaired.delete(key);
@@ -409,13 +420,14 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     }
   }
   async function acceptedView(partition: PartitionId, index: Index): Promise<Recording> {
-    const receipt = await partitions.open(partition).get(`recording:accepted:${index.id}`) as { revision: number } | undefined;
+    const receipt = await partitions.open(partition).get(`${ACCEPTED}${index.id}`) as { revision: number } | undefined;
     checkReadable(partition);
     // A committed draft is already accepted even if its following metadata
     // write failed. Review text is then read-only until cleanup can retry.
-    return receipt ? { ...index, partition, state: "accepted", acceptedDraftRev: receipt.revision }
-      : { ...index, partition };
+    return withReceipt(partition, index, receipt);
   }
+  const withReceipt = (partition: PartitionId, index: Index, receipt: { revision: number } | undefined): Recording =>
+    receipt ? { ...index, partition, state: "accepted", acceptedDraftRev: receipt.revision } : { ...index, partition };
   async function get(partition: PartitionId, id: string): Promise<Recording | undefined> {
     const value = await partitions.open(partition).get(indexKey(id)) as Index | undefined;
     checkReadable(partition);
@@ -560,10 +572,13 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       const version = inventoryVersion;
       const entries = await partitions.open(partition).list(INDEX);
       checkReadable(partition);
-      const rows = (await Promise.all(entries.map(async r => {
+      // Every acceptance receipt in one read, not one read per row (#4744).
+      const receipts = new Map((await partitions.open(partition).list(ACCEPTED)).map(r => [r.key.slice(ACCEPTED.length), r.value as { revision: number }]));
+      checkReadable(partition);
+      const rows = entries.map(r => {
         const shown = present(partition, r.value as Index);
-        return shown ? acceptedView(partition, shown) : null;
-      }))).filter((row): row is Recording => row !== null);
+        return shown ? withReceipt(partition, shown, receipts.get(shown.id)) : null;
+      }).filter((row): row is Recording => row !== null);
       if (version === inventoryVersion) trackTranscripts(partition, rows);
       return rows;
     },
@@ -823,10 +838,15 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     },
     async syncTranscriptions() {
       if (syncing) { syncPending = true; return; }
-      if (!online() || heldPartition() === "unassigned" || disposed) return;
+      if (heldPartition() === "unassigned") { syncLeftWork = false; return; }
+      if (!online() || disposed) return;
       syncing = true;
       const partition = heldPartition();
       const epoch = mutationEpoch(partition);
+      // Until this pass completes, what it would retry is unknown.
+      syncLeftWork = true;
+      let leftWork = false;
+      const version = inventoryVersion;
       try {
         for (const [key, cancelled] of cancelledUploads) {
           if (cancelled.partition !== partition || !navigator.locks) continue;
@@ -845,9 +865,12 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           const response = await options.root.request(`${transcriptionPath(value.id)}?disposition=${value.disposition}`, { method: "DELETE", credentials: "include" });
           checkMutation(partition, epoch);
           if (response.ok) await partitions.open(partition).write([{ delete: entry.key }]);
+          else leftWork = true;
         }
         for (const row of await store.list(partition)) {
           if (!row.transcribeRequestId || !["transcribing", "failed"].includes(row.state)) continue;
+          // A row whose status is still read keeps the poll's pace.
+          leftWork = true;
           if (!navigator.locks) continue;
           // A 404 before the active upload finishes says nothing about whether
           // that upload will dispatch. Recover only after its id lock is free.
@@ -867,6 +890,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             // Missing status cannot prove it was not sent; keep polling.
           });
         }
+        syncLeftWork = leftWork || cancelledUploads.size > 0 || version !== inventoryVersion;
       } finally {
         syncing = false;
         if (syncPending) { syncPending = false; await store.syncTranscriptions(); }
@@ -921,7 +945,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     busy: () => opening || beginning !== null || running !== null || transcripts.size > 0,
     subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     onEvent(fn) { events.add(fn); return () => { events.delete(fn); }; },
-    dispose() { disposed = true; cancelledUploads.clear(); unwatchSignOut(); unwatchAccount(); unwatchInventory(); unwatchAuth(); invalidators.delete(invalidate); channel?.close(); repaired.clear(); for (const url of urls.keys()) revoke(url); void store.stop("interrupted").finally(releaseHold); },
+    dispose() { disposed = true; clearTimeout(pacing); cancelledUploads.clear(); unwatchSignOut(); unwatchAccount(); unwatchInventory(); unwatchAuth(); invalidators.delete(invalidate); channel?.close(); repaired.clear(); for (const url of urls.keys()) revoke(url); void store.stop("interrupted").finally(releaseHold); },
   };
   function scan() {
     for (const p of new Set<PartitionId>(["unassigned", heldPartition()])) void store.list(p).catch(() => {});
@@ -937,8 +961,20 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       void store.stop("interrupted");
     }
   });
-  const recoverTranscriptions = () => { scan(); if (!disposed) void store.syncTranscriptions().catch(() => {}); };
-  const unwatchInventory = options.root.stores.connection.subscribe(recoverTranscriptions);
+  const recoverTranscriptions = () => { scan(); if (!disposed) void store.syncTranscriptions().catch(() => {}).finally(keepPace); };
+  // An unchanged connectivity poll no longer writes the connection store, so
+  // work a sync left (a status to read, a tombstone to retry) keeps the
+  // poll's pace here, with or without the tray (#4744).
+  function keepPace() {
+    if (disposed || !syncLeftWork || pacing !== undefined || !online()) return;
+    pacing = setTimeout(() => { pacing = undefined; if (!disposed && syncLeftWork) recoverTranscriptions(); }, RECOVERY_PACE_MS);
+  }
+  // A connection write that moves none of these finds nothing new, unless the
+  // last sync left a status to read or a tombstone to retry (#4744).
+  const unwatchInventory = options.root.stores.connection.subscribe((next, previous) => {
+    if (!syncLeftWork && next.accountKey === previous.accountKey && next.wsStatus === previous.wsStatus && next.vpnStatus === previous.vpnStatus) return;
+    recoverTranscriptions();
+  });
   let unwatchAuth = () => {};
   scan();
   const releaseHold = registerUpdateHold(options.root, store);
