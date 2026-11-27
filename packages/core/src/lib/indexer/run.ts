@@ -61,20 +61,23 @@ function emptyStats(): IndexStats {
  * callers receive the stable stats object and can still detect partial runs.
  */
 async function createRun(db: Database, options: IndexOptions): Promise<IndexRun> {
-  // The run's start, rounded up to the next millisecond. `indexed_at` keeps
-  // milliseconds and a file's mtime keeps more, so a file written in the
-  // millisecond the run started would otherwise be newer than the run that
-  // read it, and counted stale until it changed again (#4870).
-  const stamp = Date.now() + 1;
   const quiet = options.quiet ?? false;
   const checked = checkGovernancePolicy(options.root);
   if (!checked.ok) console.warn(`provider_policy_invalid: embedding and enrichment disabled; ${checked.errors.join("; ")}`);
   const rules = checked.ok ? checked.effective.providers : [{ paths: ["**"], allow: [] }];
   const recipient = rules.length ? await geminiEmbeddingRecipient(options.provider) : undefined;
-  // No file is read before the clock has passed the stamp, so a file changed
-  // after the run read it is always newer than its row. At most a millisecond.
+  // The run's start, before it reads any file, rounded up to the next
+  // millisecond. `indexed_at` keeps milliseconds and a file's mtime keeps
+  // more, so a file written in the millisecond the run started would
+  // otherwise be newer than the run that read it, and counted stale until it
+  // changed again (#4870). No file is read before the clock has passed the
+  // stamp, so a file changed after the run read it is always newer than its
+  // row. The stamp is taken after the awaits above and the wait is capped, so
+  // a clock stepped back (an NTP step, a resumed VM) neither stalls the
+  // caller for the size of the step nor leaves the stamp ahead of the clock.
+  const stamp = Date.now() + 1;
   const wait = stamp - Date.now();
-  if (wait > 0) Bun.sleepSync(wait);
+  if (wait > 0) Bun.sleepSync(Math.min(wait, 1));
   return {
     db,
     root: options.root,

@@ -20,6 +20,7 @@ import { chunkContextKey, forgetCachedEnrichment, getAssetFiles, indexAll, type 
 import { forgetAssetEntries, loadAssetCache, loadContextCache, pruneSidecarCaches } from "../src/lib/indexer/caches";
 import { JOURNAL_SIZE_LIMIT_BYTES, openDatabase, migrateVecSchema } from "../src/lib/db";
 import { indexStaleness } from "../src/lib/ops/staleness";
+import * as nodeFs from "fs";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { collectStats } from "../src/lib/stats";
 import { gitIgnoredMatcher } from "../src/lib/git-ignore";
@@ -303,6 +304,60 @@ describe("the run stamp (#4870)", () => {
     } finally {
       db.close();
     }
+  });
+
+  test("a clock stepped back during the run's setup neither stalls it nor leaves its stamp ahead (#4870)", async () => {
+    const root = makeCorpus({ "notes/raft.md": md("Raft", "Built on Ogygia.") });
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    const STEPPED = START - 3_600_000;
+    let clock = START;
+    setSystemTime(new Date(clock));
+    const waits: number[] = [];
+    const sleep = spyOn(Bun, "sleepSync").mockImplementation((ms) => { waits.push(Number(ms)); clock += Number(ms); setSystemTime(new Date(clock)); });
+    // The clock steps back an hour while the run reads its provider policy,
+    // whose first step resolves the brain root.
+    const realpath = nodeFs.realpathSync;
+    let stepped = false;
+    const policy = spyOn(nodeFs, "realpathSync").mockImplementation(((...args: Parameters<typeof realpath>) => {
+      if (!stepped && args[0] === root) {
+        stepped = true;
+        clock = STEPPED;
+        setSystemTime(new Date(clock));
+      }
+      return realpath(...args);
+    }) as typeof realpath);
+    try {
+      await indexAll(db, { root, taxonomy, quiet: true });
+    } finally {
+      policy.mockRestore();
+      sleep.mockRestore();
+      setSystemTime();
+    }
+    try {
+      expect(stepped).toBe(true);
+      expect(Math.max(0, ...waits)).toBeLessThanOrEqual(1);
+      const { indexed_at } = db.prepare("SELECT indexed_at FROM documents").get() as { indexed_at: string };
+      expect(Date.parse(indexed_at)).toBe(STEPPED + 1);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a clock stepped back between the stamp and the wait costs at most a millisecond's wait (#4870)", async () => {
+    const root = makeCorpus({ "notes/raft.md": md("Raft", "Built on Ogygia.") });
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    let readings = 0;
+    const now = spyOn(Date, "now").mockImplementation(() => (readings++ === 0 ? START : START - 3_600_000));
+    const waits: number[] = [];
+    const sleep = spyOn(Bun, "sleepSync").mockImplementation((ms) => { waits.push(Number(ms)); });
+    try {
+      await indexAll(db, { root, taxonomy, quiet: true });
+    } finally {
+      now.mockRestore();
+      sleep.mockRestore();
+      db.close();
+    }
+    expect(waits).toEqual([1]);
   });
 
   test("a run reads nothing before the clock has passed its stamp", async () => {
