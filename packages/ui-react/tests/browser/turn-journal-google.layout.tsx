@@ -11,7 +11,7 @@ import { TurnJournal } from "../../src/components/chat/turn-journal.js";
 // alone (`@schlessera/brain-ui-react/styles.css`), the only CSS a ui-react host
 // loads: the kit list's rhythm must come from the kit tokens it imports.
 const turnId = "odysseus-journal", draft = "r-8f2c41d9e0b7a6c5", at = Date.UTC(2026, 6, 12);
-const summary: TurnJournalSummary = { state: "complete", changedFiles: 1, steeringFiles: 0, keptFiles: 1, costUsd: null, costIsEstimate: null, profile: "governed", actor: "interactive", model: null, policyHash: null, observedAt: at };
+const summary: TurnJournalSummary = { state: "complete", changedFiles: 1, steeringFiles: 0, keptFiles: 1, costUsd: null, costIsEstimate: null, profile: "governed", actor: "interactive", model: null, policyHash: null, sharedAttribution: false, observedAt: at };
 const version = { kind: "file" as const, mode: 420, bytes: 32, hash: "odysseus-retained", ignored: false };
 const reversible = (id: number, operation: string, decision: "allowed" | "approved" | "declined", target: string, admission: "session_allowance" | null) =>
   ({ id, at, callId: `call-${id}`, tool: "brain_google_gmail", operation, effect: "reversible" as const, target, tainted: true, decision, admission, revertible: false as const, undoAvailable: false as const });

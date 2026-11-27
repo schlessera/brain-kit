@@ -10,7 +10,7 @@ import { TurnJournal } from "../../src/components/chat/turn-journal.js";
 // The turn journal's two Google classes (#4216): reversible calls in their own
 // section, irreversible ones with the outward receipts in the operation's words.
 const turnId = "odysseus-journal", sessionId = "ithaca", draft = "r-8f2c41d9e0b7a6c5";
-const summary: TurnJournalSummary = { state: "complete", changedFiles: 0, steeringFiles: 0, keptFiles: 0, costUsd: null, costIsEstimate: null, profile: "governed", actor: "interactive", model: null, policyHash: null, observedAt: Date.UTC(2026, 6, 12) };
+const summary: TurnJournalSummary = { state: "complete", changedFiles: 0, steeringFiles: 0, keptFiles: 0, costUsd: null, costIsEstimate: null, profile: "governed", actor: "interactive", model: null, policyHash: null, sharedAttribution: false, observedAt: Date.UTC(2026, 6, 12) };
 const reversible = (id: number, operation: string, decision: JournalGoogleAction["decision"], target: string | null, tainted = false, admission: JournalGoogleAction["admission"] = null): JournalGoogleAction =>
   ({ id, at: summary.observedAt!, callId: `call-${id}`, tool: "brain_google_gmail", operation, effect: "reversible", target, tainted, decision, admission, revertible: false, undoAvailable: false });
 const outward = (id: number, decision: JournalOutwardAction["decision"], target: string | null, operation?: string): JournalOutwardAction =>
