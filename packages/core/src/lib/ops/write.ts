@@ -13,7 +13,7 @@ import { archiveDocument, relevanceOnArchive, type ArchiveResult } from "../arch
 import { updateDocument, type FrontmatterValue } from "../frontmatter-edit.js";
 import { indexAll } from "../indexer.js";
 import { ingest, type IngestOutcome } from "../ingestion.js";
-import { safeResolve, writeFileSafely } from "../safe-path.js";
+import { safeResolve, slashPath, writeFileSafely } from "../safe-path.js";
 import type { Taxonomy } from "../taxonomy.js";
 import type { DocumentType } from "../types.js";
 
@@ -123,7 +123,7 @@ export async function updateDocumentFields(deps: WriteDeps, input: UpdateInput):
   // Only these keys change; the rest of the frontmatter keeps its bytes (#449).
   // Staged and renamed over the document, so a failed write leaves it whole (#1355).
   writeFileSafely(fullPath, updateDocument(raw, updates, input.appendContent || undefined));
-  await reindex(deps)(deps.db, [relative(realpathSync(deps.root), fullPath)]);
+  await reindex(deps)(deps.db, [slashPath(relative(realpathSync(deps.root), fullPath))]);
 
   return { path: input.path, updated, changes };
 }
