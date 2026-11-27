@@ -76,7 +76,7 @@ describe("until", () => {
   test("waits on the real clock by default", async () => {
     let ready = false;
     setTimeout(() => { ready = true; }, 10);
-    await until(() => ready, "a real timer", 5_000);
+    await until(() => ready, "a real timer", 5_000, { env: NO_FACTOR });
     expect(ready).toBe(true);
   });
 });
