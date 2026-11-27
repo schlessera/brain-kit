@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import { chunkDocument, chunkTextForEmbedding, estimateTokens } from "../src/lib/chunker";
 
@@ -482,5 +482,33 @@ describe("recorded source lines", () => {
     expect(chunks[0]).toMatchObject({ heading: "Notes", start_line: 1, end_line: lineOf(content, "Note paragraph 8 ") });
     expect(chunks.length).toBeGreaterThan(2);
     for (const piece of chunks.slice(1)) expect([piece.heading.replace(" (cont.)", ""), piece.start_line, piece.end_line]).toEqual(["Survey", null, null]);
+  });
+});
+
+// #3683 review round 5: recording each chunk's lines must stay linear in the
+// document. The work is counted (newline scans), not timed: doubling the
+// document may double it, never quadruple it.
+describe("recorded lines cost", () => {
+  const watches = (n: number) =>
+    Array.from({ length: n }, (_, i) => `## Watch ${i + 1}\n\n${Array.from({ length: 20 }, (_, j) => `Watch ${i + 1} line ${j + 1} with plain field notes for the pilot.`).join("\n")}\n`).join("\n");
+  function scans(run: () => void): number {
+    let count = 0;
+    const real = String.prototype.indexOf;
+    const spy = spyOn(String.prototype, "indexOf").mockImplementation(function (this: string, search: string, from?: number) {
+      if (search === "\n") count++;
+      return real.call(this, search, from);
+    } as typeof String.prototype.indexOf);
+    try {
+      run();
+    } finally {
+      spy.mockRestore();
+    }
+    return count;
+  }
+
+  test("doubling the sections at most doubles the newline scans", () => {
+    const [small, large] = [200, 400].map((n) => scans(() => chunkDocument({ title: "T", documentId: 1, content: watches(n) })));
+    expect(small).toBeGreaterThan(0);
+    expect(large / small).toBeLessThan(2.5);
   });
 });

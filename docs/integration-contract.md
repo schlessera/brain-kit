@@ -88,8 +88,9 @@ widened to a folded chunk's span carries it: a hit whose best chunk is made of
 whole sections, a short one merged into its neighbour, and whose match no
 single section holds. The span is read from the chunk's source lines, which
 the index now records (`chunks.start_line`, `chunks.end_line`, schema 17,
-additive); a piece of a split section records none and keeps its snippet, as
-does a chunk whose file changed since the index run.
+additive); a piece of a split section records none and keeps its snippet.
+Any search hit whose file changed since the last index run now keeps its
+snippet instead of growing from the changed file.
 Every other excerpt has no field, so a reader must treat it as optional.
 `budgetExhausted` is now also true when such a span, or a hit's section, did
 not fit and the hit kept its snippet. See

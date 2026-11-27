@@ -151,8 +151,10 @@ which validates the scope (`parseContextScope`,
   recorded for the chunk ([schema 17](frontmatter.md)), never inferred: it
   widens only when those lines are exactly a run of whole sections. A piece
   of a section the indexer split over several chunks records no lines and
-  keeps its snippet, and so does a chunk whose file changed since the index
-  run or whose index predates the lines. `lines` is `[start, end]`, the 1-based
+  keeps its snippet, and so does a chunk whose index predates the lines. Any
+  search hit whose file changed since the last index run (its SHA-256 is not
+  the indexed one) keeps its snippet: no text the index has not seen is
+  shown for it. `lines` is `[start, end]`, the 1-based
   file lines from the span's first heading (or first line) to its last line.
   `budgetExhausted` is true when an in-scope candidate was cut or left out for
   lack of budget, including a hit that kept its snippet because its section

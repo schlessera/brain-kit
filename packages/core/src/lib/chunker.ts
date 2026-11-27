@@ -458,15 +458,17 @@ export function chunkDocument(input: ChunkInput): Omit<Chunk, "id">[] {
     }
   }
 
-  // Phase 4: convert to Chunk objects
+  // Phase 4: convert to Chunk objects. The text's line breaks are found once,
+  // so recording every chunk's lines stays linear in the document.
+  const lineOf = lineIndex(input.content);
   return final.map((section, index) => ({
     document_id: input.documentId,
     chunk_index: index,
     heading: section.heading,
     content: section.content,
     token_estimate: estimateTokens(section.content),
-    start_line: section.span ? lineOf(input.content, section.span[0]) : null,
-    end_line: section.span ? lineOf(input.content, section.span[1] - 1) : null,
+    start_line: section.span ? lineOf(section.span[0]) : null,
+    end_line: section.span ? lineOf(section.span[1] - 1) : null,
   }));
 }
 
@@ -475,11 +477,24 @@ function joinSpans(first: [number, number] | null, second: [number, number] | nu
   return first && second ? [first[0], second[1]] : null;
 }
 
-/** The 1-based line `offset` of `text` is on, counting LF (a CRLF's CR stays on its line). */
-function lineOf(text: string, offset: number): number {
-  let line = 1;
-  for (let at = text.indexOf("\n"); at !== -1 && at < offset; at = text.indexOf("\n", at + 1)) line++;
-  return line;
+/**
+ * The 1-based line an offset of `text` is on, counting LF (a CRLF's CR stays
+ * on its line, a bare CR does not end one: the line-cutting limit above). The
+ * line breaks are found in one pass; each lookup is a binary search over them.
+ */
+export function lineIndex(text: string): (offset: number) => number {
+  const breaks: number[] = [];
+  for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) breaks.push(at);
+  return (offset) => {
+    let low = 0;
+    let high = breaks.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (breaks[mid]! < offset) low = mid + 1;
+      else high = mid;
+    }
+    return low + 1;
+  };
 }
 
 /**

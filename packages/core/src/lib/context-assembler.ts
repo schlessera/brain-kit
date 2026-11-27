@@ -9,7 +9,7 @@ import type { BrainContext } from "./context.js";
 import { parseContextScope, type ContextScope, type ContextScopeInput } from "./context-scope.js";
 import type { EmbeddingProvider } from "./seams.js";
 import { topLevelBlocks, type TopLevelBlock } from "./document-parts.js";
-import { CHUNKER_VERSION, headingText as chunkerHeadingText } from "./chunker.js";
+import { CHUNKER_VERSION, headingText as chunkerHeadingText, lineIndex } from "./chunker.js";
 import { chunkMatchLine, hybridSearch } from "./search-engine.js";
 import type { ChunkMatch, SearchResult } from "./types.js";
 
@@ -281,7 +281,7 @@ function readMarkdownContent(root: string, relativePath: string): SourceDoc | nu
     // The body is the file's tail after its frontmatter, so its first line
     // is counted in the file; otherwise it cannot be placed.
     const at = raw.endsWith(content) ? raw.length - content.length + leading.length : -1;
-    return at < 0 ? { body, summary, dropped, hash } : { body, summary, line: lineAt(raw, at), dropped, hash };
+    return at < 0 ? { body, summary, dropped, hash } : { body, summary, line: lineIndex(raw)(at), dropped, hash };
   } catch {
     return null;
   }
@@ -714,13 +714,6 @@ interface SourceFind {
   lines?: [number, number];
 }
 
-/** The 1-based line that `offset` of `text` is on. */
-function lineAt(text: string, offset: number): number {
-  let line = 1;
-  for (let i = text.indexOf("\n"); i !== -1 && i < offset; i = text.indexOf("\n", i + 1)) line++;
-  return line;
-}
-
 /** The `##` headings the chunker splits at: level two, with text (`headingText`). */
 function splitHeadings(text: string): TopLevelBlock[] {
   return topLevelBlocks(text).filter(
@@ -765,6 +758,8 @@ function indexedChunk(db: Database, path: string, chunk: ChunkMatch): IndexedChu
  */
 function recordedSpan(body: string, range: [number, number]): { components: Array<{ name: string | null; text: string }>; lines: [number, number] } | null {
   const heads = splitHeadings(body);
+  // The body's line breaks are found once, so placing every part is linear.
+  const lineAt = lineIndex(body);
   // What follows a heading: the rest of its line and blank lines go, indentation stays.
   const tidy = (text: string) => text.replace(/^[ \t]*\r?\n/, "").replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd();
   const parts = [
@@ -781,8 +776,8 @@ function recordedSpan(body: string, range: [number, number]): { components: Arra
     .filter((part) => part.text !== "")
     .map((part) => ({
       ...part,
-      first: lineAt(body, part.name === null ? body.slice(0, part.end).search(/\S/) : part.start),
-      last: lineAt(body, part.start + body.slice(part.start, part.end).trimEnd().length - 1),
+      first: lineAt(part.name === null ? body.slice(0, part.end).search(/\S/) : part.start),
+      last: lineAt(part.start + body.slice(part.start, part.end).trimEnd().length - 1),
     }));
   const from = parts.findIndex((part) => part.first === range[0]);
   const to = parts.findIndex((part) => part.last === range[1]);
@@ -846,9 +841,11 @@ function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null, r
     if (candidates.length === 1) return { parts: [candidates[0]!] };
     if (candidates.length === 0) return null;
   }
-  // A chunk with a level-two heading in it (a fold label, or an empty `##`
-  // that the source parse splits at) cannot be told by its line counts.
-  if (topLevelBlocks(chunk.content).some((block) => block.type === "heading" && block.depth === 2)) return null;
+  // Main's rule, unchanged: a chunk with a heading of level one or two in it
+  // (a fold label, an empty `##` the source parse splits at, a `#`) cannot
+  // be told by its line counts. A chunk without a recorded range never
+  // expands past what this fallback allows.
+  if (topLevelBlocks(chunk.content).some((block) => block.type === "heading" && (block.depth ?? 1) <= 2)) return null;
   const lines = chunkLines(chunk.content);
   if (lines.length === 0) return null;
   const hinted = chunk.heading.replace(/ \(cont\.\)$/, "").split(" › ")[0];
@@ -889,7 +886,8 @@ interface HitSection {
  * `"budget"`, so the caller keeps the snippet and says the budget was short,
  * when the section or span does not fit: not even the header, no block but a
  * heading after the cut, or a span over `cap`. Null, so the caller keeps the
- * snippet, when the file cannot be read or no longer holds the chunk.
+ * snippet, when the file cannot be read, has changed since the index run (its
+ * hash is not the indexed one), or no longer holds the chunk.
  */
 function hitSection(
   result: SearchResult,
@@ -900,11 +898,14 @@ function hitSection(
   indexed: IndexedChunk | null
 ): HitSection | "budget" | null {
   const doc = read(result.path);
-  // The recorded lines hold only for the file and chunker they were recorded
-  // from: a file changed since, or an index from an older chunker, has none.
+  // A file changed since the index run no longer holds the chunk the search
+  // matched: the hit keeps its snippet, and nothing of the new text is read
+  // for it (#3683). Without an index record to compare, main's rules apply.
+  if (doc && indexed && indexed.content_hash !== doc.hash) return null;
+  // The recorded lines hold only for the chunker they were recorded by: an
+  // index from an older one has none.
   const fresh =
-    doc && indexed && indexed.start_line !== null && indexed.end_line !== null &&
-    indexed.content_hash === doc.hash && indexed.chunker_version === CHUNKER_VERSION;
+    doc && indexed && indexed.start_line !== null && indexed.end_line !== null && indexed.chunker_version === CHUNKER_VERSION;
   const range: [number, number] | null = fresh ? [indexed.start_line! - doc.dropped, indexed.end_line! - doc.dropped] : null;
   const found = doc ? sourcePart(doc.body, best, matchLine, range) : null;
   if (!doc || !found) return null;

@@ -1002,11 +1002,12 @@ describe("sections from chunks", () => {
       }
     });
 
-    test("a level-one heading inside a section is not a folded section", async () => {
+    test("a level-one heading inside a section never brings the same-named section after it", async () => {
       const body = `## Log\n\n# Weather\n\nThe beacon log opens here.\n\n${para("Log", 8)}\n\n## Weather\n\n${para("Calm", 8)}\n`;
       const { hit, chunks } = await unplaced({ "studies/folded.md": study("Folded", body) }, 4000);
       expect(chunks.map((c) => c.heading)).toEqual(["Log", "Weather"]);
-      expect(hit).toContain("#### Log\n##### Weather\n\nThe beacon log opens here.");
+      // One section, so no span; its match unplaced, main's fallback keeps the snippet.
+      expect(hit.split("\n")).toHaveLength(2);
       expect(hit).not.toContain("Calm paragraph 1");
     });
 
@@ -1174,6 +1175,56 @@ describe("sections from chunks", () => {
       } finally {
         db.close();
       }
+    });
+
+    test("a hit whose file changed since the index run keeps its snippet and reads none of the new text", async () => {
+      const file = study("Folded", `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n`);
+      const { ctx, db } = await brainWith({ "studies/folded.md": file });
+      try {
+        // Edited after the index run: the indexed match line now sits in a new section.
+        writeFileSync(join(ctx.root, "studies/folded.md"), study("Folded", `## Cargo\n\nThe beacon code is violet.\n\nTwelve jars of oil, never indexed.\n\n## Tides\n\n${para("Tide", 8)}\n`));
+        const coverage = emptyContextCoverage();
+        const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false, scope: { include: ["studies/"] }, coverage });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).not.toContain("Twelve jars of oil");
+        expect(hit.split("\n")).toHaveLength(2);
+        expect(coverage.excerpts.find((e) => e.path === "studies/folded.md")).toEqual({ path: "studies/folded.md", lane: "search", form: "snippet" });
+      } finally {
+        db.close();
+      }
+    });
+
+    test("placing a folded hit in a longer file costs at most twice the newline scans for twice the sections", async () => {
+      const file = (n: number) =>
+        study(
+          "Folded",
+          `${Array.from({ length: n }, (_, i) => `## Watch ${i + 1}\n\n${Array.from({ length: 20 }, (_, j) => `Watch ${i + 1} line ${j + 1} with plain field notes.`).join("\n")}\n`).join("\n")}\n## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n`
+        );
+      const counts: number[] = [];
+      for (const n of [100, 200]) {
+        const { ctx, db } = await brainWith({ "studies/folded.md": file(n) });
+        const spy = failMatchLine(db);
+        let count = 0;
+        const real = String.prototype.indexOf;
+        const scan = spyOn(String.prototype, "indexOf").mockImplementation(function (this: string, search: string, from?: number) {
+          if (search === "\n") count++;
+          return real.call(this, search, from);
+        } as typeof String.prototype.indexOf);
+        try {
+          const coverage = emptyContextCoverage();
+          await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false, scope: { include: ["studies/folded.md"] }, coverage });
+          scan.mockRestore();
+          // The premise: the hit is the folded chunk, widened from its recorded lines.
+          expect(coverage.excerpts[0]).toMatchObject({ path: "studies/folded.md", form: "section", lines: expect.any(Array) });
+        } finally {
+          scan.mockRestore();
+          spy.mockRestore();
+          db.close();
+        }
+        counts.push(count);
+      }
+      expect(counts[0]).toBeGreaterThan(0);
+      expect(counts[1]! / counts[0]!).toBeLessThan(2.5);
     });
 
     test("an unfolded section with an unplaced match is that section, with no span lines", async () => {
