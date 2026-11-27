@@ -74,6 +74,20 @@ describe("connection store", () => {
     expect(useConnectionStore.getState().socketOpens).toBe(1);
   });
 
+  test("a created socket resets the previous socket's evidence without counting an open (#4755)", () => {
+    const store = createConnectionStore();
+    store.setState({ handshakeFailures: 2, lastCloseCode: 4008, chatRequestAck: true, sessionProfiles: true, followUpQueue: true, socketOpens: 3, profileEpoch: 5 });
+    store.getState().noteSocketCreated();
+    const state = store.getState();
+    expect(state.handshakeFailures).toBe(0);
+    expect(state.lastCloseCode).toBeNull();
+    expect(state.chatRequestAck).toBe(false);
+    expect(state.sessionProfiles).toBe(false);
+    expect(state.followUpQueue).toBe(false);
+    expect(state.profileEpoch).toBe(6);
+    expect(state.socketOpens).toBe(3);
+  });
+
   test("an opened socket closed at the connection cap still records 4008", () => {
     useConnectionStore.getState().noteSocketOpen();
     useConnectionStore.getState().recordWsClose(true, 4008);

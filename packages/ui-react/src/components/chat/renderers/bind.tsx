@@ -13,17 +13,20 @@
  * pi, plus the pre-rename `mcp__brain_ui__x` that old transcripts carry. The
  * timeline resolves on the raw streamed name, so all three are registered
  * globally rather than scoped to one backend.
+ *
+ * `summary`, `meta` and `Output` share one parse per tool-call object
+ * (`cachedToolPayload`, #4748), so a row that re-renders does not parse again.
  */
 
 import type { ComponentType } from "react";
 import {
-  parseToolPayload,
   visibleToolName,
   type ToolCallView,
   type ToolComponentContract,
   type ToolPayload,
   type ToolRenderer,
 } from "@schlessera/brain-ui-sdk/client";
+import { cachedToolPayload } from "./payload-cache.js";
 
 /** Pre-rename MCP server prefix, still present in resumed transcripts. */
 const LEGACY_MCP_PREFIX = "mcp__brain_ui__";
@@ -66,7 +69,7 @@ export function bind<Contract extends ToolComponentContract>(
   const Spread = Component as ComponentType<Record<string, unknown>>;
 
   function Output({ tool }: { tool: ToolCallView }) {
-    const payload = parseToolPayload(contract, tool.output);
+    const payload = cachedToolPayload(contract, tool);
     if (payload === null) return Fallback ? <Fallback tool={tool} /> : null;
     return <Spread {...(payload as Record<string, unknown>)} />;
   }
@@ -76,7 +79,7 @@ export function bind<Contract extends ToolComponentContract>(
   ): ((tool: ToolCallView) => string | null) | undefined {
     if (!read) return undefined;
     return (tool: ToolCallView) => {
-      const payload = parseToolPayload(contract, tool.output);
+      const payload = cachedToolPayload(contract, tool);
       return payload === null ? null : read(payload, tool);
     };
   }
