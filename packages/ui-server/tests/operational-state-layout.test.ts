@@ -238,8 +238,7 @@ for (const kind of ["quarantine", "private directory"] as const) {
 }
 
 describe("the in-memory quarantine directory has an owner (#4807)", () => {
-  const boot = (f: ReturnType<typeof fixture>, dbPath: string) => createApp({ config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", BRAIN_PATH: f.brain, DB_PATH: dbPath,
-    BRAIN_UI_PRICING_DISCOVERY: "0" }), registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]) });
+  const boot = (f: ReturnType<typeof fixture>, dbPath: string) => createApp({ config: testServerConfig({ brain: f.brain, db: dbPath }), registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]) });
   /** Runs `body` with the temporary root pointed at a private directory outside the brain; returns the quarantine directories left there. */
   async function inPrivateTemp(f: ReturnType<typeof fixture>, body: (left: () => string[]) => Promise<void>) {
     const temp = join(f.root, "tmp"), saved = process.env.TMPDIR;
