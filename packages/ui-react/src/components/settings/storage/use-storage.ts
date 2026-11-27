@@ -1,21 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useStore } from "zustand";
 import type {
   StorageFileEntry,
-  StorageStatus,
   StorageSnapshot,
   StorageTreePage,
   StoragePage,
-  StorageRemovalCapability,
   StorageRemovalReceipt,
   StorageRemovalFile,
   StorageReferenceEvidence,
-  StorageMaintenanceRow,
   StorageMaintenanceReceipt,
   StorageMaintenanceKind,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiRoot } from "../../../root.js";
 import { storageApi } from "../../../lib/storage-api.js";
 import { canonicalPath, type StorageMetric } from "./storage-model.js";
+import { createStorageInventory } from "./storage-inventory.js";
 export const running = (state: string | undefined) =>
   state === "waiting" || state === "running";
 interface InspectedFile {
@@ -31,16 +30,19 @@ interface InspectedFile {
 }
 export function useStorage(root: BrainUiRoot) {
   const api = useMemo(() => storageApi(root), [root]),
-    lifetime = useRef<AbortController | null>(null),
     posting = useRef(false);
-  const [status, setStatus] = useState<StorageStatus | null>(null),
-    [snapshot, setSnapshot] = useState<StorageSnapshot | null>(null),
-    [error, setError] = useState<string | null>(null),
-    [busy, setBusy] = useState(false);
-  const [capability, setCapability] = useState<StorageRemovalCapability | null>(
-      null
-    ),
-    [maintenance, setMaintenance] = useState<StorageMaintenanceRow[]>([]);
+  // The inventory and its three reads (#4830). One per mount: the pane is
+  // keyed to root and auth epoch by StorageTab.
+  const [inventory] = useState(() => createStorageInventory({ api, authLock: root.authLock }));
+  const status = useStore(inventory, (s) => s.status),
+    snapshot = useStore(inventory, (s) => s.snapshot),
+    error = useStore(inventory, (s) => s.error),
+    capability = useStore(inventory, (s) => s.capability),
+    maintenance = useStore(inventory, (s) => s.maintenance),
+    receipt = useStore(inventory, (s) => s.receipt),
+    announcement = useStore(inventory, (s) => s.announcement);
+  const { setError, setSnapshot, setReceipt, setAnnouncement, acceptStatus, current } = inventory.getState();
+  const [busy, setBusy] = useState(false);
   const [owner, setOwner] = useState<"all" | "brain" | "app" | "operator">("all"),
     [metric, setMetric] = useState<StorageMetric>("allocated"),
     [parent, setParent] = useState<string | undefined>(),
@@ -63,78 +65,16 @@ export function useStorage(root: BrainUiRoot) {
   const [inspected, setInspected] = useState<InspectedFile | null>(null),
     [evidence, setEvidence] = useState<Record<string, InspectedFile>>({}),
     [selected, setSelected] = useState<Record<string, InspectedFile>>({});
-  const [receipt, setReceipt] = useState<StorageRemovalReceipt | null>(null),
-    [reviewOpen, setReviewOpen] = useState(false),
+  const [reviewOpen, setReviewOpen] = useState(false),
     [reviewChanged, setReviewChanged] = useState(false),
     [maintenanceReceipt, setMaintenanceReceipt] =
       useState<StorageMaintenanceReceipt | null>(null),
     [maintenanceId, setMaintenanceId] = useState<string | null>(null);
-  const [announcement, setAnnouncement] = useState("");
-  const refreshedReceipts = useRef(new Set<string>());
-  const requestedScan = useRef<string | null>(null);
   const epoch = root.authLock.epoch();
-  const acceptStatus = (next: StorageStatus) => {
-    setStatus(next);
-    if (next.state === "idle" && requestedScan.current && (next.snapshot?.id === requestedScan.current || next.previous?.id === requestedScan.current || next.lastFailure?.scanId === requestedScan.current)) {
-      const requestedScanId = requestedScan.current;
-      requestedScan.current = null;
-      setAnnouncement(next.lastFailure?.scanId === requestedScanId ? "Storage measurement did not complete. Previous observations remain available." : "Storage measurement updated. Existing file selections remain unchanged.");
-    }
-    setSnapshot((previous) => previous ?? next.snapshot);
-  };
-  function current(controller: AbortController) {
-    return (
-      !controller.signal.aborted &&
-      root.authLock.epoch() === epoch &&
-      lifetime.current === controller
-    );
-  }
   useEffect(() => {
-    const controller = new AbortController();
-    lifetime.current = controller;
-    void Promise.allSettled([
-      api.status(controller.signal),
-      api.removal(controller.signal),
-      api.maintenance(controller.signal),
-    ]).then(([inventory, removal, owners]) => {
-      if (!current(controller)) return;
-      if (inventory.status === "fulfilled") acceptStatus(inventory.value);
-      else
-        setError(
-          "Storage inspection is unavailable. Human-owner access is required."
-        );
-      if (removal.status === "fulfilled") {
-        setCapability(removal.value);
-        setReceipt(removal.value.latest);
-      }
-      if (owners.status === "fulfilled")
-        setMaintenance(owners.value.operations);
-    });
-    return () => controller.abort();
-    // The component is keyed to root and auth epoch by StorageTab.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api]);
-  useEffect(() => {
-    if (status?.state !== "scanning") return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      void api
-        .status(controller.signal)
-        .then((next) => {
-          if (!controller.signal.aborted) acceptStatus(next);
-        })
-        .catch(() => {
-          if (!controller.signal.aborted)
-            setError(
-              "Measurement response unavailable. Check measurement status."
-            );
-        });
-    }, 750);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [api, status]);
+    inventory.getState().load();
+    return () => inventory.getState().dispose();
+  }, [inventory]);
   const threshold = Number(larger) * 1_000_000,
     validThreshold =
       larger.trim() !== "" && Number.isSafeInteger(threshold) && threshold >= 0;
@@ -245,7 +185,7 @@ export function useStorage(root: BrainUiRoot) {
     content,
   ]);
   async function action(work: (signal: AbortSignal) => Promise<void>) {
-    const controller = lifetime.current;
+    const controller = inventory.getState().lifetime();
     if (!controller || posting.current) return;
     posting.current = true;
     setBusy(true);
@@ -521,33 +461,8 @@ export function useStorage(root: BrainUiRoot) {
     };
   }, [api, maintenanceReceipt]);
   useEffect(() => {
-    const done = [
-      receipt &&
-      receipt.state !== "review" &&
-      !running(receipt.state) &&
-      receipt.state !== "unknown"
-        ? receipt.review.id
-        : null,
-      maintenanceReceipt &&
-      !running(maintenanceReceipt.state) &&
-      maintenanceReceipt.state !== "unknown"
-        ? maintenanceReceipt.id
-        : null,
-    ].filter((id): id is string => !!id && !refreshedReceipts.current.has(id));
-    if (!done.length) return;
-    const controller = new AbortController();
-    void Promise.allSettled([
-      api.status(controller.signal),
-      api.maintenance(controller.signal),
-    ]).then(([inventory, owners]) => {
-      if (controller.signal.aborted) return;
-      done.forEach((id) => refreshedReceipts.current.add(id));
-      if (inventory.status === "fulfilled") acceptStatus(inventory.value);
-      if (owners.status === "fulfilled")
-        setMaintenance(owners.value.operations);
-    });
-    return () => controller.abort();
-  }, [api, receipt, maintenanceReceipt]);
+    inventory.getState().receiptsChanged(receipt, maintenanceReceipt);
+  }, [inventory, receipt, maintenanceReceipt]);
   return {
     status,
     snapshot,
@@ -612,7 +527,7 @@ export function useStorage(root: BrainUiRoot) {
     refresh: () =>
       action(async (signal) => {
         const next = await api.scan(signal);
-        if (guarded(signal)) { requestedScan.current = next.activeScanId; setAnnouncement(""); acceptStatus(next); }
+        if (guarded(signal)) inventory.getState().requestScan(next);
       }),
     copyList: async () => {
       try {
