@@ -92,7 +92,7 @@ describe("validateDetailed reads each file once", () => {
   test("a missing block, invalid YAML and a byte order mark give the issues they always gave", () => {
     const fields = { type: "note", title: "Ithaca", created: '"2026-07-12"', updated: '"2026-07-12"', tags: "[ithaca]" };
     const root = makeCorpus({
-      "notes/bom.md": `﻿${doc(fields)}`,
+      "notes/bom.md": `\uFEFF${doc(fields)}`,
       "notes/bad-yaml.md": "---\ntitle: [unclosed\n---\n\nbody\n",
       "notes/four-dash.md": "----\ntitle: x\n----\nbody\n",
       "notes/raw.md": "no frontmatter here\n",
