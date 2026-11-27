@@ -1757,7 +1757,13 @@ does not change when write implementations become available.
 | `brain_google_gmail_send` | `draft_id` | 0.46.0 (#4207); executed through the host write engine |
 
 Inputs are strict objects; ids are checked against the shapes Gmail mints, and
-no field names an account, credential, endpoint, principal or session. Each
+no field names an account, credential, endpoint, principal or session. Draft
+bodies, subjects and search queries must be well-formed UTF-16: an unpaired
+high or low surrogate is refused as `invalid_input`, naming the field and
+rule (#4907). A malformed string is refused, never repaired; paired astral
+characters remain valid, so UTF-8 encoding preserves the approved text. The
+subject and body the host composes for a reply or an update meet the same
+rule; a composed text that breaks it is refused as `draft_not_displayable`. Each
 result is one JSON document, `{ ok: true, tool, result }` or
 `{ ok: false, tool, error: { code, reason, message } }` (a tool error).
 `code` is one of the catalog's `GOOGLE_ERROR_CODES`: `invalid_input`,

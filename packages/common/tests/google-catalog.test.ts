@@ -181,6 +181,43 @@ describe("tool input schemas", () => {
   });
 });
 
+describe("Gmail text encoding", () => {
+  const refused: [string, string][] = [
+    ["a lone high surrogate", "\ud800"],
+    ["a lone low surrogate", "\udc00"],
+    ["a reversed surrogate pair", "\udc00\ud800"],
+    ["a high surrogate at the start", "\ud800Home"],
+    ["a high surrogate at the end", "Home\ud800"],
+    ["a low surrogate at the start", "\udc00Home"],
+    ["a low surrogate at the end", "Home\udc00"],
+    ["an embedded lone surrogate", "a\ud800b"],
+  ];
+  const accepted: [string, string][] = [
+    ["plain text", "Home to Ithaca"],
+    ["a paired astral character", "\u{1F600}"],
+  ];
+  for (const field of ["body", "subject", "query"] as const) {
+    const tool = field === "query" ? GMAIL_TOOL_NAMES.search : GMAIL_TOOL_NAMES.draft;
+    const input = (value: string) => field === "query" ? { query: value } : {
+      action: "create", to: ["penelope@example.com"], subject: "Home", body: "Soon.", [field]: value,
+    };
+    for (const [name, value] of refused) {
+      test(`${field} refuses ${name} as invalid_input`, () => {
+        const result = parseGoogleToolCall(tool, input(value));
+        expect(result.ok ? "accepted" : result.error.code).toBe("invalid_input");
+        expect(result.ok ? [] : result.issues).toEqual([`${field}: must not hold unpaired UTF-16 surrogates`]);
+      });
+    }
+    for (const [name, value] of accepted) {
+      test(`${field} accepts ${name} unchanged`, () => {
+        const result = parseGoogleToolCall(tool, input(value));
+        expect(result.ok ? result.call.operation : "refused").toBe(field === "query" ? "gmail.search" : "gmail.draft.save");
+        expect(result.ok ? (result.call.input as Record<string, unknown>)[field] : null).toBe(value);
+      });
+    }
+  }
+});
+
 describe("modify approval entities", () => {
   test("each label change names its action", () => {
     expect(gmailModifyActions({
