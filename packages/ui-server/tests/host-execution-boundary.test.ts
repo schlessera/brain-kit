@@ -34,7 +34,7 @@ import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import type { CreateAppOptions } from "../src/app";
 import { createFixtureApp as createApp, createNativeAppFixture } from "./helpers/native-app-fixture";
-import { resolveServerConfig } from "../src/config/env";
+import { testServerConfig } from "./helpers/test-config";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 const ROOT = resolve(import.meta.dir, "../../..");
@@ -125,7 +125,7 @@ function evaluatedOnlyInWorkers(f: ReturnType<typeof fixture>, label: string) {
 /** A real app on this brain and database, with a fake agent backend so no agent runtime is probed. */
 function bootApp(brain: string, dbPath: string, options: Pick<CreateAppOptions, "versionRequirements"> = {}) {
   return createApp({ ...options,
-    config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: dbPath, BRAIN_PATH: brain, BRAIN_UI_PRICING_DISCOVERY: "0" }),
+    config: testServerConfig({ brain, db: dbPath }),
     registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]) });
 }
 

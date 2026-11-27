@@ -5,10 +5,10 @@
  * opportunity with no stage or one left researching.
  */
 
-import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { tempDirs } from "../../../tests/helpers/temp";
 import * as fs from "fs";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
@@ -17,9 +17,9 @@ import { openDatabase } from "../src/db";
 import { checkOpportunityStages, ensurePipelineIndex } from "../src/pipeline";
 import { ingestJobs } from "../src/scrape";
 
+const tempDir = tempDirs({ scope: "file" });
+
 const BRAIN_BIN = resolve(import.meta.dir, "../../core/src/cli/brain.ts");
-const roots: string[] = [];
-afterAll(() => roots.forEach((r) => rmSync(r, { recursive: true, force: true })));
 
 async function brain(root: string, ...args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
   const proc = Bun.spawn(["bun", BRAIN_BIN, ...args], {
@@ -36,8 +36,7 @@ async function brain(root: string, ...args: string[]): Promise<{ stdout: string;
 }
 
 function makeBrain(files: Record<string, string> = {}): string {
-  const root = mkdtempSync(join(tmpdir(), "jobs-pipeline-"));
-  roots.push(root);
+  const root = tempDir("jobs-pipeline-");
   symlinkSync(resolve(import.meta.dir, "../../../node_modules"), join(root, "node_modules"));
   writeFileSync(
     join(root, "brain.config.json"),
@@ -179,8 +178,7 @@ describe("jobs pipeline refuses to guess", () => {
 
   test("a symlinked parent that leaves the brain gets no directory made outside it", async () => {
     const root = makeBrain();
-    const outside = mkdtempSync(join(tmpdir(), "jobs-outside-"));
-    roots.push(outside);
+    const outside = tempDir("jobs-outside-");
     symlinkSync(outside, join(root, "career"));
     const { code, stderr } = await brain(root, "jobs", "pipeline");
     expect(readdirSync(outside)).toEqual([]);

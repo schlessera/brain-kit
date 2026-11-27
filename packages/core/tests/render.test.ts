@@ -7,8 +7,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { DOCUMENT_BLOCKS } from "@schlessera/brain-render-template";
@@ -16,8 +15,10 @@ import { DOCUMENT_KINDS, readSkeleton, resolveKind } from "@schlessera/brain-ren
 
 import { countPdfPages } from "../src/cli/commands/render";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
+import { tempDirs } from "../../../tests/helpers/temp";
 
 let root: string;
+const tempDir = tempDirs();
 
 const DOC = `---
 title: Wallis Day Plan
@@ -136,7 +137,7 @@ describe("brain render", () => {
 
   describe("the temp directory is not scratch space (#310)", () => {
     test("an output under the system temp directory is refused", async () => {
-      const out = join(tmpdir(), `brain-render-${Date.now()}.html`);
+      const out = join(tempDir("brain-render-"), "out.html");
       const res = await render(["notes/trip.md", "--format", "html", "--out", out]);
       expect(res.code).toBe(1);
       expect(res.stderr + res.stdout).toContain("not inside the brain");
@@ -144,12 +145,11 @@ describe("brain render", () => {
     });
 
     test("an input under the system temp directory is refused", async () => {
-      const src = join(tmpdir(), `brain-render-src-${Date.now()}.md`);
+      const src = join(tempDir("brain-render-src-"), "from-temp.md");
       writeFileSync(src, "# From temp\n");
       const res = await render([src, "--format", "html", "--out", "notes/from-temp.html"]);
       expect(res.code).toBe(1);
       expect(res.stderr + res.stdout).toContain("not inside the brain");
-      rmSync(src, { force: true });
     });
   });
 
