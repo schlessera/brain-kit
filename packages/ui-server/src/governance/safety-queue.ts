@@ -7,15 +7,15 @@ const queues=new WeakMap<Database,{generation:bigint;pending:Set<PendingSafety>;
  /** The safety revision when this process latched in memory; null when unreadable. */
  latchRevision:string|null;
  lostTurns:Set<string>;unscopedLoss:boolean;listeners:Set<()=>void>;
- /** Every loss this process ever retained, per turn and unscoped; never decreases (#4351). */
- lossCounts:Map<string,number>;unscopedLosses:number;recovery:{timer:ReturnType<typeof setTimeout>|null;attempt:number};
+ /** Loss generations this process holds, per turn and for the brain; they only increase (#4351). */
+ turnLossGenerations:Map<string,number>;brainLossGeneration:number;recovery:{timer:ReturnType<typeof setTimeout>|null;attempt:number};
  /** First cause of a loss only this process holds, kept for the recovery audit. */
  lossCause:{errorClass:string;message:string;site:string;turnId:string|null;at:number;count:number}|null;
  /** Each turn's tool-result records under way; its collection's end waits for them. */
  recording:Map<string,Set<Promise<void>>>}>();
 export function safetyQueue(db:Database){
  let queue=queues.get(db);
- if(!queue){queue={generation:0n,pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,lossCounts:new Map(),unscopedLosses:0,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null,recording:new Map()};queues.set(db,queue);}
+ if(!queue){queue={generation:0n,pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,turnLossGenerations:new Map(),brainLossGeneration:0,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null,recording:new Map()};queues.set(db,queue);}
  return queue;
 }
 
@@ -36,13 +36,22 @@ export function notifySafetyChanged(db:Database):void {
  * committed. A known turn restricts only its own chat. Unscoped/overflow loss,
  * or a notice that could not commit at all (`brainWide`), restricts the brain
  * until automatic recovery commits conservative gaps for every affected epoch. */
+/**
+ * A loss this process holds (#4351): it raises the brain's in-memory loss
+ * generation and, within the bound, the turn's. Neither ever decreases, and
+ * a second loss raises them again whatever the overlay already holds.
+ */
+export function noteRetainedSafetyLoss(db:Database,turnId:string|null):void {
+ const queue=safetyQueue(db);
+ queue.brainLossGeneration++;
+ if(turnId!==null&&(queue.turnLossGenerations.has(turnId)||queue.turnLossGenerations.size<4096))queue.turnLossGenerations.set(turnId,(queue.turnLossGenerations.get(turnId)??0)+1);
+ notifySafetyChanged(db);
+}
 export function retainSafetyLoss(db:Database,turnId:string|null,brainWide=false):void {
  const queue=safetyQueue(db),was=queue.failed;
  if(turnId===null||(!queue.lostTurns.has(turnId)&&queue.lostTurns.size>=4096)){queue.unscopedLoss=true;queue.failed=true;}
  else queue.lostTurns.add(turnId);
- // Counted whatever the overlay already holds: a second loss still changes it.
- if(turnId!==null&&(queue.lossCounts.has(turnId)||queue.lossCounts.size<4096))queue.lossCounts.set(turnId,(queue.lossCounts.get(turnId)??0)+1);
- else queue.unscopedLosses++;
+ noteRetainedSafetyLoss(db,turnId);
  if(brainWide)queue.failed=true;
  // Unreadable: recovery then treats every open producer as predating it.
  if(queue.failed&&!was){try{queue.latchRevision=(db.query("SELECT revision FROM safety_meta WHERE singleton=1").get() as {revision:string}|null)?.revision??null;}catch{queue.latchRevision=null;}}

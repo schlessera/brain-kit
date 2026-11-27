@@ -6420,13 +6420,17 @@ loss stops neither its operation nor the turn. A source-trusted input still
 needs its durable occurrence, and any other lost write, including a refused
 write such as a full recording queue, a lost connection audit or any loss
 outside a permanent gap, keeps its containment. Every loss such a turn
-tolerates is still recorded: the collection's failure cause counts every
-contained loss (`lossCount`), and a loss the worker could not contain itself
-is contained by the host. An answered Network card captures the chat's loss
-state when it opens: that durable count and the losses held in this
-process. Any new recording loss before its connection dispatches, its own
-included, withdraws the card with 403 safety_changed; a retry raises a fresh
-card (maintainer ruling on #4351, option a). While a gapped turn's
+tolerates is still recorded, through one function: it raises the brain's,
+the chat's and the turn's durable loss generations, which only ever
+increase and are never filtered, or this process's in-memory generations
+when the store cannot take it. The writer notes every loss it contains, the
+host contains a loss the worker could not, and a recorder without the write
+worker notes its own tolerated losses. An answered Network card captures
+the chat's and the brain's generations, durable and in memory, when it
+opens. Any new loss before its connection dispatches, anywhere in the brain
+and its own included, withdraws the card with 403 safety_changed; a retry
+raises a fresh card (maintainer ruling on #4351, option a). Recovery never
+lowers a generation. While a gapped turn's
 collection stays failed, every own write is lost, so a card-approved
 connection there is withdrawn each time; allow-listed and already-contacted
 destinations still connect.

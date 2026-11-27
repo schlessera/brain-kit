@@ -14,7 +14,7 @@ import { createUiDb } from "../src/db/client.js";
 import { createGovernanceWrites } from "../src/governance/event-writes.js";
 import { queryGovernanceEvents } from "../src/governance/events.js";
 import { occurrence } from "../src/governance/occurrence.js";
-import { safetyProjection, pruneSafetyDetail } from "../src/governance/safety-store.js";
+import { safetyProjection, pruneSafetyDetail, noteSafetyLoss } from "../src/governance/safety-store.js";
 import { prepareTurnEgress } from "../src/brain/turn-egress.js";
 import { originTrustMatch, type OriginTrust } from "../src/brain/origin-trust.js";
 import { connectedSafetySession } from "./helpers/connected-safety.js";
@@ -645,9 +645,9 @@ for (const bump of ["with", "without"] as const) test(`#4351: a loss another con
     // in-process state of this connection changes.
     const result = await answeredCard(f, () => {
       if (bump === "with") expect(failSafetyCollection(other, "turn-voyage", "recording_failed", safetyFailureCause(new Error("Odysseus store unavailable"), "safetyCommit", "turn-voyage"))).toBe(true);
-      // Only the durable count moves: no revision, queue or reason changes, so
-      // a marker cached on those alone would still match.
-      else other.query("UPDATE safety_latch SET count=count+1 WHERE singleton=1").run();
+      // Only a durable loss generation moves: no revision, queue or reason
+      // changes, so a marker cached on those alone would still match.
+      else noteSafetyLoss(other, "turn-elsewhere", null);
     });
     expect(result.status, bump === "with" ? "OTHER_CONNECTION_LOSS_WITHDRAWS_THE_CARD" : "UNREVISED_LOSS_COUNT_STILL_WITHDRAWS_THE_CARD").toBe(403);
     expect(result.record).toMatchObject({ reason: "safety_changed", dispatched: false });
@@ -665,10 +665,97 @@ test("#4351: a durable loss another connection records between the answer and di
     // its dispatch, so only the count another connection raises can move.
     const op = f.proxy.managedReference(new URL("https://github.com/"), new AbortController().signal);
     expect(await op.admit()).toBe(true);
-    other.query("UPDATE safety_latch SET count=count+1 WHERE singleton=1").run();
+    noteSafetyLoss(other, "turn-elsewhere", null);
     const prepared = op.prepare();
     const sent = prepared.ok ? op.dispatch(() => {}) : prepared;
     op.finish("denied");
     expect(sent.ok, "LOSS_COUNT_IN_THE_RECHECKED_REVISION").toBe(false);
   } finally { other.close(); await f.close(); }
+});
+
+// #4351 round 6: loss generations only increase, and every tolerated loss
+// raises them. A managed acquisition writes nothing between its answer and
+// its dispatch, so only the loss under test can move its card's marker.
+const managedDispatch = async (f: Awaited<ReturnType<typeof fixture>>, between: () => Promise<void> | void) => {
+  f.decide(async () => ({ behavior: "allow" }));
+  const op = f.proxy.managedReference(new URL("https://github.com/"), new AbortController().signal);
+  expect(await op.admit()).toBe(true);
+  await between();
+  const prepared = op.prepare();
+  const sent = prepared.ok ? op.dispatch(() => {}) : prepared;
+  op.finish("denied");
+  return sent.ok;
+};
+const gappedTurn = (f: Awaited<ReturnType<typeof fixture>>) => f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();
+
+for (const lost of ["occurrence", "terminal exposure"] as const) test(`#4351: a legacy recorder's tolerated ${lost} loss raises the loss generation`, async () => {
+  const f = await fixture(false, lost === "terminal exposure" ? { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } } : { schema_version: 1 }, undefined, false, "127.0.0.1", true);
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  const original = f.writes.record;
+  const { safetyLossGenerations } = await import("../src/governance/safety-store");
+  try {
+    gappedTurn(f);
+    // A recorder without the write worker reports the tolerated loss and nothing else.
+    const kind = lost === "occurrence" ? "taint" : "taint_exposure";
+    f.writes.record = async (...args) => args[0].kind === kind && (kind === "taint_exposure" || (args[0].payload as { source?: string }).source === "egress_connection") ? { id: 0, recorded: false } : original(...args);
+    f.decide(async () => ({ behavior: "allow" }));
+    const before = safetyLossGenerations(f.db, "turn-voyage", "voyage");
+    const status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+    await f.proxy.settled();
+    if (lost === "occurrence") {
+      expect(status, "LEGACY_RECORDER_LOSS_WITHDRAWS_THE_CARD").toBe(403);
+      expect(untrustedHits).toBe(0);
+    } else {
+      expect(status).toBe(200);
+      expect(safetyLossGenerations(f.db, "turn-voyage", "voyage").chat, "LEGACY_TERMINAL_LOSS_RAISES_THE_GENERATION").toBeGreaterThan(before.chat);
+      expect(f.controller.signal.aborted).toBe(false);
+    }
+  } finally { untrusted.stop(true); await f.close(); }
+});
+
+test("#4351: a latch recovered and a new brain-wide loss between the answer and dispatch withdraw the card", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const { latchSafety } = await import("../src/governance/safety-store");
+  try {
+    gappedTurn(f);
+    latchSafety(f.db, "turn-other", "recording_failed");
+    await f.taint();
+    const ok = await managedDispatch(f, () => {
+      // The latch clears, and a new one-loss latch takes its place: the
+      // brain's standing counts are what they were.
+      f.db.exec("UPDATE safety_meta SET failed=0; DELETE FROM safety_latch;");
+      latchSafety(f.db, null, "recording_failed");
+    });
+    expect(ok, "RECOVERED_LATCH_AND_NEW_LOSS_WITHDRAW_THE_CARD").toBe(false);
+  } finally { await f.close(); }
+});
+
+test("#4351: a late loss on an ended collection of the same chat withdraws the card", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const { recordSafetyFailure } = await import("../src/governance/safety-store");
+  try {
+    gappedTurn(f);
+    await f.writes.safetyBegin({ turnId: "turn-voyage-earlier", bindingId: crypto.randomUUID(), sessionId: "voyage", principalId: "odysseus", backendId: "claude", at: 1 } as never);
+    await f.writes.safetyEnd("turn-voyage-earlier");
+    await f.taint();
+    const ok = await managedDispatch(f, () => {
+      // A write of the ended turn fails late; the worker contains it on that collection.
+      expect(recordSafetyFailure(f.db, "turn-voyage-earlier", new Error("Odysseus store unavailable"), "safetyCommit", "voyage")).toBe("chat");
+    });
+    expect(ok, "LATE_LOSS_ON_AN_ENDED_COLLECTION_WITHDRAWS_THE_CARD").toBe(false);
+  } finally { await f.close(); }
+});
+
+test("#4351: a brain-wide loss held in this process for another chat withdraws the card", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const { retainSafetyLoss } = await import("../src/governance/safety-queue");
+  try {
+    gappedTurn(f);
+    await f.taint();
+    // The process already holds a brain-wide loss when the card opens.
+    retainSafetyLoss(f.db, "turn-penelope", true);
+    const ok = await managedDispatch(f, () => { retainSafetyLoss(f.db, "turn-telemachus", true); });
+    expect(ok, "BRAIN_WIDE_LOSS_IN_ANOTHER_CHAT_WITHDRAWS_THE_CARD").toBe(false);
+  } finally { await f.close(); }
 });

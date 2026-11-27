@@ -8,8 +8,8 @@ import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
-import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
-import { safetyProjection, safetyEvidenceSequence, safetyLossCount, safetyScopeTurns } from "../governance/safety-store.js";
+import { noteRetainedSafetyLoss, safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
+import { noteSafetyLoss, safetyProjection, safetyEvidenceSequence, safetyLossGenerations, safetyScopeTurns } from "../governance/safety-store.js";
 import { STORAGE_SETTLEMENT_MS } from "../db/settlement.js";
 import { settleTurnSessionBinding, type SessionBindingRefusal } from "../ws/bridge-session-binding.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
@@ -186,12 +186,23 @@ export async function prepareTurnEgress(options: {
   // tolerates a lost taint record there with `{id:0,recorded:false}`: the
   // gap already shows the loss, and it never clears (#4351).
   const gapped = () => { try { return !!db?.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND restricted_begin=1").get(options.turnId); } catch { return false; } };
+  /**
+   * A loss this turn tolerated (#4351). The write worker notes its own
+   * losses durably, and the app connection never writes beside it, so with
+   * one the loss raises the in-memory generations; a recorder without one
+   * leaves the durable note to this connection.
+   */
+  const noteLoss = () => {
+    if (!db) return;
+    if (options.governanceWrites) noteRetainedSafetyLoss(db, options.turnId);
+    else noteSafetyLoss(db, options.turnId, options.sessionId());
+  };
   /** `tolerable`: a taint record, whose tolerated loss on a gapped turn is not an audit failure. */
   const track = (committed: unknown, tolerable = false) => {
     const confirm=(result:unknown)=>{
       // A positive existing id is a durable replay, not a lost write.
       if(result===false||result&&typeof result === "object"&&"recorded" in result&&result.recorded===false&&(!("id" in result)||typeof result.id !== "number"||result.id<=0)){
-        if(tolerable&&typeof result === "object"&&gapped())return;
+        if(tolerable&&typeof result === "object"&&gapped()){noteLoss();return;}
         throw new Error("Egress audit was not durably recorded");
       }
     };
@@ -262,13 +273,17 @@ export async function prepareTurnEgress(options: {
    * (`contactedHosts`).
    */
   const approvalMarkers = new Map<string,{version:string;marker:string}>();
-  /** The scope's loss state: its durable loss count and this process's retained-loss counts. */
+  /**
+   * The scope's loss generations (#4351): the chat's and the brain's,
+   * durable and in this process. Each only ever increases, so any loss after
+   * a card opened, wherever it was contained, changes them.
+   */
   const lossState = () => {
     const queue = safetyQueue(db!), turns = safetyScopeTurns(db!, options.turnId, options.sessionId());
-    turns.add(options.turnId);
-    let retained = queue.unscopedLosses;
-    for (const turn of turns) retained += queue.lossCounts.get(turn) ?? 0;
-    return [safetyLossCount(db!, options.turnId, options.sessionId()), retained, queue.failed, queue.unscopedLoss];
+    let memoryChat = 0;
+    for (const turn of turns) memoryChat += queue.turnLossGenerations.get(turn) ?? 0;
+    const durable = safetyLossGenerations(db!, options.turnId, options.sessionId());
+    return [durable.chat, durable.brain, memoryChat, queue.brainLossGeneration];
   };
   const approvalRevision = (connectionId?: string,kind: "network" | "outward" = "network") => {
       const callGeneration=kind==="outward"?calls.generation():"0";
@@ -423,6 +438,7 @@ export async function prepareTurnEgress(options: {
       // A refused write, such as a full recording queue, never qualifies, and
       // source trust still needs its durable occurrence (#4351).
       if (failed || match || !gapped()) throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
+      noteLoss();
       return;
     }
     if(db&&!hadCollection){
