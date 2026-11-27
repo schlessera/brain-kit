@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { readFileSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tempDirs } from "../../../tests/helpers/temp";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Window } from "happy-dom";
 import { Database } from "bun:sqlite";
@@ -8,6 +8,8 @@ import * as scraping from "@schlessera/brain-scrape";
 import { ScrapeClient, runAdapters, type BrowserSession, type FetchedPage, type FetchOptions } from "@schlessera/brain-scrape";
 import { getAdapter, runScrape } from "../src/scrape.js";
 import { ALL_SOURCES, type RawJob, type Source } from "../src/types.js";
+
+const tempDir = tempDirs();
 
 const fixture = (path: string) => readFileSync(join(import.meta.dir, "fixtures", path), "utf8");
 const listing: Record<Source, string> = {
@@ -148,7 +150,7 @@ describe("real job boards through the shared runner", () => {
       if (url.startsWith("https://www.workingnomads.com/")) return new Response(listing.workingnomads);
       throw new Error(`Unexpected fixture request: ${url}`);
     });
-    const dir = mkdtempSync(join(tmpdir(), "jobs-shared-runner-"));
+    const dir = tempDir("jobs-shared-runner-");
     try {
       const report = await runScrape({ dbPath: join(dir, "jobs.db"), sources: ["remoteok", "workingnomads"], enrichment: { maxDetailPages: 0 } });
       expect(shared).toHaveBeenCalledTimes(1);
@@ -170,7 +172,7 @@ describe("real job boards through the shared runner", () => {
       ] }));
       return new Response('<script type="application/ld+json">{"@type":"JobPosting","description":"Fixture full description."}</script>');
     });
-    const dir = mkdtempSync(join(tmpdir(), "jobs-shared-enrichment-"));
+    const dir = tempDir("jobs-shared-enrichment-");
     try {
       const dbPath = join(dir, "jobs.db");
       const report = await runScrape({ dbPath, sources: ["jobgether"], proxy: "http://proxy.example:3128" });
@@ -189,7 +191,7 @@ describe("real job boards through the shared runner", () => {
 
   test("production closes its database when source setup fails", async () => {
     const close = spyOn(Database.prototype, "close");
-    const dir = mkdtempSync(join(tmpdir(), "jobs-shared-db-failure-"));
+    const dir = tempDir("jobs-shared-db-failure-");
     try {
       await expect(runScrape({ dbPath: join(dir, "jobs.db"), sources: ["invalid-fixture-source" as Source] })).rejects.toThrow("Unknown source");
       expect(close).toHaveBeenCalledTimes(1);

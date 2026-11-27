@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFixtureApp } from "./helpers/native-app-fixture";
 import { createStaticBackendRegistry } from "../src/agent/backend";
-import { resolveServerConfig } from "../src/config/env";
+import { testServerConfig } from "./helpers/test-config";
 import { createRecordingObservability } from "../src/observability";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { privateMaintenanceTest } from "./helpers/private-maintenance-test";
@@ -14,11 +14,10 @@ import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 test("createApp isolates login and passkey option buckets (#1364)", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-app-state-"));
   const password = "Odysseus returns to Ithaca";
-  const config = resolveServerConfig({
-    AUTH_MODE: "password", HOST: "127.0.0.1", BRAIN_PATH: root,
-    DB_PATH: ":memory:", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password),
+  const config = testServerConfig({ brain: root, db: ":memory:" }, {
+    AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password),
     COOKIE_SECRET: "odysseus-fixture-secret-0123456789abcdef",
-    TRUST_PROXY: "1", BRAIN_UI_PRICING_DISCOVERY: "0",
+    TRUST_PROXY: "1",
   });
   const apps: Awaited<ReturnType<typeof createFixtureApp>>[] = [];
   try {
@@ -71,11 +70,10 @@ test("two differently configured apps isolate exec wrappers and login/passkey bu
       writeFileSync(wrapper, `#!/bin/sh\nif [ "$2" = search ]; then\n` +
         `  printf '%s\\n' "$@" >> "\${BRAIN_WORKER_DATA_ROOT:-${brainPath}}/${name}.log"\nfi\nexec "$@"\n`);
       chmodSync(wrapper, 0o755);
-      return { name, password, brainPath, log: join(brainPath, `${name}.log`), config: resolveServerConfig({
-        AUTH_MODE: "password", HOST: "127.0.0.1", BRAIN_PATH: brainPath,
-        DB_PATH: ":memory:", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password),
+      return { name, password, brainPath, log: join(brainPath, `${name}.log`), config: testServerConfig({ brain: brainPath, db: ":memory:" }, {
+        AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password),
         COOKIE_SECRET: `odysseus-${name}-fixture-secret-0123456789abcdef`,
-        TRUST_PROXY: "1", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_EXEC_WRAPPER: wrapper,
+        TRUST_PROXY: "1", BRAIN_UI_EXEC_WRAPPER: wrapper,
       }) };
     }));
     // Both real app instances stay alive in this process; only native storage

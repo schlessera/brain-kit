@@ -25,6 +25,7 @@ import { createSessionCatalog } from "../src/ws/session-catalog";
 import type { RunningTurn } from "../src/ws/turns";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
+import { until } from "../../../tests/helpers/until";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -36,15 +37,6 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 // A deadline, not an attempt count: the real per-turn host probe now runs
 // without blocking the event loop (#2416), so polls continue while it starts.
-async function until(condition: () => boolean, deadlineMs = 10_000): Promise<void> {
-  const end = performance.now() + deadlineMs;
-  while (performance.now() < end) {
-    if (condition()) return;
-    await new Promise((resolve) => setTimeout(resolve, 1));
-  }
-  if (condition()) return;
-  throw new Error("condition was not reached");
-}
 
 function fakeSocket() {
   const sent: string[] = [];
@@ -397,7 +389,7 @@ describe("principal revocation boundary", () => {
       attachments: [],
     });
     authorization.release();
-    await until(() => host.coordinator.startingSessions === 1);
+    await until(() => host.coordinator.startingSessions === 1, undefined, 10_000);
     host.revokePrincipals(["revoked"], 1008, "Sessions invalidated");
     routing.resolve();
     await running;
@@ -435,14 +427,14 @@ describe("principal revocation boundary", () => {
       { data: JSON.stringify({ type: "chat_message", text: "second" }) } as MessageEvent,
       socket.ws
     );
-    await until(() => host.coordinator.startingSessions === 2);
+    await until(() => host.coordinator.startingSessions === 2, undefined, 10_000);
 
     routing[0]!.resolve();
-    await until(() => starts === 1 && host.coordinator.startingSessions === 1);
+    await until(() => starts === 1 && host.coordinator.startingSessions === 1, undefined, 10_000);
     handlers.onClose({ code: 1000, reason: "" } as CloseEvent, socket.ws);
     host.revokePrincipals(["revoked"], 1008, "Sessions invalidated");
     routing[1]!.resolve();
-    await until(() => host.coordinator.startingSessions === 0);
+    await until(() => host.coordinator.startingSessions === 0, undefined, 10_000);
 
     expect(starts).toBe(1);
     expect(host.coordinator.authorizationRegistry.size).toBe(0);
@@ -477,7 +469,7 @@ describe("principal revocation boundary", () => {
       attachments: [],
     });
     authorization.release();
-    await until(() => billingCalls === 1);
+    await until(() => billingCalls === 1, undefined, 10_000);
     host.revokePrincipals(["revoked"], 1008, "Sessions invalidated");
     billing.resolve();
     await running;
@@ -512,7 +504,7 @@ describe("principal revocation boundary", () => {
       attachments: [],
     });
     authorization.release();
-    await until(() => billingCalls === 1);
+    await until(() => billingCalls === 1, undefined, 10_000);
 
     const turn = [...host.coordinator.running][0]!;
     turn.pendingCancellationPrincipalIds.push("owner-b");
@@ -561,7 +553,7 @@ describe("principal revocation boundary", () => {
       sessionId: "session-1",
       attachments: [],
     });
-    await until(() => prompts.length === 1);
+    await until(() => prompts.length === 1, undefined, 10_000);
     await handleChatMessage(host, fakeSocket().ws, {
       authorization: revoked,
       text: "discard me",
@@ -638,10 +630,10 @@ describe("principal revocation boundary", () => {
         } as MessageEvent,
         originalSocket.ws
       );
-      await until(() => host.coordinator.bySession.has("session-native-follow-up"));
+      await until(() => host.coordinator.bySession.has("session-native-follow-up"), undefined, 10_000);
       // A native follow-up joins only a turn the backend is running; the host
       // probe before it is awaited (#2416), so wait for the backend itself.
-      await until(() => originalStarted);
+      await until(() => originalStarted, undefined, 10_000);
       followUpHandlers.onMessage(
         {
           data: JSON.stringify({
@@ -652,21 +644,21 @@ describe("principal revocation boundary", () => {
         } as MessageEvent,
         followUpSocket.ws
       );
-      await until(() => followUpCalls === 1);
+      await until(() => followUpCalls === 1, undefined, 10_000);
 
       const followUpAuthorization = [...host.coordinator.authorizationRegistry.keys()].find(
         (authorization) => authorization.principalId === "follow-up-sender"
       )!;
       followUpHandlers.onClose({ code: 1000, reason: "" } as CloseEvent, followUpSocket.ws);
       releaseOriginal.resolve();
-      await until(() => host.coordinator.running.size === 0);
+      await until(() => host.coordinator.running.size === 0, undefined, 10_000);
 
       host.revokePrincipals(["follow-up-sender"], 1008, "Sessions invalidated");
       expect(followUpAuthorization.valid).toBe(false);
 
       if (rejects) rejectFollowUp(new Error("native follow-up failed"));
       else settleFollowUp();
-      await until(() => !host.coordinator.authorizationRegistry.has(followUpAuthorization));
+      await until(() => !host.coordinator.authorizationRegistry.has(followUpAuthorization), undefined, 10_000);
 
       originalHandlers.onClose({ code: 1000, reason: "" } as CloseEvent, originalSocket.ws);
       expect(host.coordinator.authorizationRegistry.size).toBe(0);
@@ -708,7 +700,7 @@ describe("principal revocation boundary", () => {
           } as MessageEvent,
           socket.ws
         );
-        await until(() => prompts.length === 1);
+        await until(() => prompts.length === 1, undefined, 10_000);
         handlers.onMessage(
           {
             data: JSON.stringify({
@@ -720,7 +712,7 @@ describe("principal revocation boundary", () => {
           socket.ws
         );
         await until(
-          () => host.coordinator.bySession.get("session-expiry")?.queue.length === 1
+          () => host.coordinator.bySession.get("session-expiry")?.queue.length === 1, undefined, 10_000
         );
 
         // Keep authorization time fixed through the real per-turn host probe and
@@ -731,7 +723,7 @@ describe("principal revocation boundary", () => {
         expect(principal.expiresAt).toBeLessThan(Date.now());
         expect(socket.closed).toEqual([]);
         releaseRunning.resolve();
-        await until(() => host.coordinator.running.size === 0);
+        await until(() => host.coordinator.running.size === 0, undefined, 10_000);
         expect(prompts).toEqual(["running"]);
 
         // Dequeue rechecks expiry and closes the socket before the turn settles.
@@ -753,7 +745,7 @@ describe("principal revocation boundary", () => {
           socket.ws
         );
         releaseRunning.resolve();
-        await until(() => host.coordinator.running.size === 0);
+        await until(() => host.coordinator.running.size === 0, undefined, 10_000);
 
         expect(prompts).toEqual(["running"]);
       } finally {
@@ -800,7 +792,7 @@ describe("principal revocation boundary", () => {
       authorization: firstAuthorization, text: "first", sessionId: "session-queue", attachments: [],
     }).then(() => null, error => error);
     firstAuthorization.release();
-    await until(() => prompts.length === 1);
+    await until(() => prompts.length === 1, undefined, 10_000);
     queuedHandlers.onMessage(
       {
         data: JSON.stringify({
@@ -811,13 +803,13 @@ describe("principal revocation boundary", () => {
       } as MessageEvent,
       queuedSocket.ws
     );
-    await until(() => host.coordinator.bySession.get("session-queue")?.queue.length === 1);
+    await until(() => host.coordinator.bySession.get("session-queue")?.queue.length === 1, undefined, 10_000);
     const queuedEntry = host.coordinator.bySession.get("session-queue")!.queue[0]!;
     expect(store.lifecycle(queuedEntry.lifecycleTurnId!)).toMatchObject({ queuedAt: queuedEntry.queuedAt, dequeuedAt: null });
     queuedHandlers.onClose({ code: 1000, reason: "" } as CloseEvent, queuedSocket.ws);
 
     releaseFirst.resolve();
-    await until(() => billingCalls === 2);
+    await until(() => billingCalls === 2, undefined, 10_000);
     const dequeued = host.coordinator.bySession.get("session-queue")!;
     expect(dequeued.principalId).toBe("queued-principal");
     expect(dequeued.authorization.principalId).toBe("queued-principal");
@@ -828,7 +820,7 @@ describe("principal revocation boundary", () => {
       host.revokePrincipals(["queued-principal"], 1008, "Sessions invalidated");
     }
     releaseSecondBilling.resolve();
-    await until(() => host.coordinator.running.size === 0);
+    await until(() => host.coordinator.running.size === 0, undefined, 10_000);
     const failure = await completed;
 
     expect(prompts).toEqual(["first"]);
@@ -869,7 +861,7 @@ describe("principal revocation boundary", () => {
       attachments: [],
     });
     authorization.release();
-    await until(() => signals.length === 1);
+    await until(() => signals.length === 1, undefined, 10_000);
     const turnId = host.coordinator.bySession.get("session-recording")!.turnId;
 
     host.revokePrincipals(["revoked"], 1008, "Sessions invalidated");

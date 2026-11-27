@@ -17,7 +17,7 @@ import { BrainUiClient, type LivenessEvent, type ServerMessage } from "@schlesse
 
 import { createFixtureApp as createApp } from "../helpers/native-app-fixture.js";
 import { createRecordingObservability } from "../../src/observability/index";
-import { resolveServerConfig } from "../../src/config/env";
+import { testServerConfig } from "../helpers/test-config";
 import { createStaticBackendRegistry } from "../../src/agent/backend";
 import { makeFakeBackend } from "../helpers/fake-backend";
 
@@ -51,13 +51,7 @@ async function start() {
     },
   });
   const app = await createApp({
-    config: resolveServerConfig({
-      AUTH_MODE: "none",
-      HOST: "127.0.0.1",
-      DB_PATH: ":memory:",
-      BRAIN_PATH: brain,
-      BRAIN_UI_PRICING_DISCOVERY: "0",
-    }),
+    config: testServerConfig({ brain, db: ":memory:" }),
     dbPath: ":memory:",
     observability: createRecordingObservability(),
     registry: createStaticBackendRegistry([backend], backend.id),

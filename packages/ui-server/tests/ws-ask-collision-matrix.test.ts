@@ -13,6 +13,7 @@ import { createWsHandlers } from "../src/ws/connection";
 import type { WSContext } from "../src/ws/clients";
 import { closeDb, resetForTests, setBackendForTests, testHost } from "./helpers/test-host";
 import { testPrincipal } from "./helpers/principal";
+import { until } from "../../../tests/helpers/until";
 
 const KINDS = ["ask_user", "ask_user_list", "ask_user_rank", "ask_user_form"] as const;
 type Kind = (typeof KINDS)[number];
@@ -50,14 +51,6 @@ function expected(original: Kind, duplicate: Kind, sameTurn: boolean): { accepte
   const lenient = duplicate === "ask_user" || duplicate === "ask_user_list";
   if (original !== duplicate || !lenient) return { accepted: false, logged: false };
   return sameTurn ? { accepted: true, logged: false } : { accepted: false, logged: true };
-}
-
-async function until(condition: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if (condition()) return;
-    await Bun.sleep(5);
-  }
-  throw new Error("host did not start the scripted turns");
 }
 
 /** Two concurrent turns on the real host/connection/dispatch, each held until teardown. */

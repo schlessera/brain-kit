@@ -17,7 +17,8 @@ import { join, resolve } from "path";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
-import { resolveServerConfig, type ServerConfig } from "../src/config/env";
+import type { ServerConfig } from "../src/config/env";
+import { testServerConfig } from "./helpers/test-config";
 import { createRecordingObservability } from "../src/observability/index";
 import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";
 import { makeFakeBackend } from "./helpers/fake-backend";
@@ -52,13 +53,7 @@ function installBrainCli(root: string, source: string): void {
 }
 
 function appConfig(brainPath: string) {
-  return resolveServerConfig({
-    AUTH_MODE: "none",
-    HOST: "127.0.0.1",
-    DB_PATH: ":memory:",
-    BRAIN_PATH: brainPath,
-    BRAIN_UI_PRICING_DISCOVERY: "0",
-  });
+  return testServerConfig({ brain: brainPath, db: ":memory:" });
 }
 
 const registry = () =>
@@ -594,14 +589,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
   }
 
   const wrapperConfig = (root: string, wrapper: string) =>
-    resolveServerConfig({
-      AUTH_MODE: "none",
-      HOST: "127.0.0.1",
-      DB_PATH: ":memory:",
-      BRAIN_PATH: root,
-      BRAIN_UI_PRICING_DISCOVERY: "0",
-      BRAIN_UI_EXEC_WRAPPER: wrapper,
-    });
+    testServerConfig({ brain: root, db: ":memory:" }, { BRAIN_UI_EXEC_WRAPPER: wrapper });
 
   test("an app spawns through its configured wrapper, not the ambient one (#1363)", async () => {
     if (await privateMaintenanceTest(import.meta.path, "an app spawns through its configured wrapper, not the ambient one (#1363)")) return;
