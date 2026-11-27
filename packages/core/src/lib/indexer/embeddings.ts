@@ -25,7 +25,7 @@ import { queueAssetsMissingVectors } from "./assets.js";
 import { loadContextCache } from "./caches.js";
 import { generateChunkContexts, type EmbeddableChunk } from "./contexts.js";
 import type { AssetEmbedTask, IndexRun } from "./types.js";
-import { createVectorWriter, dropVectorsForDocuments, embeddingTextKey, prepareVectorStore } from "./vectors.js";
+import { carriedVector, createVectorWriter, dropVectorsForDocuments, embeddingTextKey, prepareVectorStore } from "./vectors.js";
 
 /** Texts per provider call. */
 const BATCH_SIZE = 50;
@@ -72,11 +72,10 @@ async function embedMarkdownChunks(run: IndexRun, provider: EmbeddingProvider): 
     let embeddable = chunks.filter((c) => !failedContext.has(c.id) && routeStillAllows(run, c.id));
     // A `--force` rebuild's carried vectors answer for any chunk whose
     // embedding text did not change: no provider call for those.
-    const carried = run.carriedVectors;
-    if (carried && carried.size > 0) {
+    if (run.carriedVectors) {
       const reused: Array<{ chunkId: number; content: string; embedding: Float32Array }> = [];
       embeddable = embeddable.filter((c) => {
-        const vector = carried.get(embeddingTextKey(c.title, c.heading, c.content, c.context));
+        const vector = carriedVector(run.db, embeddingTextKey(c.title, c.heading, c.content, c.context));
         if (!vector) return true;
         reused.push({ chunkId: c.id, content: c.content, embedding: vector });
         return false;
