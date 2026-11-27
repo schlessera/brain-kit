@@ -17,7 +17,7 @@
  */
 
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
-import { existsSync, mkdirSync, readdirSync, rmSync } from "fs";
+import { existsSync, mkdirSync, rmSync } from "fs";
 import { join, relative, sep } from "path";
 
 import { resolveEnv } from "../../config/env.js";
@@ -26,7 +26,7 @@ import type { SkillEmitter } from "../seams.js";
 import { discoverSkills, type DiscoverOptions, type SkillSources } from "./discover.js";
 import { selectCoreSkills } from "./core-installation.js";
 import { claudeEmitter } from "./emitters/claude.js";
-import { isSymlink, makeLink, normalizeLinkTarget, readLink } from "./fs-links.js";
+import { isSymlink, linkSkillsInto, makeLink, normalizeLinkTarget, readLink } from "./fs-links.js";
 
 export interface SyncOptions extends DiscoverOptions {
   /** Emitters to run after materializing. Default: [claudeEmitter]. */
@@ -49,40 +49,20 @@ export function syncSkills(ctx: SkillSources, opts: SyncOptions = {}): SyncResul
 
   const root = ctx.root;
   const agentsSkillsDir = join(root, ".agents", "skills");
-  mkdirSync(agentsSkillsDir, { recursive: true });
 
-  const materialized: string[] = [];
-  const pruned: string[] = [];
-  const managed = new Set<string>(); // package-skill names that should be symlinks
-
-  for (const skill of skills) {
-    if (skill.source === "local") continue; // real dir, already canonical
-    managed.add(skill.name);
-
-    const link = join(agentsSkillsDir, skill.name);
-    const target = linkTargetFor(agentsSkillsDir, skill.dir, root);
-
-    if (isSymlink(link)) {
-      if (normalizeLinkTarget(readLink(link) ?? "") === normalizeLinkTarget(target)) continue;
-      rmSync(link); // old package path — re-point
-    } else if (existsSync(link)) {
-      warnings.push(`.agents/skills/${skill.name} exists and is not a symlink; leaving it as-is`);
-      continue;
-    }
-
-    if (makeLink(target, link, true)) materialized.push(skill.name);
-    else warnings.push(`could not link skill "${skill.name}"`);
-  }
-
-  // Prune stale symlinks: removed skills or renamed packages. Real (local) dirs
-  // are never symlinks, so they are untouched.
-  for (const entry of readdirSync(agentsSkillsDir)) {
-    const p = join(agentsSkillsDir, entry);
-    if (isSymlink(p) && !managed.has(entry)) {
-      rmSync(p);
-      pruned.push(entry);
-    }
-  }
+  // Local skills already live there as real directories; package skills are
+  // linked in. A symlink naming no package skill (a removed skill, a renamed
+  // package) is pruned.
+  const linking = linkSkillsInto(
+    agentsSkillsDir,
+    skills
+      .filter((skill) => skill.source !== "local")
+      .map((skill) => ({ name: skill.name, target: linkTargetFor(agentsSkillsDir, skill.dir, root) }))
+  );
+  for (const name of linking.skipped) warnings.push(`.agents/skills/${name} exists and is not a symlink; leaving it as-is`);
+  for (const name of linking.failed) warnings.push(`could not link skill "${name}"`);
+  const materialized = linking.linked;
+  const pruned = linking.pruned;
 
   const emitters = opts.emitters ?? [claudeEmitter];
   const emitterResults = emitters.map((e) => {

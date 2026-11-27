@@ -1,14 +1,14 @@
 import { existsSync, readFileSync } from "fs";
-import type { CliContext } from "../cli/types.js";
-import { resolveEmitters } from "../cli/skills-util.js";
-import { UsageError } from "../cli/io.js";
-import { planModuleFlag } from "./module-config-edit.js";
-import { planModuleInstructions } from "./module-instructions.js";
-import { discoverSkills } from "./skills/discover.js";
-import { syncSkills } from "./skills/sync.js";
-import { safeResolveHeld, writeFileSafely } from "./safe-path.js";
-import type { LoadedModule } from "./module-types.js";
-import { readGeneratedRegion } from "./generated-regions.js";
+import type { CliContext } from "./types.js";
+import { resolveEmitters } from "../lib/skills/resolve-emitters.js";
+import { UsageError } from "./io.js";
+import { planModuleFlag } from "../lib/module-config-edit.js";
+import { planModuleInstructions } from "../lib/module-instructions.js";
+import { discoverSkills } from "../lib/skills/discover.js";
+import { syncSkills } from "../lib/skills/sync.js";
+import { safeResolveHeld, writeFileSafely } from "../lib/safe-path.js";
+import type { LoadedModule } from "../lib/module-types.js";
+import { readGeneratedRegion } from "../lib/generated-regions.js";
 
 export function toggleModule(cli: CliContext, name: string, enabled: boolean): {
   module: string;
