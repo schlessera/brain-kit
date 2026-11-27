@@ -13,8 +13,14 @@
  *
  * - Node scope. The UI counts a NULL `asset_type` as markdown; the CLI
  *   requires `'markdown'`, as the precompute does.
- * - Edge order. The CLI sorts edges by (source, target); the UI keeps the
- *   engine's DISTINCT order. A neighborhood walk visits out-neighbours in
+ * - Edge order. The CLI sorts a scene's edges by (source, target), a default
+ *   virtual root's edges last. The UI keeps the engine's DISTINCT order for
+ *   clusters and discovery, a default virtual root's edges first, and
+ *   (source, target) for a neighborhood, whose edges are looked up from its
+ *   nodes. Over the UI's edge cap a scene's edges are ordered by the pagerank
+ *   of their weaker end, highest first, and ties by (source, target), so which
+ *   edges survive never depends on the order they arrived in. A neighborhood
+ *   walk visits out-neighbours in
  *   ascending target id, then in-neighbours in ascending source id, in both
  *   profiles: the order the CLI's sorted edges give. So when the UI walk stops
  *   at its budget, the nodes kept are the first ones in that order.
@@ -259,18 +265,34 @@ export class GraphReader {
    * in-neighbours, ascending by source id: the order the CLI's sorted edge
    * list gives. When the reader has not loaded the whole structure, each
    * frontier node is expanded by an indexed lookup instead of loading it.
+   * Before schema 9 `links` has no `idx_links_target_id`, and a read-only
+   * connection never adds it, so each in-link lookup would scan the table:
+   * a walk with in-neighbours then loads the structure once instead, in the
+   * same visiting order.
    */
   neighborhood(center: number, depth?: number, direction?: GraphDirection): Walk {
     const maxDepth = clamp(depth ?? 1, 1, MAX_NEIGHBORHOOD_DEPTH);
     const toward = direction ?? "both";
     const budget = this.profile.neighborhoodNodes;
     if (this.structure) return this.walk(center, toward, maxDepth, budget);
+    if (toward !== "out" && !this.hasInboundIndex()) {
+      const structure = this.links();
+      return breadthFirst(center, maxDepth, budget, (id) => [
+        ...(toward !== "in" ? ascending(structure.out.get(id)) : []),
+        ...ascending(structure.in.get(id)),
+      ]);
+    }
     const out = this.db.query<{ id: number }, [number]>(this.outNeighborSql);
     const inbound = this.db.query<{ id: number }, [number]>(this.inNeighborSql);
     return breadthFirst(center, maxDepth, budget, (id) => [
       ...(toward !== "in" ? out.all(id).map((row) => row.id) : []),
       ...(toward !== "out" ? inbound.all(id).map((row) => row.id) : []),
     ]);
+  }
+
+  /** Whether `links` has the index `inNeighborSql` searches (schema 9 and later). */
+  private hasInboundIndex(): boolean {
+    return this.db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_links_target_id'").get() !== null;
   }
 
   /** Depth 1..8, default 8. */
@@ -341,7 +363,8 @@ export class GraphReader {
    * Narrows `edges` to the ones between kept nodes, applying the profile's
    * caps. Over the node cap the highest-pagerank nodes survive (a virtual root
    * always does — dropping the thing the view is rooted on would be
-   * nonsense); over the edge cap, the edges whose weaker end ranks highest.
+   * nonsense); over the edge cap, the edges whose weaker end ranks highest,
+   * ties broken by (source, target).
    */
   scene<N extends RankedNode>(nodes: N[], edges: GraphEdgeRecord[], nodeCap: number, walkTruncated = false): Scene<N> {
     let truncated = false;
@@ -359,7 +382,7 @@ export class GraphReader {
       const rank = new Map(keptNodes.map((n) => [n.id, n.pagerank ?? 0]));
       keptEdges = keptEdges
         .map((edge) => ({ edge, weight: Math.min(rank.get(edge.source) ?? 0, rank.get(edge.target) ?? 0) }))
-        .sort((a, b) => b.weight - a.weight)
+        .sort((a, b) => b.weight - a.weight || a.edge.source - b.edge.source || a.edge.target - b.edge.target)
         .slice(0, this.profile.sceneEdges)
         .map((entry) => entry.edge);
     }
@@ -412,6 +435,11 @@ function breadthFirst(start: number, maxDepth: number, budget: number, neighbors
     frontier = next;
   }
   return { distances, truncated };
+}
+
+/** A copy of `ids` in ascending order. */
+function ascending(ids: number[] | undefined): number[] {
+  return ids ? [...ids].sort((a, b) => a - b) : [];
 }
 
 function push(map: Map<number, number[]>, key: number, value: number): void {

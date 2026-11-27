@@ -25,6 +25,8 @@ export interface IngestContext {
   taxonomy: Taxonomy;
   /** Hosted planning validates descriptor-anchored reads before opening a candidate. */
   readDocument?: (path: string) => string | null;
+  /** Called once the document has been written, before its index run. */
+  written?: () => void;
 }
 
 // Stop words excluded from tag extraction
@@ -264,6 +266,7 @@ export async function ingest(input: IngestInput, db: Database, ctx: IngestContex
       if (plan.baseContent === null && !input.path && error instanceof WriteRefusedError && error.code === "EEXIST") continue;
       throw error;
     }
+    ctx.written?.();
     return { ...plan.outcome, ...(await reindex(db, ctx, plan.path)) };
   }
 }
