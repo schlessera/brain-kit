@@ -377,6 +377,22 @@ export { GitHubResultList, type GitHubResult, type GitHubResultListProps } from 
 export { GitHubDetailSection, type GitHubDetailSectionProps, type GitHubDetailState } from "./github/GitHubDetailSection.js";
 export { githubHref, type GitHubPerson, type GitHubState } from "./github/shared.js";
 
+/* Gmail: presentational, props and callbacks only (#4209, rulings G1–G5). */
+export { GmailResultList, type GmailContentThread, type GmailResultListProps, type GmailStructuredThread } from "./google/GmailResultList.js";
+export { GmailThread, type GmailThreadProps } from "./google/GmailThread.js";
+export {
+  GmailMessage,
+  type GmailAttachment,
+  type GmailBodyDetail,
+  type GmailContentMessage,
+  type GmailDetailState,
+  type GmailMessageProps,
+  type GmailStructuredMessage,
+} from "./google/GmailMessage.js";
+export { GmailLabels, type GmailLabelsProps } from "./google/GmailLabels.js";
+export type { GmailDate, GmailFlags, GmailLabel, GmailSizeBucket } from "./google/shared.js";
+/* The shared pure helper every Google component reveals hidden characters with (G4). */
+export { invisibleSegments, revealInvisibles, type InvisibleSegment } from "./google/reveal-invisibles.js";
 /* Gmail standing permissions: presentational, props and callbacks only (#4212). */
 export { GoogleApprovalList, type GoogleApprovalListProps } from "./google/GoogleApprovalList.js";
 export { GoogleAllowanceList, type GoogleAllowanceListProps } from "./google/GoogleAllowanceList.js";
