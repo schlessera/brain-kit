@@ -31,13 +31,11 @@ export type {
 export {
   BackendBusyError,
   BackendRequestError,
-  SUBSCRIPTION_AUTH_INSTRUCTIONS,
-  SUBSCRIPTION_RELOGIN_PROCEDURE,
   admitToolDispatch,
   assertTurnPosture,
   isCompletedAutonomousToolCall,
-  subscriptionAuthAction,
 } from "./backend.js";
+export { SUBSCRIPTION_AUTH_INSTRUCTIONS, SUBSCRIPTION_RELOGIN_PROCEDURE, subscriptionAuthAction } from "../protocol.js";
 
 export type {
   BackendLogFn,

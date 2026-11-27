@@ -8465,7 +8465,7 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   FILE_SIZE_CAP_BYTES (packages/ui-sdk/src/protocol.ts)
     const FILE_SIZE_CAP_BYTES: 10485760;
-  FIRST_PARTY_FAILURE_CLASSES (packages/ui-sdk/src/protocol.ts)
+  FIRST_PARTY_FAILURE_CLASSES (packages/ui-sdk/src/failure-classes.ts)
     const FIRST_PARTY_FAILURE_CLASSES: Readonly<{
         [Class in FirstPartyFailureClass]: Class;
     }>;
@@ -8505,7 +8505,7 @@ signatures (every public export and the types it is made of)
         path: string;
         entries: FileEntry[];
     }
-  FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
+  FirstPartyFailureClass (packages/ui-sdk/src/failure-classes.ts)
     type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "private_state_unverified" | "OperationalStateAliasVerificationUnavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
   FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
     export interface FirstRequestCacheUsage {
@@ -12257,26 +12257,8 @@ signatures (every public export and the types it is made of)
         cause: "aborted" | "unspecified";
         message: string;
     }
-  SAFETY_READ_CAPABILITIES (packages/ui-sdk/src/safety.ts)
-    const SAFETY_READ_CAPABILITIES: {
-        detectorVersion: 1;
-        limits: {
-            cursorBytes: 512;
-            cursorLifetimeMs: 300000;
-            frameBytes: 262144;
-            pageRecords: 100;
-            receiptLifetimeMs?: 86400000 | undefined;
-            reviewBodyBytes?: 16384 | undefined;
-            reviewLifetimeMs?: 900000 | undefined;
-        };
-        originRules: boolean;
-        read: true;
-        readOnlyReason: "owner_required" | "review_unavailable" | null;
-        recipientRules: boolean;
-        repositoryRules: false;
-        review: boolean;
-        version: 1;
-    };
+  SAFETY_READ_CAPABILITIES (packages/ui-sdk/src/safety-capabilities.ts)
+    const SAFETY_READ_CAPABILITIES: SafetyCapabilities;
   SESSION_DRAFT_LIMITS (packages/ui-sdk/src/protocol.ts)
     const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits>;
   SESSION_NOT_FOUND (packages/ui-sdk/src/protocol.ts)
@@ -12285,7 +12267,7 @@ signatures (every public export and the types it is made of)
     const SESSION_RECOVERY_CAPABILITY: "sessionRecovery";
   SESSION_RECOVERY_FAILED (packages/ui-sdk/src/protocol.ts)
     const SESSION_RECOVERY_FAILED: "SESSION_RECOVERY_FAILED";
-  SESSION_SAFETY_CAPABILITY (packages/ui-sdk/src/safety.ts)
+  SESSION_SAFETY_CAPABILITY (packages/ui-sdk/src/safety-capabilities.ts)
     const SESSION_SAFETY_CAPABILITY: "sessionSafetyHistory";
   SHARE_ERROR_PARAM (packages/ui-sdk/src/client/share-target-handler.ts)
     const SHARE_ERROR_PARAM: "share_error";

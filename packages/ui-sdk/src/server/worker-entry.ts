@@ -1,7 +1,6 @@
 /** Trusted bootstrap only: no adapter, SDK, extension or worker module is imported here. */
 import { closeSync, existsSync, fstatSync, readFileSync, readdirSync, readlinkSync, writeFileSync, writeSync } from "node:fs";
 import { workerLaunchPayload } from "../config/env.js";
-import { attachMaintenanceTemp } from "./maintenance-temp-budget.js";
 
 try {
   if (process.platform !== "linux" || !process.execve) throw new Error("Linux process.execve is required");
@@ -28,7 +27,9 @@ try {
   }
   const config = JSON.parse(workerLaunchPayload() ?? "null") as { argv: string[]; cgroup?: string; maintenanceReservation?: { id: string; directory: string; statePath?: string } } | null;
   if (!config?.argv[0]) throw new Error("missing server-owned launcher arguments");
-  if (config.maintenanceReservation) attachMaintenanceTemp(config.maintenanceReservation);
+  // Only a maintenance launch carries a reservation; every other launch loads
+  // none of the reservation ledger.
+  if (config.maintenanceReservation) (await import("./maintenance-temp-budget.js")).attachMaintenanceTemp(config.maintenanceReservation);
   // Join the worker's own cgroup (#1660) before any worker process exists, so
   // none ever runs outside its limits. The server created it for this launch.
   if (config.cgroup !== undefined) {

@@ -694,12 +694,8 @@ export type TurnTempPromotionRefusal = "file_too_large" | "turn_too_large" | "no
   | "multiple_links" | "missing" | "io_error" | "scratch_unavailable";
 
 // The subscription auth actions are part of the wire (`TurnFailure.authAction`,
-// #575), so they live beside it; the server entry keeps exporting them.
-export {
-  SUBSCRIPTION_AUTH_INSTRUCTIONS,
-  SUBSCRIPTION_RELOGIN_PROCEDURE,
-  subscriptionAuthAction,
-} from "../protocol.js";
+// #575), so they live beside it; the server entry keeps exporting them, from
+// the protocol module directly, so this module loads no protocol value.
 export type { SubscriptionAuthAction } from "../protocol.js";
 
 /** @experimental Part of the `AgentBackend` seam. */
