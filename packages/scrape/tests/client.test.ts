@@ -762,7 +762,8 @@ describe("maxBytes bounds the bodies the helpers read (#4768)", () => {
   const HOLD_RELEASE_MS = 3_000;
   type Served = { cancelled: boolean; finished: boolean; settled: Promise<void> };
   let served: Served[] = [];
-  let route: (path: string) => { size: number; status?: number; hold?: boolean; location?: string } = () => ({ size: 0 });
+  let route: (path: string) => { size: number; status?: number; hold?: boolean; location?: string; text?: string } = () => ({ size: 0 });
+  let requests = 0;
   let server: ReturnType<typeof Bun.serve>;
   let origin = "";
 
@@ -800,12 +801,15 @@ describe("maxBytes bounds the bodies the helpers read (#4768)", () => {
 
   beforeEach(() => {
     served = [];
+    requests = 0;
     globalThis.fetch = realFetch;
     server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       fetch(request) {
+        requests++;
         const answer = route(new URL(request.url).pathname);
+        if (answer.text !== undefined) return new Response(answer.text);
         if (answer.location) return new Response(null, { status: 302, headers: { location: answer.location } });
         const { body, record } = streamed(answer.size, answer.hold ?? false);
         served.push(record);
@@ -855,6 +859,23 @@ describe("maxBytes bounds the bodies the helpers read (#4768)", () => {
     const record = served.at(-1)!;
     await record.settled;
     expect({ cancelled: record.cancelled, finished: record.finished }, `${name}_NON_2XX_CLOSED_EARLY`).toEqual({ cancelled: true, finished: false });
+  });
+
+  // Before #4963, NaN and Infinity read the whole body and a negative bound let an empty one through.
+  test.each((Object.keys(call) as Array<keyof typeof call>).flatMap((name) => [NaN, Infinity, -1, 1.5].map((bound) => [name, bound] as const)))(
+    "%s refuses maxBytes %p before any request", async (name, bound) => {
+      route = () => ({ size: 16 });
+      const outcome = await call[name](client(), `${origin}/${name}`, bound).then((body) => `resolved with ${body.length} bytes`, (error: Error) => error.message);
+      expect(outcome, `${name}_INVALID_MAX_BYTES_REFUSED`).toBe(`FetchOptions.maxBytes must be a whole number of bytes, 0 or more; got ${bound}`);
+      expect(requests, `${name}_NO_REQUEST_FOR_INVALID_MAX_BYTES`).toBe(0);
+    });
+
+  test("maxBytes 0 reads an empty body and refuses a one-byte one", async () => {
+    route = () => ({ size: 0, text: "" });
+    expect(await client().getText(`${origin}/empty`, { retries: 0, maxBytes: 0 }), "ZERO_BOUND_READS_EMPTY").toBe("");
+    route = () => ({ size: 0, text: "o" });
+    const outcome = await client().getText(`${origin}/one`, { retries: 0, maxBytes: 0 }).then(() => "resolved", (error: Error) => error.message);
+    expect(outcome, "ZERO_BOUND_REFUSES_ONE_BYTE").toBe("response body exceeds 0 bytes");
   });
 
   test("get with maxBytes returns the Response itself: final url, redirect state and an unread, unbounded body", async () => {

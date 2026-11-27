@@ -23,7 +23,7 @@
 import robotsParser from "robots-parser";
 
 import { DEFAULT_USER_AGENT } from "../config/env.js";
-import { readBoundedText } from "../fetch/bounded-body.js";
+import { checkMaxBytes, readBoundedText } from "../fetch/bounded-body.js";
 import { checkPublicUrl, fetchUnderPolicy } from "./address.js";
 import type { AddressLookup, AddressPolicy } from "./address.js";
 
@@ -124,7 +124,11 @@ export interface RobotsCacheOptions {
   fetcher?: RobotsFetcher;
   /** Sent with the robots.txt fetch. Defaults to this package's identifying User-Agent. */
   userAgent?: string;
-  /** Largest robots.txt body read, in bytes; a longer one counts as a failed fetch. */
+  /**
+   * Largest robots.txt body read, in bytes; a longer one counts as a failed
+   * fetch. A whole number, `0` or more: anything else is refused with a
+   * `RangeError` when the cache is built.
+   */
   maxBytes?: number;
   /** Redirects followed before the fetch counts as failed. */
   maxRedirects?: number;
@@ -186,6 +190,7 @@ export class RobotsCache {
   private readonly checkBeforeFetch: boolean;
 
   constructor(options: RobotsCacheOptions = {}) {
+    if (options.maxBytes !== undefined) checkMaxBytes(options.maxBytes, "RobotsCacheOptions.maxBytes");
     this.addressPolicy = options.addressPolicy ?? "any";
     this.lookup = options.lookup;
     this.checkBeforeFetch = this.addressPolicy === "public-only" && options.fetcher !== undefined;
