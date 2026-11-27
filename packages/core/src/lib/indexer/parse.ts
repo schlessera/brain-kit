@@ -9,7 +9,14 @@
  * partial view and silently produce different targets on an incremental run
  * than on a rebuild.
  *
- * Nothing here touches the database. A file that cannot be read or parsed is
+ * A file whose bytes and chunker version match its row is read and hashed but
+ * not parsed: a row is written only from a successful parse, so its title and
+ * aliases are what a parse of those bytes produced, and the caller takes them
+ * from the index (`completeCorpusMaps`). An alias that itself holds a line
+ * break is the one thing that reads back differently: aliases are stored one
+ * per line, so it comes back as two. Targeted runs already read it that way.
+ *
+ * Nothing here writes to the database. A file that cannot be read or parsed is
  * skipped with a warning rather than aborting the run — a file can vanish
  * between the scan and the read (git checkout, editors that save via rename),
  * and one bad frontmatter block should not cost the other 5,000 documents
@@ -33,15 +40,18 @@ function skip(run: IndexRun, path: string, reason: SkipReason, detail?: string):
 /**
  * Parse `files` and split them into "needs writing" and "unchanged".
  *
- * Unchanged files still contribute to `fileMap`/`aliasMap` — they are part of
- * the corpus even when this run has nothing to write for them. `stats.unchanged`
- * is incremented here; every other counter belongs to the phase that writes.
+ * Unchanged files are part of the corpus even when this run has nothing to
+ * write for them, so they still belong in `fileMap`/`aliasMap`. They are not
+ * parsed: their paths come back in `unparsed`, in scan order, for the caller
+ * to fill the maps from the index. `stats.unchanged` is incremented here;
+ * every other counter belongs to the phase that writes.
  */
 export function parseMarkdownFiles(
   run: IndexRun,
   files: string[],
   existingDocs: Map<string, ExistingDoc>
-): ParseResult {
+): ParseResult & { unparsed: string[] } {
+  const unparsed: string[] = [];
   const parsed: ParsedFile[] = [];
   const fileMap = new Map<string, string>();
   const aliasMap = new Map<string, string[]>();
@@ -60,6 +70,22 @@ export function parseMarkdownFiles(
       continue;
     }
     const hash = createHash("sha256").update(raw).digest("hex");
+
+    const existing = existingDocs.get(filePath);
+    // Another chunker's chunks count as a change: an older one, one from
+    // before versions were recorded (NULL), or a newer one after a rollback.
+    // The file is re-chunked once. A file skipped below keeps its old version
+    // and is retried next run. A rebuilt full-text table has every document
+    // written again.
+    const isChanged =
+      !!existing &&
+      (existing.content_hash !== hash || existing.chunker_version !== CHUNKER_VERSION || run.ftsRebuilt === true);
+
+    if (!run.force && existing && !isChanged) {
+      run.stats.unchanged++;
+      unparsed.push(filePath);
+      continue;
+    }
 
     let data: Record<string, any>;
     let content: string;
@@ -80,26 +106,10 @@ export function parseMarkdownFiles(
     fileMap.set(filePath, String(data.title));
     collectAliases(aliasMap, data.aliases, filePath);
 
-    const existing = existingDocs.get(filePath);
-    const isNew = !existing;
-    // Another chunker's chunks count as a change: an older one, one from
-    // before versions were recorded (NULL), or a newer one after a rollback.
-    // The file is re-chunked once. A file skipped above keeps its old version
-    // and is retried next run. A rebuilt full-text table has every document
-    // written again.
-    const isChanged =
-      !isNew &&
-      (existing!.content_hash !== hash || existing!.chunker_version !== CHUNKER_VERSION || run.ftsRebuilt === true);
-
-    if (!run.force && !isNew && !isChanged) {
-      run.stats.unchanged++;
-      continue;
-    }
-
-    parsed.push({ path: filePath, data, content, hash, mtime, isNew, isChanged });
+    parsed.push({ path: filePath, data, content, hash, mtime, isNew: !existing, isChanged });
   }
 
-  return { files: parsed, fileMap, aliasMap };
+  return { files: parsed, fileMap, aliasMap, unparsed };
 }
 
 /** Record this file's frontmatter aliases into the corpus-wide alias map. */
