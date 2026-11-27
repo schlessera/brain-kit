@@ -98,6 +98,9 @@ export interface ComposerHandle {
   focusEnd: () => boolean;
 }
 
+/** The mic control: the kit's own mic, or the caller-supplied mic inside the kit's mic slot. */
+const MIC = '[data-composer-mic]:is([role="button"], button), [data-composer-mic] [data-voice-mic]';
+
 export function Composer({ send, handle }: { send: (msg: ClientMessage) => void | boolean; handle?: Ref<ComposerHandle> }) {
   const root = useBrainUiRoot();
   const conversation = useStore(root.connection.conversation.state);
@@ -409,6 +412,12 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // D0 and Dx keep it drawn beside them: the take has not started (#3694).
   const restingMic = (micMode === "dictate" && (voiceMode !== "dictate" || gated) && !(dictationUnavailable && !conversation.available))
     || (micMode === "local" && (localPhase === "idle" || localPhase === "opening"));
+  // A capture that ends hands focus to the mic, found by its data hook
+  // whichever mic is drawn (#4828), but not to the stop of a recording still
+  // in progress: the field takes it then.
+  const recordingRef = useRef(false);
+  recordingRef.current = micMode === "local" && localPhase !== "idle" && localPhase !== "opening";
+  const micUnlessRecording = () => recordingRef.current ? null : frameRef.current?.querySelector<HTMLElement>(MIC) ?? null;
   const [dismissedLocalNotice, setDismissedLocalNotice] = useState<string | null>(null);
   const captureNotice = micMode === "unsupported"
     ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."
@@ -418,11 +427,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   useEffect(() => { setDismissedLocalNotice(null); }, [captureNotice]);
   function dismissLocalNotice() {
     const frame = frameRef.current;
-    const heldFocus = frame?.querySelector('[aria-label="Dismiss capture notice"]') === document.activeElement;
+    const heldFocus = frame?.querySelector("[data-capture-dismiss] [data-bk-button]") === document.activeElement;
     setDismissedLocalNotice(captureNotice ?? null);
     root.stores.voice.getState().setLocalNotice(null);
     if (heldFocus) {
-      const mic = frame?.querySelector<HTMLElement>('[aria-label^="Dictate"], [aria-label="Record on this device"]');
+      const mic = micUnlessRecording();
       if (mic) mic.focus(); else focusField();
     }
   }
@@ -895,12 +904,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
 
   const [recordingNotice, setRecordingNotice] = useState("");
   useEffect(() => root.recordings?.onEvent(event => { if (event.message) setRecordingNotice(event.message); }), [root]);
-  const focusMic = () => setTimeout(() => frameRef.current?.querySelector<HTMLElement>(
-    '[aria-label="Record on this device"], [aria-label^="Dictate"], [aria-label="Stop and save"]'
-  )?.focus({ preventScroll: true }), 0);
+  const focusMic = () => setTimeout(() => frameRef.current?.querySelector<HTMLElement>(MIC)?.focus({ preventScroll: true }), 0);
   // A live conversation that ends hands focus back to the mic that started it (#3701).
   const focusMicOrField = () => setTimeout(() => {
-    const mic = frameRef.current?.querySelector<HTMLElement>('[aria-label="Record on this device"], [aria-label^="Dictate"]');
+    const mic = micUnlessRecording();
     if (mic) mic.focus({ preventScroll: true }); else focusField();
   }, 0);
   // A take that ends while focus is in the voice field (Finish, V3's
@@ -989,7 +996,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   function dismissDictationNotice() {
     root.stores.voice.getState().dismissDictationNotice();
     setTimeout(() => {
-      const mic = frameRef.current?.querySelector<HTMLElement>('[aria-label^="Dictate"], [aria-label="Record on this device"]');
+      const mic = micUnlessRecording();
       if (mic) mic.focus({ preventScroll: true }); else focusField();
     }, 0);
   }
@@ -1013,7 +1020,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   useEffect(() => { if (voiceMode !== "idle" || conversation.active) setLiveNotice(false); }, [voiceMode, conversation.active]);
   useEffect(() => {
     if (!liveNotice) return;
-    const ok = [...frameRef.current?.querySelectorAll<HTMLElement>("[data-live-notice] button") ?? []].find(b => b.textContent === "OK");
+    const ok = frameRef.current?.querySelector<HTMLElement>("[data-live-notice] [data-voice-action]");
     ok?.focus({ preventScroll: true });
   }, [liveNotice]);
 
