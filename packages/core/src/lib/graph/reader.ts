@@ -13,8 +13,14 @@
  *
  * - Node scope. The UI counts a NULL `asset_type` as markdown; the CLI
  *   requires `'markdown'`, as the precompute does.
- * - Edge order. The CLI sorts edges by (source, target); the UI keeps the
- *   engine's DISTINCT order. A neighborhood walk visits out-neighbours in
+ * - Edge order. The CLI sorts a scene's edges by (source, target), a default
+ *   virtual root's edges last. The UI keeps the engine's DISTINCT order for
+ *   clusters and discovery, a default virtual root's edges first, and
+ *   (source, target) for a neighborhood, whose edges are looked up from its
+ *   nodes. Over the UI's edge cap a scene's edges are ordered by the pagerank
+ *   of their weaker end, highest first, and ties by (source, target), so which
+ *   edges survive never depends on the order they arrived in. A neighborhood
+ *   walk visits out-neighbours in
  *   ascending target id, then in-neighbours in ascending source id, in both
  *   profiles: the order the CLI's sorted edges give. So when the UI walk stops
  *   at its budget, the nodes kept are the first ones in that order.
@@ -341,7 +347,8 @@ export class GraphReader {
    * Narrows `edges` to the ones between kept nodes, applying the profile's
    * caps. Over the node cap the highest-pagerank nodes survive (a virtual root
    * always does — dropping the thing the view is rooted on would be
-   * nonsense); over the edge cap, the edges whose weaker end ranks highest.
+   * nonsense); over the edge cap, the edges whose weaker end ranks highest,
+   * ties broken by (source, target).
    */
   scene<N extends RankedNode>(nodes: N[], edges: GraphEdgeRecord[], nodeCap: number, walkTruncated = false): Scene<N> {
     let truncated = false;
@@ -359,7 +366,7 @@ export class GraphReader {
       const rank = new Map(keptNodes.map((n) => [n.id, n.pagerank ?? 0]));
       keptEdges = keptEdges
         .map((edge) => ({ edge, weight: Math.min(rank.get(edge.source) ?? 0, rank.get(edge.target) ?? 0) }))
-        .sort((a, b) => b.weight - a.weight)
+        .sort((a, b) => b.weight - a.weight || a.edge.source - b.edge.source || a.edge.target - b.edge.target)
         .slice(0, this.profile.sceneEdges)
         .map((entry) => entry.edge);
     }

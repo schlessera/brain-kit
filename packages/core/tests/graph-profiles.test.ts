@@ -578,6 +578,46 @@ describe("caps and truncation on a fleet-sized ledger", () => {
     expect(cliGraph.truncated).toBe(false);
   });
 
+  test("over the edge cap, tied ranks keep the first edges by (source, target) in every scene (#4877)", () => {
+    // 150 rowers who all link to each other: 22,350 edges between 150 nodes,
+    // over the 20,000-edge cap and under every node cap, with one pagerank for
+    // all. Link text sorts opposite to the target id and the links are stored
+    // from the highest source down, so neither the links primary key nor the
+    // row order gives (source, target) by itself.
+    const CREW = 150;
+    const rowers = Array.from({ length: CREW }, (_, i) => 200 + i);
+    const crew = brain((db) => {
+      insertDocs(db, rowers.map((id, i) => ({ id, path: `crew/rower-${String(CREW - 1 - i).padStart(3, "0")}.md`, title: `Rower ${i}`, type: "person", updated: "2026-07-01", asset: "markdown" })));
+      const link = db.query("INSERT INTO links (source_id, target, target_id) VALUES (?, ?, ?)");
+      for (const source of [...rowers].reverse()) {
+        for (const target of rowers) if (target !== source) link.run(source, `crew/rower-${String(CREW - 1 - (target - 200)).padStart(3, "0")}.md`, target);
+      }
+      const metric = db.query(
+        "INSERT INTO graph_metrics (document_id, in_degree, out_degree, component, pagerank, community) VALUES (?, ?, ?, 1, 0.01, 0)"
+      );
+      for (const id of rowers) metric.run(id, CREW - 1, CREW - 1);
+      db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('graph_computed_at', ?)", [COMPUTED_AT]);
+    });
+    const pairs: string[] = [];
+    for (const source of rowers) for (const target of rowers) if (target !== source) pairs.push(`${source}>${target}`);
+    const kept = pairs.slice(0, 20000);
+    const inOrder = (edges: { source: number; target: number }[]) => edges.map((edge) => `${edge.source}>${edge.target}`);
+
+    const clusters = ok(queries.readGraphClusters({ brainPath: crew }));
+    expect(clusters.truncated).toBe(true);
+    expect(clusters.nodes).toHaveLength(CREW);
+    expect(inOrder(clusters.edges)).toEqual(kept);
+
+    const neighborhood = ok(queries.readGraphNeighborhood({ brainPath: crew, center: "crew/rower-149.md" }));
+    expect(neighborhood.truncated).toBe(true);
+    expect(neighborhood.nodes).toHaveLength(CREW);
+    expect(inOrder(neighborhood.edges)).toEqual(kept);
+
+    const discovery = ok(queries.readGraphDiscovery({ brainPath: crew, root: "crew/rower-149.md" }));
+    expect(discovery.truncated).toBe(true);
+    expect(inOrder(discovery.edges)).toEqual(kept);
+  });
+
   test("maintenance lists stop at 5,000 for the UI and are complete for the CLI", () => {
     setSystemTime(new Date(NOW));
     const ui = ok(queries.readGraphMaintenance({ brainPath: fleet, now: NOW }));
