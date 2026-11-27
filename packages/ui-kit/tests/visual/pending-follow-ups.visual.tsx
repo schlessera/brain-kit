@@ -188,6 +188,9 @@ test("keyboard-open summary blurs the composer and restores its caret", async ()
   await expect.poll(() => sheet()).not.toBeNull();
   expect(document.activeElement, "the composer is blurred").not.toBe(composer);
   expect(sheet()!.contains(document.activeElement), "focus is in the sheet").toBe(true);
+  // Chromium keeps a blurred field's selection, so move the caret while the
+  // sheet is open: only the strip's restore can bring it back.
+  composer.setSelectionRange(composer.value.length, composer.value.length);
   await userEvent.keyboard("{Escape}");
   await expect.poll(() => sheet()).toBeNull();
   await expect.poll(() => document.activeElement, { message: "focus returns to the composer" }).toBe(composer);

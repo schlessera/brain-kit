@@ -13,6 +13,7 @@ import type { ClientMessage, ServerMessage, SessionRecovery, SessionRecoveryLate
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
+import { clockTime } from "../../src/lib/format-time.js";
 
 const roots: BrainUiRoot[] = [];
 afterEach(() => {
@@ -24,7 +25,8 @@ afterAll(unregisterRestoredApprovalDom);
 const A = "odysseus-sirens";
 /** The host's clock when the turn started: hours before this page drew the shell. */
 const STARTED_AT = Date.now() - (3 * 60 + 17) * 60_000;
-const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+// The shared 24-hour clock every surface prints (#4736).
+const clock = clockTime;
 
 function root(latest: Partial<SessionRecoveryLatest>, pending: SessionRecoveryPending[] = []) {
   const sent: ClientMessage[] = [];

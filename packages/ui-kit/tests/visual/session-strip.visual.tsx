@@ -331,6 +331,9 @@ for (const theme of ["dark", "light"]) {
       await expect.poll(() => sheet()).not.toBeNull();
       expect(document.activeElement, "the composer is blurred").not.toBe(m.composer);
       expect(sheet()!.contains(document.activeElement), "focus is in the sheet").toBe(true);
+      // Chromium keeps a blurred field's selection, so move the caret while
+      // the sheet is open: only the strip's restore can bring it back (#4729).
+      m.composer.setSelectionRange(m.composer.value.length, m.composer.value.length);
       await userEvent.keyboard("{Escape}");
       await expect.poll(() => sheet()).toBeNull();
       await expect.poll(() => document.activeElement, { message: "focus returns to the composer" }).toBe(m.composer);

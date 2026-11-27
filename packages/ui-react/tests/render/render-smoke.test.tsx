@@ -5353,7 +5353,7 @@ describe("frontmatter chips and the viewer frame", () => {
         onMode={onMode} onCopyPath={onCopyPath} onReveal={onReveal} />,
     );
     expect(view.getByText("notes/a.md")).toBeTruthy();
-    expect(view.getByText(/2\.0 KB/)).toBeTruthy();
+    expect(view.getByText(/2 KB/)).toBeTruthy();
     expect(view.getByText("share-menu")).toBeTruthy();
     expect(view.getByRole("tab", { name: "Preview" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(view.getByRole("tab", { name: "Raw" }));
