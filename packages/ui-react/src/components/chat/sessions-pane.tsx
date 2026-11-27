@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { useRootStore } from "../../root-context.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { SessionList } from "./session-list.js";
@@ -25,8 +25,11 @@ import { useChatStore } from "../../stores/chat-store.js";
  *
  * Tab order is rail → pane → transcript → composer: the pane comes first
  * in Chat's DOM. It is two tab stops, `New conversation` and the list.
+ *
+ * Memoized (#4751): Chat re-renders with its transcript, and the pane's
+ * props from it are stable, so only what the pane selects redraws it.
  */
-export function SessionsPane({ empty, onResume, onOpenTracker }: {
+export const SessionsPane = memo(function SessionsPane({ empty, onResume, onOpenTracker }: {
   /** The chat in view has no messages: New conversation has nothing to leave. */
   empty: boolean;
   onResume: (sessionId: string) => void;
@@ -70,4 +73,4 @@ export function SessionsPane({ empty, onResume, onOpenTracker }: {
       <SessionList {...props} newWhy={empty && !holdsTracks ? "already a new chat" : undefined} />
     </section>
   );
-}
+});

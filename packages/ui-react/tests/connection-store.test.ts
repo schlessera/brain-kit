@@ -85,3 +85,28 @@ describe("connection store", () => {
     expect(state.lastCloseCode).toBe(4008);
   });
 });
+
+describe("an unchanged connectivity poll (#4744)", () => {
+  test("notifies nobody; a changed status or account notifies once", () => {
+    const store = createConnectionStore();
+    store.getState().setVpnStatus("connected", "acct-ithaca-01");
+    let notified = 0;
+    const unsubscribe = store.subscribe(() => { notified++; });
+    try {
+      store.getState().setVpnStatus("connected", "acct-ithaca-01");
+      expect(notified).toBe(0);
+      store.getState().setVpnStatus("unreachable");
+      expect(notified).toBe(1);
+      store.getState().setVpnStatus("unreachable");
+      expect(notified).toBe(1);
+      expect(store.getState().accountKey).toBe("acct-ithaca-01");
+      store.getState().setVpnStatus("connected", "acct-ithaca-01");
+      expect(notified).toBe(2);
+      store.getState().setVpnStatus("connected", "acct-ithaca-02");
+      expect(notified).toBe(3);
+      expect(store.getState().accountKey).toBe("acct-ithaca-02");
+    } finally {
+      unsubscribe();
+    }
+  });
+});
