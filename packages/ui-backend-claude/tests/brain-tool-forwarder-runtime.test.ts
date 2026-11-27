@@ -14,7 +14,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { launchLimits, restrictedReadPaths, resolveTurnTempLimits } from "@schlessera/brain-ui-sdk/internal";
 import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { replaceNativeStartupAcquisitionForFixture } from "../../ui-server/tests/helpers/fixture-native-startup.js";
-import { createBrainToolForwarder, startBrainToolWorker, probeBrainBridgeInventory } from "../src/brain-tool-forwarder.js";
+import { createBrainToolForwarder, startBrainToolWorker, probeBrainBridgeInventory, BRAIN_INVENTORY_ENTRY } from "../src/brain-tool-forwarder.js";
+
+/** The template's own project entry, the only one the bridge stands in for. */
+const CANONICAL_MCP = JSON.stringify({ mcpServers: { brain: { command: "bun", args: ["node_modules/.bin/brain", "mcp"] } } });
 
 
 function inventoryTiming(kind: string) {
@@ -38,6 +41,7 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
   try {
   cpSync(resolve("packages/core/fixtures/corpus"), brain, { recursive: true });
   mkdirSync(home); mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
+  writeFileSync(join(brain, ".mcp.json"), CANONICAL_MCP);
   mkdirSync(join(brain, "notes"), { recursive: true }); mkdirSync(join(brain, "sealed"));
   writeFileSync(join(brain, "notes/raft.md"), "Odysseus checks the original raft.\n");
   writeFileSync(join(brain, "sealed/route.md"), "Athena keeps the route private.\n");
@@ -53,7 +57,7 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
   restore = replaceNativeStartupAcquisitionForFixture();
   const errors: unknown[] = [];
   const base = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] });
-  const sandbox = { ...base, readPaths: restrictedReadPaths([mcp, entry]),
+  const sandbox = { ...base, readPaths: restrictedReadPaths([mcp, entry, BRAIN_INVENTORY_ENTRY]),
     providerMasks: { folders: ["sealed"], index: join(scratch, "index") } };
   cpSync(join(brain, ".brain-index"), join(scratch, "index"), { recursive: true });
   let starts = 0;
@@ -116,13 +120,14 @@ test("a config change between two new sessions preserves the second session modu
   try {
     cpSync(resolve("packages/core/fixtures/corpus"), brain, { recursive: true });
     mkdirSync(home); mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
+    writeFileSync(join(brain, ".mcp.json"), CANONICAL_MCP);
     const config = join(brain, "brain.config.ts");
     writeFileSync(config, (await Bun.file(config).text()).replace('"@schlessera/brain"', JSON.stringify(resolve("packages/core/src/index.ts"))));
     const cli = resolve("packages/core/src/cli/brain.ts"), entry = join(brain, "node_modules/.bin/brain");
     writeFileSync(entry, `import ${JSON.stringify(cli)};`);
     openDatabase(join(brain, ".brain-index/brain.db")).close();
     view = createFixtureWorkerStartupView(brain);
-    const sandbox = { ...prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }), readPaths: restrictedReadPaths([cli, entry]) };
+    const sandbox = { ...prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }), readPaths: restrictedReadPaths([cli, entry, BRAIN_INVENTORY_ENTRY]) };
     const input = { brainPath: brain, exec: {}, sandbox, startupView: view, env: { PATH: process.env.PATH, HOME: home },
       limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits({}), credentialEnv: [], req: { bridge: {} } as never };
     const firstInventory = await probeBrainBridgeInventory(input, controller.signal);

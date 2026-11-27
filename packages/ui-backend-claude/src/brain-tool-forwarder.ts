@@ -194,6 +194,9 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
 }
 
 
+/** The in-sandbox inventory check: the project entry must be canonical (#4325 F22). */
+export const BRAIN_INVENTORY_ENTRY = Bun.resolveSync("./brain-bridge-inventory-entry", import.meta.dir);
+
 /**
  * #4381: without a static module inventory, select the unchanged stdio path.
  * Resolve configuration only in a sandbox, once before a new session's roster
@@ -205,7 +208,7 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
   let resource: Awaited<ReturnType<ReturnType<typeof startBrainToolWorker>>> | undefined;
   const timer = setTimeout(() => controller.abort(), BRAIN_TOOL_TIMEOUT_MS);
   try {
-    resource = await startBrainToolWorker(input, [process.execPath, Bun.resolveSync("./brain-bridge-inventory-entry", import.meta.dir)])(ownedSignal);
+    resource = await startBrainToolWorker(input, [process.execPath, BRAIN_INVENTORY_ENTRY])(ownedSignal);
     let text = "";
     for await (const chunk of resource.worker.stdout) {
       text += String(chunk);
