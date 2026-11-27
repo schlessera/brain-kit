@@ -28,9 +28,12 @@ export function seedLifecycleReceipts(db: Database, store: ActivityStore) {
   receipt.run("{not json", "turn-corrupt");
 }
 
+/** Every `packageVersion` the records carry, as a placeholder: the golden outlives a version bump. */
+const versionless = <T>(value: T): T => JSON.parse(JSON.stringify(value), (key, field) => key === "packageVersion" ? "<package version>" : field);
+
 /** What every lifecycle read returns over the fixture, as the golden compares it. */
 export function readLifecycleReceipts(store: ActivityStore) {
-  return {
+  return versionless({
     lifecycles: store.lifecycles(),
     session: store.lifecycles("ithaca"),
     lifecycle: Object.fromEntries(LIFECYCLE_TURNS.map(id => [id, store.lifecycle(id)])),
@@ -38,5 +41,5 @@ export function readLifecycleReceipts(store: ActivityStore) {
     snapshotAll: store.snapshotLifecycles!({}),
     snapshotTurn: store.snapshotLifecycles!({ turnId: "turn-over-cap" }),
     changes: store.lifecycleChangesSince(0),
-  };
+  });
 }

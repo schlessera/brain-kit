@@ -1,7 +1,7 @@
 {
   "lifecycles": [
     {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -48,7 +48,7 @@
       }
     },
     {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -95,7 +95,7 @@
       }
     },
     {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -143,7 +143,7 @@
       "clientTimingUnavailable": "invalid_receipt"
     },
     {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -191,7 +191,7 @@
       "clientTimingUnavailable": "invalid_receipt"
     },
     {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -243,7 +243,7 @@
       }
     },
     {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -297,7 +297,7 @@
   ],
   "session": [
     {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -344,7 +344,7 @@
       }
     },
     {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -392,7 +392,7 @@
       "clientTimingUnavailable": "invalid_receipt"
     },
     {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -446,7 +446,7 @@
   ],
   "lifecycle": {
     "turn-valid": {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -498,7 +498,7 @@
       }
     },
     "turn-at-cap": {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -550,7 +550,7 @@
       }
     },
     "turn-over-cap": {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -598,7 +598,7 @@
       "clientTimingUnavailable": "invalid_receipt"
     },
     "turn-corrupt": {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -646,7 +646,7 @@
       "clientTimingUnavailable": "invalid_receipt"
     },
     "turn-unreported": {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -693,7 +693,7 @@
       }
     },
     "turn-anonymous": {
-      "packageVersion": "0.44.0",
+      "packageVersion": "<package version>",
       "recorderSettledAt": null,
       "idleEmittedAt": null,
       "holds": [],
@@ -743,7 +743,7 @@
   "snapshot": {
     "lifecycles": [
       {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -790,7 +790,7 @@
         }
       },
       {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -838,7 +838,7 @@
         "clientTimingUnavailable": "invalid_receipt"
       },
       {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -899,7 +899,7 @@
   "snapshotAll": {
     "lifecycles": [
       {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -946,7 +946,7 @@
         }
       },
       {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -993,7 +993,7 @@
         }
       },
       {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1041,7 +1041,7 @@
         "clientTimingUnavailable": "invalid_receipt"
       },
       {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1089,7 +1089,7 @@
         "clientTimingUnavailable": "invalid_receipt"
       },
       {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1141,7 +1141,7 @@
         }
       },
       {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1205,7 +1205,7 @@
   "snapshotTurn": {
     "lifecycles": [
       {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1264,7 +1264,7 @@
       "seq": 1,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1322,7 +1322,7 @@
       "seq": 2,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1380,7 +1380,7 @@
       "seq": 1,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1438,7 +1438,7 @@
       "seq": 2,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1496,7 +1496,7 @@
       "seq": 1,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1550,7 +1550,7 @@
       "seq": 2,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1604,7 +1604,7 @@
       "seq": 1,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1658,7 +1658,7 @@
       "seq": 2,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1712,7 +1712,7 @@
       "seq": 1,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1765,7 +1765,7 @@
       "seq": 2,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1818,7 +1818,7 @@
       "seq": 1,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1871,7 +1871,7 @@
       "seq": 2,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
@@ -1924,7 +1924,7 @@
       "seq": 3,
       "kind": "lifecycle",
       "lifecycle": {
-        "packageVersion": "0.44.0",
+        "packageVersion": "<package version>",
         "recorderSettledAt": null,
         "idleEmittedAt": null,
         "holds": [],
