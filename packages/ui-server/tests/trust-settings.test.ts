@@ -7,6 +7,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, renameSync
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { watchdogMs } from "../../../scripts/test-deadlines";
+import { queryGovernanceEvents } from "../src/governance/events.js";
 import { Hono } from "hono";
 import { createKeyedLock, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 import { createTrustSettings, TRUST_PROJECTION_LOCK_KEY } from "../src/brain/trust-settings.js";
@@ -727,7 +728,22 @@ async function activeTurn(f: Awaited<ReturnType<typeof fixture>>, trust: ReturnT
   };
   const close = async () => { proxy.stop(); await Promise.all(connections); await proxy.settled(); ithaca.server.stop(true); argo.server.stop(true); };
   const onlyKept = () => writeFileSync(f.path, `---\n${JSON.stringify({ schema_version: 1, taint: { trusted_sources: [kept] } })}\n---\nThe voyage policy.\n`);
-  return { ithaca, argo, removed, kept, through, relay, close, onlyKept, controller };
+  /** This turn's durable egress receipts for one origin port, once at least one is recorded. */
+  const receipts = async (port: number) => {
+    const read = () => queryGovernanceEvents(f.db, { turnId: "turn-voyage", kinds: ["egress_connection"], limit: 100 })
+      .map(event => event.payload as Record<string, unknown>).filter(payload => payload.port === port);
+    const deadline = Date.now() + watchdogMs(5000);
+    while (!read().length && Date.now() < deadline) await Bun.sleep(10);
+    return read();
+  };
+  /** The removed origin has exactly one receipt, the source-trust revocation; the kept origin has none. */
+  const expectRevoked = async (name: string) => {
+    expect(await receipts(ithaca.server.port!), name).toMatchObject([{ outcome: "cancelled", reason: "source_trust_changed", trustedSource: true }]);
+    expect((await receipts(ithaca.server.port!)).length).toBe(1);
+    expect(queryGovernanceEvents(f.db, { turnId: "turn-voyage", kinds: ["egress_connection"], limit: 100 })
+      .filter(event => (event.payload as Record<string, unknown>).port === argo.server.port), "KEPT_SOURCE_HAS_NO_TERMINAL_RECEIPT").toEqual([]);
+  };
+  return { ithaca, argo, removed, kept, through, relay, close, onlyKept, controller, expectRevoked };
 }
 const ended = (closed: Promise<void>) => Promise.race([closed.then(() => true), Bun.sleep(watchdogMs(5000)).then(() => false)]);
 
@@ -745,6 +761,7 @@ test("an out-of-band source removal during an active turn fences only the remove
     release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
     turn.onlyKept();
     expect(await ended(a.closed), "REMOVED_SOURCE_ENDS_WITHOUT_ANOTHER_TRUST_READ").toBe(true);
+    await turn.expectRevoked("REMOVED_SOURCE_RECEIPT_IS_SOURCE_TRUST_CHANGED");
     const uncertain = f.settings.live.read();
     expect(uncertain, "UNCERTAIN_VIEW_KEEPS_ONLY_UNCHANGED_DURABLE_RULES").toMatchObject({ revision: before.revision, policyHash: before.policyHash, rules: [turn.kept] });
     expect(uncertain.ruleInstances[turn.removed.id]).toBeUndefined();
@@ -783,6 +800,21 @@ test("a healthy source chunk and a relay during an unreconciled out-of-band edit
   } finally { release(); await turn.close(); }
 });
 
+test("a removed source's next chunk is refused with the exact source-trust receipt", async () => {
+  const f = await fixture({ originEnforcement: true });
+  const turn = await activeTurn(f, f.settings.live);
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  try {
+    const a = turn.through(turn.ithaca.server.url.href);
+    await a.saw("first");
+    turn.onlyKept();
+    // This received chunk is the first trust read after the edit.
+    turn.ithaca.send("second");
+    expect(await a.receives("second"), "REMOVED_SOURCE_CHUNK_IS_REFUSED").toBe(false);
+    await turn.expectRevoked("REMOVED_SOURCE_CHUNK_RECEIPT_IS_SOURCE_TRUST_CHANGED");
+  } finally { release(); await turn.close(); }
+});
+
 test("a removal observed then restored before the projection still ends the observed source", async () => {
   const f = await fixture({ originEnforcement: true });
   const turn = await activeTurn(f, f.settings.live);
@@ -794,6 +826,7 @@ test("a removal observed then restored before the projection still ends the obse
     turn.onlyKept();
     expect(f.settings.live.read().ruleInstances[turn.removed.id]).toBeUndefined();
     expect(await ended(a.closed), "OBSERVED_REMOVAL_ENDS_ITS_SOURCE_BEFORE_ANY_PROJECTION").toBe(true);
+    await turn.expectRevoked("OBSERVED_REMOVAL_RECEIPT_IS_SOURCE_TRUST_CHANGED");
     writeFileSync(f.path, valid);
     expect(f.settings.live.read().ruleInstances[turn.removed.id], "RESTORED_RULE_WAS_NEVER_DURABLY_REMOVED").toBe(birth);
   } finally { release(); await turn.close(); }
