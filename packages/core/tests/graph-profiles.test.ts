@@ -12,6 +12,7 @@ import {
   getGraphStats,
   getMaintenanceFindings,
 } from "../src/lib/graph/queries";
+import { CLI_GRAPH_PROFILE, GraphReader, UI_GRAPH_PROFILE, type GraphProfile } from "../src/lib/graph/reader";
 import * as queries from "../src/queries/index";
 import type { QueryCode, QueryResult } from "../src/queries/index";
 
@@ -516,27 +517,33 @@ describe("absent, uncomputed and older graph data", () => {
   });
 });
 
+// Odysseus's hub note links to 5,100 ledger entries, all last touched in
+// 2015. Every UI cap is exceeded; the CLI has no cap in any mode.
+const ENTRIES = 5100;
+let fleetPath: string | undefined;
+function fleetBrain(): string {
+  fleetPath ??= brain((db) => {
+    const entries: Doc[] = [];
+    for (let i = 0; i < ENTRIES; i++) {
+      entries.push({ id: 100 + i, path: `ledger/entry-${String(i).padStart(4, "0")}.md`, title: `Ledger ${i}`, type: "note", updated: "2015-07-12", asset: "markdown" });
+    }
+    insertDocs(db, [VOYAGE[0], ...entries]);
+    const link = db.query("INSERT INTO links (source_id, target, target_id) VALUES (1, ?, ?)");
+    for (const entry of entries) link.run(entry.path, entry.id);
+    const metric = db.query(
+      "INSERT INTO graph_metrics (document_id, in_degree, out_degree, component, pagerank, community) VALUES (?, ?, ?, 1, ?, 0)"
+    );
+    metric.run(1, 0, ENTRIES, 1);
+    for (const entry of entries) metric.run(entry.id, 1, 0, entry.id / 1e6);
+    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('graph_computed_at', ?)", [COMPUTED_AT]);
+  });
+  return fleetPath;
+}
+
 describe("caps and truncation on a fleet-sized ledger", () => {
-  // Odysseus's hub note links to 5,100 ledger entries, all last touched in
-  // 2015. Every UI cap is exceeded; the CLI has no cap in any mode.
-  const ENTRIES = 5100;
   let fleet: string;
   beforeAll(() => {
-    fleet = brain((db) => {
-      const entries: Doc[] = [];
-      for (let i = 0; i < ENTRIES; i++) {
-        entries.push({ id: 100 + i, path: `ledger/entry-${String(i).padStart(4, "0")}.md`, title: `Ledger ${i}`, type: "note", updated: "2015-07-12", asset: "markdown" });
-      }
-      insertDocs(db, [VOYAGE[0], ...entries]);
-      const link = db.query("INSERT INTO links (source_id, target, target_id) VALUES (1, ?, ?)");
-      for (const entry of entries) link.run(entry.path, entry.id);
-      const metric = db.query(
-        "INSERT INTO graph_metrics (document_id, in_degree, out_degree, component, pagerank, community) VALUES (?, ?, ?, 1, ?, 0)"
-      );
-      metric.run(1, 0, ENTRIES, 1);
-      for (const entry of entries) metric.run(entry.id, 1, 0, entry.id / 1e6);
-      db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('graph_computed_at', ?)", [COMPUTED_AT]);
-    });
+    fleet = fleetBrain();
   });
 
   test("neighborhood: the UI stops at 1,500 nodes; the CLI returns every neighbour", () => {
@@ -578,5 +585,158 @@ describe("caps and truncation on a fleet-sized ledger", () => {
     expect(ui.stale[0].id).toBe(100);
     const cliFindings = cli(fleet, (db) => getMaintenanceFindings(db));
     expect(cliFindings.stale.length).toBe(ENTRIES);
+  });
+});
+
+describe("local graph and graph meta cost (#4789)", () => {
+  const PROFILES: [string, GraphProfile][] = [["UI", UI_GRAPH_PROFILE], ["CLI", CLI_GRAPH_PROFILE]];
+
+  /** The joined edge query the reader ran before #4789, as the oracle for the edge set. */
+  const joinedEdges = (profile: GraphProfile) => `SELECT DISTINCT l.source_id AS source, l.target_id AS target
+    FROM links l
+    JOIN documents d ON d.id = l.source_id AND ${profile.nodeScope("d")}
+    JOIN documents t ON t.id = l.target_id AND ${profile.nodeScope("t")}
+    WHERE l.target_id IS NOT NULL AND l.target_id <> l.source_id`;
+
+  type Row = { id: number; parent: number; detail: string };
+  function plan(db: Database, sql: string, ...params: number[]): Row[] {
+    return db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as Row[];
+  }
+
+  /** Every SQL text prepared on any connection while `body` runs. */
+  function statementsDuring(body: () => void): string[] {
+    const seen: string[] = [];
+    const proto = Database.prototype as unknown as Record<"prepare" | "query", (this: Database, sql: string, ...rest: unknown[]) => unknown>;
+    const descriptors = {
+      prepare: Object.getOwnPropertyDescriptor(proto, "prepare")!,
+      query: Object.getOwnPropertyDescriptor(proto, "query")!,
+    };
+    for (const name of ["prepare", "query"] as const) {
+      const real = descriptors[name].value as (this: Database, sql: string, ...rest: unknown[]) => unknown;
+      Object.defineProperty(proto, name, {
+        ...descriptors[name],
+        value: function (this: Database, sql: string, ...rest: unknown[]) {
+          seen.push(sql);
+          return real.call(this, sql, ...rest);
+        },
+      });
+    }
+    try {
+      body();
+    } finally {
+      Object.defineProperty(proto, "prepare", descriptors.prepare);
+      Object.defineProperty(proto, "query", descriptors.query);
+    }
+    return seen;
+  }
+
+  test("a neighborhood reads links only through a source, target or id-list bound", () => {
+    for (const direction of ["both", "in", "out"] as const) {
+      const statements = statementsDuring(() => {
+        ok(queries.readGraphNeighborhood({ brainPath: voyage, center: "crew/odysseus.md", depth: 3, direction }));
+      });
+      const linkReads = statements.filter((sql) => /\b(FROM|JOIN) links\b/.test(sql));
+      expect(linkReads.length).toBeGreaterThan(0);
+      const unbounded = linkReads.filter((sql) => !/l\.source_id = \?|l\.target_id = \?|l\.source_id IN \(\?/.test(sql));
+      expect(unbounded, direction).toEqual([]);
+    }
+  });
+
+  test("the frontier statements search the links primary key and idx_links_target_id", () => {
+    cli(voyage, (db) => {
+      for (const [name, profile] of PROFILES) {
+        const graph = new GraphReader(db, profile);
+        const out = plan(db, graph.outNeighborSql, 1).map((r) => r.detail);
+        const inbound = plan(db, graph.inNeighborSql, 1).map((r) => r.detail);
+        expect(out.filter((d) => /^SCAN l\b/.test(d)), name).toEqual([]);
+        expect(inbound.filter((d) => /^SCAN l\b/.test(d)), name).toEqual([]);
+        expect(out[0], name).toBe("SEARCH l USING INDEX sqlite_autoindex_links_1 (source_id=?)");
+        expect(inbound[0], name).toBe("SEARCH l USING INDEX idx_links_target_id (target_id=?)");
+      }
+    });
+  });
+
+  test("the edge count reaches documents only through its two id sets, never once per edge", () => {
+    const statements = statementsDuring(() => {
+      ok(queries.readGraphMeta({ brainPath: voyage }));
+    });
+    const uiCount = statements.filter((sql) => /COUNT\(\*\) AS c FROM \(SELECT DISTINCT l\.source_id/.test(sql));
+    expect(uiCount).toHaveLength(1);
+    cli(voyage, (db) => {
+      const counts: [string, string][] = [
+        ["UI", uiCount[0]],
+        ["CLI", `SELECT COUNT(*) AS n FROM (${new GraphReader(db, CLI_GRAPH_PROFILE).edgeSql})`],
+      ];
+      for (const [name, sql] of counts) {
+        const rows = plan(db, sql);
+        const byId = new Map(rows.map((row) => [row.id, row]));
+        const text = `${name}\n${rows.map((r) => r.detail).join("\n")}`;
+        expect(rows.filter((r) => /^SEARCH \w+ USING INTEGER PRIMARY KEY/.test(r.detail)), text).toEqual([]);
+        const documentReads = rows.filter((r) => /^(SCAN|SEARCH) (d|t)\b/.test(r.detail));
+        expect(documentReads.length, text).toBe(2);
+        for (const read of documentReads) expect(byId.get(read.parent)?.detail ?? "", text).toMatch(/^LIST SUBQUERY/);
+      }
+    });
+  });
+
+  test("graph meta counts and the cluster and discovery edge sets match the joined edge query", () => {
+    for (const brainPath of [voyage, fleetBrain()]) {
+      cli(brainPath, (db) => {
+        for (const [name, profile] of PROFILES) {
+          const oracle = sortedEdges(db.query<{ source: number; target: number }, []>(joinedEdges(profile)).all());
+          expect(sortedEdges(new GraphReader(db, profile).links().edges), name).toEqual(oracle);
+        }
+      });
+      const uiOracle = cli(brainPath, (db) => sortedEdges(db.query<{ source: number; target: number }, []>(joinedEdges(UI_GRAPH_PROFILE)).all()));
+      const meta = ok(queries.readGraphMeta({ brainPath }));
+      expect(meta.edgeCount).toBe(uiOracle.length);
+      const cliStats = cli(brainPath, (db) => getGraphStats(db));
+      const cliOracle = cli(brainPath, (db) => db.query<{ source: number; target: number }, []>(joinedEdges(CLI_GRAPH_PROFILE)).all());
+      expect(cliStats.edges).toBe(cliOracle.length);
+    }
+    // The voyage covers a link to an asset, a self-link and two links from one
+    // note that resolve to the same target; the counts written against the
+    // joined reader:
+    const meta = ok(queries.readGraphMeta({ brainPath: voyage }));
+    expect([meta.nodeCount, meta.edgeCount]).toEqual([7, 6]);
+    const clusters = ok(queries.readGraphClusters({ brainPath: voyage, includeIsolates: true }));
+    expect(sortedEdges(clusters.edges)).toEqual(["1>2", "1>3", "2>8", "3>4", "4>1", "5>1"]);
+    const discovery = ok(queries.readGraphDiscovery({ brainPath: voyage, root: "crew/odysseus.md" }));
+    expect(sortedEdges(discovery.edges)).toEqual(["1>2", "1>3", "2>8", "3>4", "4>1"]);
+  });
+
+  test("a neighborhood scene holds exactly the edges between its nodes", () => {
+    for (const direction of ["both", "in", "out"] as const) {
+      for (const depth of [1, 2, 3]) {
+        const scene = ok(queries.readGraphNeighborhood({ brainPath: voyage, center: "crew/penelope.md", depth, direction }));
+        const kept = new Set(ids(scene.nodes));
+        const oracle = cli(voyage, (db) =>
+          sortedEdges(
+            db
+              .query<{ source: number; target: number }, []>(joinedEdges(UI_GRAPH_PROFILE))
+              .all()
+              .filter((e) => kept.has(e.source) && kept.has(e.target))
+          )
+        );
+        expect(sortedEdges(scene.edges), `${direction} ${depth}`).toEqual(oracle);
+      }
+    }
+  });
+
+  test("each direction reaches the same nodes in both profiles", () => {
+    const expected = { out: [1, 2, 3], in: [1, 4, 5], both: [1, 2, 3, 4, 5] };
+    for (const direction of ["out", "in", "both"] as const) {
+      const ui = ok(queries.readGraphNeighborhood({ brainPath: voyage, center: "crew/odysseus.md", direction }));
+      const cliGraph = cli(voyage, (db) => getEgoGraph(db, { center: "crew/odysseus.md", direction }));
+      expect(ids(ui.nodes).sort((a, b) => a - b), direction).toEqual(expected[direction]);
+      expect(ids(cliGraph.nodes).sort((a, b) => a - b), direction).toEqual(expected[direction]);
+    }
+  });
+
+  test("a truncated UI neighborhood keeps the first nodes in the pinned visiting order", () => {
+    const ui = ok(queries.readGraphNeighborhood({ brainPath: fleetBrain(), center: "crew/odysseus.md" }));
+    expect(ui.truncated).toBe(true);
+    // Out-neighbours ascending by id: the centre, then ledger ids 100..1598.
+    expect(ids(ui.nodes).sort((a, b) => a - b)).toEqual([1, ...Array.from({ length: 1499 }, (_, i) => 100 + i)]);
   });
 });
