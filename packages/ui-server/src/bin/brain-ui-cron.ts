@@ -4,7 +4,7 @@
 import { statSync, realpathSync } from "fs";
 import { join } from "path";
 
-import { resolveCronConfig, resolveStandalonePricingConfig, type CronConfig } from "../config/env.js";
+import { resolveCronConfig, type CronConfig } from "../config/env.js";
 import { createTurnBudgets } from "../brain/turn-budgets.js";
 import { maintenanceProviderMeter } from "../brain/provider-meter.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
@@ -148,7 +148,7 @@ async function cronHostExecution(config: CronConfig, options: { gate: boolean })
     if (options.gate) {
       db = openSharedUiDb(config.dbPath);
       report(execution.attach(db));
-      relayBudgets = createTurnBudgets(db, createModelPricing(resolveStandalonePricingConfig()));
+      relayBudgets = createTurnBudgets(db, createModelPricing(config.pricing));
     }
   } catch (error) {
     reconciled = false;
