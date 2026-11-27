@@ -242,7 +242,7 @@ export const moduleCommand: CoreCommand = {
     if (sub === "enable" || sub === "disable") {
       const { args: pos } = parseArgs(args);
       if (pos.length !== 2) throw new UsageError(`Usage: brain module ${sub} <name>`);
-      const { toggleModule } = await import("../../lib/module-toggle.js");
+      const { toggleModule } = await import("../module-toggle.js");
       const result = toggleModule(cli, pos[1]!, sub === "enable");
       emit(cli.json, result, () => {
         console.log(`Module ${result.module}: ${result.state}${result.changed ? "" : " (unchanged)"}`);

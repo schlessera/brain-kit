@@ -4,7 +4,7 @@ import { resolveEnv } from "../../config/env.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, parseArgs, reindexWithProviders, UsageError } from "../io.js";
 import { AgentRunError, runAgent, type AgentInvocation } from "../agent.js";
-import { resolveEmitters } from "../skills-util.js";
+import { resolveEmitters } from "../../lib/skills/resolve-emitters.js";
 import { assess, classifyPostSyncDirt, domainFor, workingTreeDirt } from "../../lib/sync/assess.js";
 import { currentBranch, git, unmergedPaths } from "../../lib/sync/git.js";
 import { createSyncJudge, type SyncJudge } from "../../lib/sync/judge.js";

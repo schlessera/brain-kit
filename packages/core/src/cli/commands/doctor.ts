@@ -25,7 +25,7 @@ import { JEV_MODEL } from "../../lib/llm-defaults.js";
 import { relayedKey } from "@schlessera/brain-common/internal/provider-relay";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, parseArgs, reindexWithProviders } from "../io.js";
-import { resolveEmitters } from "../skills-util.js";
+import { resolveEmitters } from "../../lib/skills/resolve-emitters.js";
 import { GIT_MISSING, HOOK_NAMES, gitInstalled, installGitHooks, isGitRepo, packagedHooksDir } from "../hooks-util.js";
 import { isToolLeftover } from "../../lib/tool-leftovers.js";
 import { formatBytes, indexedFiles, isMediaPath, mediaPolicy, type IndexedFile } from "../../lib/media.js";

@@ -4,7 +4,7 @@
  * so a host that hard-codes a default key name leaves it switched off.
  */
 import { EMBEDDING_PROVIDERS } from "../../src/lib/registry";
-import { EMBEDDING_DIMENSIONS } from "../../src/lib/models";
+import { EMBEDDING_DIMENSIONS } from "../../src/lib/llm-defaults";
 import type { EmbeddingProvider } from "../../src/lib/seams";
 
 // Keep these in step with provider-availability.test.ts.

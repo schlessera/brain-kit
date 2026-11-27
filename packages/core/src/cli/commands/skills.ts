@@ -2,7 +2,7 @@ import { discoverSkills, lintSkills, syncSkills } from "../../lib/skills/index.j
 import type { LintFinding } from "../../lib/skills/index.js";
 import type { CoreCommand } from "../types.js";
 import { emit, UsageError } from "../io.js";
-import { resolveEmitters } from "../skills-util.js";
+import { resolveEmitters } from "../../lib/skills/resolve-emitters.js";
 
 const HELP = `brain skills <sync|lint>
 
