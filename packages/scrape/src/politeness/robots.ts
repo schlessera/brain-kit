@@ -1,6 +1,6 @@
 /**
- * robots.txt: fetched once per origin, cached for the process, enforced by
- * default.
+ * robots.txt: fetched once per origin, kept for a day (five minutes after a
+ * failed fetch), enforced by default.
  *
  * Enforcement is the package's default rather than an opt-in because this is a
  * published library: a consumer who never thinks about robots.txt should get
@@ -105,7 +105,7 @@ async function boundedText(response: Response, maxBytes: number): Promise<string
  * and refuses a body over the size limit. A refusal is a failed fetch, which
  * the cache treats permissively like any other (see the module header).
  */
-function networkFetcher(options: Required<Omit<RobotsCacheOptions, "fetcher" | "lookup">> & { lookup?: AddressLookup }): RobotsFetcher {
+function networkFetcher(options: Required<Pick<RobotsCacheOptions, "userAgent" | "maxBytes" | "maxRedirects" | "addressPolicy">> & { lookup?: AddressLookup }): RobotsFetcher {
   return async (robotsUrl) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ROBOTS_TIMEOUT_MS);
@@ -160,17 +160,49 @@ export interface RobotsCacheOptions {
   addressPolicy?: AddressPolicy;
   /** Resolver for `"public-only"` checks. Defaults to the system resolver. */
   lookup?: AddressLookup;
+  /**
+   * How long a definite answer (a 200, empty or not, or a 4xx meaning "no
+   * rules") is used before robots.txt is fetched again, in ms. Default 24
+   * hours, the most RFC 9309 asks a crawler to keep one.
+   */
+  maxAgeMs?: number;
+  /** How long a failed fetch (a 5xx, a thrown or timed-out fetch, a bound exceeded) is kept, in ms. Default 5 minutes. */
+  failureMaxAgeMs?: number;
+  /** Origins kept at once; past it the least recently used is dropped. Default 1,000. */
+  maxEntries?: number;
+  /** Clock for the ages above, in ms. Defaults to `Date.now`; tests inject one. */
+  now?: () => number;
+}
+
+/** Default lifetime of a definite robots.txt answer: RFC 9309's 24 hours. */
+const DEFAULT_ROBOTS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** Default lifetime of a failed robots.txt fetch. */
+const DEFAULT_ROBOTS_FAILURE_MAX_AGE_MS = 5 * 60 * 1000;
+/** Default number of origins a cache keeps. */
+const DEFAULT_ROBOTS_MAX_ENTRIES = 1000;
+
+interface CachedRules {
+  rules: Promise<RobotsRules>;
+  /** When the entry stops answering; `Infinity` while its fetch is in flight. */
+  expiresAt: number;
 }
 
 /**
- * One robots.txt per origin, fetched at most once.
+ * One robots.txt per origin, fetched again once its answer is older than
+ * `maxAgeMs` (`failureMaxAgeMs` for a failed fetch), for at most `maxEntries`
+ * origins.
  *
- * In-flight fetches are shared: ten concurrent requests to a new host produce
- * one robots.txt fetch, not ten. Owned by the caller, like the rate limiter —
- * no module-level state.
+ * In-flight fetches are shared: ten concurrent requests to a new host, or to
+ * one whose entry just expired, produce one robots.txt fetch, not ten. Owned
+ * by the caller, like the rate limiter — no module-level state.
  */
 export class RobotsCache {
-  private readonly rules = new Map<string, Promise<RobotsRules>>();
+  /** In least-recently-used order: a hit moves its origin to the end. */
+  private readonly rules = new Map<string, CachedRules>();
+  private readonly maxAgeMs: number;
+  private readonly failureMaxAgeMs: number;
+  private readonly maxEntries: number;
+  private readonly now: () => number;
   private readonly fetcher: RobotsFetcher;
   /** The address policy this cache's own fetches are held to. */
   readonly addressPolicy: AddressPolicy;
@@ -182,6 +214,10 @@ export class RobotsCache {
     this.addressPolicy = options.addressPolicy ?? "any";
     this.lookup = options.lookup;
     this.checkBeforeFetch = this.addressPolicy === "public-only" && options.fetcher !== undefined;
+    this.maxAgeMs = options.maxAgeMs ?? DEFAULT_ROBOTS_MAX_AGE_MS;
+    this.failureMaxAgeMs = options.failureMaxAgeMs ?? DEFAULT_ROBOTS_FAILURE_MAX_AGE_MS;
+    this.maxEntries = Math.max(1, options.maxEntries ?? DEFAULT_ROBOTS_MAX_ENTRIES);
+    this.now = options.now ?? Date.now;
     this.fetcher = options.fetcher ?? networkFetcher({
       userAgent: options.userAgent ?? DEFAULT_USER_AGENT,
       maxBytes: options.maxBytes ?? DEFAULT_ROBOTS_MAX_BYTES,
@@ -201,23 +237,38 @@ export class RobotsCache {
     }
 
     const cached = this.rules.get(origin);
-    if (cached) return cached;
+    this.rules.delete(origin);
+    if (cached && this.now() < cached.expiresAt) {
+      this.rules.set(origin, cached);
+      return cached.rules;
+    }
 
-    const pending = this.load(`${origin}/robots.txt`);
-    this.rules.set(origin, pending);
-    return pending;
+    const entry = { expiresAt: Infinity } as CachedRules;
+    entry.rules = this.load(`${origin}/robots.txt`).then(({ rules, definite }) => {
+      entry.expiresAt = this.now() + (definite ? this.maxAgeMs : this.failureMaxAgeMs);
+      return rules;
+    });
+    this.rules.set(origin, entry);
+    for (const oldest of this.rules.keys()) {
+      if (this.rules.size <= this.maxEntries) break;
+      this.rules.delete(oldest);
+    }
+    return entry.rules;
   }
 
-  private async load(robotsUrl: string): Promise<RobotsRules> {
+  /** The rules, and whether they are a definite answer or a failed fetch. Never rejects. */
+  private async load(robotsUrl: string): Promise<{ rules: RobotsRules; definite: boolean }> {
     try {
       if (this.checkBeforeFetch) await checkPublicUrl(robotsUrl, this.lookup);
       const { status, body } = await this.fetcher(robotsUrl);
       // 404 (no rules) and 5xx (site cannot answer) both mean "no policy we
-      // can apply" — see the module header for why that is permissive.
-      if (status !== 200 || !body.trim()) return ALLOW_ALL;
-      return parse(robotsUrl, body);
+      // can apply" — see the module header for why that is permissive. Only
+      // a 200 or a 4xx is a definite answer worth keeping for `maxAgeMs`.
+      const definite = status === 200 || (status >= 400 && status < 500);
+      if (status !== 200 || !body.trim()) return { rules: ALLOW_ALL, definite };
+      return { rules: parse(robotsUrl, body), definite };
     } catch {
-      return ALLOW_ALL;
+      return { rules: ALLOW_ALL, definite: false };
     }
   }
 

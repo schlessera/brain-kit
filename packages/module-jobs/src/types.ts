@@ -79,7 +79,6 @@ export interface RawJob {
  * `empty` is the only one of the four that is allowed to carry no errors, and
  * an adapter may only claim it from a positive signal — see `PageLedger.read`.
  */
-export const SOURCE_STATUSES = ["ok", "empty", "unparseable", "not_run"] as const;
 export type SourceStatus = AdapterStatus;
 
 /**
