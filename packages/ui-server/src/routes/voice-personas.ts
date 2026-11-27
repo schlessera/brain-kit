@@ -12,6 +12,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/protocol";
 import { isLiveSettingsWriter } from "./live-settings.js";
 import type { AppEnv } from "../app-env.js";
+import { readJsonBody } from "../middleware/body-limit.js";
 import type { Principal } from "../db/principals.js";
 import { PERSONA_ID, PersonaError, type LivePersonaService, type LivePersonaWriteFields } from "../voice/personas.js";
 
@@ -77,7 +78,9 @@ export function createVoicePersonaRoutes(personas: LivePersonaService, live: Liv
     .post("/voice/personas", async (c) => {
       c.header("Cache-Control", "no-store");
       if (!human(c.get("principal"))) return refuse(c);
-      const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+      const read = await readJsonBody(c).catch(() => null);
+      if (read instanceof Response) return read;
+      const body = read as Record<string, unknown> | null;
       const input = fields(body);
       if (!input || (body!.id !== undefined && (typeof body!.id !== "string" || !PERSONA_ID.test(body!.id)))) return c.json({ error: "PERSONA_INVALID" }, 400);
       try {
@@ -88,7 +91,9 @@ export function createVoicePersonaRoutes(personas: LivePersonaService, live: Liv
     .put("/voice/personas/:id", async (c) => {
       c.header("Cache-Control", "no-store");
       if (!human(c.get("principal"))) return refuse(c);
-      const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+      const read = await readJsonBody(c).catch(() => null);
+      if (read instanceof Response) return read;
+      const body = read as Record<string, unknown> | null;
       const input = fields(body);
       if (!input || typeof body!.baseRevision !== "string" || !body!.baseRevision) return c.json({ error: "PERSONA_INVALID" }, 400);
       try {
@@ -123,7 +128,9 @@ export function createVoicePersonaRoutes(personas: LivePersonaService, live: Liv
       c.header("Cache-Control", "no-store");
       // The owner-only write guard (#3616 §3), checked before the body is read.
       if (!human(c.get("principal")) || !isLiveSettingsWriter(c.get("principal"), Date.now())) return refuse(c);
-      const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+      const read = await readJsonBody(c).catch(() => null);
+      if (read instanceof Response) return read;
+      const body = read as Record<string, unknown> | null;
       if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ error: "VOICE_SETTINGS_INVALID" }, 400);
       if ("defaultProvider" in body || "revision" in body) {
         const { defaultProvider, revision } = body;

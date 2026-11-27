@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { getDictationSettings } from "../db/settings.js";
 import { createHash } from "node:crypto";
 import { Hono, type Context } from "hono";
+import { readBodyBytes } from "../middleware/body-limit.js";
 import { SpeechTranscriptionError } from "@schlessera/brain-ui-sdk/server";
 import type { TranscriptionFailure } from "@schlessera/brain-ui-sdk/protocol";
 import type { AppEnv } from "../app-env.js";
@@ -37,22 +38,10 @@ function transcriptionFailure(error: unknown): TranscriptionFailure {
   return { reason, retryable, ...(status !== undefined ? { providerStatus: status } : {}) };
 }
 async function readAudio(c: Context<AppEnv>): Promise<Uint8Array> {
-  if (Number(c.req.header("content-length")) > MAX_TRANSCRIPTION_BYTES) return refuse(413, "recording_too_large", "The recording exceeds the upload byte budget.");
-  const reader = c.req.raw.body?.getReader();
-  if (!reader) return refuse(400, "recording_empty", "The recording is empty.");
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes += value.byteLength;
-      if (bytes > MAX_TRANSCRIPTION_BYTES) return refuse(413, "recording_too_large", "The recording exceeds the upload byte budget.");
-      chunks.push(value);
-    }
-  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
-  if (!bytes) return refuse(400, "recording_empty", "The recording is empty.");
-  return new Uint8Array(Buffer.concat(chunks, bytes));
+  const body = await readBodyBytes(c.req.raw, MAX_TRANSCRIPTION_BYTES);
+  if (!body) return refuse(413, "recording_too_large", "The recording exceeds the upload byte budget.");
+  if (!body.bytes) return refuse(400, "recording_empty", "The recording is empty.");
+  return new Uint8Array(Buffer.concat(body.chunks, body.bytes));
 }
 export function createTranscriptionRoutes(deps: {
   store: AwaitableTranscriptionStore; keyterms: KeytermSettings;
