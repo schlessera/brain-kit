@@ -137,6 +137,13 @@ async function reindexAsync(root: string, log: ArchiveOptions["log"]) {
     if ((indexWrites.get(root) ?? 0) === seen) return;
   }
 }
+/** Whether index.json lists exactly these manifests' sessions: a missing one lists none, an unreadable one differs. */
+function indexLists(root: string, records: Manifest[]): boolean {
+  const sessions = (entries: ArchivedSession[]) => JSON.stringify(entries.map(s => JSON.stringify(s)).sort());
+  const path = join(root, "index.json");
+  try { return sessions(existsSync(path) ? JSON.parse(regular(path, METADATA_BYTES).toString()) : []) === sessions(records.map(m => m.session)); }
+  catch { return false; }
+}
 function archivedBytes(root: string, id: string, file: Manifest["files"][number]): Uint8Array {
   const path = join(root, id, `${file.path}.gz`);
   directory(dirname(path));
@@ -279,14 +286,21 @@ export async function archiveIdleSessions(options: ArchiveOptions): Promise<void
     const sessions = await (options.listSessionsFn ?? sdkListSessions)({ dir: options.brainPath });
     const active = options.activeSessionIds?.() ?? new Set<string>();
     // Recovery precedes fresh moves. Committed manifests are immutable, so a
-    // lost index write or partially removed source is safe to retry.
-    for (const record of manifests(archive, options.log)) {
-      if (active.has(record.session.id) || retiredOnDisk(archive, record.session.id)) continue;
-      if (existsSync(join(archive, record.session.id, "restoring"))) {
-        restoreArchivedSession(record.session.id, options);
-      } else {
-        await reindexAsync(archive, options.log);
-        if (await removeSource(live, archive, record, options) === false) await setAsideAsync(archive, record.session.id, options);
+    // lost index write or partially removed source is safe to retry. The index
+    // lists every committed manifest before any live byte is removed; it is
+    // rewritten once, and only when a crash lost a write (#4860).
+    const records = manifests(archive, options.log);
+    if (!indexLists(archive, records)) await reindexAsync(archive, options.log);
+    for (const record of records) {
+      const id = record.session.id;
+      if (active.has(id) || retiredOnDisk(archive, id)) continue;
+      try {
+        if (existsSync(join(archive, id, "restoring"))) restoreArchivedSession(id, options);
+        // A completed archive has no live file left: nothing to verify or remove.
+        else if (sessionFiles(live, id).length && await removeSource(live, archive, record, options) === false) await setAsideAsync(archive, id, options);
+      } catch (error) {
+        // One damaged archive never stops the others or the fresh moves below.
+        (options.log ?? ((message, reason) => console.warn(message, reason)))(`Claude transcript archive recovery failed for ${id}`, error);
       }
     }
     for (const session of sessions) {
