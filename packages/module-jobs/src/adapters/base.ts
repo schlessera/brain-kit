@@ -13,8 +13,6 @@
  * construct clients or expose a second bind lifecycle.
  */
 import {
-  parseRssItems,
-  stripHtml,
   type FetchOptions,
   type ScrapeContext,
   type AdapterRunOptions,
@@ -219,14 +217,6 @@ export abstract class BaseAdapter implements JobAdapter {
   protected get http() { return this.ctx.http; }
 
   protected abstract scrapePages(options: AdapterRunOptions): Promise<AdapterResult<RawJob>>;
-
-  protected stripHtml(html: string): string {
-    return stripHtml(html);
-  }
-
-  protected parseRssItems(xml: string): Array<Record<string, string>> {
-    return parseRssItems(xml);
-  }
 
   /** A fresh ledger for one `scrape()` call. */
   protected ledger(): PageLedger {

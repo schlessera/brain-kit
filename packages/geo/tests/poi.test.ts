@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { spatialWork } from "../src/arcs.js";
 import { GeoClient } from "../src/server/client.js";
+import { nearestTrackPoint } from "../src/spatial.js";
 import { normalizeTrack } from "../src/track.js";
 import type { GeoConfigInput } from "../src/config.js";
 import type { PoiQuery } from "../src/server/poi.js";
@@ -260,6 +262,17 @@ describe("bounded shared Overpass POI queries", () => {
     expect(result.value![0]).toMatchObject({point: {lat: 0, lon: 0}, distance: {value: 0}, openingHours: {value: null}});
     expect(result).toMatchObject({status: "partial", counts: {input: 3, retained: 1, omitted: 2}, query: {sections: 1, points: 1}});
     expect(bodies[0]).toContain("(around:100,0,0)");
+  });
+
+  test("one reply builds the track's edge list once, whatever its element count", async () => {
+    const track = normalizeTrack([Array.from({length: 2_000}, (_, i) => ({lat: 38.36 + i / 200_000, lon: 20.71 + Math.sin(i / 50) / 5_000}))]);
+    const elements = Array.from({length: 1_000}, (_, i) => ({...cafe, id: i + 1, lat: 38.36 + i / 100_000, lon: 20.71 + (i % 7) / 10_000}));
+    const {geo} = await setup(async () => Response.json({elements}));
+    spatialWork.edgeBuilds = 0;
+    const result = await geo.poi({alongTrack: track, tags: {amenity: "cafe"}, radiusM: 50});
+    expect(spatialWork.edgeBuilds).toBe(1);
+    expect(result.value).toHaveLength(1_000);
+    expect(result.value!.map(item => item.distance.value)).toEqual(elements.map(element => nearestTrackPoint(track, element, 0).distance.value));
   });
 
   test("responses beyond the sentinel fail distinctly without becoming cached matches", async () => {
