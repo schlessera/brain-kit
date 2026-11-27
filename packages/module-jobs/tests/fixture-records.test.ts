@@ -13,12 +13,14 @@
  * part that matters: a generator only helps whoever remembers to run it.
  */
 import { describe, expect, test } from "bun:test";
+import { tempDirs } from "../../../tests/helpers/temp";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { serializeCaptureRecord } from "../scripts/capture-record.js";
+
+const tempDir = tempDirs();
 
 const FIXTURES = join(import.meta.dir, "fixtures");
 const BOARDS = join(FIXTURES, "boards");
@@ -180,7 +182,7 @@ describe("trimmed JSON-LD fixtures", () => {
 describe("which directories the guard covers", () => {
   /** Build a throwaway fixtures tree from `{ "relative/path": "content" }`. */
   function tree(files: Record<string, string>): string {
-    const root = mkdtempSync(join(tmpdir(), "fixture-walk-"));
+    const root = tempDir("fixture-walk-");
     for (const [path, content] of Object.entries(files)) {
       const full = join(root, path);
       mkdirSync(dirname(full), { recursive: true });
@@ -191,31 +193,19 @@ describe("which directories the guard covers", () => {
 
   test("a capture placed directly in fixtures/ makes the root a fixture directory", () => {
     const root = tree({ "criteria.md": "---\n", "stray.html": "<html></html>" });
-    try {
-      expect(fixtureDirs(root)).toContain(".");
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(fixtureDirs(root)).toContain(".");
   });
 
   test("criteria.md alone does not make the root a fixture directory", () => {
     const root = tree({ "criteria.md": "---\n", "boards/x/page.html": "<html></html>" });
-    try {
-      expect(fixtureDirs(root)).toEqual([join("boards", "x")]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(fixtureDirs(root)).toEqual([join("boards", "x")]);
   });
 
   test("a file named criteria.md anywhere else is still a fixture", () => {
     // The exemption is one path, not a name: a capture that happens to be
     // called criteria.md under boards/ needs a record like any other.
     const root = tree({ "criteria.md": "---\n", "boards/x/criteria.md": "<html></html>" });
-    try {
-      expect(fixtureDirs(root)).toEqual([join("boards", "x")]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(fixtureDirs(root)).toEqual([join("boards", "x")]);
   });
 
   test("a recorded capture at the root is judged by its files, not its subdirectories", () => {
@@ -224,21 +214,13 @@ describe("which directories the guard covers", () => {
       "stray.html": "<html></html>",
       "boards/x/page.html": "<html></html>",
     });
-    try {
-      expect(fixtureFilesIn(".", root)).toEqual(["stray.html"]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(fixtureFilesIn(".", root)).toEqual(["stray.html"]);
   });
 
   test("a symlinked capture still needs a record", () => {
     const root = tree({ "boards/x/page.html": "<html></html>" });
-    try {
-      symlinkSync(join(root, "boards/x/page.html"), join(root, "boards/x/linked.html"));
-      expect(fixtureFilesIn(join("boards", "x"), root).sort()).toEqual(["linked.html", "page.html"]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    symlinkSync(join(root, "boards/x/page.html"), join(root, "boards/x/linked.html"));
+    expect(fixtureFilesIn(join("boards", "x"), root).sort()).toEqual(["linked.html", "page.html"]);
   });
 
   test("every NOT_A_CAPTURE entry names a file that is really there", () => {

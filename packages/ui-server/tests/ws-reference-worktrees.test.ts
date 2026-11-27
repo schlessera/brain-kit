@@ -21,6 +21,7 @@ import type { ReferenceTransport } from "../src/brain/reference-transport.js";
 import { createReferenceTools } from "../src/brain/reference-tools.js";
 import type { ReferenceToolResult } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { referencePoolDouble } from "./helpers/reference-pool-double.js";
+import { until } from "../../../tests/helpers/until";
 
 test("a turn binds its worktree generation and retires it before the final observation, then closes it", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "odysseus-host-worktrees-")), brain = resolve(root, "brain");
@@ -54,8 +55,7 @@ test("a turn binds its worktree generation and retires it before the final obser
     await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Sight Ithaca", requestId: "worktree-request" }) } as MessageEvent, ws);
     const frames = () => sent.flatMap(text => { const parsed = parseServerMessage(text); return parsed.ok ? [parsed.message] : []; });
-    const until = Date.now() + 10_000;
-    while (!order.includes("reconcile")) { if (Date.now() > until) throw new Error(JSON.stringify({ order, frames: frames() })); await Bun.sleep(5); }
+    await until(() => order.includes("reconcile"), () => ({ order, frames: frames() }), 10_000);
     expect(sandbox?.worktrees, "REFERENCE_WORKTREE_SANDBOX_BINDS_GENERATION").toEqual({ source: "/usr" });
     const firstFinish = order.indexOf("finish"), retire = order.indexOf("retire:generation-ithaca"), close = order.indexOf("close:generation-ithaca");
     expect({ retireBeforeFinish: retire >= 0 && retire < firstFinish, closeAfterFinish: close > firstFinish }, "REFERENCE_WORKTREE_RETIRE_BEFORE_FINAL_OBSERVATION")
@@ -99,9 +99,8 @@ test("a turn's tools reach reference source and its own worktree through the bou
     const handlers = createWsHandlers(app.wsHost, principal), sent: string[] = [], ws = { send: (text: string) => sent.push(text), close() {}, readyState: 1 } as WSContext;
     await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Read the Ithaca charts", requestId: "reference-request" }) } as MessageEvent, ws);
-    const until = Date.now() + 10_000;
     // The turn ends once its gate release has committed (#2850), after its generation retires.
-    while (calls.length < 2 || app.wsHost.referenceWorktreeGenerations.size || app.wsHost.coordinator.isTurnActive()) { if (Date.now() > until) throw new Error(JSON.stringify({ calls, sent })); await Bun.sleep(5); }
+    await until(() => calls.length >= 2 && !app.wsHost.referenceWorktreeGenerations.size && !app.wsHost.coordinator.isTurnActive(), () => ({ calls, sent }), 10_000);
     expect(sandbox?.references, "REFERENCE_TOOLS_SANDBOX_BINDS_VIEWS").toEqual(sources.views(principal.id) as { public: string; private: string });
     const [read, requested] = calls as [Extract<ReferenceToolResult, { source: unknown }>, Extract<ReferenceToolResult, { worktree: unknown }>];
     expect(read.source.path, "REFERENCE_TOOLS_HOST_TURN_SOURCE_PATH").toMatch(/^\/tmp\/brain-reference\/public\//);

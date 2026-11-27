@@ -1,9 +1,8 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
+import { tempDirs } from "../../../tests/helpers/temp";
 import { Hono } from "hono";
 import { serializeSigned } from "hono/utils/cookie";
 import { join } from "path";
-import { tmpdir } from "os";
-import { rmSync } from "fs";
 import type { Database } from "bun:sqlite";
 import { authRoutes, authGuard, createLoginRateLimiter, resetVerificationReservations } from "../src/middleware/auth";
 import {
@@ -26,7 +25,7 @@ import { createPrincipal } from "../src/db/principals";
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
 const SECRET = "test-cookie-secret-0123456789abcdef";
-const TEST_DB = join(tmpdir(), `passkeys-test-${process.pid}.db`);
+const TEST_DB = join(tempDirs({ scope: "file" })("passkeys-test-"), "ui.db");
 
 let db: Database;
 let clients: ClientSet;
@@ -46,9 +45,6 @@ beforeAll(async () => {
 
 afterAll(() => {
   db.close();
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(TEST_DB + suffix, { force: true });
-  }
 });
 
 beforeEach(() => {

@@ -1,4 +1,5 @@
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
+import { until } from "../../../tests/helpers/until";
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
@@ -167,8 +168,7 @@ test("the host observes after a tool result unless the backend proved where that
     const handlers = createWsHandlers(app.wsHost, principal), sent: string[] = [], ws = { send: (text: string) => sent.push(text), close() {}, readyState: 1 } as WSContext;
     await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Read the return to Ithaca", requestId: "schedule-request" }) } as MessageEvent, ws);
-    const until = Date.now() + 10_000;
-    while (!sent.some(text => JSON.parse(text).type === "turn_journal" && JSON.parse(text).journal.state === "complete")) { if (Date.now() > until) throw new Error(sent.join("\n")); await Bun.sleep(5); }
+    await until(() => sent.some(text => JSON.parse(text).type === "turn_journal" && JSON.parse(text).journal.state === "complete"), () => sent.join("\n"), 10_000);
     expect(counts, "HOST_SCHEDULE_BY_PROVEN_EXECUTION_PATH").toEqual({ "read-proven": 0, "base-proven": 0, "read-unproven": 1, "read-after-unproven": 1 });
   } finally { await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);

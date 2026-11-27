@@ -13,7 +13,8 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { deflateSync } from "node:zlib";
+import { constants } from "node:zlib";
+import { png as encodePng } from "./markup-images.js";
 
 const REPO = resolve(import.meta.dir, "../../../..");
 const CORE_CLI = join(REPO, "packages/core/src/cli/brain.ts");
@@ -46,26 +47,13 @@ const TODAY = (() => { const d = new Date(); return `${d.getFullYear()}-${String
 export const NOTE_TEXT = "---\ntitle: The return\ntype: note\ncreated: 2026-07-12\nupdated: " + TODAY + "\ntags: [voyage]\n---\n# The return\n\nPenelope's loom, as she left it:\n\n![loom](../photos/penelope-loom.png)\n";
 export const PINS_TEXT = JSON.stringify({ version: 1, ready: true, sessions: { [JSON.stringify(["pi", "voyage-home"])]: [HARBOUR] } });
 
-const CRC = Uint32Array.from({ length: 256 }, (_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
-function chunk(type: string, data: Buffer) {
-  const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
-  let c = 0xffffffff; for (const b of body) c = CRC[(c ^ b) & 255]! ^ (c >>> 8);
-  const out = Buffer.alloc(12 + data.length); out.writeUInt32BE(data.length, 0); body.copy(out, 4); out.writeUInt32BE((c ^ 0xffffffff) >>> 0, 8 + data.length);
-  return out;
-}
 /** A valid one-colour PNG, so each file has its own bytes and the browser can render it. */
 export function png(width: number, height: number, rgb: [number, number, number]): Buffer {
-  const header = Buffer.alloc(13); header.writeUInt32BE(width, 0); header.writeUInt32BE(height, 4); header.set([8, 2, 0, 0, 0], 8);
-  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: width }, () => rgb).flat())]);
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(Buffer.concat(Array.from({ length: height }, () => row)))), chunk("IEND", Buffer.alloc(0))]);
+  return encodePng(width, height, { alpha: false, fill: rgb, level: constants.Z_DEFAULT_COMPRESSION });
 }
 /** A PNG of seeded noise: deflate cannot shrink it, so its bytes are about `side² × 3`. */
 export function noisePng(side: number, seed = 12): Buffer {
-  let x = seed >>> 0;
-  const header = Buffer.alloc(13); header.writeUInt32BE(side, 0); header.writeUInt32BE(side, 4); header.set([8, 2, 0, 0, 0], 8);
-  const raw = Buffer.alloc(side * (side * 3 + 1));
-  for (let i = 0; i < raw.length; i++) { x = (Math.imul(x, 1664525) + 1013904223) >>> 0; raw[i] = i % (side * 3 + 1) === 0 ? 0 : x >>> 24; }
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(raw, { level: 0 })), chunk("IEND", Buffer.alloc(0))]);
+  return encodePng(side, side, { alpha: false, noise: true, seed });
 }
 export const MEDIA_BYTES: Record<string, Buffer> = {
   [LOOM]: png(24, 16, [176, 112, 64]),
