@@ -767,6 +767,10 @@ signatures (every public export and the types it is made of)
                     origin: "origin";
                     session: "session";
                 }>;
+                state: z.ZodEnum<{
+                    proposed: "proposed";
+                    settled: "settled";
+                }>;
                 toolUseId: z.ZodString;
                 transport: z.ZodOptional<z.ZodEnum<{
                     connect: "connect";
