@@ -69,6 +69,10 @@ export function MapBlockCard({ block, isStatic = false }: { block: MapBlock; isS
     plan.frames.map(() => (isStatic ? "none" : "pending")),
   );
   const [listOpen] = useState(() => (isStatic ? true : listOpenByDefault()));
+  const frames = useMemo(
+    () => plan.frames.map(({ bbox: _bbox, ...frame }, i) => ({ ...frame, geometry: geometry[i] ?? "pending" })),
+    [plan, geometry],
+  );
 
   useEffect(() => {
     if (isStatic) return;
@@ -95,7 +99,7 @@ export function MapBlockCard({ block, isStatic = false }: { block: MapBlock; isS
       rows={plan.rows}
       mode={plan.mode}
       {...(plan.reason ? { reason: plan.reason } : {})}
-      frames={plan.frames.map(({ bbox: _bbox, ...frame }, i) => ({ ...frame, geometry: geometry[i] ?? "pending" }))}
+      frames={frames}
       onMapLabels={plan.onMapLabels}
       listOpen={listOpen}
     />

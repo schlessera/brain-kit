@@ -29,8 +29,6 @@ import { reportTurnRuntime, turnActivityReporter, WorkerLimitReporter } from "./
 import { runTurnStream } from "./turn-stream.js";
 import { TurnFailureEscape, TurnFrames, TurnTerminal } from "./turn-terminal.js";
 
-export { FOLLOW_UP_ACK_GRACE_MS } from "./turn-stream.js";
-
 import type { SessionRetirement } from "@schlessera/brain-ui-sdk/internal";
 
 const BACKEND_ID = "claude";

@@ -1,15 +1,17 @@
 import type { Database } from "bun:sqlite";
 import type { LinkWalk } from "./types.js";
 /**
- * The wiki-link walk behind the `brain_graph` MCP tool: the edges reached from
- * a starting document, and the documents those edges touch.
+ * The wiki-link walk behind the `brain_graph` MCP tool (through `walkLinks`)
+ * and the query API: the edges reached from a starting document, and the
+ * documents those edges touch. It runs on the caller's already pinned read
+ * transaction, with cached statements. `afterEdges` runs between the
+ * traversal and the node lookup.
  */
-/** Private traversal on the caller's already pinned read transaction. */
 export function linkWalk(db: Database, opts: {
   path: string;
   depth: number;
   direction: "outgoing" | "incoming" | "both";
-}): LinkWalk {
+}, afterEdges?: () => void): LinkWalk {
   const edges: LinkWalk["edges"] = [];
   const visited = new Set<string>();
   let frontier = new Set<string>([opts.path]);
@@ -68,6 +70,7 @@ export function linkWalk(db: Database, opts: {
     seen.add(key);
     return true;
   });
+  afterEdges?.();
   // Every source is a document; a target is one only when resolved.
   const touched = new Set<string>();
   for (const e of uniqueEdges) {

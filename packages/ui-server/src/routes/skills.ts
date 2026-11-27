@@ -29,7 +29,7 @@ import {
   type Fetcher,
 } from "../skills/install.js";
 import { resolveGitHubToken } from "../config/env.js";
-import { readJsonBody } from "../middleware/body-limit.js";
+import { readBodyBytes, readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 
 interface SkillRoutesDeps {
@@ -42,6 +42,13 @@ interface SkillRoutesDeps {
   /** Test seam — token source; default reads GITHUB_TOKEN at call time. */
   githubToken?: () => string | undefined;
 }
+
+/**
+ * Multipart framing room above the archive itself: boundaries, part headers
+ * and the `overwrite` field. The same headroom the README's server recipe
+ * leaves above `MAX_ARCHIVE_BYTES`.
+ */
+const MULTIPART_HEADROOM_BYTES = 1_000_000;
 
 export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
   const manager = createSkillManager(deps.brainPath);
@@ -73,10 +80,18 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
   return new Hono()
     .get("/skills", (c) => c.json({ skills: manager.list() }))
     .post("/skills/install/zip", async (c) => {
+      const tooLarge = () => c.json({ error: `Archive exceeds ${MAX_ARCHIVE_BYTES / 1024 / 1024}MB.` }, 400);
       let file: File | null = null;
       let overwrite = false;
       try {
-        const form = await c.req.formData();
+        // Count the body before the multipart parser sees it: formData() first
+        // would buffer whatever the server-wide request cap allows.
+        const raw = await readBodyBytes(c.req.raw, MAX_ARCHIVE_BYTES + MULTIPART_HEADROOM_BYTES);
+        if (!raw) return tooLarge();
+        const contentType = c.req.header("content-type");
+        const form = await new Response(new Blob(raw.chunks as BlobPart[]), {
+          headers: contentType ? { "content-type": contentType } : {},
+        }).formData();
         const entry = form.get("file");
         file = entry instanceof File ? entry : null;
         overwrite = form.get("overwrite") === "true";
@@ -84,9 +99,7 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
         return c.json({ error: "Send multipart/form-data with a `file` field." }, 400);
       }
       if (!file) return c.json({ error: "Missing `file` (a .zip archive)." }, 400);
-      if (file.size > MAX_ARCHIVE_BYTES) {
-        return c.json({ error: `Archive exceeds ${MAX_ARCHIVE_BYTES / 1024 / 1024}MB.` }, 400);
-      }
+      if (file.size > MAX_ARCHIVE_BYTES) return tooLarge();
       try {
         const outcomes = installSkillsFromZip(
           { brainPath: deps.brainPath },

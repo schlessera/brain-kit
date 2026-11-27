@@ -51,7 +51,7 @@ import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, githubToolsTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, computeConfigForDbPath, githubToolsTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { createHostWebTools } from "./web-tools/host.js";
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
@@ -245,6 +245,15 @@ export interface CreateAppOptions {
    * has no client build of its own and no NODE_ENV heuristics.
    */
   staticRoot?: string;
+  /**
+   * A URL path prefix under `staticRoot`, such as `"/assets/"`, whose files
+   * the build names by content hash. A file found under it is served as
+   * `Cache-Control: public, max-age=31536000, immutable`; every other static
+   * response, the `index.html` fallback included, is `no-cache`. It must start
+   * and end with `/` and may not be `/` itself. No default: unset, nothing is
+   * immutable. No effect without `staticRoot`.
+   */
+  staticImmutablePrefix?: string;
   /** Display name used in connection/status copy. Default "Brain UI". */
   appName?: string;
   /**
@@ -371,6 +380,10 @@ function isWebSocketUpgradeAttempt(request: Request): boolean {
 }
 
 export async function createApp(options: CreateAppOptions = {}): Promise<BrainUiApp> {
+  const immutablePrefix = options.staticImmutablePrefix;
+  if (immutablePrefix !== undefined && (immutablePrefix === "/" || !immutablePrefix.startsWith("/") || !immutablePrefix.endsWith("/"))) {
+    throw new TypeError(`staticImmutablePrefix must start and end with "/" and name a directory below the root; got ${JSON.stringify(immutablePrefix)}.`);
+  }
   // The edge: ambient environment becomes explicit configuration exactly once.
   // options.dbPath folds into the config here, so the handle's `config` and
   // the database actually opened can never disagree.
@@ -383,7 +396,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // unwrapped. Resolved here, once; every spawn below uses `config.exec`.
   const config: ServerConfig & { exec: ExecWrapperConfig } = {
     ...resolved,
-    ...(options.dbPath !== undefined ? { dbPath: options.dbPath } : {}),
+    // A compute state directory derived from the resolved DB_PATH follows the
+    // folded path, like every other path derived from it below (#4821).
+    ...(options.dbPath !== undefined ? { dbPath: options.dbPath,
+      ...(resolved.compute ? { compute: computeConfigForDbPath(resolved.compute, options.dbPath) } : {}) } : {}),
     exec: resolved.exec ?? ambientExecConfig(),
   };
   const speechProviders = createSpeechProviderRegistry(config.voice, options);
@@ -680,12 +696,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   });
   bootCleanup.push(() => activity.close());
   activity.runtime.setBoot(runtimeProbes);
-  const cron = createCronScheduler({
-    db,
-    brain,
-    log: observability.logger("cron"),
-    activity: activity.store,
-  });
+  const cron = createCronScheduler({ db });
   const registry =
     options.registry ??
     createBackendRegistry({
@@ -977,7 +988,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   };
   if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager,
     privateIndex: { maskPaths: turnMaskPaths }, applicationPlanner: host.applicationPlanner, indexBatch,
-    select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,
+    select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now, yieldAfterMs: config.inbox?.yieldAfterMs,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
     store: activity.store, runtime: activity.runtime, governanceWrites: activity.governanceWrites, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
   // The agent worker boundary, probed now (#1632) so the server knows at boot
@@ -1436,7 +1447,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Static files: the deployment shell passes its built client explicitly.
   if (options.staticRoot) {
     const staticRoot = options.staticRoot;
-    app.use("/*", serveStatic({ root: staticRoot }));
+    // Only a file that exists gets a policy; a build's hashed directory may
+    // be cached for good, everything else is revalidated (#4815).
+    app.use("/*", serveStatic({ root: staticRoot, precompressed: true,
+      onFound: (_path, c) => {
+        c.header("Cache-Control", immutablePrefix !== undefined && c.req.path.startsWith(immutablePrefix)
+          ? "public, max-age=31536000, immutable" : "no-cache");
+      } }));
 
     // SPA fallback, served directly rather than through serveStatic({ path }).
     //
@@ -1452,7 +1469,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       const file = Bun.file(indexPath);
       if (!(await file.exists())) return c.notFound();
       return new Response(file, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" },
       });
     });
   }

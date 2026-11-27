@@ -12,8 +12,7 @@ import { prepareRecoveredWorkerFiles, workerExecHelpers, createTurnTempPromoter,
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { safeStartupTiming, type ExecWrapperConfig, type TurnFailure, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { restoreArchivedSession } from "./transcript-archive.js";
-import { processCleanupReconciler, type CleanupReconciler } from "./cleanup-reconciler.js";
-import { processStateLedger } from "./worker-state-budget.js";
+import { processCleanupReconciler, processStateLedger, type CleanupReconciler } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeWorkerState, validateSessionId, workerStateSaveFailure, workerStateSaveReason } from "./worker-state.js";
 
 /** Promotion of what an answer links in turn temp (#1655), for a turn that keeps its transcript. */
@@ -96,7 +95,7 @@ export const CLAUDE_INFERENCE_ENV: readonly string[] = Object.freeze(["CLAUDE_CO
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
   restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
   stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits">
-    & { reservation?: () => import("./worker-state-budget.js").Reservation; startupTiming?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["startupTiming"]; /** Owns a refused end-of-turn cleanup (#2871); defaults to the process's one. */ cleanup?: CleanupReconciler; reportCleanup?: (notice: import("@schlessera/brain-ui-sdk/internal").CleanupNotice) => void } = {},
+    & { reservation?: () => import("@schlessera/brain-ui-sdk/internal").Reservation; startupTiming?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["startupTiming"]; /** Owns a refused end-of-turn cleanup (#2871); defaults to the process's one. */ cleanup?: CleanupReconciler; reportCleanup?: (notice: import("@schlessera/brain-ui-sdk/internal").CleanupNotice) => void } = {},
   outputLock?: KeyedLock, workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"],
   startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView,
   persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"],

@@ -25,7 +25,7 @@ import { openDatabase, loadVecSupport } from "./lib/db.js";
 import { walkLinks } from "./lib/link-walk.js";
 import { resolveProviders } from "./lib/registry.js";
 import type { EmbeddingProvider } from "./lib/seams.js";
-import { EMBEDDING_DIMENSIONS } from "./lib/models.js";
+import { EMBEDDING_DIMENSIONS } from "./lib/llm-defaults.js";
 import { packageVersion } from "./package-version.js";
 import { registerModuleTools } from "./lib/module-mcp-tools.js";
 import { APIFY_DESCRIPTIONS, APIFY_INPUT_SCHEMAS, APIFY_OPERATIONS, APIFY_TOOL_NAMES } from "@schlessera/brain-common/internal/apify-operations";

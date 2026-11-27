@@ -1,15 +1,179 @@
-/** Publication of maintenance results. The worker never receives the live brain as a write mount. */
+/**
+ * Copy-staged worker output, kept for tests only (#4685, #4707).
+ *
+ * Production publishes a worker's writable areas through native output
+ * (`prepareNativeWorkerOutput`, `packages/ui-sdk/src/server/worker-native-output.ts`);
+ * the full-copy startup view this protocol was built for is gone
+ * (`docs/decisions/native-brain-storage.md`), so no host can run it. Tests
+ * that are not about storage still use it as a cheap explicit fixture beside
+ * `worker-startup-view-fixture.ts`. It is test code: it is not kept in step
+ * with the native implementation. The launcher-private helpers it needs are
+ * copied here, so `src` exports nothing for its benefit.
+ */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
-import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readdirSync, readlinkSync, readSync,
-  renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
+  renameSync, rmSync, rmdirSync, statfsSync, statSync, symlinkSync, unlinkSync, writeSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import type { KeyedLock } from "./keyed-lock.js";
 import { join, resolve } from "node:path";
-import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
-import { createOutputStagingStorage } from "./worker-launcher.js";
-import { isEnvName, PROTECTED_TIER_A } from "./protected-paths.js";
-import { ProtectedMaintenanceOutputError } from "./protected-output-error.js";
-import { at, DIRECTORY, noFollowParent } from "./no-follow-walk.js";
+import type { KeyedLock } from "../../src/server/keyed-lock.js";
+import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "../../src/server/worker-startup-view.js";
+import { WorkerHostError } from "../../src/server/worker-launcher.js";
+import { isEnvName, PROTECTED_TIER_A } from "../../src/server/protected-paths.js";
+import { ProtectedMaintenanceOutputError } from "../../src/server/protected-output-error.js";
+import { at, DIRECTORY, noFollowParent } from "../../src/server/no-follow-walk.js";
+import { parseProcStat, procChildren, readProcStat } from "../../src/server/proc-identity.js";
+import { createWorkerPipes } from "../../src/server/worker-pipes.js";
+import { hostOutputStagingLimits, type WorkerStateLimits, validWorkerStateBytes } from "../../src/server/worker-state-limits.js";
+import { processStateLedger } from "../../src/server/worker-state-budget.js";
+
+/** The only lower path copy-staging accepts: a startup view from `worker-startup-view-fixture.ts`. */
+const FIXTURE_LOWER_ROOT = /^\/tmp\/brain-startup-input-[A-Za-z0-9]+\/startup-[A-Za-z0-9]+\/brain$/;
+const TMPFS_MAGIC = 0x01021994;
+const STATE_SETUP_MS = 5_000;
+
+/** Whether a process has exited: gone, or a zombie its parent has not reaped yet. */
+function exited(pid: number): boolean {
+  try { const stat = readProcStat(pid); return stat === undefined || stat.state === "Z"; }
+  catch { return true; }
+}
+
+/**
+ * The sandbox's first process: the only child bubblewrap forks. Read from
+ * the kernel's own record of bubblewrap's children, so nothing inside the
+ * sandbox can name it.
+ */
+export function sandboxPid(bwrap: number, deadline: number): number {
+  for (;;) {
+    const children = procChildren(bwrap);
+    if (children.length === 1) return children[0]!.pid;
+    if (children.length > 1) throw new WorkerHostError("bubblewrap started more than one sandbox process");
+    if (exited(bwrap)) throw new WorkerHostError("bubblewrap exited before it started its sandbox");
+    if (Date.now() > deadline) throw new WorkerHostError("bubblewrap did not start its sandbox in time");
+    Bun.sleepSync(1);
+  }
+}
+
+/**
+ * Opens the staging helper's private tmpfs from outside, through its
+ * sandbox's root: a mount of its own of exactly the allowance, holding only
+ * the overlay's directories once the lower path is mounted.
+ */
+function openPrivateStaging(bwrap: number, pid: number, bytes: number, deadline: number, mount: string, stagingDirectories: boolean): number {
+  const path = `/proc/${pid}/root${mount}`;
+  let last = "it never appeared";
+  for (;;) {
+    let fd: number | undefined;
+    try {
+      fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      const root = `/proc/self/fd/${fd}`;
+      const fs = statfsSync(root);
+      if (fs.type === TMPFS_MAGIC && fs.blocks * fs.bsize === bytes && fstatSync(fd).dev !== statSync(`${root}/..`).dev
+        && (stagingDirectories ? readdirSync(root).every(name => ["upper", "work", "merged"].includes(name)) : readdirSync(root).length === 0)) return fd;
+      last = "it was not yet the private tmpfs";
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EACCES" || (error as NodeJS.ErrnoException).code === "EPERM") {
+        if (fd !== undefined) closeSync(fd);
+        throw new WorkerHostError("the server cannot reach its worker's private runtime state through /proc (is bubblewrap installed setuid, or /proc mounted with hidepid?)");
+      }
+      last = (error as Error).message;
+    }
+    if (fd !== undefined) closeSync(fd);
+    if (exited(pid) || exited(bwrap)) throw new WorkerHostError(`bubblewrap exited before it mounted the worker's private runtime-state tmpfs (${last})`);
+    if (Date.now() > deadline) throw new WorkerHostError(`the worker's private runtime-state tmpfs was not mounted in time (${last})`);
+    Bun.sleepSync(1);
+  }
+}
+
+/**
+ * A server-owned, kernel-bounded tmpfs, held by a trusted mount helper
+ * until publication finishes. No host directory backs the stored bytes.
+ * Only writable upper-layer bytes occupy this allowance. Immutable startup
+ * inputs live separately and cannot be modified through this merged view.
+ */
+export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutputStagingLimits(), lowerRoot?: string) {
+  const reservation = processStateLedger().reserve(undefined, undefined, limits);
+  let mount: string;
+  try { mount = mkdtempSync("/tmp/brain-output-staging-"); } catch (error) { reservation.release(); throw error; }
+  let fd: number | undefined;
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  let pipes: ReturnType<typeof createWorkerPipes> | undefined;
+  try {
+    validWorkerStateBytes(limits.allowanceBytes, "output staging allowance");
+    const bwrap = Bun.which("bwrap");
+    if (!bwrap) throw new WorkerHostError("bubblewrap is missing");
+    if (lowerRoot && !isNativeWorkerStartupRoot(lowerRoot) && !FIXTURE_LOWER_ROOT.test(lowerRoot)) {
+      throw new WorkerHostError("output staging requires a server-owned immutable lower path");
+    }
+    if (lowerRoot && /[,:\\]/.test(lowerRoot)) throw new WorkerHostError("native output staging requires a managed store path without colon, comma or backslash mount-option delimiters");
+    if (lowerRoot && isNativeWorkerStartupRoot(lowerRoot)) throw new WorkerHostError("native output staging requires asynchronously prepared trusted OverlayFS through the configured native manager; userxattr fallback is unavailable");
+    const mountProgram = lowerRoot ? Bun.which("mount") : undefined;
+    if (lowerRoot && !mountProgram) throw new WorkerHostError("util-linux mount is required for bounded copy-on-write output staging");
+    pipes = createWorkerPipes();
+    // This helper executes only the literal shell below, never repository
+    // inputs. Preserve source mount writability so the final worker can
+    // rebind an explicitly allowed maintenance span sink. The final worker
+    // applies its own read-only root and complete boundary before agent code.
+    const setupScript = '"$4" -i -n -t tmpfs -o "size=$3,mode=700" tmpfs "$2" && mkdir "$2/upper" "$2/work" "$2/merged" && "$4" -i -n -t overlay overlay -o "lowerdir=$1,upperdir=$2/upper,workdir=$2/work,userxattr" "$2/merged" || exit 126; printf "ready\\n"; IFS= read -r go; exit 0';
+    const unshare = lowerRoot ? Bun.which("unshare") : undefined;
+    if (lowerRoot && !unshare) throw new WorkerHostError("util-linux unshare is required for bounded copy-on-write output staging");
+    const keeperCommand = lowerRoot
+      ? [unshare!, "--user", "--map-root-user", "--mount", "--net", "--ipc", "--uts", "--fork", "--kill-child=SIGKILL",
+        "/bin/sh", "-c", setupScript, "brain-output-keeper", lowerRoot, mount, String(limits.allowanceBytes), mountProgram!]
+      : [bwrap, "--unshare-user", "--unshare-net", "--unshare-ipc", "--unshare-uts",
+        "--die-with-parent", "--new-session", "--cap-drop", "ALL", "--bind", "/", "/", "--proc", "/proc",
+        ...["null", "zero", "full", "random", "urandom", "tty"].flatMap(name => ["--dev-bind", `/dev/${name}`, `/dev/${name}`]),
+        "--size", String(limits.allowanceBytes), "--tmpfs", mount,
+        "--clearenv", "--", "/bin/sh", "-c", 'printf "ready\\n"; IFS= read -r go; exit 0'];
+    child = Bun.spawn(keeperCommand, { env: {}, stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
+    pipes.closeChild();
+    const deadline = Date.now() + STATE_SETUP_MS;
+    fd = openPrivateStaging(child.pid, sandboxPid(child.pid, deadline), limits.allowanceBytes, deadline, mount, Boolean(lowerRoot));
+    const namespacePid = sandboxPid(child.pid, deadline);
+    // Older bubblewrap switches user namespaces after mounting. Wait for
+    // the trusted shell itself before asking nsenter to join the finished pair.
+    const ready = openSync(`/proc/self/fd/${pipes.parent[1]}`, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      let received = "";
+      const buffer = Buffer.alloc(16);
+      while (received !== "ready\n") {
+        try { received += buffer.subarray(0, readSync(ready, buffer)).toString(); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "EAGAIN") throw error; }
+        if (received === "ready\n") break;
+        if (exited(child.pid) || Date.now() > deadline) throw new WorkerHostError("output-staging helper did not become ready");
+        Bun.sleepSync(1);
+      }
+    } finally { closeSync(ready); }
+    const owned = fd;
+    let refs = 0, closed = false;
+    // Only the server reads this descriptor alias. Worker mount sources are
+    // resolved inside the keeper namespace, then masked by their own /tmp.
+    const root = `/proc/${process.pid}/fd/${owned}`;
+    void child.exited.finally(() => pipes!.cleanup());
+    const namespaceStart = parseProcStat(readFileSync(`/proc/${namespacePid}/stat`, "utf8")).start;
+    return { root, mount, namespacePid, namespaceStart, allowanceBytes: reservation.outputStagingBytes,
+      retain() { if (closed) throw new Error("output staging is closed"); refs++; },
+      release() { if (closed || --refs > 0) return; closed = true; child!.kill("SIGKILL"); closeSync(owned); rmSync(mount, { recursive: true, force: true }); reservation.release(); },
+    };
+  } catch (error) {
+    child?.kill("SIGKILL");
+    if (fd !== undefined) closeSync(fd);
+    const detail = pipes ? launchDiagnostics(pipes.parent[2]) : "";
+    pipes?.cleanup(); rmSync(mount, { recursive: true, force: true }); reservation.release();
+    if (detail) throw new WorkerHostError(detail);
+    throw error;
+  }
+}
+
+/** What bubblewrap wrote to the worker's stderr so far, read without waiting. */
+function launchDiagnostics(stderr: number): string {
+  let fd: number | undefined;
+  try {
+    fd = openSync(`/proc/self/fd/${stderr}`, constants.O_RDONLY | constants.O_NONBLOCK);
+    const chunk = Buffer.alloc(4096);
+    return chunk.subarray(0, readSync(fd, chunk)).toString("utf8").trim().slice(0, 400);
+  } catch { return ""; }
+  finally { if (fd !== undefined) closeSync(fd); }
+}
 
 /** A named writable work area. Configuration executes at the original brain path, read-only. */
 export const WORKER_OUTPUT = "/tmp/brain-maintenance-output";

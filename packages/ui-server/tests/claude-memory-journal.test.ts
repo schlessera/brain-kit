@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { createClaudeWorkerState } from "../../ui-backend-claude/src/worker-state.js";
-import { createStateLedger } from "../../ui-backend-claude/src/worker-state-budget.js";
+import { createStateLedger } from "../../ui-sdk/src/server/worker-state-budget.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { createUiDb } from "../src/db/client.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";

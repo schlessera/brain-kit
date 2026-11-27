@@ -112,7 +112,7 @@ export function createBrainToolForwarder(start: (signal: AbortSignal) => Promise
 /** Use the exact turn sandbox and its immutable startup view, including data tree and provider masks. */
 export interface BrainToolWorkerInput { brainPath: string; sandbox: WorkerSandbox; startupView?: WorkerStartupView;
   exec: ExecWrapperConfig; env: Record<string, string | undefined>; limits: WorkerLimitsPlan; turnTempLimits: WorkerStateLimits;
-  reservation?: () => import("./worker-state-budget.js").Reservation; req: StartTurnRequest; egress?: { proxyDir: string }; credentialEnv: readonly string[] }
+  reservation?: () => import("@schlessera/brain-ui-sdk/internal").Reservation; req: StartTurnRequest; egress?: { proxyDir: string }; credentialEnv: readonly string[] }
 
 /**
  * The brain entry as the project's own stdio entry starts it: relative to the

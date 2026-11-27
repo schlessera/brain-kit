@@ -1610,6 +1610,18 @@ withhold input until the bounded SDK handshake completes. A contradictory
 later init version ends the turn through the existing error/result envelopes;
 compatibility adds no wire fields and changes no measured verdict.
 
+**Additive static cache policy (#4815):** `CreateAppOptions.staticImmutablePrefix?: string`
+names one URL path prefix under `staticRoot` (such as `"/assets/"`) whose files
+the build names by content hash. It has no default and no effect without
+`staticRoot`. `createApp` rejects a value that does not start and end with `/`,
+and `/` itself, before it creates any resource. A static file found under the
+prefix is served with `Cache-Control: public, max-age=31536000, immutable`;
+every other found file and the `index.html` deep-link fallback carry
+`Cache-Control: no-cache`. A `.br`, `.zst` or `.gz` sibling is served with
+`Content-Encoding` and `Vary: Accept-Encoding` to a request that accepts it.
+The `GET /*` row stays Internal in the HTTP inventory; the headers are
+described there but are not themselves a compatibility promise.
+
 <a id="html-renderer-budgets"></a>
 
 ## HTML renderer budgets
@@ -1701,6 +1713,21 @@ that reload. What a failed fetch means is unchanged: it stays permissive. A
 cache that lives for one scrape run behaves as before; one held for days, like
 the hosted Apify site-permission checker's, now reads robots.txt again daily
 and retries a failed fetch after five minutes. Additive; ships in a minor.
+
+<a id="scrape-fetch-max-bytes-additive-4768"></a>
+
+## Bounded response bodies (additive, #4768)
+
+`FetchOptions` (`@schlessera/brain-scrape`) gains an optional `maxBytes`. When
+it is set, `ScrapeClient.getJson`, `getPage` and `getText` read at most that
+many bytes of a response body, including the body of a non-2xx response they
+quote in their error: a longer body is refused as it streams in, its stream
+is cancelled, and the call rejects (`response body exceeds N bytes`; a non-2xx
+error keeps its status and names the refusal in place of the body). Unset,
+the helpers read the whole body as before, and `get` always returns its
+`Response` unread and unbounded, with its final `url`. The default
+robots.txt fetcher refuses a body over its `maxBytes` through the same
+reader. Additive; ships in a minor.
 
 <a id="browser-scraping-navigation-policy"></a>
 

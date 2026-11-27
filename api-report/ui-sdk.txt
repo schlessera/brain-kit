@@ -1633,7 +1633,6 @@ export "./internal" (./src/internal.ts)
   prepareNativeWorkerStartupView
   prepareOutwardPlan
   prepareRecoveredWorkerFiles
-  prepareWorkerOutput
   prepareWorkerSandbox
   prepareWorkerSandboxAsync
   probeNativeMaintenanceWorker

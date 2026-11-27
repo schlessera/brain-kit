@@ -8,7 +8,6 @@ import { join } from "path";
 import { SCHEMA_VERSION } from "@schlessera/brain";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { listIndexDocuments, readLinkWalk, type LinkWalk, type ListedDocument } from "@schlessera/brain/queries";
-import { walkLinks } from "../../core/src/lib/link-walk";
 import { filterSearch } from "../../core/src/lib/search-engine";
 import { BRAIN_BIN, keylessEnv, runCli } from "../../core/tests/cli-harness";
 import { createBrainAccess } from "../src/brain-access";
@@ -156,21 +155,84 @@ describe("registered pi query tools match real core MCP on a populated CLI index
   });
 });
 
+/** The fixture's link walks from CENTER, by direction and clamped depth. */
+const WALK_NODES: Record<string, LinkWalk["nodes"][number]> = {
+  "notes/aeaea.md": { path: "notes/aeaea.md", title: "aeaea", type: "note", summary: "Return to Ithaca", updated: "2026-01-02" },
+  "notes/ithaca.md": { path: "notes/ithaca.md", title: "Ithaca", type: "project", summary: "Return to Ithaca", updated: "2026-01-03" },
+  "notes/odysseus.md": { path: "notes/odysseus.md", title: "Odysseus", type: "note", summary: "Return to Ithaca", updated: "2026-01-02" },
+  "notes/ogygia.md": { path: "notes/ogygia.md", title: "ogygia", type: "note", summary: "Return to Ithaca", updated: "2026-01-02" },
+  "notes/pylos.md": { path: "notes/pylos.md", title: "pylos", type: "note", summary: "Return to Ithaca", updated: "2026-01-02" },
+  "notes/scheria.md": { path: "notes/scheria.md", title: "scheria", type: "note", summary: "Return to Ithaca", updated: "2026-01-02" },
+};
+/** Edges as [source, target, resolved] in walk order, and the touched documents by path. */
+const WALKS: Record<string, { edges: [string, string, boolean][]; nodes: string[] }> = {
+  "outgoing:1": {
+    edges: [["notes/odysseus.md", "Absent Island", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/odysseus.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "outgoing:2": {
+    edges: [["notes/odysseus.md", "Absent Island", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/aeaea.md", true], ["notes/ithaca.md", "notes/odysseus.md", true]],
+    nodes: ["notes/aeaea.md", "notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "outgoing:3": {
+    edges: [["notes/odysseus.md", "Absent Island", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/aeaea.md", true], ["notes/ithaca.md", "notes/odysseus.md", true], ["notes/aeaea.md", "notes/ogygia.md", true]],
+    nodes: ["notes/aeaea.md", "notes/ithaca.md", "notes/odysseus.md", "notes/ogygia.md"],
+  },
+  "outgoing:4": {
+    edges: [["notes/odysseus.md", "Absent Island", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/aeaea.md", true], ["notes/ithaca.md", "notes/odysseus.md", true], ["notes/aeaea.md", "notes/ogygia.md", true], ["notes/ogygia.md", "notes/scheria.md", true]],
+    nodes: ["notes/aeaea.md", "notes/ithaca.md", "notes/odysseus.md", "notes/ogygia.md", "notes/scheria.md"],
+  },
+  "incoming:1": {
+    edges: [["notes/ithaca.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/odysseus.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "incoming:2": {
+    edges: [["notes/ithaca.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/pylos.md", "notes/ithaca.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md", "notes/pylos.md"],
+  },
+  "incoming:3": {
+    edges: [["notes/ithaca.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/pylos.md", "notes/ithaca.md", true], ["notes/scheria.md", "notes/pylos.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md", "notes/pylos.md", "notes/scheria.md"],
+  },
+  "incoming:4": {
+    edges: [["notes/ithaca.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/pylos.md", "notes/ithaca.md", true], ["notes/scheria.md", "notes/pylos.md", true], ["notes/ogygia.md", "notes/scheria.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md", "notes/ogygia.md", "notes/pylos.md", "notes/scheria.md"],
+  },
+  "both:1": {
+    edges: [["notes/odysseus.md", "Absent Island", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/odysseus.md", true]],
+    nodes: ["notes/ithaca.md", "notes/odysseus.md"],
+  },
+  "both:2": {
+    edges: [["notes/odysseus.md", "Absent Island", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/aeaea.md", true], ["notes/pylos.md", "notes/ithaca.md", true]],
+    nodes: ["notes/aeaea.md", "notes/ithaca.md", "notes/odysseus.md", "notes/pylos.md"],
+  },
+  "both:3": {
+    edges: [["notes/odysseus.md", "Absent Island", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/aeaea.md", true], ["notes/pylos.md", "notes/ithaca.md", true], ["notes/aeaea.md", "notes/ogygia.md", true], ["notes/scheria.md", "notes/pylos.md", true]],
+    nodes: ["notes/aeaea.md", "notes/ithaca.md", "notes/odysseus.md", "notes/ogygia.md", "notes/pylos.md", "notes/scheria.md"],
+  },
+  "both:4": {
+    edges: [["notes/odysseus.md", "Absent Island", false], ["notes/odysseus.md", "notes/ithaca.md", true], ["notes/odysseus.md", "Unknown Harbour", false], ["notes/odysseus.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/odysseus.md", true], ["notes/ithaca.md", "notes/aeaea.md", true], ["notes/pylos.md", "notes/ithaca.md", true], ["notes/aeaea.md", "notes/ogygia.md", true], ["notes/scheria.md", "notes/pylos.md", true], ["notes/ogygia.md", "notes/scheria.md", true]],
+    nodes: ["notes/aeaea.md", "notes/ithaca.md", "notes/odysseus.md", "notes/ogygia.md", "notes/pylos.md", "notes/scheria.md"],
+  },
+};
+function pinnedWalk(direction: string, depth: number): LinkWalk {
+  const walk = WALKS[`${direction}:${depth}`];
+  return {
+    edges: walk.edges.map(([source, target, resolved]) => ({ source, target, resolved })),
+    nodes: walk.nodes.map((path) => WALK_NODES[path]),
+  };
+}
+
 describe("supported core queries preserve the complete former transport matrix in process", () => {
-  test("all 18 direction/depth cases match the legacy traversal, including depth 3", () => {
-    const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
-    try {
-      for (const direction of ["outgoing", "incoming", "both"] as const) {
-        for (const depth of [-1, 1, 2, 3, 4, 9]) {
-          const result = readLinkWalk({ brainPath: root, path: CENTER, depth, direction });
-          expect(result.ok).toBe(true);
-          if (!result.ok) throw new Error("expected successful traversal");
-          expect(result.value.edges.length).toBeGreaterThan(0);
-          expect(result.value.nodes.length).toBeGreaterThan(0);
-          expect(result.value).toEqual(walkLinks(db, { path: CENTER, depth: Math.min(4, Math.max(1, depth)), direction }));
-        }
+  test("all 18 direction/depth cases match the pinned traversal, including depth 3", () => {
+    for (const direction of ["outgoing", "incoming", "both"] as const) {
+      for (const depth of [-1, 1, 2, 3, 4, 9]) {
+        const result = readLinkWalk({ brainPath: root, path: CENTER, depth, direction });
+        expect(result.ok).toBe(true);
+        if (!result.ok) throw new Error("expected successful traversal");
+        expect(result.value).toEqual(pinnedWalk(direction, Math.min(4, Math.max(1, depth))));
       }
-    } finally { db.close(true); }
+    }
   });
 
   test("all nine filters retain draft, secondary, combined, null, archive and bounds semantics", () => {

@@ -1,5 +1,5 @@
 /** Runtime and brain relay divide one turn's admitted temp allowance. */
-import { processStateLedger, type Reservation, type StateLedger } from "./worker-state-budget.js";
+import { processStateLedger, type Reservation, type StateLedger } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 
 const PAGE = 4096;

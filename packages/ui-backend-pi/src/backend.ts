@@ -52,7 +52,7 @@ import { piInferenceOrigin } from "./worker-session.js";
 
 export const PI_BACKEND_ID = "pi";
 
-// Re-exports preserve direct source imports and the package index surface.
+// Re-exports preserve the package index surface.
 export type {
   BackendLogFn,
   CreatePiBackendOptions,
@@ -61,8 +61,6 @@ export type {
   PiSessionLike,
   SessionToolkit,
 } from "./backend-options.js";
-export { mapPiEvent } from "./event-adapter.js";
-export { createUsageAccumulator } from "./usage.js";
 
 const CAPABILITIES: BackendCapabilities = {
   resume: true,
