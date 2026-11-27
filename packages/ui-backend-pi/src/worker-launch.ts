@@ -170,6 +170,19 @@ export interface LaunchedPiWorker {
   turnTemp: WorkerStateHandle | undefined;
 }
 
+let piWorkerRuntime: readonly string[] | undefined, piWorkerEntryOnly: readonly string[] | undefined;
+/**
+ * The pi worker's read envelopes: this server's runtime and the pi worker
+ * entry, both fixed for the life of the process, so the install is walked
+ * once for each (#4861). Each call returns its own array.
+ */
+function piWorkerRuntimeReadPaths(): string[] {
+  return [...(piWorkerRuntime ??= restrictedReadPaths([process.execPath, Bun.resolveSync("./worker-entry", import.meta.dir)]))];
+}
+function piWorkerEntryReadPaths(): string[] {
+  return [...(piWorkerEntryOnly ??= restrictedReadPaths([Bun.resolveSync("./worker-entry", import.meta.dir)]))];
+}
+
 /**
  * Resolves the admitted worker's sandbox and note, then starts it. A failure
  * after launch stops and drains the owned child before its native stage and
@@ -219,10 +232,10 @@ export async function launchPiWorker(request: PiWorkerLaunchRequest): Promise<La
       if (sandbox.maskPaths?.some(path => { try { const actual = realpathSync(path); return isWithin(cachedNpmModules, actual); } catch { return false; } })) {
         throw new BackendRequestError("Pi prepared npm resources cannot contain a private worker mask.");
       }
-      sandbox = { ...sandbox, readPaths: [...(sandbox.readPaths ?? restrictedReadPaths([process.execPath, entry])), cachedNpmModules] };
+      sandbox = { ...sandbox, readPaths: [...(sandbox.readPaths ?? piWorkerRuntimeReadPaths()), cachedNpmModules] };
     }
     // Worker-local tools run the host's helpers: each file alone, never its parent.
-    if (execHelpers.length && !envelope) sandbox = { ...sandbox, readPaths: [...(sandbox.readPaths ?? restrictedReadPaths([process.execPath, entry])), ...execHelpers] };
+    if (execHelpers.length && !envelope) sandbox = { ...sandbox, readPaths: [...(sandbox.readPaths ?? piWorkerRuntimeReadPaths()), ...execHelpers] };
     const limits = launchLimits({});
     sandboxNote = [workerSandboxNote(sandbox, { ...(identity ? { identity } : {}), ...(hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: env.turnBudgetMs, limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
@@ -242,7 +255,7 @@ export async function launchPiWorker(request: PiWorkerLaunchRequest): Promise<La
     child = await launchAgentWorkerAsync({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
       ...(preparedOutput ? { preparedOutput } : workerStartupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(workerStartupView) } : {}),
       command: [process.execPath, entry], env: workerEnv, credentialEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
-      ...(envelope ? { restricted: { readPaths: [...restrictedReadPaths([entry]), ...execHelpers], inferenceDir: envelope.relay.dir } } : {}),
+      ...(envelope ? { restricted: { readPaths: [...piWorkerEntryReadPaths(), ...execHelpers], inferenceDir: envelope.relay.dir } } : {}),
       ...(hostInference && egress ? { egress: { proxyDir: egress.dir, directLoopback: true } } : {}),
     });
     launchedChild = child;

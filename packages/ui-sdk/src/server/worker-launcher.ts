@@ -682,7 +682,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : input.sandbox?.profile ? maintenanceMounts({
       network: true, credentials: false, readOnlyMasks: true,
       readPaths: [...runtimePaths,
-        ...(input.egress ? restrictedReadPaths([process.execPath, Bun.resolveSync("./egress-worker-entry", import.meta.dir)]) : [])],
+        ...(input.egress ? egressWorkerReadPaths() : [])],
       maskPaths: input.sandbox.maskPaths,
     }, brain, egressMounts) : ["--ro-bind", brain, brain]),
   ];
@@ -2098,6 +2098,16 @@ export async function requireWorkerHostAsync(brainPath: string, options: WorkerH
  * and each entry's own package. No sibling file of an install root (for
  * example an `.env` beside `node_modules`) and no home directory is included.
  */
+let egressWorkerRuntime: readonly string[] | undefined;
+/**
+ * The egress wrapper's read envelope: this server's runtime and its egress
+ * entry, both fixed for the life of the process, so the install is walked
+ * once (#4861). Each call returns its own array.
+ */
+export function egressWorkerReadPaths(): string[] {
+  return [...(egressWorkerRuntime ??= restrictedReadPaths([process.execPath, Bun.resolveSync("./egress-worker-entry", import.meta.dir)]))];
+}
+
 export function restrictedReadPaths(entries: readonly string[]): string[] {
   const paths = new Set<string>([realpathSync(process.execPath)]);
   for (const entry of entries) {
