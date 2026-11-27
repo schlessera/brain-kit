@@ -450,7 +450,7 @@ test("google oversized subject names its card schema field", async () => {
   expect(f.cards).toHaveLength(0); expect(f.fake.callsOf("gmail.send")).toHaveLength(0);
 });
 
-const retriedSendMessage = "Gmail refused this send, but gog retries a send after a server error, so an earlier attempt may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again.";
+const retriedSendMessage = "This send was refused, but gog retries a send after a server error, so an earlier attempt may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again.";
 for (const [exit, code, reason] of [[4, "unavailable", "auth_required"], [5, "not_found", null], [6, "forbidden", null], [7, "rate_limited", null]] as const)
   test(`google send refusal ${reason ?? code} stays pending because gog may have retried`, async () => {
     const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.send": { exit } });

@@ -6,7 +6,7 @@ import { GOOGLE_APPROVAL_CARD_BYTES, GOOGLE_MAIL_APPROVAL_SCHEMA, type GoogleMai
 import type { GoogleCredential } from "./credential.js";
 import type { GoogleWriteFactories } from "./write-engine.js";
 
-const SEND_REFUSED_AFTER_RETRY = "Gmail refused this send, but gog retries a send after a server error, so an earlier attempt may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again.";
+const SEND_REFUSED_AFTER_RETRY = "This send was refused, but gog retries a send after a server error, so an earlier attempt may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again.";
 /** A send whose bytes stay pending: it may have reached Google. */
 export const SEND_MAY_HAVE_GONE = "This send may have gone out. Check Gmail's Sent folder, or edit the draft to send new bytes. These bytes will not be sent again.";
 

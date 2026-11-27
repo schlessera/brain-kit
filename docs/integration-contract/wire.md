@@ -3734,9 +3734,11 @@ follow a request. It stays pending.
 
 `unavailable/auth_required`, `not_found/null`, `forbidden/null` and
 `rate_limited/null` after reservation stay pending: gog can return that refusal
-after retrying an earlier attempt that may have delivered. The answer is
+after retrying an earlier attempt that may have delivered. gog can also return
+some of these before any request, such as missing tokens or a send-as check;
+the host cannot tell them apart, so they stay pending too. The answer is
 `outcome_unknown`, with the original reason or, for a null reason, the original
-code. Its message is: "Gmail refused this send, but gog retries a send after a
+code. Its message is: "This send was refused, but gog retries a send after a
 server error, so an earlier attempt may have gone out. Check Gmail's Sent
 folder, or edit the draft to send new bytes. These bytes will not be sent again."
 Every other failure after reservation stays pending too: exit 1, 2, 3, 8, 11
