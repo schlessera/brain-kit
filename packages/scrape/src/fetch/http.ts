@@ -17,6 +17,7 @@
  * clock and a fake robots fetcher and touches no network at all.
  */
 import { DEFAULT_USER_AGENT } from "../config/env.js";
+import { BodyTooLargeError, readBoundedText } from "./bounded-body.js";
 import { RateLimiter, hostOf } from "../politeness/rate-limit.js";
 import { RobotsCache } from "../politeness/robots.js";
 import { checkPublicUrl, fetchPinned } from "../politeness/address.js";
@@ -76,6 +77,13 @@ export interface FetchOptions {
    * which sites it applies to.
    */
   allowDisallowed?: boolean;
+  /**
+   * The most bytes `getJson`, `getPage` and `getText` read of a response body
+   * for this call, the body of a non-2xx response included. A longer body is
+   * refused as it streams in, and the request fails. Unset reads the whole
+   * body. `get` returns its `Response` unread and unbounded either way.
+   */
+  maxBytes?: number;
 }
 
 /** A text body, and the URL the response was actually served from. */
@@ -204,6 +212,21 @@ function forAnotherOrigin(headers: Record<string, string>): Record<string, strin
   return Object.fromEntries(
     Object.entries(headers).filter(([key]) => CROSS_ORIGIN_HEADERS.has(key.toLowerCase()))
   );
+}
+
+/**
+ * The error for a non-2xx response, carrying its body as the diagnostic. With
+ * `maxBytes` set, a body past the bound is not read further and the error
+ * says so in its place.
+ */
+async function httpFailure(response: Response, url: string, maxBytes: number | undefined): Promise<Error> {
+  let detail: string;
+  if (maxBytes === undefined) detail = await response.text();
+  else {
+    try { detail = await readBoundedText(response, maxBytes); }
+    catch (error) { if (!(error instanceof BodyTooLargeError)) throw error; detail = `(${error.message})`; }
+  }
+  return new Error(`HTTP ${response.status} from ${url}: ${detail}`);
 }
 
 export class ScrapeClient {
@@ -388,10 +411,9 @@ export class ScrapeClient {
       ...opts,
       headers: { Accept: "application/json", ...opts.headers },
     });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} from ${url}: ${await response.text()}`);
-    }
-    return response.json() as Promise<T>;
+    if (!response.ok) throw await httpFailure(response, url, opts.maxBytes);
+    if (opts.maxBytes === undefined) return response.json() as Promise<T>;
+    return JSON.parse(await readBoundedText(response, opts.maxBytes)) as T;
   }
 
   /**
@@ -402,10 +424,9 @@ export class ScrapeClient {
    */
   async getPage(url: string, opts: FetchOptions = {}): Promise<FetchedPage> {
     const response = await this.get(url, opts);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} from ${url}: ${await response.text()}`);
-    }
-    return { body: await response.text(), url: response.url || url };
+    if (!response.ok) throw await httpFailure(response, url, opts.maxBytes);
+    const body = opts.maxBytes === undefined ? await response.text() : await readBoundedText(response, opts.maxBytes);
+    return { body, url: response.url || url };
   }
 
   /** GET and read the body as text, throwing on a non-2xx. */

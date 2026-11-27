@@ -4,7 +4,7 @@ import { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER,
 import { resolveClaudeHostOAuth } from "../../src/host-oauth.js";
 import { nativeModelReply } from "../helpers/native-model-reply.js";
 import { createWorkerSpawn } from "../../src/worker-spawn.js";
-import { createStateLedger } from "../../src/worker-state-budget.js";
+import { createStateLedger } from "@schlessera/brain-ui-sdk/internal";
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import type { LaunchedWorker, WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, linkSync } from "node:fs";

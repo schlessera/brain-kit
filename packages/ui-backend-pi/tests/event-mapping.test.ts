@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
-import { mapPiEvent, createUsageAccumulator } from "../src/backend";
+import { mapPiEvent } from "../src/event-adapter";
+import { createUsageAccumulator } from "../src/usage";
 
 describe("mapPiEvent", () => {
   test("text_delta → ServerTextDelta", () => {

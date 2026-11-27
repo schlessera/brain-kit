@@ -14,7 +14,7 @@ import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import type { Model } from "@earendil-works/pi-ai";
 import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, startInferenceRelay,
-  type InferenceRelay, type InferenceRelayEvent } from "@schlessera/brain-ui-sdk/internal";
+  type InferenceRelay } from "@schlessera/brain-ui-sdk/internal";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { readEnvVar } from "./config/env.js";
 
@@ -46,7 +46,6 @@ function configuredKey(value: string | undefined): string | undefined {
 }
 
 export function piAutonomousEnvelope(model: Model<any> | undefined, agentDir: string,
-  observe?: (event: InferenceRelayEvent) => void,
   received?: Parameters<typeof startInferenceRelay>[0]["received"]): { relay: InferenceRelay; inference: PiWorkerInference } {
   if (!model) throw new BackendRequestError("Autonomous pi turns need a declared vendor/model profile.");
   const api = APIS[model.api];
@@ -71,6 +70,6 @@ export function piAutonomousEnvelope(model: Model<any> | undefined, agentDir: st
     throw new BackendRequestError(`Autonomous pi turns need an API key for ${model.provider}; an OAuth token cannot cross the restricted envelope.`);
   }
   const upstream = typeof override?.baseUrl === "string" ? override.baseUrl : model.baseUrl;
-  const relay = startInferenceRelay({ upstream, routes: api.routes, credentials: api.header(key), received, ...(observe ? { observe } : {}) });
+  const relay = startInferenceRelay({ upstream, routes: api.routes, credentials: api.header(key), received });
   return { relay, inference: { provider: model.provider, basePath: new URL(upstream).pathname.replace(/\/+$/, ""), placeholder: INFERENCE_PLACEHOLDER } };
 }

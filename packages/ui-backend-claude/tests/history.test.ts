@@ -12,7 +12,7 @@ import type {
 import { sessionPromptContext, sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
 import { installTestHome } from "../../../scripts/test-home.js";
 import { buildSessionHistory, createHistory } from "../src/history";
-import { adaptStreamEvent } from "../src/stream-adapter";
+import { StreamAdapter } from "../src/stream-adapter";
 import { claudePromptContext } from "../src/prompt-context.js";
 
 const brain = mkdtempSync(join(tmpdir(), "claude-history-context-"));
@@ -42,7 +42,7 @@ describe("getHistory normalization", () => {
     const blocks = [{ type: "text", text: "first" }, { type: "text", text: "second" }];
     const toolUse = entry("assistant", [{ type: "tool_use", id: "oar", name: "Read", input: { path: "ithaca.md" } }]);
     const toolResult = entry("user", [{ type: "tool_result", tool_use_id: "oar", content: blocks, is_error: false }]);
-    const live = adaptStreamEvent({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "oar", content: blocks, is_error: false }] } } as never);
+    const live = new StreamAdapter().adapt({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "oar", content: blocks, is_error: false }] } } as never);
     expect(live).toEqual([{ type: "tool_result", toolUseId: "oar", output: "first\nsecond", isError: false }]);
     const replayed = await buildSessionHistory("sess", messagesFn([toolUse, toolResult]), brain);
     expect(replayed.flatMap((message) => message.toolCalls ?? []).map((call) => call.output)).toEqual(["first\nsecond"]);
