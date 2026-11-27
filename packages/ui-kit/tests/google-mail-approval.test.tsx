@@ -298,7 +298,7 @@ describe("hidden characters", () => {
     expect(drawnText(doc.querySelector("[data-google-subject]")!)).toBe("Invoice‹U+200B› for the ‹U+202E›tfar");
     expect(drawnText(doc.querySelector("[data-google-recipient='to'] .bk-gma-who")!)).toBe("penelope@example.com “Penel‹U+202E›epo”");
     const chips = [...doc.querySelectorAll("[data-hidden-char]")];
-    expect(chips.map((chip) => drawnText(chip))).toEqual(chips.map((chip) => chip.getAttribute("data-hidden-char")));
+    expect(chips.map((chip) => drawnText(chip))).toEqual(chips.map((chip) => chip.getAttribute("data-hidden-char") ?? ""));
     const body = bodyOf(doc);
     expect(drawnBody(body)).toBe("The ship's name is in the attachment: Argo‹U+202E›gro.\nMeet at the harbour‹U+200B›master's house‹U+200B ×3› at dusk.");
     expect(body.textContent).not.toMatch(/[\u{200B}\u{202E}]/u);
@@ -451,7 +451,7 @@ function drawsAsSent(body: Element, drawn: string, lines: number) {
   expect(drawnBody(body)).toBe(drawn);
   // Each chip shows the marker it is named for; the drawn text above read only what it shows.
   const chips = [...body.querySelectorAll("[data-hidden-char]")];
-  expect(chips.map((chip) => drawnText(chip))).toEqual(chips.map((chip) => chip.getAttribute("data-hidden-char")));
+  expect(chips.map((chip) => drawnText(chip))).toEqual(chips.map((chip) => chip.getAttribute("data-hidden-char") ?? ""));
   const rows = [...body.querySelectorAll("[data-google-body-line]")];
   expect(rows.map((row) => row.querySelector("[data-line-number]")?.textContent)).toEqual(Array.from({ length: lines }, (_, i) => String(i + 1)));
   // Each line keeps every space and tab: `break-spaces`, inline, on the element holding the line's text.
