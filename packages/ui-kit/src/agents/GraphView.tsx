@@ -85,16 +85,6 @@ export interface GraphViewProps {
   minWidth?: number;
 }
 
-const INKS: Record<Tone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 /** The source's fallback names a real airline, a plausible real person and a
  * real city used as a client. All three are replaced per D19; the shape is the
  * design's — one focus node and four neighbours at the same coordinates. */
@@ -198,7 +188,7 @@ export function GraphView(p: GraphViewProps) {
         ))}
       </svg>
       {src.map((n, i) => {
-        const ink = INKS[n.tone || "neutral"] || INKS.neutral;
+        const ink = (accent[n.tone || "neutral"] ?? accent.neutral).ink;
         return (
           <div
             key={`${n.label}-${i}`}
@@ -244,7 +234,7 @@ export function GraphView(p: GraphViewProps) {
         >
           {legend.map((l, i) => (
             <span key={`${l.label}-${i}`}>
-              <span style={{ color: INKS[l.tone || "neutral"] || INKS.neutral }}>●</span> {l.label}
+              <span style={{ color: (accent[l.tone || "neutral"] ?? accent.neutral).ink }}>●</span> {l.label}
             </span>
           ))}
           {meta ? <span style={{ marginLeft: "auto" }}>{meta}</span> : null}

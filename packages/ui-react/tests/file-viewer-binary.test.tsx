@@ -95,7 +95,7 @@ describe("the binary viewer", () => {
     const html = render(binary("archive.zip", "application/zip"));
 
     expect(html).toContain("Preview not available");
-    expect(html).toContain("application/zip · 2.0 KB");
+    expect(html).toContain("application/zip · 2 KB");
     expect(html).toContain(`href="${rawUrl("archive.zip")}"`);
     expect(html).not.toContain("<audio");
     expect(html).not.toContain("<video");

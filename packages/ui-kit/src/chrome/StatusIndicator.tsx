@@ -1,8 +1,9 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { Overlay } from "./Overlay.js";
+import { useHintTrigger } from "../internal/use-hint-trigger.js";
 
 /**
  * Compact operation status (#3281). Presentational only: the consumer owns
@@ -127,18 +128,8 @@ function useAnnouncement(label: string, operations: readonly StatusIndicatorOper
 export function StatusIndicator(p: StatusIndicatorProps) {
   const id = useId();
   const headingId = useId();
-  const trigger = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const tooltip = useRef<HTMLDivElement>(null);
-  const [shown, setShown] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ left: 16, top: 16 });
-  const pending = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const suppressed = useRef(false);
-  const skipFocus = useRef(false);
-  const hovered = useRef(false);
-  // After details close under a resting pointer, hover rearms only once it leaves.
-  const rearm = useRef(false);
+  const { trigger, tooltip, shown, setShown, open, setOpen, position, triggerProps, tooltipProps, openDetails, closeDetails } = useHintTrigger();
   const announcement = useAnnouncement(p.label, p.operations);
   const lead = statusIndicatorLead(p.operations);
   const empty = lead === undefined;
@@ -147,39 +138,8 @@ export function StatusIndicator(p: StatusIndicatorProps) {
   const count = p.operations.length;
   const name = `${p.label}: ${lead?.stateLabel ?? s.word}${count > 1 ? `; ${count} operations` : ""}. Details.`;
 
-  const clear = () => { clearTimeout(pending.current); };
-  const hide = () => { clear(); setShown(false); };
-  const enter = () => { clear(); suppressed.current = false; pending.current = setTimeout(() => { if (!suppressed.current && !open) setShown(true); }, 300); };
-  const leave = () => { clear(); pending.current = setTimeout(() => { if (!hovered.current && trigger.current?.ownerDocument.activeElement !== trigger.current) setShown(false); }, 150); };
-  useEffect(() => () => clearTimeout(pending.current), []);
   // An emptied list removes the control; its details have nothing left to show.
   useEffect(() => { if (empty) { setOpen(false); setShown(false); } }, [empty]);
-
-  useLayoutEffect(() => {
-    if (!shown) return;
-    const node = trigger.current;
-    if (!node) return;
-    const doc = node.ownerDocument;
-    const win = doc.defaultView!;
-    const place = () => {
-      const box = node.getBoundingClientRect();
-      const hint = tooltip.current!.getBoundingClientRect();
-      const left = Math.max(16, Math.min(box.left, win.innerWidth - hint.width - 16));
-      const above = box.top - hint.height - 8;
-      const top = Math.max(8, Math.min(above >= 8 ? above : box.bottom + 8, win.innerHeight - hint.height - 8));
-      setPosition({ left, top });
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      suppressed.current = true; clearTimeout(pending.current); setShown(false);
-      event.preventDefault(); event.stopPropagation();
-    };
-    place();
-    win.addEventListener("resize", place);
-    doc.addEventListener("scroll", place, true);
-    doc.addEventListener("keydown", escape, true);
-    return () => { win.removeEventListener("resize", place); doc.removeEventListener("scroll", place, true); doc.removeEventListener("keydown", escape, true); };
-  }, [shown]);
 
   const returnFocus = () => trigger.current?.isConnected ? trigger.current : p.returnFocus?.() ?? null;
   const portal = trigger.current?.ownerDocument.body;
@@ -193,21 +153,19 @@ export function StatusIndicator(p: StatusIndicatorProps) {
       // raw-button: kit — A status control needs focus/hover descriptions without IconButton's native title tooltip.
       type="button" ref={trigger} className="bk-control bk-status-indicator-btn"
       aria-label={name} aria-haspopup="dialog" aria-expanded={open} aria-controls={`${id}-details`} aria-describedby={shown ? `${id}-tooltip` : undefined}
-      onPointerEnter={event => { if (event.pointerType !== "touch") { hovered.current = true; if (!rearm.current) enter(); } }}
-      onPointerLeave={() => { hovered.current = false; rearm.current = false; leave(); }}
-      onFocus={() => { if (skipFocus.current) { skipFocus.current = false; return; } enter(); }} onBlur={leave}
-      onClick={() => { hide(); suppressed.current = true; setOpen(true); }}>
+      {...triggerProps}
+      onClick={openDetails}>
       <span className="bk-status-glyph" aria-hidden="true"><Icon icon={s.icon} size={20} /></span>
       {count > 1 && <span className="bk-status-count" aria-hidden="true">{count}</span>}
     </button>}
     {!open && live}
     {portal && shown && !empty && createPortal(<div id={`${id}-tooltip`} ref={tooltip} role="tooltip" className="bk-status-tooltip" style={{ ...position, colorScheme: scheme() }}
-      onPointerEnter={() => { hovered.current = true; clear(); }} onPointerLeave={() => { hovered.current = false; leave(); }}>
+      {...tooltipProps}>
       {p.summary}
     </div>, portal)}
     {portal && open && createPortal(<div style={{ colorScheme: scheme() }}>
       <Overlay data-status-details="" id={`${id}-details`} open={open} variant="dialog" labelledBy={headingId} initialFocus={heading} returnFocus={returnFocus} closeLabel={`Close ${p.title.toLowerCase()}`}
-        onClose={() => { suppressed.current = true; skipFocus.current = true; rearm.current = true; setOpen(false); }}>
+        onClose={closeDetails}>
         <div className="bk-status-details">
           <h2 id={headingId} ref={heading} tabIndex={-1}>{p.title}</h2>
           <p>{p.summary}</p>

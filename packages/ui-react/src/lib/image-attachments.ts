@@ -5,6 +5,7 @@ import {
   MAX_IMAGE_BYTES,
   MAX_TOTAL_IMAGE_BYTES,
 } from "@schlessera/brain-ui-sdk/protocol";
+import { base64DecodedLength } from "./base64.js";
 
 /**
  * The vision API silently drops images below a minimum pixel size (a 2x2 PNG
@@ -26,12 +27,6 @@ export interface PendingAttachment {
 type FileToAttachmentResult =
   | { attachment: ChatImageAttachment; previewUrl: string; bytes: number }
   | { error: string };
-
-/** base64 length → decoded byte count (accounts for `=` padding). */
-function decodedBytesFromBase64(b64: string): number {
-  const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
-  return Math.floor((b64.length * 3) / 4) - padding;
-}
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -115,7 +110,7 @@ export async function fileToAttachment(
       // Couldn't measure — fall through and let the size check gate it.
     }
     const data = await blobToBase64(file);
-    const bytes = decodedBytesFromBase64(data);
+    const bytes = base64DecodedLength(data);
     if (bytes > MAX_IMAGE_BYTES) {
       return { error: `${file.name}: GIF too large (max ${mb(MAX_IMAGE_BYTES)})` };
     }
@@ -169,7 +164,7 @@ export async function fileToAttachment(
   }
 
   const data = await blobToBase64(blob);
-  const bytes = decodedBytesFromBase64(data);
+  const bytes = base64DecodedLength(data);
   if (bytes > MAX_IMAGE_BYTES) {
     return {
       error: `${file.name}: still ${mb(bytes)} after downscale (max ${mb(MAX_IMAGE_BYTES)})`,
@@ -216,6 +211,7 @@ export function validateAttachments(pending: PendingAttachment[]): {
   return { accepted, errors };
 }
 
+// Not the shared `formatBytes` rule (#4735): image limits are stated in decimal megabytes.
 function mb(bytes: number): string {
   return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }

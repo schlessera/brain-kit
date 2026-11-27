@@ -4,8 +4,9 @@ import { Cue } from "../internal/cue.js";
 import { VALUE_CUE } from "../internal/tone-cue.js";
 import { DiffBlock } from "../primitives/DiffBlock.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
-import { accent, color, font } from "../tokens.js";
+import { color, font } from "../tokens.js";
 import type { Tone, ValueTone } from "../types.js";
+import { valueInk } from "../internal/tone-ink.js";
 
 /**
  * "Capability you'd grant", hash comparisons, provenance blocks — any list of
@@ -47,24 +48,6 @@ export interface ReceiptProps {
   keyWidth?: number;
   radius?: number;
 }
-
-/**
- * Every accent's ink plus the two inks. An UNTONED value is dim ink — a
- * receipt's unremarkable values are still values to read, not labels to skim
- * past — and `neutral` is the grey accent, as everywhere else (D33). The
- * source's dead `muted` entry is gone; `dim` is the real member.
- */
-const TONES: Record<ValueTone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-  ink: color.ink,
-  dim: color.inkDim,
-};
 
 /** The documented `keyWidth` range. The upper bound is also the most the
  * column grows to fit a long key. */
@@ -139,7 +122,7 @@ export function Receipt(p: ReceiptProps) {
     <div style={box}>
       {title ? (
         <div style={head}>
-          <Icon icon={p.titleIcon ?? "capability"} size={12} color={TONES[p.titleTone || "amber"]} />
+          <Icon icon={p.titleIcon ?? "capability"} size={12} color={valueInk(p.titleTone || "amber", "amber")} />
           {title}
         </div>
       ) : null}
@@ -156,7 +139,7 @@ export function Receipt(p: ReceiptProps) {
                   style={{
                     minWidth: 0,
                     wordBreak: "break-all",
-                    color: TONES[tone] || TONES.dim,
+                    color: valueInk(tone, "dim"),
                     fontWeight: 500,
                   }}
                 >
@@ -175,7 +158,7 @@ export function Receipt(p: ReceiptProps) {
       ) : null}
       {footnote ? (
         <div style={foot}>
-          <Icon icon={p.footIcon ?? "scope"} size={12} color={TONES[p.footTone || "teal"]} />
+          <Icon icon={p.footIcon ?? "scope"} size={12} color={valueInk(p.footTone || "teal", "teal")} />
           {footnote}
         </div>
       ) : null}

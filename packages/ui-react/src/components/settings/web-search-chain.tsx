@@ -1,5 +1,5 @@
 import { Button, TextButton, Toggle } from "@schlessera/brain-ui-kit";
-import { AlertTriangle, Check, Loader2 } from "lucide-react";
+import { TriangleAlert, Check, Loader2 } from "../icons.js";
 import type { WebSearchConfig, WebSearchProvider } from "../../lib/api-client.js";
 
 /**
@@ -134,7 +134,7 @@ function AppliesTo({ models }: { models: string[] }) {
 function OverrideWarning({ provider, busy, onClear }: { provider: string; busy: boolean; onClear: () => void }) {
   return (
     <div className="mb-3 flex items-start gap-2 rounded-md border border-primary/40 bg-primary-fill/10 p-2">
-      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+      <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
       <div className="min-w-0 flex-1">
         <p className="text-[11px] text-foreground">
           Searches are pinned to <span className="font-medium">{provider}</span>,

@@ -27,7 +27,8 @@ describe("Composer micControl", () => {
     ]) {
       expect(fieldStyle(html)).toContain("align-items:center");
       expect(html).not.toContain("margin-bottom");
-      expect(html).not.toContain("data-composer-mic");
+      // No caller-supplied mic slot; the kit's own mic carries the same hook (#4828).
+      expect(html).not.toMatch(/<span data-composer-mic=""/);
     }
   });
 
@@ -62,5 +63,14 @@ describe("Composer micControl", () => {
     expect(html).not.toContain("data-composer-mic");
     expect(labels(html)).toContain("Hold to talk");
     expect(fieldStyle(html)).toContain("align-items:center");
+  });
+});
+
+describe("the mic's data hook (#4828)", () => {
+  test("the kit's own mic and the caller-supplied mic's slot both carry data-composer-mic", () => {
+    const own = renderToStaticMarkup(<Composer onAttach={noop} onMic={noop} onSend={noop} />);
+    expect(own).toMatch(/role="button"[^>]*data-composer-mic=""[^>]*aria-label="Dictate"/);
+    const supplied = renderToStaticMarkup(<Composer micControl={<button type="button">Ithaca mic</button>} onAttach={noop} onMic={noop} onSend={noop} />);
+    expect(supplied).toMatch(/<span data-composer-mic=""[^>]*><button type="button">Ithaca mic<\/button><\/span>/);
   });
 });

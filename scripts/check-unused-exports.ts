@@ -125,16 +125,6 @@ export const ALLOWLIST: AllowlistEntry[] = [
 
   // #4682 wires or removes safety-detail pruning.
   { file: "packages/ui-server/src/governance/safety-store.ts", name: "pruneSafetyDetail", kind: "test-only", owner: "#4682", reason: "nothing in production prunes safety detail; #4682 wires or removes it" },
-
-  // #4679 removes ui-react and ui-kit helpers only tests reach.
-  { file: "packages/ui-react/src/components/chat/draft-save-line.tsx", name: "DraftSaveLine", kind: "test-only", owner: "#4679", reason: "production never renders it; #4679 removes it" },
-  { file: "packages/ui-react/src/lib/draft-indicator.ts", name: "draftIndicatorAtRisk", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
-  { file: "packages/ui-react/src/lib/graph-helpers.ts", name: "SLOT_COUNT", kind: "test-only", owner: "#4679", reason: "only tests read it; #4679 removes it" },
-  { file: "packages/ui-react/src/lib/stats/compose-stats.ts", name: "VALUE_BUDGET", kind: "test-only", owner: "#4679", reason: "only tests read it; #4679 removes it" },
-  { file: "packages/ui-react/src/stores/activity-store-helpers.ts", name: "subagentSpans", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
-  { file: "packages/ui-react/src/stores/activity-store-helpers.ts", name: "timingFor", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
-  { file: "packages/ui-kit/src/storage/history-geometry.ts", name: "subpathCount", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
-  { file: "packages/ui-kit/src/storage/tool-row-model.ts", name: "toolStateText", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
 ];
 
 export interface Finding { file: string; line: number; name: string; kind: "declaration" | "re-export" | "test-only" }
