@@ -28,13 +28,6 @@ export {
 } from "./emitters/codex.js";
 export { geminiEmitter } from "./emitters/gemini.js";
 export { piEmitter } from "./emitters/pi.js";
-export {
-  INDEX_START,
-  INDEX_END,
-  renderIndexBlock,
-  readManagedNames,
-  upsertIndexBlock,
-} from "./emitters/index-block.js";
 
 import { claudeEmitter } from "./emitters/claude.js";
 import { codexEmitter } from "./emitters/codex.js";

@@ -55,6 +55,7 @@ function describeNoSpace(gitMessage: string, available: number | null): string {
 
 export const maintainCommand: CoreCommand = {
   summary: "Run routine maintenance: registry tables, incremental index, vector compaction, audit snapshot, stats history, tag report, git packing, scratch prune",
+  flags: { boolean: ["dry-run", "no-git"], value: [] },
   helpBlock: HELP,
   async run(args, cli): Promise<number> {
     const { args: pos, flags } = parseArgs(args);

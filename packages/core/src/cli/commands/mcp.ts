@@ -4,6 +4,7 @@ import { UsageError } from "../io.js";
 
 export const mcpCommand: CoreCommand = {
   summary: "Start the stdio MCP server",
+  flags: { boolean: [], value: [] },
   helpBlock: `brain mcp — start the stdio MCP server
 
 This command communicates over stdin/stdout and is intended for MCP clients.`,

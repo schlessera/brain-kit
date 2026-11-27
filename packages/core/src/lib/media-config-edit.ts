@@ -8,6 +8,8 @@
  */
 import ts from "typescript";
 
+import { literalObject as sharedLiteralObject, literalProperties, parseConfigLiteral, unwrap, type RefuseConfigLiteral } from "./config-literal.js";
+
 /** Why the config's `media` lists cannot be read or edited as literals. */
 export class MediaConfigNotLiteral extends Error {
   readonly code = "config-not-literal";
@@ -35,30 +37,21 @@ function refuse(reason: string): never {
   throw new MediaConfigNotLiteral(reason);
 }
 
-function unwrap(node: ts.Expression): ts.Expression {
-  while (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node) || ts.isNonNullExpression(node)) {
-    node = node.expression;
+/** The shared front end's refusals in this editor's words. */
+const refuseLiteral: RefuseConfigLiteral = (refusal) => {
+  switch (refusal.reason) {
+    case "invalid-json": return refuse("brain.config.json is not valid JSON");
+    case "syntax": return refuse("the config has a syntax error");
+    case "no-default-literal": return refuse("the config has no direct default-exported literal");
+    case "not-define-config": return refuse("the default export is not a direct defineConfig literal");
+    case "not-object": return refuse(`${refusal.what} is not an object literal`);
+    case "not-assignment": return refuse(`${refusal.what} uses a spread, computed key, method or shorthand`);
+    case "duplicate": return refuse(`${refusal.what} has a duplicate ${JSON.stringify(refusal.key)}`);
   }
-  return node;
-}
+};
 
-function literalObject(node: ts.Expression, what: string): ts.ObjectLiteralExpression {
-  const value = unwrap(node);
-  if (!ts.isObjectLiteralExpression(value)) refuse(`${what} is not an object literal`);
-  return value;
-}
-
-function properties(node: ts.ObjectLiteralExpression, what: string): Map<string, ts.PropertyAssignment> {
-  const found = new Map<string, ts.PropertyAssignment>();
-  for (const p of node.properties) {
-    if (!ts.isPropertyAssignment(p) || !(ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name))) {
-      refuse(`${what} uses a spread, computed key, method or shorthand`);
-    }
-    if (found.has(p.name.text)) refuse(`${what} has a duplicate ${JSON.stringify(p.name.text)}`);
-    found.set(p.name.text, p);
-  }
-  return found;
-}
+const literalObject = (node: ts.Expression, what: string) => sharedLiteralObject(node, what, refuseLiteral);
+const properties = (node: ts.ObjectLiteralExpression, what: string) => literalProperties(node, what, refuseLiteral);
 
 function stringArray(node: ts.Expression, what: string): ts.ArrayLiteralExpression {
   const value = unwrap(node);
@@ -79,28 +72,7 @@ interface Parsed {
 }
 
 function parse(source: string, format: "ts" | "json"): Parsed {
-  if (format === "json") {
-    try {
-      JSON.parse(source);
-    } catch {
-      refuse("brain.config.json is not valid JSON");
-    }
-  }
-  const prefix = format === "json" ? "export default " : "";
-  const input = prefix + source;
-  const file = ts.createSourceFile("brain.config.ts", input, ts.ScriptTarget.Latest, true);
-  const diagnostics = ts.transpileModule(input, { reportDiagnostics: true }).diagnostics ?? [];
-  if (diagnostics.some((d) => d.category === ts.DiagnosticCategory.Error)) refuse("the config has a syntax error");
-  const exports = file.statements.filter(ts.isExportAssignment);
-  if (exports.length !== 1 || exports[0]!.isExportEquals) refuse("the config has no direct default-exported literal");
-  let expression = unwrap(exports[0]!.expression);
-  if (ts.isCallExpression(expression)) {
-    if (!ts.isIdentifier(expression.expression) || expression.expression.text !== "defineConfig" || expression.arguments.length !== 1) {
-      refuse("the default export is not a direct defineConfig literal");
-    }
-    expression = expression.arguments[0]!;
-  }
-  const root = literalObject(expression, "the config");
+  const { file, prefix, input, root } = parseConfigLiteral(source, format, refuseLiteral);
   const mediaProp = properties(root, "the config").get("media");
   if (!mediaProp) return { file, prefix, input, root, media: null, track: null, ignore: null };
   const media = literalObject(mediaProp.initializer, "media");
