@@ -11,9 +11,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as internal from "@schlessera/brain-ui-sdk/internal";
 import { prepareWorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
-import { createCleanupReconciler } from "../src/cleanup-reconciler.js";
+import { createCleanupReconciler } from "@schlessera/brain-ui-sdk/internal";
 import { createWorkerSpawn } from "../src/worker-spawn.js";
-import { createStateLedger } from "../src/worker-state-budget.js";
+import { createStateLedger } from "@schlessera/brain-ui-sdk/internal";
 
 const MiB = 1024 * 1024;
 const native = process.platform === "linux" && Boolean(Bun.which("bwrap"));

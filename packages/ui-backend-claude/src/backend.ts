@@ -28,29 +28,9 @@ import { assertClaudeSdk, claudeRuntimeRequirements } from "./version-requiremen
 
 const BACKEND_ID = "claude";
 
-// Re-exported from their new homes so direct source imports and the package's
-// public surface stay identical after the factory split.
+// Re-exported from their new homes so the package entry files keep
+// forwarding these types from here after the factory split.
 export type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
-export { lockKeyForTool } from "./tool-policy.js";
-export { GIT_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
-export { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-
-/**
- * Bash commands that raise a confirmation card before they run.
- *
- * WHY THIS EXISTS HERE. `Bash` is auto-allowed, and the SDK never consults
- * `canUseTool` for an allowlisted tool — so `brain archive x.md` typed into
- * Bash ran silently while the same operation through `brain_archive` raised a
- * card. Worse, the brain repo's own CLAUDE.md documents the CLI form, so the
- * gated path was the one nobody took. The approval existed on the path the
- * documentation steers away from.
- *
- * The pattern list itself is backend-independent policy and lives in
- * `@schlessera/brain-ui-sdk/server` (shared with the pi backend's tool_call
- * gate, and part of the SDK's backend toolkit); this package re-exports it
- * through its internal entry only.
- */
-export { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 
 /**
  * Build an AgentBackend backed by the Claude Agent SDK. The SDK owns session
