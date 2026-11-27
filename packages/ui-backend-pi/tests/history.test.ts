@@ -6,6 +6,7 @@ import { join } from "path";
 
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/server";
 
 import { sessionPromptContext, sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
 import { normalizeMessages, getPiHistory, listPiSessions } from "../src/history";
@@ -144,7 +145,7 @@ describe("one session's history opens its fixed-name transcript directly (#4858)
   const dirs: string[] = [];
   const temp = (prefix: string) => { const dir = mkdtempSync(join(tmpdir(), prefix)); dirs.push(dir); return dir; };
   afterAll(() => { for (const dir of dirs) rmSync(dir, { recursive: true, force: true }); });
-  const expected = [
+  const expected: SessionHistoryMessage[] = [
     { role: "user", content: "Odysseus asks for the way home.", toolCalls: [] },
     { role: "assistant", content: "Sail west past the island.", toolCalls: [], parts: [{ kind: "text", text: "Sail west past the island." }] },
   ];
