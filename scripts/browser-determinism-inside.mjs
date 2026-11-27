@@ -32,26 +32,54 @@ import { availableParallelism } from "node:os";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+/** @typedef {{project: string, file: string}} PassPair */
+/** @typedef {{root: string, result: string, pairs: PassPair[], repetitions: number, deadlineFactor: number, burners: number | null, cpuList: string | null}} PassPlan */
+/** @typedef {{project: string | null, file: string | null, repetition: number | null, test: string | null, reason: string}} PassFailure */
+/** @typedef {{passes: {repetition: number, elapsedSeconds: number, ok: boolean}[], failure: PassFailure | null, alsoFailed: PassPair[]}} PassOutcome */
+/**
+ * The part of a Vitest test module the runner reads.
+ * @typedef {object} EndedModule
+ * @property {{name: string}} project
+ * @property {string} moduleId
+ * @property {() => boolean} ok
+ * @property {() => {message?: string}[]} errors
+ * @property {{allTests(state?: string): Iterable<{fullName: string, result(): {errors?: {message?: string}[]}}>}} children
+ */
+/** @typedef {{reporter: {onTestModuleEnd(module: EndedModule): void}, take(): EndedModule[]}} PassCollector */
+/**
+ * The part of a Vitest instance the runner drives.
+ * @typedef {object} PassRunner
+ * @property {() => Promise<{project: {name: string}, moduleId: string}[]>} globTestSpecifications
+ * @property {(specifications: any[], allTestsRun: boolean) => Promise<{unhandledErrors: unknown[]}>} runTestSpecifications
+ */
+
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const RESULT_KIND = "brain-browser-determinism-passes";
 /** A burner outlives its parent by one slice at most, and never this long. */
 const BURNER_LIFETIME_MS = 2 * 60 * 60_000, BURNER_SLICE_MS = 200;
 const PINNED = "BRAIN_BROWSER_DETERMINISM_PINNED";
 
-/** A busy loop that exits by itself once its parent is gone or its lifetime ends. */
+/** A busy loop that exits by itself once its parent is gone or its lifetime ends.
+ * @param {number} parent
+ * @param {number} [lifetimeMs]
+ * @returns {string} */
 export function burnerSource(parent, lifetimeMs = BURNER_LIFETIME_MS) {
   return `const parent=${parent},end=Date.now()+${lifetimeMs};for(;;){const slice=Date.now()+${BURNER_SLICE_MS};while(Date.now()<slice);if(process.ppid!==parent||Date.now()>end)process.exit(0);}`;
 }
 
-/** One busy loop per requested CPU. `stop` kills exactly the PIDs started here that are still running. */
+/** One busy loop per requested CPU. `stop` kills exactly the PIDs started here that are still running.
+ * @param {number} count
+ * @param {number} [lifetimeMs]
+ * @returns {{pids: number[], stop(): void}} */
 export function startBurners(count, lifetimeMs = BURNER_LIFETIME_MS) {
   if (!Number.isSafeInteger(count) || count < 0 || count > 1024) throw new Error("Burners must be a non-negative integer");
+  /** @type {import("node:child_process").ChildProcess[]} */
   const children = [];
   const stop = () => {
     for (const child of children.splice(0)) {
       // An exited child's PID may already belong to another process.
       if (child.exitCode !== null || child.signalCode !== null) continue;
-      try { process.kill(child.pid, "SIGKILL"); } catch (error) { if (error?.code !== "ESRCH") throw error; }
+      try { process.kill(/** @type {number} */ (child.pid), "SIGKILL"); } catch (error) { if (error?.code !== "ESRCH") throw error; }
     }
   };
   try {
@@ -62,13 +90,16 @@ export function startBurners(count, lifetimeMs = BURNER_LIFETIME_MS) {
       children.push(child);
     }
   } catch (error) { stop(); throw error; }
-  return { pids: children.map(child => child.pid), stop };
+  return { pids: children.map(child => /** @type {number} */ (child.pid)), stop };
 }
 
 const PROJECT = /^[A-Za-z0-9][A-Za-z0-9-]*$/, PATH = /^[A-Za-z0-9_@.-]+(?:\/[A-Za-z0-9_@.-]+)*$/;
+/** @type {(value: unknown) => value is string} */
 const repositoryPath = value => typeof value === "string" && PATH.test(value) && !value.split("/").some(part => part === ".." || part === ".");
 
-/** The host's plan for this container, validated: nothing here is trusted because a script wrote it. */
+/** The host's plan for this container, validated: nothing here is trusted because a script wrote it.
+ * @param {any} value
+ * @returns {PassPlan} */
 export function readPassPlan(value) {
   if (!value || typeof value !== "object" || value.kind !== RESULT_KIND || value.version !== 1) throw new Error("Not a browser repetition plan");
   const { root, pairs, repetitions, burners, cpuList, result, deadlineFactor } = value;
@@ -83,15 +114,23 @@ export function readPassPlan(value) {
   return { root, result, deadlineFactor, pairs: pairs.map(pair => ({ project: pair.project, file: pair.file })), repetitions, burners, cpuList };
 }
 
-/** Collects the modules Vitest reports as ended, so a repetition is judged on what ran in it and never on an earlier result. */
+/** Collects the modules Vitest reports as ended, so a repetition is judged on what ran in it and never on an earlier result.
+ * @returns {PassCollector} */
 export function passCollector() {
+  /** @type {EndedModule[]} */
   let ended = [];
   return { reporter: { onTestModuleEnd(module) { ended.push(module); } }, take() { const modules = ended; ended = []; return modules; } };
 }
 
+/** @type {(name: unknown) => string} */
 const projectName = name => String(name).replace(/ \((?:chromium|webkit|firefox)\)$/, "");
+/** @type {(value: unknown) => string} */
 const brief = value => String(value ?? "").replace(/\x1b\[[0-9;]*m/g, "").replace(/\s+/g, " ").trim().slice(0, 300);
 
+/**
+ * @param {EndedModule} module
+ * @returns {{test: string | null, detail: string}}
+ */
 function moduleFailure(module) {
   for (const test of module.children.allTests("failed")) return { test: test.fullName, detail: brief(test.result().errors?.[0]?.message) };
   return { test: null, detail: brief(module.errors()[0]?.message) || "the file failed outside a test" };
@@ -106,9 +145,13 @@ function moduleFailure(module) {
  * miss its 5 s screenshot deadline on this gate's first mixed run. A pass is
  * green only when Vitest reported each selected pair exactly once in that pass
  * and every one of them passed.
+ * @param {{vitest: PassRunner, collector: PassCollector, pairs: readonly PassPair[], repetitions: number, repo?: string, log?: (line: string) => void, now?: () => number}} options
+ * @returns {Promise<PassOutcome>}
  */
 export async function runPasses({ vitest, collector, pairs, repetitions, repo = REPO, log = console.log, now = () => performance.now() }) {
+  /** @type {(pair: PassPair) => string} */
   const key = pair => `${pair.project}::${pair.file}`;
+  /** @type {(project: {name: string}, moduleId: string) => string} */
   const identify = (project, moduleId) => `${projectName(project.name)}::${relative(repo, moduleId).replaceAll("\\", "/")}`;
   const listed = new Map((await vitest.globTestSpecifications()).map(specification => [identify(specification.project, specification.moduleId), specification]));
   const unlisted = pairs.filter(pair => !listed.has(key(pair)));
@@ -116,9 +159,10 @@ export async function runPasses({ vitest, collector, pairs, repetitions, repo = 
     return { passes: [], failure: { ...unlisted[0], repetition: null, test: null, reason: "Vitest's own listing has no such project/file pair, so nothing would run" }, alsoFailed: unlisted.slice(1) };
   }
   const projects = [...new Set(pairs.map(pair => pair.project))].map(project => pairs.filter(pair => pair.project === project));
+  /** @type {PassOutcome["passes"]} */
   const passes = [];
   for (let repetition = 1; repetition <= repetitions; repetition++) {
-    const started = now(), failed = [];
+    const started = now(), failed = /** @type {Omit<PassFailure, "repetition">[]} */ ([]);
     for (const group of projects) {
       collector.take();
       const { unhandledErrors } = await vitest.runTestSpecifications(group.map(pair => listed.get(key(pair))), true);
@@ -128,7 +172,7 @@ export async function runPasses({ vitest, collector, pairs, repetitions, repo = 
         if (modules.length !== 1) failed.push({ ...pair, test: null, reason: `Vitest reported ${modules.length} results for this pair in the repetition; a repetition counts only when each pair is reported once` });
         else if (!modules[0].ok()) { const { test, detail } = moduleFailure(modules[0]); failed.push({ ...pair, test, reason: test ? `a test case failed: ${detail}` : detail }); }
       }
-      if (!failed.length && unhandledErrors.length) failed.push({ project: null, file: null, test: null, reason: `${unhandledErrors.length} unhandled error(s) outside a test: ${brief(unhandledErrors[0]?.message ?? unhandledErrors[0])}` });
+      if (!failed.length && unhandledErrors.length) failed.push({ project: null, file: null, test: null, reason: `${unhandledErrors.length} unhandled error(s) outside a test: ${brief(/** @type {{message?: string} | undefined} */ (unhandledErrors[0])?.message ?? unhandledErrors[0])}` });
       // The first failing project ends the repetition: what it leaves behind must not decide the next project's result.
       if (failed.length) break;
     }
@@ -137,7 +181,7 @@ export async function runPasses({ vitest, collector, pairs, repetitions, repo = 
     log(`Repetition ${repetition} of ${repetitions}: ${failed.length ? "FAILED" : "passed"} in ${elapsedSeconds.toFixed(1)} s (${pairs.length} project/file pair(s) in ${projects.length} project(s), one project at a time).`);
     if (failed.length) {
       const [first, ...rest] = failed;
-      return { passes, failure: { ...first, repetition }, alsoFailed: rest.map(({ project, file }) => ({ project, file })) };
+      return { passes, failure: { ...first, repetition }, alsoFailed: /** @type {PassPair[]} */ (rest.map(({ project, file }) => ({ project, file }))) };
     }
   }
   return { passes, failure: null, alsoFailed: [] };
@@ -149,6 +193,9 @@ export async function runPasses({ vitest, collector, pairs, repetitions, repo = 
  * Vitest 4.1.11 serializes these values afresh for every pass; test.env is also
  * exposed as import.meta.env to browser specs. Explicit per-test/hook options,
  * expect.poll and vi.waitFor own their deadlines and are intentionally untouched.
+ * @param {{projects: {name: string, config: {testTimeout: number, hookTimeout: number, env?: Record<string, string>}}[]}} vitest
+ * @param {number} factor
+ * @param {(line: string) => void} [log]
  */
 export function scaleVitestDeadlines(vitest, factor, log = () => {}) {
   for (const project of vitest.projects) {
@@ -159,6 +206,7 @@ export function scaleVitestDeadlines(vitest, factor, log = () => {}) {
   }
 }
 
+/** @param {string[]} argv */
 async function main(argv) {
   if (argv.length !== 1) throw new Error("usage: node scripts/browser-determinism-inside.mjs <plan.json under the repository>");
   const plan = readPassPlan(JSON.parse(readFileSync(resolve(REPO, argv[0]), "utf8")));
@@ -171,12 +219,13 @@ async function main(argv) {
   // The Storybook plugin registers its stories only under the flag the Vitest CLI sets.
   process.env.VITEST ??= "true";
   process.chdir(resolve(REPO, plan.root));
+  /** @type {(line: string) => void} */
   const log = line => console.log(`[browser-determinism] ${line}`);
   const cpus = availableParallelism(), started = performance.now();
-  let burners, vitest, exiting = false;
+  let /** @type {{pids: number[], stop(): void} | undefined} */ burners, /** @type {any} */ vitest, exiting = false;
   const stopBurners = () => burners?.stop();
   process.on("exit", stopBurners);
-  for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]) process.on(signal, () => { stopBurners(); if (!exiting) { exiting = true; process.exit(code); } });
+  for (const [signal, code] of /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]])) process.on(signal, () => { stopBurners(); if (!exiting) { exiting = true; process.exit(code); } });
   let outcome;
   try {
     // Started first: Vitest, Vite and the browser launch under the same load as every pass.
