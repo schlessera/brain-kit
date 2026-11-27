@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createApp } from "../src/app.js";
-import { resolveServerConfig } from "../src/config/env.js";
+import { testServerConfig } from "./helpers/test-config.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createRecordingObservability } from "../src/observability/index.js";
 import * as writers from "../src/db/write-worker.js";
@@ -29,7 +29,7 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "odysseus-owned-writer-")), brain = join(root, "brain"), path = join(root, "ui.sqlite");
   mkdirSync(brain);
   const native = createNativeAppFixture(brain);
-  const config = { ...resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", BRAIN_PATH: brain, DB_PATH: path, BRAIN_UI_PRICING_DISCOVERY: "0" }), nativeBrain: native.nativeBrain };
+  const config = { ...testServerConfig({ brain, db: path }), nativeBrain: native.nativeBrain };
   const registry = createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]);
   const observability = createRecordingObservability();
   return { root, path, config, registry, observability, async close() { await native.close(); rmSync(root, { recursive: true, force: true }); } };

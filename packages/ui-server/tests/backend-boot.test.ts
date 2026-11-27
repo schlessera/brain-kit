@@ -9,6 +9,7 @@
  * health can report ready; backend construction remains lazy.
  */
 import { afterAll, describe, expect, test } from "bun:test";
+import { tempDirs } from "../../../tests/helpers/temp";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,10 +21,12 @@ import {
 } from "../src/agent/backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
+import { testServerConfig } from "./helpers/test-config";
 import { makeFakeBackend } from "./helpers/fake-backend";
 
 const bootBrain = mkdtempSync(join(tmpdir(), "odysseus-backend-boot-brain-"));
 afterAll(() => rmSync(bootBrain, { recursive: true, force: true }));
+const tempDir = tempDirs();
 
 const agent = (backend: string | null) =>
   resolveServerConfig(backend === null ? {} : { AGENT_BACKEND: backend }).agent;
@@ -343,7 +346,7 @@ describe("createApp boot validation", () => {
   test("app.config.dbPath reports the database actually opened", async () => {
     // The option must fold into the returned config — an embedder inspecting
     // "the configuration this instance runs on" gets one answer, not two.
-    const override = `/tmp/brain-ui-boot-config-${process.pid}.db`;
+    const override = join(tempDir("brain-ui-boot-config-"), "ui.db");
     const app = await createApp({
       config: resolveServerConfig(baseEnv), // DB_PATH=:memory:
       dbPath: override,
@@ -352,16 +355,13 @@ describe("createApp boot validation", () => {
     expect(app.config.dbPath).toBe(override);
     expect(app.db.filename).toBe(override);
     await app.close();
-    for (const suffix of ["", "-shm", "-wal"]) {
-      rmSync(override + suffix, { force: true });
-    }
   });
 });
 
 describe("BrainUiApp handle", () => {
   test("exposes the resolved authMode so the shell need not re-derive it", async () => {
     const app = await createApp({
-      config: resolveServerConfig({ HOST: "127.0.0.1", AUTH_MODE: "none", DB_PATH: ":memory:", BRAIN_PATH: bootBrain, BRAIN_UI_PRICING_DISCOVERY: "0" }),
+      config: testServerConfig({ brain: bootBrain, db: ":memory:" }),
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
     expect(app.authMode).toBe("none");

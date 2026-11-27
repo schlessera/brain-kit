@@ -2,6 +2,7 @@
 import { appendFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { CheckPlan } from "./ci-plan";
+import { cleanTestEnvironment } from "./offline-command";
 import { balanceTests } from "./test-shards";
 
 export interface Settled { exitCode: number | null; signal: string | null; elapsedMs: number; timedOut: boolean; stopped: boolean; }
@@ -70,8 +71,11 @@ export async function runCommands(commands: readonly Command[], cwd: string, con
           console.log(`Checking ${command.name}`);
           const started = performance.now();
           receipt({ event: "start", id, name: command.name });
-          const env = { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`,
-            GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "", TYPESAFE_API_KEY: "", CI_COMMAND_RECEIPTS: "", ...command.env };
+          // Every provider credential is removed (scripts/test-credential-names.json); a check
+          // that needs one of those names states it in its own Command.env, applied last.
+          const env = { ...cleanTestEnvironment(process.env), PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`,
+            GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "", TYPESAFE_API_KEY: "", // present but empty: a Bun child does not override a set variable with its cwd's .env
+            CI_COMMAND_RECEIPTS: "", ...command.env };
           if (command.compilerRuntime) {
             // Same Bun-run binary lookup and env as tsc's Node shebang. A failed
             // observation never replaces the compiler command or its error.

@@ -12,6 +12,7 @@ import type {
 import { sessionPromptContext, sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
 import { installTestHome } from "../../../scripts/test-home.js";
 import { buildSessionHistory, createHistory } from "../src/history";
+import { adaptStreamEvent } from "../src/stream-adapter";
 import { claudePromptContext } from "../src/prompt-context.js";
 
 const brain = mkdtempSync(join(tmpdir(), "claude-history-context-"));
@@ -36,6 +37,17 @@ const sessionsFn = (infos: SDKSessionInfo[]): typeof sdkListSessions =>
   (async () => infos) as unknown as typeof sdkListSessions;
 
 describe("getHistory normalization", () => {
+  test("a tool result of several text blocks replays with the separator it had live", async () => {
+    // Live and replay join the same blocks the same way (#4720).
+    const blocks = [{ type: "text", text: "first" }, { type: "text", text: "second" }];
+    const toolUse = entry("assistant", [{ type: "tool_use", id: "oar", name: "Read", input: { path: "ithaca.md" } }]);
+    const toolResult = entry("user", [{ type: "tool_result", tool_use_id: "oar", content: blocks, is_error: false }]);
+    const live = adaptStreamEvent({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "oar", content: blocks, is_error: false }] } } as never);
+    expect(live).toEqual([{ type: "tool_result", toolUseId: "oar", output: "first\nsecond", isError: false }]);
+    const replayed = await buildSessionHistory("sess", messagesFn([toolUse, toolResult]), brain);
+    expect(replayed.flatMap((message) => message.toolCalls ?? []).map((call) => call.output)).toEqual(["first\nsecond"]);
+  });
+
   test("folds thinking/text/tool blocks into parts and matches tool results", async () => {
     const transcript = [
       entry("user", [{ type: "text", text: "Hello" }]),

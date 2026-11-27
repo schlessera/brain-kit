@@ -4,9 +4,27 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/** @typedef {import("./proof-inputs.ts").Spec} Spec */
+/** @typedef {import("./proof-inputs.ts").Checkout} Checkout */
+/** @typedef {{name?: string, message?: string}} ErrorSummary */
+/**
+ * @typedef {object} CaseReport
+ * @property {number} version
+ * @property {Checkout} checkout
+ * @property {Spec[]} selected Whole requested domain, before the Vitest sequencer applies a shard.
+ * @property {(Spec & {cases: {id: string, name: string}[]})[]} collected
+ * @property {string} reason
+ * @property {ErrorSummary[]} unhandledErrors
+ * @property {(Spec & {state: string, errors: ErrorSummary[], cases: {id: string, name: string, state: string, location: {line: number, column: number} | null, durationMs: number | null}[]})[]} modules
+ */
+/** @typedef {readonly Spec[] | {version: 1, requested: readonly Spec[], executed: readonly Spec[]}} CaseSelection */
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** @type {(path: string) => string} */
 const file = (path) => relative(root, path).replaceAll("\\", "/");
+/** @type {(value: {project: {name: string}, moduleId: string}) => Spec} */
 const spec = (value) => ({ project: value.project.name.replace(/ \((?:chromium|webkit)\)$/, ""), file: file(value.moduleId) });
+/** @type {() => Checkout} */
 const checkout = () => {
   // The outer visual wrapper captures/rechecks host identity for mounted
   // worktrees. Direct Node runs can read their own repository instead.
@@ -19,16 +37,21 @@ const checkout = () => {
   return { sha, tree, parents };
 };
 
-/** A complete report is evidence to reconcile, never a replacement for runner exit status. */
+/** A complete report is evidence to reconcile, never a replacement for runner exit status.
+ * @param {CaseReport} report
+ * @param {CaseSelection} selection
+ * @param {Checkout} expectedCheckout
+ * @returns {string[]} */
 export function caseReportProblems(report, selection, expectedCheckout) {
   const problems = [];
   // Vitest emits onTestRunStart before the sequencer applies --shard. Keep
   // that requested domain separate from independently expected execution.
-  const input = Array.isArray(selection) ? { version: 1, requested: selection, executed: selection } : selection;
+  const input = /** @type {{version: number, requested: readonly Spec[], executed: readonly Spec[]}} */ (Array.isArray(selection) ? { version: 1, requested: selection, executed: selection } : selection);
   if (input?.version !== 1) return ["unknown independent case-report selection version"];
+  /** @type {(value: Spec) => string} */
   const key = (value) => `${value.project}::${value.file}`;
   for (const name of ["requested", "executed"]) {
-    const specs = input[name];
+    const specs = input[/** @type {"requested" | "executed"} */ (name)];
     if (!Array.isArray(specs) || !specs.length || specs.some(spec => !spec ||
         typeof spec.project !== "string" || !spec.project.trim() || typeof spec.file !== "string" || !spec.file.trim())) {
       problems.push(`missing or invalid independent ${name} case-report selection`);
@@ -39,7 +62,7 @@ export function caseReportProblems(report, selection, expectedCheckout) {
   if (executed.some(key => !requested.includes(key))) problems.push("executed case-report selection is outside requested domain");
   if (report.version !== 1 || JSON.stringify(report.checkout) !== JSON.stringify(expectedCheckout)) problems.push("stale or unknown case-report identity");
   if (report.reason !== "passed" || report.unhandledErrors.length) problems.push("case run did not finish successfully");
-  for (const [name, rows, expected] of [["selected", report.selected, requested], ["collected", report.collected, executed], ["reported", report.modules, executed]]) {
+  for (const [name, rows, expected] of /** @type {[string, Spec[], string[]][]} */ ([["selected", report.selected, requested], ["collected", report.collected, executed], ["reported", report.modules, executed]])) {
     const actual = rows.map(key).sort();
     if (new Set(actual).size !== actual.length) problems.push(`duplicate ${name} case-report ownership`);
     if (JSON.stringify(actual) !== JSON.stringify(expected)) problems.push(`omitted or unexpected ${name} case-report ownership`);
@@ -48,6 +71,7 @@ export function caseReportProblems(report, selection, expectedCheckout) {
   for (const module of report.modules) {
     if (module.state !== "passed" || module.errors.length || !module.cases.length) problems.push(`incomplete module: ${key(module)}`);
     const collected = report.collected.find(value => key(value) === key(module));
+    /** @type {(cases: {id: string, name: string}[]) => string[]} */
     const identities = cases => cases.map(test => `${test.id}::${test.name}`).sort();
     if (!collected || JSON.stringify(identities(collected.cases)) !== JSON.stringify(identities(module.cases))) problems.push(`omitted or unexpected reported case: ${key(module)}`);
     for (const test of module.cases) {
@@ -60,16 +84,27 @@ export function caseReportProblems(report, selection, expectedCheckout) {
   return problems;
 }
 
+/** @typedef {import("vitest/node").Reporter} Reporter */
+/** @implements {Reporter} */
 export default class ProofCaseReporter {
+  /** @param {{output?: string}} [options] */
   constructor(options = {}) { this.output = options.output ?? resolve(root, "tmp/proof-cases.json"); }
+  /** @param {ReadonlyArray<import("vitest/node").TestSpecification>} specifications */
   onTestRunStart(specifications) {
     this.identity = checkout();
     this.selected = specifications.map(spec);
+    /** @type {CaseReport["collected"]} */
     this.collected = [];
   }
+  /** @param {import("vitest/node").TestModule} module */
   onTestModuleCollected(module) {
-    this.collected.push({ ...spec(module), cases: [...module.children.allTests()].map(test => ({ id: test.id, name: test.fullName })) });
+    /** @type {CaseReport["collected"]} */ (this.collected).push({ ...spec(module), cases: [...module.children.allTests()].map(test => ({ id: test.id, name: test.fullName })) });
   }
+  /**
+   * @param {ReadonlyArray<import("vitest/node").TestModule>} modules
+   * @param {ReadonlyArray<import("vitest/node").SerializedError>} errors
+   * @param {import("vitest/node").TestRunEndReason} reason
+   */
   onTestRunEnd(modules, errors, reason) {
     const report = {
       version: 1, checkout: this.identity,
@@ -93,6 +128,7 @@ export default class ProofCaseReporter {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     if (process.argv.length !== 6 || process.argv[2] !== "--check") throw new Error("usage: node scripts/proof-case-report.mjs --check <report.json> <selected-specs.json> <checkout.json>");
+    /** @type {(path: string) => any} */
     const read = path => JSON.parse(readFileSync(path, "utf8"));
     const problems = caseReportProblems(read(process.argv[3]), read(process.argv[4]), read(process.argv[5]).checkout);
     if (problems.length) throw new Error(problems.join("\n"));

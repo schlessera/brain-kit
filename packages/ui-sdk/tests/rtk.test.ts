@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   mkdtempSync,
@@ -9,15 +9,11 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { resetRtkProbe, rtkAvailable, rtkRewriteCommand, RTK_WORKER_ENV } from "../src/server/rtk.js";
+import { rtkAvailable, rtkRewriteCommand, RTK_WORKER_ENV } from "../src/server/rtk.js";
 
 let directory: string | undefined;
 
-// Kept for compatibility with callers that isolate their fake oracle lifecycle.
-beforeEach(resetRtkProbe);
-
 afterEach(() => {
-  resetRtkProbe();
   if (directory) rmSync(directory, { recursive: true, force: true });
   directory = undefined;
 });

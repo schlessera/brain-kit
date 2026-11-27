@@ -320,9 +320,7 @@ test("opening a schema 14 database adds the verification column and makes the ne
       const columns = (reopened.prepare("PRAGMA table_info(documents)").all() as { name: string }[]).map((c) => c.name);
       expect(columns).toContain("verification");
       expect(reopened.prepare("SELECT content_hash FROM documents WHERE path = 'notes/a.md'").get()).toEqual({ content_hash: null });
-      // Later migrations run after it: the database ends at the current version.
-      expect(SCHEMA_VERSION).toBe(16);
-      expect(reopened.prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'").get()).toEqual({ value: "16" });
+      expect(reopened.prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'").get()).toEqual({ value: String(SCHEMA_VERSION) });
     } finally {
       reopened.close();
     }

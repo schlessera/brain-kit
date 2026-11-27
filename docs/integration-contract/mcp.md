@@ -148,7 +148,7 @@ which validates the scope (`parseContextScope`,
   sections, a short one merged into its neighbour, and whose match no single
   section holds becomes every section of that chunk, in source order, taken
   whole or not at all. The span is read from the source lines the index
-  recorded for the chunk ([schema 16](frontmatter.md)), never inferred: it
+  recorded for the chunk ([schema 17](frontmatter.md)), never inferred: it
   widens only when those lines are exactly a run of whole sections. A piece
   of a section the indexer split over several chunks records no lines and
   keeps its snippet, and so does a chunk whose file changed since the index

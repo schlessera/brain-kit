@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { readJsonBody } from "../middleware/body-limit.js";
 import type { AppEnv } from "../app-env.js";
 import type { CodeChangeHistory } from "../brain/code-change-history.js";
 import type { TurnJournal } from "../brain/turn-journal.js";
@@ -39,7 +40,8 @@ export function createJournalRoutes({ journal, codeHistory }: { journal: TurnJou
       const principal = c.get("principal");
       if (!principal || !["owner", "ambient"].includes(principal.kind)) return c.json({ error: "Owner authorization required." }, 403);
       let request: unknown;
-      try { request = await c.req.json(); } catch { return c.json({ error: "Invalid code history selection." }, 400); }
+      try { request = await readJsonBody(c); } catch { return c.json({ error: "Invalid code history selection." }, 400); }
+      if (request instanceof Response) return request;
       if (!request || typeof request !== "object" || Array.isArray(request)) return c.json({ error: "Invalid code history selection." }, 400);
       const { id, checkout } = request as { id?: unknown; checkout?: unknown };
       if (Object.keys(request).some(key => !["id", "checkout"].includes(key)) || typeof id !== "string" || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)

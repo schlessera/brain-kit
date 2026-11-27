@@ -230,7 +230,7 @@ export function graphNeighborhood(db: Database, schemaVersion: number, opts: {
   const { distances, truncated } = graph.neighborhood(centerId, opts.depth, opts.direction);
   const rows = loadNodesByIds(db, [...distances.keys()], withGraphTables);
   const nodes = rows.map((row) => toNode(row, distances.get(row.id)));
-  return graph.scene(nodes, graph.links().edges, graph.profile.neighborhoodNodes, truncated);
+  return graph.scene(nodes, graph.edgesAmong(rows.map((row) => row.id)), graph.profile.neighborhoodNodes, truncated);
 }
 export function graphDiscovery(db: Database, meta: Map<string, string>, opts: {
   root?: string;

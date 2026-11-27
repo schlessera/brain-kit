@@ -1,6 +1,6 @@
 /**
  * #3683: the index records each chunk's source lines (`chunks.start_line`,
- * `chunks.end_line`, schema 16), which context assembly reads to widen a
+ * `chunks.end_line`, schema 17), which context assembly reads to widen a
  * folded chunk. An index from before them reads NULL until the next run,
  * which re-chunks every document for the chunker version that records them.
  */
@@ -44,22 +44,22 @@ const rows = (db: ReturnType<typeof openDatabase>) =>
     .all(PATH) as { heading: string; start_line: number | null; end_line: number | null }[];
 
 describe("recorded chunk lines in the index", () => {
-  test("a schema 15 index gains the columns, and the next run fills them", async () => {
+  test("a schema 16 index gains the columns, and the next run fills them", async () => {
     const file = study(`## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n`);
     const { root, ctx } = await brainWith(file);
     const db = openDatabase(ctx.dbPath);
     await indexAll(db, { root, taxonomy: ctx.taxonomy, quiet: true });
-    // Back to schema 15 and the chunker before it: no columns, no lines.
+    // Back to schema 16 and the chunker before it: no columns, no lines.
     db.run("ALTER TABLE chunks DROP COLUMN start_line");
     db.run("ALTER TABLE chunks DROP COLUMN end_line");
     db.run("UPDATE documents SET chunker_version = 3");
-    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '15')");
+    db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '16')");
     db.close();
 
     const reopened = openDatabase(ctx.dbPath);
     try {
-      expect(SCHEMA_VERSION).toBe(16);
-      expect(reopened.prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'").get()).toEqual({ value: "16" });
+      expect(SCHEMA_VERSION).toBe(17);
+      expect(reopened.prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'").get()).toEqual({ value: "17" });
       expect(rows(reopened)).toEqual([{ heading: "Tides", start_line: null, end_line: null }]);
       await indexAll(reopened, { root, taxonomy: ctx.taxonomy, quiet: true });
       // The chunk is the folded Signal and Tides: Signal's heading to Tides' last line.

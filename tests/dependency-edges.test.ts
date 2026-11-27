@@ -223,3 +223,58 @@ describe("external specifiers are declared dependencies", () => {
     });
   }
 });
+
+// A type package checks code against the API of one major. Paired with a
+// runtime dependency of another major, a call that exists only in the typed
+// major type-checks and fails at run time (#4676).
+describe("type packages match their runtime major", () => {
+  const majorOf = (range: string) => range.match(/\d+/)?.[0];
+  for (const { manifest } of packages) {
+    const full = manifest as Manifest & { devDependencies?: Record<string, string> };
+    const all = { ...full.devDependencies, ...full.peerDependencies, ...full.optionalDependencies, ...full.dependencies };
+    test(`${manifest.name}: each @types/X admits the major of X`, () => {
+      const mismatched: string[] = [];
+      for (const [name, range] of Object.entries(full.dependencies ?? {})) {
+        const types = all[`@types/${name.replace(/^@([^/]+)\//, "$1__")}`];
+        const runtime = majorOf(range), typed = types && majorOf(types);
+        if (runtime && typed && runtime !== typed) mismatched.push(`${name} ${range} with @types ${types}`);
+      }
+      expect(mismatched, `${manifest.name} types a dependency against a different major`).toEqual([]);
+    });
+  }
+});
+
+// scripts/ resolves packages through the root install. A bare specifier no
+// manifest declares works only while another package happens to pull it in
+// (#4676). Real imports only, read from the syntax tree, so a specifier in a
+// comment or in generated source text is not a use.
+describe("scripts/ imports only declared packages", () => {
+  test("every static bare specifier under scripts/ is declared by the root or a workspace manifest", async () => {
+    const ts = (await import("typescript")).default;
+    const run = Bun.spawnSync(["git", "ls-files", "-z", "--", "scripts"], { cwd: ROOT });
+    expect(run.exitCode).toBe(0);
+    const files = run.stdout.toString().split("\0").filter(file => /\.(?:[cm]?tsx?|[cm]?jsx?)$/.test(file) && !file.endsWith(".d.ts") && !file.endsWith(".d.mts"));
+    expect(files.length).toBeGreaterThan(100);
+    const manifests = [JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")), ...packages.map(p => p.manifest)] as Array<Record<string, Record<string, string> | undefined>>;
+    const declared = new Set([...internalNames, ...manifests.flatMap(m => ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"].flatMap(key => Object.keys(m[key] ?? {})))]);
+    const builtins = new Set(builtinModules);
+    const nameOf = (specifier: string) => specifier.split("/").slice(0, specifier.startsWith("@") ? 2 : 1).join("/");
+    const undeclared: string[] = [];
+    for (const file of files) {
+      const source = ts.createSourceFile(file, readFileSync(join(ROOT, file), "utf8"), ts.ScriptTarget.ESNext, true);
+      const specifiers: string[] = [];
+      const visit = (node: import("typescript").Node) => {
+        if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) specifiers.push(node.moduleSpecifier.text);
+        else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])) specifiers.push(node.arguments[0].text);
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+      for (const specifier of specifiers) {
+        if (specifier.startsWith(".") || specifier.startsWith("/") || specifier.startsWith("node:") || specifier.startsWith("bun:") || specifier === "bun") continue;
+        const name = nameOf(specifier);
+        if (!builtins.has(name) && !declared.has(name)) undeclared.push(`${file}: ${specifier}`);
+      }
+    }
+    expect(undeclared, "declare each package in the root package.json devDependencies").toEqual([]);
+  });
+});

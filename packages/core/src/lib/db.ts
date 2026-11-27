@@ -18,7 +18,7 @@ import { maintenanceConfigRoots } from "../config/env.js";
  * Bumping it is a contract change: update docs/integration-contract.md in the
  * same commit and re-check every floor the contract test lists.
  */
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 /** Embedding identity written into index_metadata; defaults come from models.ts. */
 export interface SchemaOptions {
@@ -498,8 +498,20 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     setSchemaVersion(db, 15);
   }
 
+  if (currentVersion < 16) {
+    // v16 — the newest index run is a lookup, not a scan. `indexed_at` is
+    // stored behind the body, so `MAX(indexed_at)`, which every supported
+    // query and the graph's staleness check take, walked every body's
+    // overflow pages. Built from the rows already there, as v9's index was:
+    // an upgraded brain needs no reindex. No index on `asset_type`: without
+    // ANALYZE statistics it moves unrelated plans onto it (#4787).
+    db.run("CREATE INDEX IF NOT EXISTS idx_documents_indexed_at ON documents(indexed_at)");
+
+    setSchemaVersion(db, 16);
+  }
+
   if (currentVersion < SCHEMA_VERSION) {
-    // v16 — each chunk's source lines (#3683), which context assembly reads
+    // v17 — each chunk's source lines (#3683), which context assembly reads
     // to widen a folded chunk. Existing rows read NULL until the next index
     // run, which re-chunks every document for the chunker version that
     // records them.

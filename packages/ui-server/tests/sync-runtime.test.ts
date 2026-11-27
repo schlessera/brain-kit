@@ -1,7 +1,7 @@
 /**
- * The runtime a scheduled `brain sync` ran (#290): both scheduling paths read
- * the CLI's `--json` result and record it on their own run's root span, in a
- * real activity store, and `/api/status` reads it back beside chat's.
+ * The runtime a scheduled `brain sync` ran (#290): the crontab's job runner
+ * reads the CLI's `--json` result and records it on its own run's root span,
+ * in a real activity store, and `/api/status` reads it back beside chat's.
  *
  * The brain CLI is a stand-in that prints whatever `scenario.json` beside it
  * says, so a test can change what the next sync reports between runs.
@@ -156,89 +156,6 @@ describe("BrainClient.sync reads the result", () => {
   });
 });
 
-describe("the in-process scheduler records the runtime on its run", () => {
-  async function trigger(cron: ReturnType<typeof createCronScheduler>): Promise<void> {
-    const before = cron.getCronStatus().find((j) => j.name === "sync")?.lastRunAt ?? null;
-    expect(await cron.triggerJob("sync")).toBe(true);
-    const deadline = Date.now() + 10_000;
-    for (;;) {
-      const job = cron.getCronStatus().find((j) => j.name === "sync")!;
-      if (job.lastRunAt !== before && job.lastStatus !== "running") return;
-      if (Date.now() > deadline) throw new Error("sync did not settle");
-      await Bun.sleep(10);
-    }
-  }
-
-  test("each run keeps only its own observation, and status tells latest from last observed", async () => {
-    const brain = fakeBrain();
-    const db = createUiDb(":memory:");
-    const store = createActivityStore(db, { writer: "server-test" });
-    const cron = createCronScheduler({ db, brain: createBrainClient({ brainPath: brain.root }), activity: store });
-
-    brain.set({ stdout: INVOKED_KNOWN, exit: 0 });
-    await trigger(cron);
-    await Bun.sleep(2); // distinct started_at
-    brain.set({ stdout: NOT_INVOKED, exit: 0 });
-    await trigger(cron);
-
-    const [first, second] = syncRoots(db, store);
-    expect(first!.outcome).toBe("success");
-    expect(first!.attrs).toMatchObject({
-      "brain.sync.agent": "invoked",
-      "brain.runtime.name": "claude-code",
-      "brain.runtime.version": "9.8.7-sync",
-    });
-    expect(second!.attrs["brain.sync.agent"]).toBe("not-invoked");
-    expect(second!.attrs["brain.runtime.version"]).toBeUndefined();
-
-    const status = readSyncRuntime(db);
-    expect(status.latest).toMatchObject({ runId: second!.runId, agent: "not-invoked", runtime: null });
-    expect(status.lastObserved).toMatchObject({
-      runId: first!.runId,
-      runtime: { name: "claude-code", version: "9.8.7-sync" },
-      latestRun: false,
-    });
-  });
-
-  test("a failure after init is an error run that keeps the observation", async () => {
-    const brain = fakeBrain();
-    const db = createUiDb(":memory:");
-    const store = createActivityStore(db, { writer: "server-test" });
-    const cron = createCronScheduler({ db, brain: createBrainClient({ brainPath: brain.root }), activity: store });
-
-    brain.set({ stdout: FAILED_AFTER_INIT, stderr: "claude CLI failed (exit 1): boom", exit: 2 });
-    await trigger(cron);
-
-    expect(cron.getCronStatus().find((j) => j.name === "sync")!.lastStatus).toBe("error");
-    const [run] = syncRoots(db, store);
-    expect(run!.outcome).toBe("error");
-    expect(run!.attrs).toMatchObject({ "brain.sync.agent_outcome": "failed", "brain.runtime.version": "9.8.7-sync" });
-    expect(readSyncRuntime(db).lastObserved).toMatchObject({ runId: run!.runId, latestRun: true });
-  });
-
-  test("an unreadable result and an unknown version record no version", async () => {
-    const brain = fakeBrain();
-    const db = createUiDb(":memory:");
-    const store = createActivityStore(db, { writer: "server-test" });
-    const cron = createCronScheduler({ db, brain: createBrainClient({ brainPath: brain.root }), activity: store });
-
-    brain.set({ stdout: "not a result", exit: 0 });
-    await trigger(cron);
-    await Bun.sleep(2);
-    brain.set({ stdout: INVOKED_UNKNOWN, exit: 0 });
-    await trigger(cron);
-
-    const [unreadable, unknown] = syncRoots(db, store);
-    expect(unreadable!.outcome).toBe("success");
-    expect(unreadable!.attrs["brain.sync.agent"]).toBe("unknown");
-    expect(unknown!.attrs).toMatchObject({ "brain.sync.agent": "invoked", "brain.sync.agent_runner": "codex" });
-    expect(unknown!.attrs["brain.runtime.name"]).toBeUndefined();
-    const status = readSyncRuntime(db);
-    expect(status.latest).toMatchObject({ agent: "invoked", runtime: null });
-    expect(status.lastObserved).toBeNull();
-  });
-});
-
 describe("the container cron wrapper reads the sync job's result", () => {
   function sink() {
     let text = "";
@@ -328,6 +245,71 @@ describe("the container cron wrapper reads the sync job's result", () => {
       expect(a["brain.sync.agent"]).toBeUndefined();
       expect(a["brain.runtime.version"]).toBeUndefined();
     }
+    db.close();
+  });
+  // Moved from the in-process scheduler's runner (#4681), which no production path reached.
+  test("each run keeps only its own observation, and status tells latest from last observed", async () => {
+    const brain = fakeBrain();
+    const dbPath = dbFile();
+    brain.set({ stdout: INVOKED_KNOWN, exit: 0 });
+    expect((await wrap(brain, dbPath, "sync", SYNC_JOB_COMMAND)).code).toBe(0);
+    await Bun.sleep(2); // distinct started_at
+    brain.set({ stdout: NOT_INVOKED, exit: 0 });
+    expect((await wrap(brain, dbPath, "sync", SYNC_JOB_COMMAND)).code).toBe(0);
+
+    const db = createUiDb(dbPath);
+    const [first, second] = syncRoots(db, createActivityStore(db, { writer: "reader" }));
+    expect(first!.outcome).toBe("success");
+    expect(first!.attrs).toMatchObject({
+      "brain.sync.agent": "invoked",
+      "brain.runtime.name": "claude-code",
+      "brain.runtime.version": "9.8.7-sync",
+    });
+    expect(second!.attrs["brain.sync.agent"]).toBe("not-invoked");
+    expect(second!.attrs["brain.runtime.version"]).toBeUndefined();
+
+    const status = readSyncRuntime(db);
+    expect(status.latest).toMatchObject({ runId: second!.runId, agent: "not-invoked", runtime: null });
+    expect(status.lastObserved).toMatchObject({
+      runId: first!.runId,
+      runtime: { name: "claude-code", version: "9.8.7-sync" },
+      latestRun: false,
+    });
+    db.close();
+  });
+
+  test("a failure after init is an error run, in cron status too, whose observation is the latest", async () => {
+    const brain = fakeBrain();
+    const dbPath = dbFile();
+    brain.set({ stdout: FAILED_AFTER_INIT, stderr: "claude CLI failed (exit 1): boom", exit: 2 });
+    expect((await wrap(brain, dbPath, "sync", SYNC_JOB_COMMAND)).code).toBe(2);
+
+    const db = createUiDb(dbPath);
+    expect(createCronScheduler({ db }).getCronStatus().find((j) => j.name === "sync")!.lastStatus).toBe("error");
+    const [run] = syncRoots(db, createActivityStore(db, { writer: "reader" }));
+    expect(run!.outcome).toBe("error");
+    expect(readSyncRuntime(db).lastObserved).toMatchObject({ runId: run!.runId, latestRun: true });
+    db.close();
+  });
+
+  test("an unreadable result and an unknown version record no version", async () => {
+    const brain = fakeBrain();
+    const dbPath = dbFile();
+    brain.set({ stdout: "not a result", exit: 0 });
+    expect((await wrap(brain, dbPath, "sync", SYNC_JOB_COMMAND)).code).toBe(0);
+    await Bun.sleep(2);
+    brain.set({ stdout: INVOKED_UNKNOWN, exit: 0 });
+    expect((await wrap(brain, dbPath, "sync", SYNC_JOB_COMMAND)).code).toBe(0);
+
+    const db = createUiDb(dbPath);
+    const [unreadable, unknown] = syncRoots(db, createActivityStore(db, { writer: "reader" }));
+    expect(unreadable!.outcome).toBe("success");
+    expect(unreadable!.attrs["brain.sync.agent"]).toBe("unknown");
+    expect(unknown!.attrs).toMatchObject({ "brain.sync.agent": "invoked", "brain.sync.agent_runner": "codex" });
+    expect(unknown!.attrs["brain.runtime.name"]).toBeUndefined();
+    const status = readSyncRuntime(db);
+    expect(status.latest).toMatchObject({ agent: "invoked", runtime: null });
+    expect(status.lastObserved).toBeNull();
     db.close();
   });
 });

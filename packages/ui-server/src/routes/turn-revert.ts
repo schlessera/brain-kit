@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { readJsonBody } from "../middleware/body-limit.js";
 import type { AppEnv } from "../app-env.js";
 import type { TurnRevertRequest, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { RevertUnavailable, type TurnReverts } from "../brain/turn-revert.js";
@@ -24,7 +25,8 @@ export function createTurnRevertRoutes(reverts: TurnReverts): Hono<AppEnv> {
     return receipt ? c.json(receipt) : c.json({error:"Original operation receipt unavailable; no effect was retried."},404);
   });
   routes.post("/sessions/:sessionId/turns/:turnId/revert", async c => {
-    let input: unknown; try { input = await c.req.json(); } catch { return c.json({error:"Invalid history action."},400); }
+    let input: unknown; try { input = await readJsonBody(c); } catch { return c.json({error:"Invalid history action."},400); }
+    if (input instanceof Response) return input;
     if (!input || typeof input !== "object" || Array.isArray(input)) return c.json({error:"Invalid history action."},400);
     const request = input as TurnRevertRequest;
     const reference=(value:unknown):value is JournalObservationReference => {

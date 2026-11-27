@@ -17,7 +17,8 @@ import { join, resolve } from "path";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
-import { resolveServerConfig, type ServerConfig } from "../src/config/env";
+import type { ServerConfig } from "../src/config/env";
+import { testServerConfig } from "./helpers/test-config";
 import { createRecordingObservability } from "../src/observability/index";
 import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";
 import { makeFakeBackend } from "./helpers/fake-backend";
@@ -52,13 +53,7 @@ function installBrainCli(root: string, source: string): void {
 }
 
 function appConfig(brainPath: string) {
-  return resolveServerConfig({
-    AUTH_MODE: "none",
-    HOST: "127.0.0.1",
-    DB_PATH: ":memory:",
-    BRAIN_PATH: brainPath,
-    BRAIN_UI_PRICING_DISCOVERY: "0",
-  });
+  return testServerConfig({ brain: brainPath, db: ":memory:" });
 }
 
 const registry = () =>
@@ -594,14 +589,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
   }
 
   const wrapperConfig = (root: string, wrapper: string) =>
-    resolveServerConfig({
-      AUTH_MODE: "none",
-      HOST: "127.0.0.1",
-      DB_PATH: ":memory:",
-      BRAIN_PATH: root,
-      BRAIN_UI_PRICING_DISCOVERY: "0",
-      BRAIN_UI_EXEC_WRAPPER: wrapper,
-    });
+    testServerConfig({ brain: root, db: ":memory:" }, { BRAIN_UI_EXEC_WRAPPER: wrapper });
 
   test("an app spawns through its configured wrapper, not the ambient one (#1363)", async () => {
     if (await privateMaintenanceTest(import.meta.path, "an app spawns through its configured wrapper, not the ambient one (#1363)")) return;
@@ -693,4 +681,23 @@ test("hygiene reads business refusals on exit 1 but rejects an abnormal CLI exit
   expect(await brain.hygiene!(["resolve", "--", "ithaca-link"])).toMatchObject({ status: "refused" });
   installBrainCli(root, 'console.log(JSON.stringify({status:"fixed",id:"ithaca-link"})); process.exit(2);\n');
   await expect(brain.hygiene!(["resolve", "--", "ithaca-link"])).rejects.toThrow("exit 2");
+});
+
+test("a failed module call names the module command that ran, never hygiene (#4723)", async () => {
+  const root = temporaryBrain();
+  installBrainCli(root, 'console.error("the module loom is tangled"); process.exit(2);\n');
+  const brain = createBrainClient({ brainPath: root });
+  for (const [operation, command] of [["get", "module settings"], ["enable", "module enable"], ["disable", "module disable"]] as const) {
+    const error = await brain.moduleSettings!("ithaca", operation).catch((e: Error) => e);
+    expect(error, operation).toBeInstanceOf(Error);
+    expect((error as Error).message, operation).toStartWith(`brain ${command} failed (exit 2): the module loom is tangled`);
+    expect((error as Error).message, operation).not.toContain("hygiene");
+  }
+});
+
+test("hygiene output that is not JSON is reported as unreadable", async () => {
+  const root = temporaryBrain();
+  installBrainCli(root, 'console.log("not a hygiene report"); console.error("half a report"); process.exit(1);\n');
+  await expect(createBrainClient({ brainPath: root }).hygiene!(["resolve", "--", "ithaca-link"]))
+    .rejects.toThrow("brain hygiene returned unreadable output (exit 1): half a report");
 });

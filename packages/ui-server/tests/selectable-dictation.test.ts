@@ -54,9 +54,9 @@ for (const row of [
   try {
     if (row.saved) {
       // Model persisted settings from another startup, including a removed id.
-      const writer = new Database(t.app.config.dbPath);
-      try { await createSettingsWrites(writer).setSetting("voice.dictation", { defaultProvider: row.saved, smart: false, revision: 3 }); }
-      finally { writer.close(); }
+      // The app's connection waits for the write worker's turn; a second
+      // connection fails with SQLITE_BUSY while a worker write commits (#4590).
+      await createSettingsWrites(t.app.db).setSetting("voice.dictation", { defaultProvider: row.saved, smart: false, revision: 3 });
     }
     const discovery = await t.fetch("/api/voice/providers");
     expect(discovery.status).toBe(200); expect(discovery.headers.get("cache-control")).toBe("no-store");
@@ -205,10 +205,10 @@ test("settings enforce owner authority and atomic revisions without minting", as
 test("invalid settings are total and malformed requests do not change them", async () => {
   const { alpha, beta, calls } = doubles();
   const t = await httpContractApp({ env: { VOICE_PROVIDER: "" }, speechProviders: [alpha, beta] });
-  const writer = new Database(t.app.config.dbPath);
   try {
     for (const value of ["{", "null", "[]", '{"defaultProvider":"alpha","smart":true,"revision":-1}', '{"defaultProvider":"alpha","smart":"yes","revision":1}']) {
-      writer.query("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('voice.dictation', ?, 0)").run(value);
+      // Through the app's connection, which takes the write worker's turn (#4590).
+      t.app.db.query("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('voice.dictation', ?, 0)").run(value);
       expect(await (await t.fetch(settingsPath)).json()).toEqual({ defaultProvider: null, smart: true, revision: "0" });
     }
     for (const body of ["{", "null", "[]", '{}', '{"defaultProvider":"alpha","smart":1}']) {
@@ -218,7 +218,7 @@ test("invalid settings are total and malformed requests do not change them", asy
       expect((await t.fetch("/api/voice/session", { method: "POST", headers: { "Content-Type": "application/json" }, body })).status).toBe(400);
     }
     expect(calls).toEqual({ alpha: [], beta: [], audio: [] });
-  } finally { writer.close(); await t.close(); }
+  } finally { await t.close(); }
 });
 
 test("registration validates duplicate ids, mutually exclusive options and unregistered defaults at construction", async () => {

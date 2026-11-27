@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  BIN_PROBE_NAMES, BIN_PROBES, combinedSpecs, lockProblems, missingEntries, OWN_PROCESS, PACK_TABLE, packPlan, PROBES, type PackRow,
+  BIN_PROBE_NAMES, BIN_PROBES, combinedSpecs, lockProblems, missingEntries, OWN_PROCESS, PACK_TABLE, packPlan, PROBES, run, type PackRow,
 } from "../scripts/ci-pack";
 
 const roots: string[] = [];
@@ -116,4 +116,57 @@ describe("combined passes", () => {
     expect(bun.probes).not.toContain("travel-cli");
     expect(bun.probes!.length + node.probes!.length).toBeGreaterThan(0);
   });
+});
+
+describe("packed probe children start without provider credentials (#4771)", () => {
+  // Fictional values; the names are ones the canonical rule removes and the old hand lists kept.
+  const CREDENTIALS = { OPENAI_API_KEY: "odysseus-fictional-openai", AWS_SECRET_ACCESS_KEY: "odysseus-fictional-aws", CLAUDE_CODE_OAUTH_TOKEN: "odysseus-fictional-oauth" };
+  const dump = `import { writeFileSync } from "node:fs";\nwriteFileSync(process.env.PROBE_ENV_DUMP, JSON.stringify(Object.keys(process.env)));\n`;
+  const fixture = () => { const dir = mkdtempSync(join(tmpdir(), "ci-pack-env-")); roots.push(dir); return dir; };
+
+  test("ci-pack's run hands its child none of them", async () => {
+    const dir = fixture(), out = join(dir, "env.json"), script = join(dir, "dump.ts");
+    writeFileSync(script, dump);
+    const saved = Object.fromEntries(Object.keys(CREDENTIALS).map(key => [key, process.env[key]]));
+    Object.assign(process.env, CREDENTIALS, { PROBE_ENV_DUMP: out });
+    try { await run("environment probe", [process.execPath, script], dir); }
+    finally {
+      for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+      delete process.env.PROBE_ENV_DUMP;
+    }
+    const seen: string[] = JSON.parse(readFileSync(out, "utf8"));
+    expect(seen).toContain("PROBE_ENV_DUMP");
+    expect(seen.filter(key => key in CREDENTIALS)).toEqual([]);
+  });
+
+  // Each probe script runs against a fake consumer whose first child records its environment and fails.
+  const PROBE_SCRIPTS: Record<string, (consumer: string) => void> = {
+    "check-module-query-package.ts": consumer => fakeBrain(consumer),
+    "check-pi-query-package.ts": consumer => fakeBrain(consumer),
+    "check-ui-server-query-package.ts": consumer => {
+      mkdirSync(join(consumer, "node_modules/@schlessera/brain"), { recursive: true });
+      const server = join(consumer, "node_modules/@schlessera/brain-ui-server");
+      mkdirSync(server, { recursive: true });
+      writeFileSync(join(server, "package.json"), JSON.stringify({ name: "@schlessera/brain-ui-server", type: "module", exports: { ".": "./index.js" } }));
+      writeFileSync(join(server, "index.js"), `${dump}process.exit(1);\n`);
+    },
+  };
+  function fakeBrain(consumer: string) {
+    mkdirSync(join(consumer, "node_modules/.bin"), { recursive: true });
+    writeFileSync(join(consumer, "node_modules/.bin/brain"), `${dump}process.exit(1);\n`);
+  }
+
+  for (const [script, prepare] of Object.entries(PROBE_SCRIPTS)) {
+    test(`${script} hands its child none of them and no BRAIN_RERANK_MODE`, () => {
+      const consumer = fixture(), out = join(fixture(), "env.json");
+      prepare(consumer);
+      const probe = Bun.spawnSync([process.execPath, join(import.meta.dir, "../scripts", script), "--root", consumer], {
+        env: { ...process.env, ...CREDENTIALS, BRAIN_RERANK_MODE: "off", PROBE_ENV_DUMP: out }, stdout: "pipe", stderr: "pipe",
+      });
+      expect(probe.exitCode, "the fake consumer fails the probe after its first child").not.toBe(0);
+      const seen: string[] = JSON.parse(readFileSync(out, "utf8"));
+      expect(seen).toContain("BRAIN_ROOT");
+      expect(seen.filter(key => key in CREDENTIALS || key === "BRAIN_RERANK_MODE")).toEqual([]);
+    });
+  }
 });

@@ -9,7 +9,6 @@ import type { HookJSONOutput, Options, SDKMessage } from "@anthropic-ai/claude-a
 import { type PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import { createWorkerEffectWitness, fixtureShellQuote } from "./worker-effect-witness.js";
 import { WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
-import { resetRtkProbe } from "../packages/ui-sdk/src/server/rtk.js";
 import { createClaudeBackend, type InferenceProfile } from "../packages/ui-backend-claude/src/index";
 import { CLEARED_API_CREDENTIALS } from "../packages/ui-backend-claude/src/subscription";
 import { resultText, scriptedModel } from "./measure-claude-runtime";
@@ -60,7 +59,6 @@ try {
       const saved = { ...process.env };
       Object.assign(process.env, { HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), PATH: scenario === "rtk-rewrite"
         ? "/usr/local/bin:/usr/bin:/bin" : `${bin}:/usr/bin:/bin` });
-      resetRtkProbe();
       const log = model.plan({ name: "Bash", input: { command } });
       const hookCalls: Array<{ index: string; input: unknown; output: HookJSONOutput }> = [];
       const callbackCalls: Array<{ input: unknown; output: unknown }> = [];
@@ -71,7 +69,7 @@ try {
       let matchingHooks: string[] = [];
       const controller = new AbortController();
       const deadline = setTimeout(() => controller.abort(), 20_000);
-      const worker = createMeasurementWorkerFixture(cwd, home);
+      const worker = createMeasurementWorkerFixture(cwd);
       try {
         const observedQuery: typeof query = (params) => {
           const options = params.options!;
@@ -126,7 +124,6 @@ try {
         clearTimeout(deadline);
         for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
         Object.assign(process.env, saved);
-        resetRtkProbe();
       }
       witness.stop();
       const ask = hookCalls.some(({ output }) => "hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse" && output.hookSpecificOutput.permissionDecision === "ask");

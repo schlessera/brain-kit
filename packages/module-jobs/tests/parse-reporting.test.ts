@@ -25,7 +25,8 @@
  * end-to-end run reaches for a Chrome that is not there.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tempDirs } from "../../../tests/helpers/temp";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -44,6 +45,8 @@ import {
 import { BaseAdapter } from "../src/adapters/base";
 import { getAdapter, runScrape } from "../src/scrape";
 import { ALL_SOURCES, type Source, type RawJob } from "../src/types";
+
+const tempDir = tempDirs();
 
 const FIXTURES = join(import.meta.dir, "fixtures", "reporting");
 
@@ -621,35 +624,32 @@ describe("the run report", () => {
     // prints — which is the same wiring for all four values.
     delete process.env.SCRAPE_CHROME_URL;
     delete process.env.CHROME_CDP_URL;
+    // tmp-path: a Chrome executable that must not exist; nothing is created there.
     process.env.SCRAPE_CHROME_PATH = join(tmpdir(), "no-such-chrome-for-tests");
-    const dir = mkdtempSync(join(tmpdir(), "brain-jobs-report-"));
-    try {
-      const report = await runScrape({
-        dbPath: join(dir, "jobs.db"),
-        sources: ["builtin", "nodesk", "dice"],
-        incremental: false,
-        dryRun: true,
-      });
+    const dir = tempDir("brain-jobs-report-");
+    const report = await runScrape({
+      dbPath: join(dir, "jobs.db"),
+      sources: ["builtin", "nodesk", "dice"],
+      incremental: false,
+      dryRun: true,
+    });
 
-      // Every selected board has a row. A board that fell out of the report
-      // would read as one that was never asked for.
-      expect(report.sources.map((s) => s.source).sort()).toEqual(["builtin", "dice", "nodesk"]);
-      for (const entry of report.sources) {
-        expect(entry.status).toBe("not_run");
-        expect(entry.jobs_found).toBe(0);
-        expect(entry.errors.length).toBeGreaterThan(0);
-      }
-
-      // `--json` prints `{ report }` and nothing else, so this is the shape a
-      // consumer sees. See docs/integration-contract.md.
-      const json = JSON.parse(JSON.stringify({ report })) as {
-        report: { sources: Array<{ source: string; status: string }>; total_errors: string[] };
-      };
-      expect(json.report.sources[0]).toHaveProperty("status", "not_run");
-      expect(json.report.total_errors.length).toBeGreaterThan(0);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
+    // Every selected board has a row. A board that fell out of the report
+    // would read as one that was never asked for.
+    expect(report.sources.map((s) => s.source).sort()).toEqual(["builtin", "dice", "nodesk"]);
+    for (const entry of report.sources) {
+      expect(entry.status).toBe("not_run");
+      expect(entry.jobs_found).toBe(0);
+      expect(entry.errors.length).toBeGreaterThan(0);
     }
+
+    // `--json` prints `{ report }` and nothing else, so this is the shape a
+    // consumer sees. See docs/integration-contract.md.
+    const json = JSON.parse(JSON.stringify({ report })) as {
+      report: { sources: Array<{ source: string; status: string }>; total_errors: string[] };
+    };
+    expect(json.report.sources[0]).toHaveProperty("status", "not_run");
+    expect(json.report.total_errors.length).toBeGreaterThan(0);
   });
 
   test("all four are reachable, and no two of them mean the same thing", async () => {

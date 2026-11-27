@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { BUILD_INPUTS, copyScriptClosure } from "./helpers/script-closure";
 
 const repo = resolve(import.meta.dir, "..");
 function receipts(root: string) {
@@ -36,9 +37,7 @@ async function compilerDrain(storageFailure?: StorageFailure) {
   const release = join(root, "release");
   try {
     mkdirSync(join(root, "scripts"));
-    for (const file of ["build.ts", "build-execution.ts", "ci-build-boundary.ts", "ci-build-files.ts", "ci-build-lifetime.ts", "ci-build-context.ts", "ci-build-state.ts", "ci-build-data.ts", "ci-build-trace.ts", "ci-build-consumers.ts", "ci-build-evidence.ts", "ci-build-operation.ts", "ci-build-entry.ts", "ci-build-qualification.json", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
-      copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
-    }
+    copyScriptClosure(root, ["scripts/build.ts"], BUILD_INPUTS);
     mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
     const wrapper = join(root, "node_modules/.bin/tsc");
     writeFileSync(wrapper, `#!${process.execPath}
@@ -136,9 +135,7 @@ async function successfulBuild(storageFailure?: StorageFailure) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-compiler-levels-"));
   try {
     mkdirSync(join(root, "scripts"));
-    for (const file of ["build.ts", "build-execution.ts", "ci-build-boundary.ts", "ci-build-files.ts", "ci-build-lifetime.ts", "ci-build-context.ts", "ci-build-state.ts", "ci-build-data.ts", "ci-build-trace.ts", "ci-build-consumers.ts", "ci-build-evidence.ts", "ci-build-operation.ts", "ci-build-entry.ts", "ci-build-qualification.json", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
-      copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
-    }
+    copyScriptClosure(root, ["scripts/build.ts"], BUILD_INPUTS);
     mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
     const wrapper = join(root, "node_modules/.bin/tsc");
     // The optional dependency holds until a peer has finished and its slot has

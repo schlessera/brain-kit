@@ -16,6 +16,7 @@ const LINTS = [
   "check-env-access.ts", // ambient process.env outside per-package chokepoints
   "check-frontmatter-parse.ts", // gray-matter parsing outside the cache-free parseFrontmatter helper (#142)
   "check-inline-containment.ts", // hand-written `startsWith(`${root}/`)` containment outside isWithin (#3423)
+  "check-test-helpers.ts", // local copies of a test need that has a shared owner, against a shrinking baseline (#4835)
   "check-module-casts.ts", // `as` casts papering over the module config contract
   "check-leakage.ts", // personal strings anywhere in the tree (CI's leakage gate, runnable locally)
   "check-kit-purity.ts", // ui-kit stays prop-driven: no store, no I/O, no ambient globals
@@ -23,6 +24,7 @@ const LINTS = [
   "check-root-stores.ts", // internal imperative store access must use an explicit root
   "check-layer-direction.ts", // ui-react stores/, lib/ and connection.ts never import components/ (#1380)
   "check-unused-exports.ts", // ui-server, ui-kit and ui-react exports no other file imports (#2536)
+  "check-import-cycles.ts", // runtime import cycles between the source files of a package (#4816)
   "check-oxlint.ts", // oxlint correctness pass (ruleset in .oxlintrc.json)
   "check-ci-workflows.ts", // Single GitHub provider, safe fork execution and no active Depot definitions (#1320)
 ];
