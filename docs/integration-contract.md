@@ -20,6 +20,15 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Tool renderers choose what Copy output copies (additive, 0.46.0, #4210)
+
+`ToolRenderer` gains the optional method `copyText(tool)`: what the chat
+timeline's Copy output control copies for that call. A renderer without it
+copies the output as stored, as before. The Gmail read renderers copy their
+output with hidden characters as the `‹U+XXXX›` markers the reader is shown. See
+[the package API](integration-contract/package-api.md#tool-renderer-copy-text-additive-0460-4210).
+This ships in a minor.
+
 ## Host Gmail tools (additive, 0.46.0, #4207)
 
 Both first-party backends' interactive sessions gain six host-executed Gmail

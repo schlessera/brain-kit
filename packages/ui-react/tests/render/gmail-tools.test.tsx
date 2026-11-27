@@ -16,6 +16,7 @@ import { act, cleanup, fireEvent, render as mount, type RenderResult } from "@te
 import { MotionConfig } from "framer-motion";
 import type { ReactElement, ReactNode } from "react";
 import { visibleToolName, type ToolCallView } from "@schlessera/brain-ui-sdk/client";
+import { revealInvisibles } from "@schlessera/brain-ui-kit";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { GMAIL_TOOL_NAMES } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { resetToolRenderers, resolveToolRenderer } from "../../../ui-sdk/src/client/renderers.js";
@@ -160,7 +161,7 @@ function Transcript() {
  * through the socket's own `session_history` handler, drawn from that stored
  * entry and opened as a reader opens it: the run's summary row, then the call.
  */
-function transcript(output: string) {
+function transcript(output: string, call: { name: string; input: Record<string, unknown> } = { name: visibleToolName(GMAIL_TOOL_NAMES.read, "claude"), input: { target: "thread", id: THREAD, view: "content" } }) {
   const root = makeRoot();
   root.stores.chat.getState().setActiveSession(SESSION);
   root.connection.handleServerMessage({
@@ -170,7 +171,7 @@ function transcript(output: string) {
       { role: "user", content: "Read me Calypso's letter about the raft.", toolCalls: [] },
       {
         role: "assistant", content: "",
-        toolCalls: [{ id: STORED, name: visibleToolName(GMAIL_TOOL_NAMES.read, "claude"), input: { target: "thread", id: THREAD, view: "content" }, output }],
+        toolCalls: [{ id: STORED, name: call.name, input: call.input, output }],
         parts: [{ kind: "tool", toolIndex: 0 }],
       },
     ],
@@ -338,7 +339,7 @@ describe("the safe fallback: drafts, the label list, cut and broken output", () 
     expect(r.summary?.(call(name, result)), "the row counts what the list holds").toBe("2 labels");
     const { view } = output("read", result);
     expect(html(view.container.querySelector("[data-gmail-label]")), "no thread chip row").toBeNull();
-    for (const words of ['"UNREAD"', '"STARRED"', '"threads_unread":7']) expect(text(view), words).toContain(words);
+    expect(view.container.querySelector("pre")?.textContent, "GMAIL_LABELS_FALLBACK_EXACT").toBe(JSON.stringify(result));
   });
 
   test("a read output the history transport cut renders through the safe fallback", () => {
@@ -350,6 +351,49 @@ describe("the safe fallback: drafts, the label list, cut and broken output", () 
     expect(text(view), "GMAIL_CUT_FALLBACK_REVEALS").toContain("see the list‹U+202E›fdp.exe");
     expect(text(view)).not.toContain("\u{202E}");
     expect(controlsWith(view, SENDER_PATH), "GMAIL_CUT_FALLBACK_NO_LINKS").toEqual([]);
+  });
+});
+
+describe("the transcript's Copy output", () => {
+  /** Press the stored call's Copy output and return what reached the clipboard. */
+  async function copied(view: RenderResult): Promise<string[]> {
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const written: string[] = [];
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { written.push(text); } } });
+    try {
+      await act(async () => fireEvent.click(view.getByRole("button", { name: "Copy output" })));
+    } finally {
+      if (descriptor) Object.defineProperty(navigator, "clipboard", descriptor);
+      else delete (navigator as unknown as Record<string, unknown>).clipboard;
+    }
+    return written;
+  }
+
+  const SEARCH_CALL = { name: visibleToolName(GMAIL_TOOL_NAMES.search, "claude"), input: SEARCH_INPUT };
+  const kinds: { kind: string; output: string; call?: { name: string; input: Record<string, unknown> }; marker: string }[] = [
+    { kind: "a search card", output: JSON.stringify(searchPage("content")), call: SEARCH_CALL, marker: "Gifts for the queen‹U+202E›txt.exe" },
+    { kind: "a message card", output: JSON.stringify(hostileMessageRead()), marker: "see the list‹U+202E›fdp.exe" },
+    { kind: "the draft fallback", output: JSON.stringify(draftRead(HOSTILE_LINE)), marker: "see the list‹U+202E›fdp.exe" },
+    { kind: "a cut output", output: cutOutput(JSON.stringify(hostileMessageRead())), marker: "see the list‹U+202E›fdp.exe" },
+  ];
+  for (const { kind, output, call, marker } of kinds) {
+    test(`${kind} copies what the reader was shown: the marker, never the override`, async () => {
+      expect(output, "the stored output carries the override").toContain("\u{202E}");
+      const { view, root } = transcript(output, call);
+      expect(text(view)).not.toContain("\u{202E}");
+      const clip = await copied(view);
+      expect(clip.length).toBe(1);
+      expect(clip[0], "GMAIL_COPY_REVEALS").not.toContain("\u{202E}");
+      expect(clip[0]).toContain(marker);
+      expect(clip[0], "the whole output, not the clamped excerpt").toBe(revealInvisibles(output));
+      expect(storedCall(root)?.output, "the stored output is untouched").toBe(output);
+    });
+  }
+
+  test("a tool with no copyText still copies its output as stored", async () => {
+    const raw = `exported list\u{202E}fdp.exe`;
+    const { view } = transcript(raw, { name: "mcp__odysseus__ledger", input: {} });
+    expect(await copied(view), "COPY_DEFAULT_RAW").toEqual([raw]);
   });
 });
 

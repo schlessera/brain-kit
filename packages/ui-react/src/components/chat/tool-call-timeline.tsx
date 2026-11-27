@@ -401,7 +401,7 @@ function ToolCallEntryView({
               {toolCall.output && Output && (
                 <div className="relative">
                   <span className="absolute right-1 top-1 z-10 flex">
-                    <CopyButton label="Copy output" getText={() => toolCall.output!} size="sm" tone="overlay" />
+                    <CopyButton label="Copy output" getText={() => renderer.copyText?.(toolCall) ?? toolCall.output!} size="sm" tone="overlay" />
                   </span>
                   <EnclosingCopyControl>
                     <Output tool={toolCall} />

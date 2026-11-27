@@ -44,6 +44,13 @@ function Fallback({ tool }: { tool: ToolCallView }) {
   return text ? <ClampedPre text={text} isError={tool.isError} linkify={false} /> : null;
 }
 
+/**
+ * What Copy output copies for every Gmail result, card or fallback: the
+ * output with its hidden characters as the markers the reader was shown, so a
+ * paste never carries a sender's direction override the screen did not.
+ */
+const copyShown = (tool: ToolCallView): string => revealInvisibles(tool.output ?? "");
+
 const searchResult = (tool: ToolCallView): GoogleToolResult | null => parseToolPayload(SEARCH, tool.output);
 const readResult = (tool: ToolCallView): GoogleToolResult | null => parseToolPayload(READ, tool.output);
 
@@ -99,6 +106,7 @@ export const gmailToolPack: RendererPack = {
       },
       meta: (tool) => gmailRowMeta(searchResult(tool)),
       Output: SearchOutput,
+      copyText: copyShown,
     }),
     ...everySpelling(READ, {
       icon: Mail,
@@ -106,6 +114,7 @@ export const gmailToolPack: RendererPack = {
       summary: (tool) => readSummary(readResult(tool)),
       meta: (tool) => gmailRowMeta(readResult(tool)),
       Output: ReadOutput,
+      copyText: copyShown,
     }),
   ],
 };

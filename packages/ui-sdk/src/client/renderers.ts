@@ -68,6 +68,13 @@ export interface ToolRenderer {
   semantics?: ToolSemantics;
   Input?: ComponentType<{ tool: ToolCallView }>;
   Output?: ComponentType<{ tool: ToolCallView }>;
+  /**
+   * What the timeline's Copy output control copies; absent = the output as
+   * stored. A renderer that shows output with its hidden characters as
+   * markers copies it the same way, so a paste never carries what the reader
+   * was not shown.
+   */
+  copyText?(tool: ToolCallView): string;
 }
 
 /** @experimental Part of the `ToolRenderer` seam. */
