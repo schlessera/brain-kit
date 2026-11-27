@@ -2,16 +2,19 @@
 // (#4210, components #4209).
 //
 // GLOBAL like the GitHub tools: every backend exposes the same contracts
-// under its own spelling, so each renderer is registered under every name
-// `bind()` registers (the Pi name, the Claude bridge name and the legacy
-// spelling). A refusal is part of the result schema, so it reaches the card
-// and is drawn in the result's own words. Only output that is not a result
-// envelope at all (an exception's message) reaches the fallback.
+// under its own spelling, so each renderer is registered under the Pi name
+// and the Claude bridge name. A refusal is part of the result schema, so it
+// reaches the card and is drawn in the result's own words. Output that is not
+// a result envelope (an exception's message, or a result the history
+// transport cut) and the results no kit component draws yet (a draft, the
+// account's label list) reach the fallback, which is safe for text a
+// stranger wrote.
 //
 // The four write tools are not bound here: they answer `unavailable` until
 // the write engine lands (#4211), and their cards are #4216's.
 
-import { parseToolPayload, type RendererPack, type ToolCallView, type ToolRenderer } from "@schlessera/brain-ui-sdk/client";
+import { useMemo } from "react";
+import { parseToolPayload, visibleToolName, type RendererPack, type ToolCallView, type ToolRenderer } from "@schlessera/brain-ui-sdk/client";
 import { revealInvisibles } from "@schlessera/brain-ui-kit";
 import {
   GMAIL_READ_CONTRACT,
@@ -30,8 +33,16 @@ import { gmailRowMeta } from "./gmail-mapping.js";
 const SEARCH = { ...GMAIL_SEARCH_CONTRACT, payload: GOOGLE_RESULT_SCHEMAS[GMAIL_TOOL_NAMES.search] };
 const READ = { ...GMAIL_READ_CONTRACT, payload: GOOGLE_RESULT_SCHEMAS[GMAIL_TOOL_NAMES.read] };
 
-/** Output that is not a result envelope, or a result no kit component draws: the words as they came. */
-const Fallback = ({ tool }: { tool: ToolCallView }) => (tool.output ? <ClampedPre text={tool.output} isError={tool.isError} /> : null);
+/**
+ * Output that is not a result envelope, or a result no kit component draws:
+ * the words as they came, which may be a sender's. Hidden characters show as
+ * their markers, as the kit shows them, and no path in the text becomes a
+ * link: a sender's `knowledge/…` is not a file the agent named.
+ */
+function Fallback({ tool }: { tool: ToolCallView }) {
+  const text = useMemo(() => (tool.output ? revealInvisibles(tool.output) : ""), [tool.output]);
+  return text ? <ClampedPre text={text} isError={tool.isError} linkify={false} /> : null;
+}
 
 const searchResult = (tool: ToolCallView): GoogleToolResult | null => parseToolPayload(SEARCH, tool.output);
 const readResult = (tool: ToolCallView): GoogleToolResult | null => parseToolPayload(READ, tool.output);
@@ -62,12 +73,19 @@ function readSummary(result: GoogleToolResult | null): string | null {
 }
 
 /**
- * Every spelling `bind()` registers, with the row's summary and meta read from
- * the call itself: the effect class is known before any result arrives, and
- * the search query comes from the call's input.
+ * The spellings `bind()` registers that can name a Gmail call: the Pi name and
+ * the Claude bridge name, with the row's summary and meta read from the call
+ * itself (the effect class is known before any result arrives, and the search
+ * query comes from the call's input). The pre-rename `mcp__brain_ui__`
+ * spelling is left to the generic renderer: it predates the Gmail tools, so
+ * no Gmail call was ever recorded under it, and the detail route accepts only
+ * these two names (`READ_TOOL`, `packages/ui-server/src/routes/google-details.ts:32`),
+ * so a card under it would offer a rest the route always refuses.
  */
-const everySpelling = (contract: typeof SEARCH | typeof READ, renderer: Omit<ToolRenderer, "match">): ToolRenderer[] =>
-  boundToolNames(contract).map((match) => ({ match, ...renderer }));
+const everySpelling = (contract: typeof SEARCH | typeof READ, renderer: Omit<ToolRenderer, "match">): ToolRenderer[] => {
+  const routed = new Set([visibleToolName(contract.name, "pi"), visibleToolName(contract.name, "claude")]);
+  return boundToolNames(contract).filter((name) => routed.has(name)).map((match) => ({ match, ...renderer }));
+};
 
 export const gmailToolPack: RendererPack = {
   renderers: [

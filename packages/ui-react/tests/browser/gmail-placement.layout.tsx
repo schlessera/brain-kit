@@ -1,9 +1,10 @@
 /**
  * The Gmail tool cards placed in the chat's tool timeline (#4210), at 320px
  * and desktop, in both themes: a content search, a content thread with its
- * cut body's rest loaded, a structured message, the label list and a
- * rate-limit refusal, each expanded under its own row. Nothing in the
- * timeline scrolls sideways, and every row keeps its class and view.
+ * cut body's rest loaded, a structured message, the label list (the safe
+ * fallback until the kit has a component for it) and a rate-limit refusal,
+ * each expanded under its own row. Nothing in the timeline scrolls sideways,
+ * and every row keeps its class and view.
  * The captures are the placement the maintainer signs off.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
@@ -89,6 +90,10 @@ for (const width of [320, 1280]) for (const theme of ["light", "dark"]) {
     // The kit sets each paragraph as its own element, so compare the words, not the line breaks.
     const words = (text: string | null | undefined) => (text ?? "").replace(/\s+/g, "");
     expect(words(host.querySelector("[data-gmail-rest]")?.textContent), "the rest is the part after what Brain read").toBe(words(LETTER.slice(SHOWN.length)));
+    // The label list is the tool's own output as text, every entry with its counts, not a thread's chips.
+    const labels = host.querySelector("[data-tool-call='r3']")!;
+    expect(labels.querySelector("[data-gmail-label]"), "no thread chip row").toBeNull();
+    expect(labels.querySelector("pre")?.textContent, "every entry, as the tool returned it").toBe(JSON.stringify(labelsRead()));
 
     // The timeline's output frame clips (overflow: hidden), so a too-wide card
     // never widens the page: measure every element inside the rows instead.

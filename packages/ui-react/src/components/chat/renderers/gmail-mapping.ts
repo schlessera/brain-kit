@@ -162,10 +162,12 @@ export function detailErrorState(code: GoogleErrorCode): Extract<GmailDetailStat
  * The tool row's meta: the call's effect class, then the view its result
  * carries. Search and read are read-only by catalog (no escalation applies to
  * them), so their class is `read` before any result. A call that returned
- * nothing has no view; the label list is always structured.
+ * nothing has no view; the label list is always structured. A call refused
+ * as `invalid_input` was never classified (an input the host cannot read has
+ * no class), so its row claims none.
  */
 export function gmailRowMeta(result: GoogleToolResult | null): string {
   if (result === null) return "read";
-  if (!result.ok) return "read · no result";
+  if (!result.ok) return result.error.code === "invalid_input" ? "no result" : "read · no result";
   return `read · ${result.result.view} view`;
 }

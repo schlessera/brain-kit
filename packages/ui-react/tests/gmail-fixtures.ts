@@ -187,16 +187,49 @@ export const threadRead = (view: "structured" | "content") =>
 export const messageRead = (view: "structured" | "content") =>
   envelope("read", { kind: "message", view, message: view === "structured" ? raftStructured[2] : raftMessages[2] });
 
-export const labelsRead = () =>
-  envelope("read", {
-    kind: "labels",
-    view: "structured",
-    labels: [
-      { id: "INBOX", name: "INBOX", type: "system", messages_total: 412, messages_unread: 9, threads_total: 300, threads_unread: 7 },
-      { id: "Label_1", name: "Family", type: "user", messages_total: 88, messages_unread: 2, threads_total: 40, threads_unread: 1 },
-      { id: "Label_5", name: "Raft", type: "user", messages_total: 12, messages_unread: 1, threads_total: 3, threads_unread: 1 },
-    ],
-  });
+type AccountLabel = { id: string; name: string; type: "system" | "user"; messages_total: number; messages_unread: number; threads_total: number; threads_unread: number };
 
-export const draftRead = () =>
-  envelope("read", { kind: "draft", view: "content", draft_id: "r-1234567890123456789", message: { ...raftMessages[1]!, labels: [{ id: "DRAFT", name: "DRAFT" }] } });
+export const ACCOUNT_LABELS: AccountLabel[] = [
+  { id: "INBOX", name: "INBOX", type: "system", messages_total: 412, messages_unread: 9, threads_total: 300, threads_unread: 7 },
+  { id: "Label_1", name: "Family", type: "user", messages_total: 88, messages_unread: 2, threads_total: 40, threads_unread: 1 },
+  { id: "Label_5", name: "Raft", type: "user", messages_total: 12, messages_unread: 1, threads_total: 3, threads_unread: 1 },
+];
+
+/** Only system labels a thread's chip row hides: the account's list must still show both. */
+export const HIDDEN_ON_A_THREAD: AccountLabel[] = [
+  { id: "UNREAD", name: "UNREAD", type: "system", messages_total: 9, messages_unread: 9, threads_total: 7, threads_unread: 7 },
+  { id: "STARRED", name: "STARRED", type: "system", messages_total: 4, messages_unread: 1, threads_total: 3, threads_unread: 1 },
+];
+
+export const labelsRead = (labels: AccountLabel[] = ACCOUNT_LABELS) => envelope("read", { kind: "labels", view: "structured", labels });
+
+/** A draft of Calypso's answer, as the read tool returns it; `body_text` replaces its body. */
+export const draftRead = (body_text?: string) => {
+  const message = raftMessages[1]!;
+  return envelope("read", {
+    kind: "draft", view: "content", draft_id: "r-1234567890123456789",
+    message: { ...message, labels: [{ id: "DRAFT", name: "DRAFT" }], ...(body_text === undefined ? {} : { untrusted: { ...message.untrusted, body_text, body_length: body_text.length } }) },
+  });
+};
+
+/** A path shaped like one of the brain's own files, written into mail by somebody else. */
+export const SENDER_PATH = "knowledge/ithaca/raft.md";
+/** A line a sender wrote: a right-to-left override (spelled as an escape) and a path into the brain. */
+export const HOSTILE_LINE = `The axe is in ${SENDER_PATH}, see the list\u{202E}fdp.exe`;
+
+/** A long message read whose body opens with the hostile line, so a cut output still carries it. */
+export const hostileMessageRead = () => {
+  const message = raftMessages[2]!;
+  return envelope("read", { kind: "message", view: "content", message: { ...message, untrusted: { ...message.untrusted, body_text: `${HOSTILE_LINE}\n${RAFT_SHOWN.slice(HOSTILE_LINE.length + 1)}` } } });
+};
+
+/**
+ * A tool output the history transport cut, as its shrinker cuts a long
+ * string: the head, then the elision marker (`shrinkWalk`,
+ * `packages/ui-server/src/ws/shrink.ts:67-75`, at its 16 KiB pass). What is
+ * left is no longer JSON.
+ */
+export function cutOutput(output: string, cap = 16 * 1024): string {
+  const head = cap - 80;
+  return `${output.slice(0, head)}\n…[${output.length - head} chars elided]`;
+}

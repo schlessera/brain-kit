@@ -10,7 +10,7 @@ import {
   contentMessage, contentThread, detailErrorState, gmailDate, gmailRowMeta, restOfBody, structuredMessage, structuredThread,
 } from "../src/components/chat/renderers/gmail-mapping.js";
 import {
-  RAFT_FULL, RAFT_SHOWN, contentHits, draftRead, labelsRead, messageRead, raftBody, raftMessages, refusal, searchPage, threadRead,
+  HIDDEN_ON_A_THREAD, HOSTILE_LINE, RAFT_FULL, RAFT_SHOWN, contentHits, draftRead, hostileMessageRead, labelsRead, messageRead, raftBody, raftMessages, refusal, searchPage, threadRead,
 } from "./gmail-fixtures.js";
 
 /** UTC+2, the fixtures' Ogygia. */
@@ -22,7 +22,7 @@ describe("recorded payloads", () => {
     const fixtures = [
       ["search", searchPage("structured")], ["search", searchPage("content")], ["search", searchPage("content", null)],
       ["read", threadRead("structured")], ["read", threadRead("content")], ["read", messageRead("structured")], ["read", messageRead("content")],
-      ["read", labelsRead()], ["read", draftRead()], ["read", refusal("read", "not_found", null, "No such Gmail thread, message or draft was found.")],
+      ["read", labelsRead()], ["read", labelsRead(HIDDEN_ON_A_THREAD)], ["read", draftRead()], ["read", draftRead(HOSTILE_LINE)], ["read", hostileMessageRead()], ["read", refusal("read", "not_found", null, "No such Gmail thread, message or draft was found.")],
     ] as const;
     for (const [tool, fixture] of fixtures) {
       expect(GOOGLE_RESULT_SCHEMAS[GMAIL_TOOL_NAMES[tool]].parse(JSON.parse(JSON.stringify(fixture))), `${tool} ${JSON.stringify(fixture).slice(0, 60)}`).toEqual(fixture);
@@ -130,6 +130,7 @@ describe("gmailRowMeta", () => {
     ["the label list", labelsRead(), "read · structured view"],
     ["a content draft", draftRead(), "read · content view"],
     ["a refusal", refusal("search", "unavailable", "not_connected", "Gmail is not connected."), "read · no result"],
+    ["a refusal of input the host could not read, so never classified", refusal("read", "invalid_input", "id", "That is not a Gmail thread id."), "no result"],
   ] as const)("%s", (_label, result, meta) => {
     expect(gmailRowMeta(result)).toBe(meta);
   });

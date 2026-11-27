@@ -6,10 +6,9 @@
 // after the reader presses "Show the rest". What loads is this card's own
 // state: nothing here reaches the chat store, the socket or the model.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Callout,
-  GmailLabels,
   GmailMessage,
   GmailResultList,
   GmailThread,
@@ -19,7 +18,7 @@ import {
 } from "@schlessera/brain-ui-kit";
 import { GMAIL_TOOL_NAMES, type GmailContentMessagePayload, type GoogleToolError, type GoogleToolResult } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { useBrainUiRoot, useRootStore } from "../../../root-context.js";
-import { fetchGmailMessageBody } from "../../../lib/gmail-details.js";
+import { fetchGmailMessageBody, type GmailBodyResult } from "../../../lib/gmail-details.js";
 import { contentMessage, contentThread, detailErrorState, gmailDate, restOfBody, structuredMessage, structuredThread, type DateFor } from "../renderers/gmail-mapping.js";
 
 /** A search row shows the day; a message shows the day and the time. */
@@ -30,7 +29,7 @@ const withTime: DateFor = (iso) => gmailDate(iso, { time: true });
 // The rest of a cut body (#4207's display-only route)
 // ---------------------------------------------------------------------------
 
-interface BodyDetail {
+export interface BodyDetail {
   state: GmailDetailState;
   /** The text after what Brain read, once loaded. */
   rest?: string;
@@ -38,49 +37,65 @@ interface BodyDetail {
 }
 
 /**
+ * What one answer shows: the rest only when the full body begins with exactly
+ * the text the tool result carried (`restOfBody`); otherwise the message
+ * reads as unavailable and nothing is spliced.
+ */
+function settled(message: GmailContentMessagePayload, answer: GmailBodyResult): BodyDetail {
+  if (!answer.ok) return { state: detailErrorState(answer.error.code) };
+  const rest = restOfBody(message.untrusted.body_text, answer.body);
+  return rest ? { state: "loaded", rest: rest.rest, restTruncated: rest.truncated } : { state: "unavailable" };
+}
+
+/**
+ * @internal One card's requests for the rest of its cut messages, exported
+ * for its guard tests. `publish` is the card's own state setter, and nothing
+ * else is written. Only the latest request per message may answer: an older
+ * one that comes back later is dropped. `close` (the card unmounting) cancels
+ * every request in flight and drops any answer still to come.
+ */
+export function createBodyLoader(publish: (messageId: string, detail: BodyDetail) => void) {
+  const tickets = new Map<string, number>();
+  const closed = new AbortController();
+  return {
+    async load(message: GmailContentMessagePayload, request: (signal: AbortSignal) => Promise<GmailBodyResult>): Promise<void> {
+      if (closed.signal.aborted) return;
+      const id = message.message_id;
+      const ticket = (tickets.get(id) ?? 0) + 1;
+      tickets.set(id, ticket);
+      publish(id, { state: "loading" });
+      const answer = await request(closed.signal);
+      if (closed.signal.aborted || tickets.get(id) !== ticket) return;
+      publish(id, settled(message, answer));
+    },
+    close: (): void => closed.abort(),
+  };
+}
+
+type BodyLoader = ReturnType<typeof createBodyLoader>;
+
+/**
  * The on-demand rest of each cut message in one card, keyed by message id.
  * Nothing is fetched until the reader presses Load; a retry repeats the
- * request. The rest is shown only when the full body begins with exactly the
- * text the tool result carried (`restOfBody`); otherwise the message reads
- * as unavailable and nothing is spliced. With no chat to scope the request
- * to, a cut body offers no rest at all.
+ * request. With no chat to scope the request to, a cut body offers no rest
+ * at all. Unmounting the card cancels what is in flight.
  */
 function useBodyDetails(): (message: GmailContentMessagePayload) => GmailBodyDetail | undefined {
   const root = useBrainUiRoot();
   const sessionId = useRootStore("chat", (s) => s.activeSessionId);
   const [details, setDetails] = useState<Readonly<Record<string, BodyDetail>>>({});
-  // Only the latest request per message may answer, and none after unmount.
-  const tickets = useRef(new Map<string, number>());
-  const mounted = useRef(true);
+  const loader = useRef<BodyLoader | null>(null);
   useEffect(() => {
-    mounted.current = true;
-    return () => void (mounted.current = false);
+    const own = createBodyLoader((id, detail) => setDetails((d) => ({ ...d, [id]: detail })));
+    loader.current = own;
+    return own.close;
   }, []);
-
-  const load = useCallback(
-    async (message: GmailContentMessagePayload) => {
-      if (!sessionId) return;
-      const id = message.message_id;
-      const ticket = (tickets.current.get(id) ?? 0) + 1;
-      tickets.current.set(id, ticket);
-      setDetails((d) => ({ ...d, [id]: { state: "loading" } }));
-      const answer = await fetchGmailMessageBody(root, { sessionId, messageId: id });
-      if (!mounted.current || tickets.current.get(id) !== ticket) return;
-      let next: BodyDetail;
-      if (!answer.ok) next = { state: detailErrorState(answer.error.code) };
-      else {
-        const rest = restOfBody(message.untrusted.body_text, answer.body);
-        next = rest ? { state: "loaded", rest: rest.rest, restTruncated: rest.truncated } : { state: "unavailable" };
-      }
-      setDetails((d) => ({ ...d, [id]: next }));
-    },
-    [root, sessionId],
-  );
 
   return (message) => {
     if (!message.untrusted.body_truncated || !sessionId) return undefined;
     const detail = details[message.message_id] ?? { state: "idle" };
-    return { ...detail, onLoad: () => void load(message), onRetry: () => void load(message) };
+    const load = () => void loader.current?.load(message, (signal) => fetchGmailMessageBody(root, { sessionId, messageId: message.message_id, signal }));
+    return { ...detail, onLoad: load, onRetry: load };
   };
 }
 
@@ -125,9 +140,11 @@ export function GmailSearchCard({ result, query }: { result: GoogleToolResult; q
 }
 
 /**
- * `brain_google_gmail_read`'s result: a thread or a message in its view, or
- * the account's labels. A draft has no kit component yet, so it keeps the
- * caller's fallback.
+ * `brain_google_gmail_read`'s result: a thread or a message in its view. A
+ * draft and the account's label list have no kit component yet, so they keep
+ * the caller's fallback. `GmailLabels` is a thread's chip row: it hides
+ * UNREAD, STARRED and the other system labels, which would drop entries from
+ * the account's list.
  */
 export function GmailReadCard({ result, fallback }: { result: GoogleToolResult; fallback: ReactNode }) {
   if (!result.ok) return <GmailRefusal error={result.error} />;
@@ -143,7 +160,6 @@ export function GmailReadCard({ result, fallback }: { result: GoogleToolResult; 
     case "message":
       return read.view === "structured" ? <GmailMessage view="structured" message={structuredMessage(read.message, withTime)} /> : <ContentMessage message={read.message} />;
     case "labels":
-      return <GmailLabels labels={read.labels.map(({ id, name }) => ({ id, name }))} />;
     case "draft":
       return <>{fallback}</>;
   }

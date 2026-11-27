@@ -1,40 +1,50 @@
 // The host Gmail read tools' results as the ui-kit Gmail components (#4210):
-// every spelling on both backends, both views of search, thread and message
-// read from recorded payloads, the label list, the fallback, the tool row's
-// effect class and view, and the rest of a cut body from the display-only
-// detail route: what it asks, how its answers and errors read, the prefix
-// check, and that the loaded text never reaches the chat store a turn is
-// built from. Props-only, keyless, mounted in happy-dom.
+// the bare and bridge spellings on both backends (and the legacy one left to
+// the generic renderer), both views of search, thread and message read from
+// recorded payloads, the safe fallback for drafts, the label list and cut or
+// broken output, the tool row's effect class and view, and the rest of a cut
+// body from the display-only detail route: what it asks, how its answers and
+// errors read, the prefix check, its stale-answer, unmount and cancel guards,
+// and that the loaded text never reaches the session's stored transcript.
+// Keyless, mounted in happy-dom.
 import { registerGmailToolsDom, unregisterGmailToolsDom } from "./gmail-tools-dom.js";
 
 registerGmailToolsDom();
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render as mount, type RenderResult } from "@testing-library/react";
-import type { ReactElement } from "react";
+import { MotionConfig } from "framer-motion";
+import type { ReactElement, ReactNode } from "react";
 import { visibleToolName, type ToolCallView } from "@schlessera/brain-ui-sdk/client";
+import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { GMAIL_TOOL_NAMES } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { resetToolRenderers, resolveToolRenderer } from "../../../ui-sdk/src/client/renderers.js";
-import { registerBuiltinRenderers } from "../../src/components/chat/renderers/index.js";
+import { MessageBubble } from "../../src/components/chat/message-bubble.js";
+import { GENERIC_RENDERER, registerBuiltinRenderers } from "../../src/components/chat/renderers/index.js";
 import { ToolCallTimeline } from "../../src/components/chat/tool-call-timeline.js";
-import { createBrainUiRoot } from "../../src/root.js";
-import { BrainUiProvider } from "../../src/root-context.js";
-import type { ToolCall } from "../../src/stores/chat-store.js";
+import { createBodyLoader, type BodyDetail } from "../../src/components/chat/tool-cards/gmail-cards.js";
+import type { GmailBodyResult } from "../../src/lib/gmail-details.js";
+import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
+import { BrainUiProvider, useRootStore } from "../../src/root-context.js";
+import type { ChatMessage, ToolCall } from "../../src/stores/chat-store.js";
 import {
-  HIDDEN_SUBJECT, RAFT, RAFT_FULL, RAFT_SHOWN, REST_MARK, SESSION,
-  draftRead, labelsRead, messageRead, raftBody, refusal, searchPage, threadRead,
+  HIDDEN_ON_A_THREAD, HIDDEN_SUBJECT, HOSTILE_LINE, RAFT, RAFT_FULL, RAFT_SHOWN, REST_MARK, SENDER_PATH, SESSION, THREAD,
+  cutOutput, draftRead, hostileMessageRead, labelsRead, messageRead, raftBody, raftMessages, refusal, searchPage, threadRead,
 } from "../gmail-fixtures.js";
 
 const roots: ReturnType<typeof createBrainUiRoot>[] = [];
 const requested: { url: string; method: string }[] = [];
+/** The signal each request carried, in order. */
+const signals: (AbortSignal | undefined)[] = [];
 /** What the next detail-route call answers; the default is a 404 with no body. */
-let answer: (url: string) => Response = () => new Response("{}", { status: 404 });
+let answer: (url: string) => Response | Promise<Response> = () => new Response("{}", { status: 404 });
 afterEach(async () => {
   await act(async () => {
     cleanup();
     for (const root of roots.splice(0)) root.dispose();
   });
   requested.length = 0;
+  signals.length = 0;
   answer = () => new Response("{}", { status: 404 });
 });
 afterAll(async () => {
@@ -43,28 +53,45 @@ afterAll(async () => {
   await unregisterGmailToolsDom();
 });
 
-function render(ui: ReactElement, session: string | null = SESSION) {
+function makeRoot(): BrainUiRoot {
   const root = createBrainUiRoot({
     storage: null,
     request: async (url, init) => {
       requested.push({ url: String(url), method: init?.method ?? "GET" });
+      signals.push(init?.signal ?? undefined);
       return answer(String(url));
     },
   });
   roots.push(root);
+  return root;
+}
+
+/**
+ * The root's provider, with animations skipped: a row that opens animates its
+ * height, and happy-dom rejects a cancelled animation's `finished` promise,
+ * which unmounting mid-animation would leave unhandled.
+ */
+const Provided = ({ root, children }: { root: BrainUiRoot; children: ReactNode }) => (
+  <BrainUiProvider root={root}><MotionConfig skipAnimations>{children}</MotionConfig></BrainUiProvider>
+);
+
+function render(ui: ReactElement, session: string | null = SESSION) {
+  const root = makeRoot();
   // A session, so the rest of a body is possible: a test that sees no request
   // has proved the card did not ask, not that it could not.
   if (session) root.stores.chat.setState({ activeSessionId: session });
-  return { view: mount(<BrainUiProvider root={root}>{ui}</BrainUiProvider>), root };
+  return { view: mount(<Provided root={root}>{ui}</Provided>), root };
 }
 
 type Tool = "search" | "read";
+/** The names a Gmail call arrives under: the Claude bridge name and Pi's bare one. */
 const spellings = (tool: Tool) =>
   [
     [visibleToolName(GMAIL_TOOL_NAMES[tool], "claude"), "claude"],
     [visibleToolName(GMAIL_TOOL_NAMES[tool], "pi"), "pi"],
-    [`mcp__brain_ui__${GMAIL_TOOL_NAMES[tool]}`, "claude"],
   ] as const;
+/** The pre-rename prefix: older than the Gmail tools, and refused by the detail route. */
+const legacy = (tool: Tool) => `mcp__brain_ui__${GMAIL_TOOL_NAMES[tool]}`;
 
 const SEARCH_INPUT = { query: "from:calypso raft", view: "content" };
 
@@ -85,8 +112,21 @@ function output(tool: Tool, result: unknown, options: { backend?: "claude" | "pi
 }
 
 const text = (view: RenderResult) => view.container.textContent ?? "";
+/**
+ * An element as its markup, so a failing assertion prints a string: asked to
+ * diff a happy-dom element, the matcher walks the whole DOM graph and runs
+ * out of memory instead of failing.
+ */
+const html = (el: Element | null | undefined) => el?.outerHTML ?? null;
 const detailState = (view: RenderResult) => [...view.container.querySelectorAll("[data-gmail-detail]")].map((n) => n.getAttribute("data-gmail-detail"));
 const detailCalls = () => requested.filter((r) => r.url.includes("/google/"));
+
+/** A promise the test settles itself: a request still in flight. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => (resolve = settle));
+  return { promise, resolve };
+}
 
 /** Press, then wait for the section to leave `loading`: the answer has arrived and been drawn. */
 async function press(view: RenderResult, target: HTMLElement) {
@@ -96,15 +136,84 @@ async function press(view: RenderResult, target: HTMLElement) {
 }
 const showTheRest = (view: RenderResult) => view.getByRole("button", { name: /^Show the rest/ });
 
+// ---------------------------------------------------------------------------
+// The session's stored transcript, as the host replays it
+// ---------------------------------------------------------------------------
+
+const STORED = "gm-stored";
+const NO_MESSAGES: ChatMessage[] = [];
+
+/** The transcript as the chat draws it: each stored message through its own `MessageBubble`. */
+function Transcript() {
+  const messages = useRootStore("chat", (s) => s.buffers[SESSION]?.messages ?? NO_MESSAGES);
+  return (
+    <>
+      {messages.map((message) => (
+        <MessageBubble key={message.id} message={message} onToolApproval={() => {}} onAskUserSubmit={() => {}} onAskUserCancel={() => {}} onAskUserListSubmit={() => {}} />
+      ))}
+    </>
+  );
+}
+
+/**
+ * A session whose replayed history holds one Gmail read call with `output`,
+ * through the socket's own `session_history` handler, drawn from that stored
+ * entry and opened as a reader opens it: the run's summary row, then the call.
+ */
+function transcript(output: string) {
+  const root = makeRoot();
+  root.stores.chat.getState().setActiveSession(SESSION);
+  root.connection.handleServerMessage({
+    type: "session_history",
+    sessionId: SESSION,
+    messages: [
+      { role: "user", content: "Read me Calypso's letter about the raft.", toolCalls: [] },
+      {
+        role: "assistant", content: "",
+        toolCalls: [{ id: STORED, name: visibleToolName(GMAIL_TOOL_NAMES.read, "claude"), input: { target: "thread", id: THREAD, view: "content" }, output }],
+        parts: [{ kind: "tool", toolIndex: 0 }],
+      },
+    ],
+  } as unknown as ServerMessage);
+  const view = mount(<Provided root={root}><Transcript /></Provided>);
+  const entry = () => view.container.querySelector<HTMLElement>(`[data-tool-call='${STORED}']`);
+  // History mounts collapsed: the run's summary row opens it, then the call's own row.
+  fireEvent.click(view.getByRole("button", { name: "1 step" }));
+  fireEvent.click(entry()!.querySelector("button")!);
+  return { view, root };
+}
+
+/** The Gmail read call as the session's buffer stores it. */
+const storedCall = (root: BrainUiRoot) => root.stores.chat.getState().buffers[SESSION]?.messages.flatMap((m) => m.toolCalls).find((t) => t.id === STORED);
+
 describe("binding", () => {
-  test("search and read resolve under every spelling, on both backends, to their Gmail renderers", () => {
+  test("search and read resolve under the bridge and bare spellings, on both backends, to their Gmail renderers", () => {
     registerBuiltinRenderers();
     const labels: Record<Tool, string> = { search: "Gmail search", read: "Gmail" };
     for (const tool of ["search", "read"] as const) {
       for (const [name, backend] of spellings(tool)) {
-        expect(resolveToolRenderer(call(name, undefined), backend)?.label, `${name} on ${backend}`).toBe(labels[tool]);
+        for (const on of ["claude", "pi"] as const) {
+          expect(resolveToolRenderer(call(name, undefined), on)?.label, `${name} (${backend}'s spelling) on ${on}`).toBe(labels[tool]);
+        }
       }
     }
+  });
+
+  test("the legacy mcp__brain_ui__ spelling resolves to the generic renderer, not Gmail's", () => {
+    registerBuiltinRenderers();
+    for (const tool of ["search", "read"] as const) {
+      for (const backend of ["claude", "pi"] as const) {
+        const resolved = resolveToolRenderer(call(legacy(tool), undefined), backend) ?? GENERIC_RENDERER;
+        expect(resolved, `${legacy(tool)} on ${backend}: GMAIL_LEGACY_SPELLING_GENERIC`).toBe(GENERIC_RENDERER);
+      }
+    }
+    // In the transcript: the generic row and output, and no Gmail card or rest on offer.
+    const tools: ToolCall[] = [{ id: "l1", name: legacy("read"), input: {}, inputJson: "{}", output: JSON.stringify(messageRead("content")), status: "complete", isError: false }];
+    const { view } = render(<ToolCallTimeline live toolCalls={tools} onApproval={() => {}} />);
+    const row = view.container.querySelector("[data-tool-call='l1'] button")!;
+    expect(row.textContent).not.toContain("read · ");
+    fireEvent.click(row);
+    expect(html(view.container.querySelector("[data-gmail-message], [data-gmail-detail]"))).toBeNull();
   });
 
   test("each result renders its kit component on both backends", () => {
@@ -197,17 +306,50 @@ describe("message, both views", () => {
   });
 });
 
-describe("labels and drafts", () => {
-  test("the account's labels read as the kit's chips, system labels as words", () => {
-    const { view } = output("read", labelsRead());
-    expect([...view.container.querySelectorAll("[data-gmail-label]")].map((l) => l.textContent)).toEqual(["Inbox", "Family", "Raft"]);
-  });
+/** Every link, button or other control whose words include `words`, as markup. */
+const controlsWith = (view: RenderResult, words: string) =>
+  [...view.container.querySelectorAll("a, button, [role='button'], [role='link'], [href]")].filter((el) => el.textContent?.includes(words)).map(html);
 
+describe("the safe fallback: drafts, the label list, cut and broken output", () => {
   test("a draft has no kit component yet, so it keeps the tool's own output", () => {
     const result = draftRead();
     const { view } = output("read", result);
     expect(view.container.querySelector("[data-gmail-message], [data-gmail-thread]")).toBeNull();
     expect(text(view)).toBe(JSON.stringify(result));
+  });
+
+  test("a draft's hidden character shows as its marker, never as the override itself", () => {
+    const { view } = output("read", draftRead(HOSTILE_LINE));
+    expect(HOSTILE_LINE, "the fixture carries the override").toContain("\u{202E}");
+    expect(text(view), "GMAIL_FALLBACK_REVEALS").toContain("see the list‹U+202E›fdp.exe");
+    expect(text(view)).not.toContain("\u{202E}");
+  });
+
+  test("a path a draft's body names is text, not a link or a button into the brain", () => {
+    const { view } = output("read", draftRead(HOSTILE_LINE));
+    expect(text(view), "the path is on screen").toContain(SENDER_PATH);
+    expect(controlsWith(view, SENDER_PATH), "GMAIL_FALLBACK_NO_LINKS").toEqual([]);
+    expect(html(view.container.querySelector("a, .brain-file-link")), "no link at all").toBeNull();
+  });
+
+  test("the account's label list keeps every entry, system labels a thread hides included, with its counts", () => {
+    const { name, renderer: r } = renderer("read");
+    const result = labelsRead(HIDDEN_ON_A_THREAD);
+    expect(r.summary?.(call(name, result)), "the row counts what the list holds").toBe("2 labels");
+    const { view } = output("read", result);
+    expect(html(view.container.querySelector("[data-gmail-label]")), "no thread chip row").toBeNull();
+    for (const words of ['"UNREAD"', '"STARRED"', '"threads_unread":7']) expect(text(view), words).toContain(words);
+  });
+
+  test("a read output the history transport cut renders through the safe fallback", () => {
+    const cut = cutOutput(JSON.stringify(hostileMessageRead()));
+    expect(() => JSON.parse(cut), "the cut output is no longer JSON").toThrow();
+    const { view } = output("read", cut);
+    expect(html(view.container.querySelector("[data-gmail-message], [data-gmail-detail]"))).toBeNull();
+    expect(text(view)).toContain("chars elided]");
+    expect(text(view), "GMAIL_CUT_FALLBACK_REVEALS").toContain("see the list‹U+202E›fdp.exe");
+    expect(text(view)).not.toContain("\u{202E}");
+    expect(controlsWith(view, SENDER_PATH), "GMAIL_CUT_FALLBACK_NO_LINKS").toEqual([]);
   });
 });
 
@@ -219,6 +361,8 @@ describe("the tool row: effect class and view", () => {
     ["a content message", "read", messageRead("content"), "read · content view"],
     ["the label list", "read", labelsRead(), "read · structured view"],
     ["a refusal", "read", refusal("read", "policy_denied", null, "The policy does not allow reading Gmail."), "read · no result"],
+    ["a refusal of a rate-limited search", "search", refusal("search", "rate_limited", null, "Gmail's request limit is used up."), "read · no result"],
+    ["a call refused as invalid input, never classified", "read", refusal("read", "invalid_input", "id", "That is not a Gmail thread id."), "no result"],
     ["output that is not a result", "read", "Gmail tool host failed: socket closed", "read"],
     ["a call still running", "search", undefined, "read"],
   ] as const) {
@@ -258,16 +402,21 @@ describe("the rest of a cut body", () => {
     expect(rest.length, "only the part after what Brain read").toBe(RAFT_FULL.length - RAFT_SHOWN.length);
   });
 
-  test("the loaded rest never enters the chat store a turn is built from, and the 'Brain read' line stays", async () => {
+  test("the loaded rest never enters the session's transcript: the stored call and the whole chat state stay byte-identical", async () => {
     answer = () => Response.json(raftBody());
-    const { view, root } = output("read", threadRead("content"));
+    const recorded = JSON.stringify(threadRead("content"));
+    const { view, root } = transcript(recorded);
+    expect(storedCall(root)?.output, "the card is drawn from the stored call").toBe(recorded);
+    expect(view.container.querySelector("[data-gmail-thread='content']"), "the stored call draws its thread").not.toBeNull();
     const before = JSON.stringify(root.stores.chat.getState());
     const brainRead = view.container.querySelector("[data-brain-read]")?.textContent;
     await press(view, showTheRest(view));
-    expect(text(view), "the rest is on screen").toContain(REST_MARK);
+    expect(storedCall(root)?.output, "GMAIL_REST_STORED_OUTPUT_UNCHANGED").toBe(recorded);
     const after = JSON.stringify(root.stores.chat.getState());
     expect(after.includes(REST_MARK), "GMAIL_REST_NEVER_IN_TRANSCRIPT").toBe(false);
     expect(after, "GMAIL_REST_DISPLAY_ONLY").toBe(before);
+    expect(detailState(view)).toEqual(["loaded"]);
+    expect(text(view), "the rest is on screen").toContain(REST_MARK);
     expect(view.container.querySelector("[data-brain-read]")?.textContent).toBe(brainRead);
   });
 
@@ -340,9 +489,79 @@ describe("the rest of a cut body", () => {
     });
   }
 
+  test("unmounting the card cancels the request in flight", async () => {
+    const late = deferred<Response>();
+    answer = () => late.promise;
+    const { view } = output("read", messageRead("content"));
+    await act(async () => fireEvent.click(showTheRest(view)));
+    expect(detailState(view)).toEqual(["loading"]);
+    expect(signals.length, "one request is in flight").toBe(1);
+    expect(signals[0]?.aborted, "not cancelled while the card is there").toBe(false);
+    await act(async () => view.unmount());
+    expect(signals[0]?.aborted, "GMAIL_REST_UNMOUNT_CANCELS").toBe(true);
+    late.resolve(Response.json(raftBody()));
+  });
+
+  test("two presses before the card redraws ask twice, and only the newer answer shows", async () => {
+    const first = deferred<Response>();
+    const second = deferred<Response>();
+    const replies = [first, second];
+    answer = () => replies.shift()!.promise;
+    const { view } = output("read", messageRead("content"));
+    const button = showTheRest(view);
+    await act(async () => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+    expect(detailCalls().length, "both presses asked").toBe(2);
+    await act(async () => second.resolve(Response.json(raftBody())));
+    expect(detailState(view)).toEqual(["loaded"]);
+    await act(async () => first.resolve(Response.json({ error: { code: "upstream_error", reason: null, message: "Late." } }, { status: 502 })));
+    expect(detailState(view), "GMAIL_REST_STALE_ANSWER_DROPPED").toEqual(["loaded"]);
+    expect(text(view)).toContain(REST_MARK);
+  });
+
   test("a search hit has no body, so a content search offers no rest", () => {
     const { view } = output("search", searchPage("content"), { input: SEARCH_INPUT });
     expect(view.container.querySelectorAll("[data-gmail-row='content']").length).toBe(3);
     expect(detailState(view)).toEqual([]);
+  });
+});
+
+describe("the rest's requests (createBodyLoader)", () => {
+  const cut = raftMessages[2]!;
+  const states = (published: [string, BodyDetail][]) => published.map(([id, d]) => `${id}:${d.state}`);
+  const loaded: GmailBodyResult = { ok: true, body: raftBody() };
+  const failed: GmailBodyResult = { ok: false, error: { code: "upstream_error", reason: null, message: "Late." } };
+
+  test("a stale answer that arrives after a newer request's does not overwrite it", async () => {
+    const published: [string, BodyDetail][] = [];
+    const loader = createBodyLoader((id, detail) => published.push([id, detail]));
+    const older = deferred<GmailBodyResult>();
+    const newer = deferred<GmailBodyResult>();
+    const a = loader.load(cut, () => older.promise);
+    const b = loader.load(cut, () => newer.promise);
+    newer.resolve(loaded);
+    await b;
+    older.resolve(failed);
+    await a;
+    expect(states(published), "GMAIL_REST_TICKET").toEqual([`${RAFT}:loading`, `${RAFT}:loading`, `${RAFT}:loaded`]);
+    expect(published.at(-1)?.[1].rest?.endsWith(REST_MARK)).toBe(true);
+  });
+
+  test("an answer that arrives after the card is gone sets nothing, and closing cancels the request", async () => {
+    const published: [string, BodyDetail][] = [];
+    const loader = createBodyLoader((id, detail) => published.push([id, detail]));
+    const late = deferred<GmailBodyResult>();
+    let signal: AbortSignal | undefined;
+    const pending = loader.load(cut, (s) => ((signal = s), late.promise));
+    loader.close();
+    expect(signal?.aborted, "closing cancels the request").toBe(true);
+    // A transport that ignores the cancel still answers: nothing may land.
+    late.resolve(loaded);
+    await pending;
+    expect(states(published), "GMAIL_REST_NOTHING_AFTER_UNMOUNT").toEqual([`${RAFT}:loading`]);
+    await loader.load(cut, () => Promise.resolve(loaded));
+    expect(states(published), "a closed loader starts nothing").toEqual([`${RAFT}:loading`]);
   });
 });

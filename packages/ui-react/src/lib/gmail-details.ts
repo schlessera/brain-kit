@@ -14,7 +14,7 @@ interface GmailBodyRequest {
   signal?: AbortSignal;
 }
 
-type GmailBodyResult = { ok: true; body: GmailMessageBody } | { ok: false; error: GoogleToolError };
+export type GmailBodyResult = { ok: true; body: GmailMessageBody } | { ok: false; error: GoogleToolError };
 
 const failed = (code: GoogleToolError["code"], reason: string | null, message: string): GmailBodyResult => ({ ok: false, error: { code, reason, message } });
 

@@ -446,7 +446,12 @@ export function ToolOutputView({ tool }: { tool: ToolCall }) {
 const CLAMP_HARD_CAP = 50_000;
 const CLAMP_SHOW_ALL_CAP = 200_000;
 
-export function ClampedPre({ text, isError }: { text: string; isError?: boolean }) {
+/**
+ * Output text in a clamped block. Bare repository paths in it become file
+ * links unless `linkify` is false, which draws the text as text: for words
+ * an outsider wrote, where a path is not the agent's and must not open one.
+ */
+export function ClampedPre({ text, isError, linkify = true }: { text: string; isError?: boolean; linkify?: boolean }) {
   const lines = countLines(text.trimEnd());
   const clampable = lines > 16 || text.length > 1600;
   const [showAll, setShowAll] = useState(false);
@@ -465,7 +470,7 @@ export function ClampedPre({ text, isError }: { text: string; isError?: boolean 
               : "bg-background/60 text-muted-foreground"
           )}
         >
-          {linkifyPaths(shown)}
+          {linkify ? linkifyPaths(shown) : shown}
           {text.length > shown.length && "\n…"}
         </pre>
         {/* The full text, not the clamped or capped rendering. */}
