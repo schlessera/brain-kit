@@ -2,6 +2,7 @@ import type { DraftAttachment } from "@schlessera/brain-ui-sdk/protocol";
 import type { PendingAttachment } from "./image-attachments.js";
 import type { ComposerDraft, DraftStoreState } from "../stores/draft-state.js";
 import type { StagedTracks } from "./draft-tracks.js";
+import { base64DecodedLength } from "./base64.js";
 
 /**
  * The words and small rules of per-session drafts (D52 §5, #951): what a
@@ -16,18 +17,12 @@ export function mintDraftId(): string {
     : `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
-/** base64 length → decoded byte count (accounts for `=` padding). */
-function decodedBytes(b64: string): number {
-  const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
-  return Math.floor((b64.length * 3) / 4) - padding;
-}
-
 /** A stored image as the composer holds one. Its preview is a data URL: nothing to revoke. */
 export function attachmentFromDraft(a: DraftAttachment): PendingAttachment {
   return {
     attachment: { data: a.bytes, mediaType: a.mime },
     previewUrl: `data:${a.mime};base64,${a.bytes}`,
-    bytes: decodedBytes(a.bytes),
+    bytes: base64DecodedLength(a.bytes),
     name: a.name ?? "image",
   };
 }
