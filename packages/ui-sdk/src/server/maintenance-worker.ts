@@ -17,7 +17,7 @@ import { pipeline } from "node:stream/promises";
 import { basename, dirname, join } from "node:path";
 import { prepareNativeMaintenanceIndex, authorizeNativeMaintenanceIndex, finishNativeMaintenanceIndex, prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { createWorkerPipes, createWorkerPipesSteps, fifoStream } from "./worker-pipes.js";
-import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, workerBootstrap, WorkerHostError, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
+import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, spawnQualifiedSteps, WorkerHostError, type GatedWorkerSpawn, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
 import { WorkerIdentityCleanupError, workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 import { createWorkerStartupView, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
@@ -25,7 +25,7 @@ import { reserveMaintenanceTemp, type MaintenanceTempDomain, type MaintenanceTem
 import { OUTPUT_STAGING_BYTES_ENV, resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
 import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
-import { runWorkerStepsAsync, runWorkerStepsSync, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
+import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, type WorkerSteps } from "./worker-steps.js";
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
 export const CREDENTIAL_FREE_ENV = ["PATH", "BRAIN_PATH", "BRAIN_ROOT", "NODE_ENV", "TZ", "LANG", "LC_ALL", "NO_COLOR",
@@ -310,16 +310,15 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
         kill: signal => running.kill(signal),
       };
     }
-    const boot = workerBootstrap(launch);
     pipes = yield* createWorkerPipesSteps();
-    child = Bun.spawn(boot.command, { cwd: "/", env: boot.env,
-      stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
-    registerWorker(child);
+    // The payload starts only once the host releases its start gate (#4301).
+    yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] },
+      spawned => { child = spawned; registerWorker(spawned); });
     pipes.closeChild();
     const ends = pipes.take();
     let inputClosed = false;
     const closeInput = () => { if (!inputClosed) { inputClosed = true; closeSync(ends.stdin); } };
-    const running = child;
+    const running = child!;
     return {
       async input(data) {
         try {
@@ -494,7 +493,37 @@ export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs
   return runWorkerStepsSync(runMaintenanceWorkerSteps(input));
 }
 
-function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: number }): WorkerSteps<MaintenanceResult> {
+/**
+ * Wait for a gated launch's outer process, killing it with SIGTERM at the
+ * deadline as `Bun.spawnSync`'s timeout did. `exitCode` is null when a signal
+ * ended it. The synchronous form never returns to the event loop, so it reads
+ * the exit status the kernel keeps for an unreaped child.
+ */
+function awaitExitSteps(child: ReturnType<typeof Bun.spawn>, deadline?: number): WorkerSteps<{ exitCode: number | null }> {
+  return workerStep(() => {
+    let signalled = false;
+    for (let wait = 1; ; wait = Math.min(wait * 2, 10)) {
+      let stat: string | undefined;
+      try { stat = readFileSync(`/proc/${child.pid}/stat`, "utf8"); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      if (stat === undefined) {
+        if (child.exitCode !== null || child.signalCode !== null) return { exitCode: child.exitCode };
+        throw new WorkerHostError("the maintenance worker's exit status is unavailable");
+      }
+      const fields = stat.slice(stat.lastIndexOf(") ") + 2).split(" ");
+      if (fields[0] === "Z") { const status = Number(fields[49]); return { exitCode: status & 0x7f ? null : (status >> 8) & 0xff }; }
+      if (!signalled && deadline !== undefined && Date.now() >= deadline) { signalled = true; child.kill("SIGTERM"); }
+      Bun.sleepSync(wait);
+    }
+  }, async () => {
+    const timer = deadline === undefined ? undefined : setTimeout(() => child.kill("SIGTERM"), Math.max(0, deadline - Date.now()));
+    try { await child.exited; } finally { clearTimeout(timer); }
+    return { exitCode: child.exitCode };
+  });
+}
+
+/** @internal The stepped form of `runMaintenanceWorkerSync`, for a caller that drives it inside its own steps. */
+export function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: number }): WorkerSteps<MaintenanceResult> {
   const limits = input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits();
   const reservation = reserveMaintenanceTemp(limits, tempDomain(input), input.tempKind);
   let startupView: WorkerStartupView | undefined;
@@ -505,12 +534,17 @@ function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: num
     // Synchronous callers cannot prepare an unreadable protected stage.
     // workerCommand refuses that stage before any payload or helper starts.
     preparedMaintenanceCommands.delete(input);
-    const boot = workerBootstrap(launch);
     pipes = yield* createWorkerPipesSteps();
-    const child = yield* workerStepSpawn(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],
-      stdout: pipes.child[1], stderr: pipes.child[2], timeout: input.timeoutMs });
-    pipes.closeChild(); pipes.closeInput();
+    let spawned: ReturnType<typeof Bun.spawn> | undefined;
+    let gated: GatedWorkerSpawn;
+    // The payload starts only once the host releases its start gate (#4301).
+    try { gated = yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] }, child => { spawned = child; }); }
+    catch (error) { if (spawned) yield* awaitExitSteps(spawned); throw error; }
+    pipes.closeChild();
+    // The caller's deadline counts from the spawn, as it did for spawnSync.
+    const { exitCode } = yield* awaitExitSteps(gated.child, gated.spawnedAt + input.timeoutMs);
+    pipes.closeInput();
     return { stdout: readFileSync(pipes.parent[1], "utf8"), stderr: readFileSync(pipes.parent[2], "utf8"),
-      exitCode: child.exitCode ?? 1, killed: child.exitCode === null };
+      exitCode: exitCode ?? 1, killed: exitCode === null };
   } finally { try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } } }
 }

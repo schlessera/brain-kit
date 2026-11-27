@@ -1129,6 +1129,51 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: {
   } };
 }
 
+/** A direct-spawn launch held at its start gate, then released (#4301). */
+export interface GatedWorkerSpawn {
+  child: ReturnType<typeof Bun.spawn>;
+  /** When the spawn happened; a caller's deadline counts from here. */
+  spawnedAt: number;
+  /** The sandbox's PID, absent when bubblewrap exited before reporting it: no payload started. */
+  pid?: number;
+}
+
+/**
+ * Spawn a caller-command launch behind START_GATE and release it (#4301): the
+ * direct-spawn maintenance and transport launches. Every caller runs as the
+ * server, so the status pipe belongs to the spawning UID. Bubblewrap that exits
+ * before reporting its PID never opened the gate; its own exit code and stderr
+ * stand, as they did before the gate existed. Any other failure kills the
+ * sandbox and throws; the gate shell exits 125 if the server dies first.
+ */
+export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number; stdout: number; stderr: number },
+  onSpawn?: (child: ReturnType<typeof Bun.spawn>) => void): WorkerSteps<GatedWorkerSpawn> {
+  const status = yield* createWorkerStatusPipeSteps();
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  try {
+    const boot = workerBootstrap(input, undefined, status);
+    const spawnedAt = Date.now();
+    child = Bun.spawn(boot.command, { cwd: "/", env: boot.env, ...stdio });
+    onSpawn?.(child);
+    let pid: number;
+    try { pid = yield* status.childPidSteps(child.pid, spawnedAt + STATE_SETUP_MS); }
+    catch (error) {
+      if (error instanceof Error && error.message === "bubblewrap exited before reporting worker status") { status.close(child); return { child, spawnedAt }; }
+      throw new WorkerHostError(error instanceof Error ? error.message : String(error));
+    }
+    status.closeWriter();
+    const supervisor = child;
+    void child.exited.finally(() => status.close(supervisor));
+    status.release();
+    return { child, spawnedAt, pid };
+  } catch (error) {
+    // An unreleased start gate closes only after its sandbox is dead (#3387).
+    status.close(child);
+    child?.kill("SIGKILL");
+    throw error;
+  }
+}
+
 /** How close to a worker's death its own memory limit and an OOM kill must be to have caused it. */
 const FATAL_OOM_WINDOW_MS = 1_000;
 
