@@ -9,6 +9,8 @@ import { runActivityQuery } from "../src/activity/query.js";
 import { createUiDb } from "../src/db/client.js";
 import { ACTIVITY_SQL } from "../src/activity/sql.js";
 import { queryPlan, recordStatements } from "./helpers/statement-recorder.js";
+import { readLifecycleReceipts, seedLifecycleReceipts } from "./helpers/lifecycle-receipts.js";
+import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
 import {
   createActivityStore,
   rowToRunRollup,
@@ -1346,5 +1348,47 @@ describe("activity store: a session's previous root span (#4801)", () => {
       db.query("INSERT INTO activity_run_rollups(run_id,origin,name,session_id,started_at,detail_pruned) VALUES('voyage-2','session','invoke_agent','ithaca',2000,1)").run();
       expect(store.previousSessionRoot!("voyage-3-root", "ithaca")).toBeNull();
     } finally { db.close(); }
+  });
+});
+
+describe("activity store: lifecycle reads join their client receipts (#4802)", () => {
+  test("every lifecycle read returns the records captured before the receipt moved into the statement", () => {
+    const { store, db } = freshStore();
+    try {
+      seedLifecycleReceipts(db, store);
+      expect(readLifecycleReceipts(store)).toEqual(JSON.parse(readFileSync(new URL("./fixtures/activity-lifecycle-receipts.golden.json", import.meta.url), "utf8")));
+    } finally { db.close(); }
+  });
+
+  const seeded = (turns: number) => {
+    const { store, db } = freshStore();
+    for (let i = 0; i < turns; i++) {
+      const at = 1_000 + i * 1_000;
+      createTurnLifecycle(store, `voyage-${i}`, "ithaca", at, () => {}, () => at + 300, "odysseus").finish("success");
+    }
+    return { db, count<T>(read: (store: ActivityStore) => T) {
+      const recorded = recordStatements(db), value = read(createActivityStore(recorded.db));
+      return { value, statements: recorded.statements.length };
+    } };
+  };
+
+  test("a session's lifecycle snapshot runs the same statements for 10 and for 100 lifecycles", () => {
+    const [small, large] = [10, 100].map(seeded);
+    try {
+      const few = small!.count(store => store.snapshotLifecycles!({ sessionId: "ithaca" })), many = large!.count(store => store.snapshotLifecycles!({ sessionId: "ithaca" }));
+      expect([few.value.lifecycles.length, many.value.lifecycles.length]).toEqual([10, 100]);
+      expect(Object.values(many.value.highWaterSeq).every(seq => seq > 0)).toBe(true);
+      expect(many.statements).toBe(few.statements);
+    } finally { small!.db.close(); large!.db.close(); }
+  });
+
+  test("lifecycle changes run the same statements for 10 and for 100 change rows", () => {
+    const [small, large] = [10, 100].map(seeded);
+    try {
+      const few = small!.count(store => store.lifecycleChangesSince(0)), many = large!.count(store => store.lifecycleChangesSince(0));
+      expect(few.value.length).toBeGreaterThanOrEqual(10);
+      expect(many.value.length).toBeGreaterThanOrEqual(100);
+      expect(many.statements).toBe(few.statements);
+    } finally { small!.db.close(); large!.db.close(); }
   });
 });
