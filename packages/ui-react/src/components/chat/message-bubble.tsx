@@ -6,7 +6,7 @@ import { HandoffCard } from "./handoff-links.js";
 import { AskUserFormExchangeCard } from "./ask-user-form-card.js";
 import type { AskUserFormAnswers, AttachmentFile, AttachmentReadEntry } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import type {
   ChatMessage,
@@ -28,7 +28,8 @@ import { StatsAnswer } from "./stats/stats-answer.js";
 import { LocalExchangeNote } from "./local-exchange-note.js";
 import { BlockCard } from "./tool-cards/block-card.js";
 import { AnswerSuggestions } from "./answer-suggestions.js";
-import { SHOW_BLOCK_CONTRACT, parseToolPayload, type ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
+import { SHOW_BLOCK_CONTRACT, type ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
+import { cachedToolPayload } from "./renderers/payload-cache.js";
 import { motion, useReducedMotion } from "framer-motion";
 import { buildMessageShareOptions } from "./message-share.js";
 import { ShareMenu } from "../share/share-menu.js";
@@ -99,11 +100,17 @@ export const MessageBubble = memo(function MessageBubble({
   anchor,
   journalVisible = true,
   arrival,
-  taskContext,
+  taskSessionId,
+  onRevealTask,
 }: {
   message: ChatMessage;
-  /** Exact host request/result navigation supplied by the owning transcript. */
-  taskContext?: ReactNode;
+  /**
+   * Exact host request/result navigation for a voice-context row: the
+   * session the task row reads, and the owning transcript's reveal (#4752).
+   * A primitive and a stable callback, never an element, so the memo holds.
+   */
+  taskSessionId?: string | null;
+  onRevealTask?: (key: string) => void;
   arrival?: TranscriptRange;
   /** Its place in the transcript, which a reload keeps (#1014): where the reader was is restored by it. */
   anchor?: string;
@@ -164,7 +171,7 @@ export const MessageBubble = memo(function MessageBubble({
       {isUser && message.source === "handoff" ? (
         <HandoffCard content={message.content} />
       ) : isUser && message.source === "voice-context" ? (
-        taskContext ?? <ConversationTaskContext message={message} />
+        <ConversationTaskContext message={message} sessionId={taskSessionId} onReveal={onRevealTask} />
       ) : isUser ? (
         <UserTurn spoken={spoken}>
           {spoken && message.content && <span className="chat-message-body whitespace-pre-wrap">{linkifyPaths(message.content)}</span>}
@@ -311,7 +318,9 @@ function groupParts(
         // renders inline where it was called. Until the echo arrives, and
         // when it does not parse (a rejected call, an older server), the
         // call stays in the timeline, where its bound fallback states why.
-        const payload = parseToolPayload(SHOW_BLOCK_CONTRACT, tool.output);
+        // Cached per tool-call object (#4749), so an unchanged call is the
+        // same payload on every render and its memoized card bails out.
+        const payload = cachedToolPayload(SHOW_BLOCK_CONTRACT, tool);
         // Suggestions are the one exception (D50): not part of the answer
         // but an offer after it, drawn in the closing row, so their call
         // position draws nothing — neither a block nor a trace step.
