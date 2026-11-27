@@ -6,9 +6,8 @@
  * classifier that never answers.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { tempDirs } from "../../../tests/helpers/temp";
 import { Database } from "bun:sqlite";
-import { existsSync, unlinkSync } from "fs";
-import { tmpdir } from "os";
 import { join } from "path";
 
 import type { ServerMessage, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
@@ -55,6 +54,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 const silentLog = createSilentObservability().logger("test");
+const tempDir = tempDirs();
 
 describe("the timed client", () => {
   test("no key: enabled is false and classify answers no_key without a request", async () => {
@@ -294,12 +294,11 @@ describe("the blocks store and the history join", () => {
   let db: Database;
   let path: string;
   beforeEach(() => {
-    path = join(tmpdir(), `blocks-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    path = join(tempDir("blocks-"), "ui.db");
     db = createUiDb(path);
   });
   afterEach(() => {
     db.close();
-    for (const suffix of ["", "-wal", "-shm"]) if (existsSync(path + suffix)) unlinkSync(path + suffix);
   });
 
   const block = { partIndex: 0, start: 0, end: 5, block: { kind: "quote" as const, quote: "Words." }, confidence: 0.9 };
@@ -358,12 +357,11 @@ describe("the pass", () => {
   let db: Database;
   let path: string;
   beforeEach(() => {
-    path = join(tmpdir(), `pass-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    path = join(tempDir("pass-"), "ui.db");
     db = createUiDb(path);
   });
   afterEach(() => {
     db.close();
-    for (const suffix of ["", "-wal", "-shm"]) if (existsSync(path + suffix)) unlinkSync(path + suffix);
   });
 
   function classifier(jev: Omit<JevClient, "breaker">) {
@@ -430,12 +428,11 @@ describe("the confidence record", () => {
   let db: Database;
   let path: string;
   beforeEach(() => {
-    path = join(tmpdir(), `confidence-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    path = join(tempDir("confidence-"), "ui.db");
     db = createUiDb(path);
   });
   afterEach(() => {
     db.close();
-    for (const suffix of ["", "-wal", "-shm"]) if (existsSync(path + suffix)) unlinkSync(path + suffix);
   });
 
   const TEXT = `Two ways home.\n\n${COMPARISON}\n\nPick one.`;
@@ -723,12 +720,11 @@ describe("a turn that did not succeed never reaches the pass", () => {
   let db: Database;
   let path: string;
   beforeEach(() => {
-    path = join(tmpdir(), `turn-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    path = join(tempDir("turn-"), "ui.db");
     db = createUiDb(path);
   });
   afterEach(() => {
     db.close();
-    for (const suffix of ["", "-wal", "-shm"]) if (existsSync(path + suffix)) unlinkSync(path + suffix);
   });
 
   test("a cancelled turn and an error turn record nothing; a successful one records", async () => {

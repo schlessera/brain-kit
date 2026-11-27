@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { beforeAll, describe, expect, test } from "bun:test";
+import { tempDirs } from "../../../tests/helpers/temp";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
@@ -15,14 +15,13 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 // database) or another root gets a different one; an agent gets none.
 
 const PASSWORD = "Ithaca is the harbour, not the voyage";
-const scratch = join(tmpdir(), `account-partition-${process.pid}`);
+const scratch = tempDirs({ scope: "file" })("account-partition-");
 let passwordHash = "";
 
 beforeAll(async () => {
   passwordHash = await Bun.password.hash(PASSWORD);
   for (const dir of ["ithaca", "pylos"]) mkdirSync(join(scratch, dir), { recursive: true });
 });
-afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
 type Mode = "password" | "none" | "proxy";
 async function host(options: { db: string; brain: string; mode?: Mode }) {
