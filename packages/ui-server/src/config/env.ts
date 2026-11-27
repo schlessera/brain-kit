@@ -65,11 +65,6 @@ function parseDefaultThinkingLevel(raw: string | undefined): ThinkingLevel {
 }
 
 /**
- * The shared descriptor contract (@schlessera/brain-common/internal/env),
- * under the name this package has always exported. This package's entries
- * use the `string` arm of `required` for conditionally-required variables
- * (e.g. "AUTH_MODE=password") and `null` for "no default".
- *
  * One environment variable the server reads.
  *
  * Deliberately LOCAL and narrower than the shared EnvVarSpec: this is the
