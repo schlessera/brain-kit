@@ -1,6 +1,7 @@
 /** Optional installed RTK evidence belongs to one kernel-observed live worker. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
+import { parseProcStat, type ProcStat } from "./proc-identity.js";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { rewriteInstalledRtk } from "./rtk.js";
 import type { LaunchedWorker, WorkerLaunch } from "./worker-launcher.js";
@@ -8,9 +9,11 @@ import type { LaunchedWorker, WorkerLaunch } from "./worker-launcher.js";
 interface View { pid: number; start: string; input: WorkerLaunch; alive: boolean; execution?: { pid: number; start: string }; }
 const views = new WeakMap<object, View>();
 function start(pid: number): string {
-  const fields = readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ");
-  if (["Z", "X"].includes(fields[0]!) || !/^\d+$/.test(fields[19] ?? "")) throw new Error("RTK worker identity unavailable");
-  return fields[19]!;
+  const line = readFileSync(`/proc/${pid}/stat`, "utf8");
+  let stat: ProcStat;
+  try { stat = parseProcStat(line); } catch { throw new Error("RTK worker identity unavailable"); }
+  if (["Z", "X"].includes(stat.state)) throw new Error("RTK worker identity unavailable");
+  return stat.start;
 }
 export function registerWorkerRtk(worker: LaunchedWorker, pid: number, input: WorkerLaunch): void {
   try {

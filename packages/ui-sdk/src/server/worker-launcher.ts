@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
 import { createWorkerFreezer } from "./worker-freezer.js";
+import { parseProcStat, procChildren, readProcStat } from "./proc-identity.js";
 import { createWorkerFileObserver, type ObservedWorkerFile } from "./worker-file-observer.js";
 import { createWorkerPipes, createWorkerPipesSteps } from "./worker-pipes.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, workerStepSleep, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
@@ -1236,7 +1237,7 @@ export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["st
 
 /** Whether a process has exited: gone, or a zombie its parent has not reaped yet. */
 function exited(pid: number): boolean {
-  try { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").startsWith("Z"); }
+  try { const stat = readProcStat(pid); return stat === undefined || stat.state === "Z"; }
   catch { return true; }
 }
 
@@ -1245,20 +1246,10 @@ function exited(pid: number): boolean {
  * the kernel's own record of bubblewrap's children, so nothing inside the
  * sandbox can name it.
  */
-function sandboxPid(bwrap: number, deadline: number): number {
+export function sandboxPid(bwrap: number, deadline: number): number {
   for (;;) {
-    let children: string[] = [];
-    try { children = readFileSync(`/proc/${bwrap}/task/${bwrap}/children`, "utf8").trim().split(/\s+/).filter(Boolean); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      // Without CONFIG_PROC_CHILDREN, find it by parent process id.
-      for (const name of readdirSync("/proc")) {
-        if (!/^\d+$/.test(name)) continue;
-        try { if (readFileSync(`/proc/${name}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[1] === String(bwrap)) children.push(name); }
-        catch { /* gone meanwhile */ }
-      }
-    }
-    if (children.length === 1) return Number(children[0]);
+    const children = procChildren(bwrap);
+    if (children.length === 1) return children[0]!.pid;
     if (children.length > 1) throw new WorkerHostError("bubblewrap started more than one sandbox process");
     if (exited(bwrap)) throw new WorkerHostError("bubblewrap exited before it started its sandbox");
     if (Date.now() > deadline) throw new WorkerHostError("bubblewrap did not start its sandbox in time");
@@ -1451,7 +1442,7 @@ export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutpu
     // resolved inside the keeper namespace, then masked by their own /tmp.
     const root = `/proc/${process.pid}/fd/${owned}`;
     void child.exited.finally(() => pipes!.cleanup());
-    const namespaceStart = readFileSync(`/proc/${namespacePid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!;
+    const namespaceStart = parseProcStat(readFileSync(`/proc/${namespacePid}/stat`, "utf8")).start;
     return { root, mount, namespacePid, namespaceStart, allowanceBytes: reservation.outputStagingBytes,
       retain() { if (closed) throw new Error("output staging is closed"); refs++; },
       release() { if (closed || --refs > 0) return; closed = true; child!.kill("SIGKILL"); closeSync(owned); rmSync(mount, { recursive: true, force: true }); reservation.release(); },

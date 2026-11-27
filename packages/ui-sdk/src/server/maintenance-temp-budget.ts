@@ -2,6 +2,7 @@
 import type { Database } from "bun:sqlite";
 import { createRequire } from "node:module";
 import { accessSync, closeSync, constants, fchmodSync, fchownSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, unlinkSync } from "node:fs";
+import { parseProcStat, type ProcStat } from "./proc-identity.js";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { WorkerStateError } from "./worker-state-budget.js";
@@ -31,10 +32,9 @@ export interface MaintenanceTempReservation {
 
 const directory = () => `/tmp/brain-maintenance-budget-${process.getuid?.() ?? 0}`;
 function identity(pid = process.pid): Identity {
-  const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-  const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-  const start = fields[19];
-  if (!start) throw new Error("maintenance admission requires Linux process start identities");
+  const line = readFileSync(`/proc/${pid}/stat`, "utf8");
+  let start: string;
+  try { start = parseProcStat(line).start; } catch { throw new Error("maintenance admission requires Linux process start identities"); }
   return { pid, start, boot: readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim(), namespace: readlinkSync(`/proc/${pid}/ns/pid`) };
 }
 function alive(value: string): boolean {
@@ -44,11 +44,10 @@ function alive(value: string): boolean {
     // A shared ledger must not reinterpret an unrelated PID in another PID
     // namespace as positively dead ownership. Unknown ownership stays held.
     if (saved.namespace !== readlinkSync("/proc/self/ns/pid")) return true;
-    const stat = readFileSync(`/proc/${saved.pid}/stat`, "utf8");
-    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-    const state = fields[0];
-    if (!state || !fields[19]) throw new Error("maintenance process ownership cannot be verified");
-    return state !== "Z" && state !== "X" && fields[19] === saved.start;
+    const line = readFileSync(`/proc/${saved.pid}/stat`, "utf8");
+    let stat: ProcStat;
+    try { stat = parseProcStat(line); } catch { throw new Error("maintenance process ownership cannot be verified"); }
+    return stat.state !== "Z" && stat.state !== "X" && stat.start === saved.start;
   } catch (error) {
     // Only positively dead ownership is recovered. Restricted procfs refuses
     // admission instead of forgetting a live command's reservation.

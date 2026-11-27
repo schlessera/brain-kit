@@ -2,6 +2,7 @@
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { INDEX_DB_PATH } from "@schlessera/brain-common/internal/index-location";
 import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
+import { parseProcStat } from "./proc-identity.js";
 import { open } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -241,7 +242,7 @@ function walIndexEntry(root: string, rel: string): Entry | undefined {
   let handle: ReturnType<typeof parent>; try { handle = parent(root, rel); } catch (error) { if (absent(error)) return undefined; throw error; }
   try { return walIndexAt(handle.fd, handle.name); } finally { closeSync(handle.fd); }
 }
-function processStart(pid: number) { return Bun.file(`/proc/${pid}/stat`).text().then(t => t.replace(/^.*\) /s, "").split(" ")[19]); }
+function processStart(pid: number) { return Bun.file(`/proc/${pid}/stat`).text().then(t => parseProcStat(t).start); }
 /** Acquisition completes before any synchronous SDK spawn callback. No copy/userxattr fallback. */
 export async function prepareNativeWorkerOutput(brain: string, options: { startupView: WorkerStartupView; areas?: readonly string[]; folderPaths?: readonly string[]; signal?: AbortSignal }): Promise<PreparedWorkerOutput> {
   options.signal?.throwIfAborted();
@@ -625,7 +626,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           throw Error("native maintenance stage owner is closed or foreign");
         const current = fstatSync(fd, { bigint: true });
         if (current.dev !== info.dev || current.ino !== info.ino
-          || readFileSync(`/proc/${stage.namespacePid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19] !== stage.namespaceStart)
+          || parseProcStat(readFileSync(`/proc/${stage.namespacePid}/stat`, "utf8")).start !== stage.namespaceStart)
           throw Error("native maintenance stage identity changed");
         if (!input.startupView || input.startupView.root !== native.checkpoint.path || input.startupView.brain !== brain)
           throw Error("native maintenance checkpoint owner is absent or changed");
