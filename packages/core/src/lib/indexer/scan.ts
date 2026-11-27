@@ -96,19 +96,21 @@ export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
 /**
  * Every document row already in the index, keyed by path.
  *
- * Loaded once per run and used for three different things, which is why it is
+ * Loaded once per run and used for four different things, which is why it is
  * read even on a `--force` rebuild: change detection, the `accepted_mtime`
  * carry-over (a force rebuild that dropped it would silently reset every
- * silent-edit baseline), and the asset stat-fingerprint fast path.
+ * silent-edit baseline), the asset stat-fingerprint fast path, and the
+ * candidates of the deletion sweep. A targeted run plans from it too.
  */
 export function loadExistingDocs(db: Database): Map<string, ExistingDoc> {
   const rows = db
-    .prepare("SELECT id, path, content_hash, chunker_version, accepted_mtime, stat_fingerprint FROM documents")
+    .prepare("SELECT id, path, asset_type, content_hash, chunker_version, accepted_mtime, stat_fingerprint FROM documents")
     .all() as (ExistingDoc & { path: string })[];
   const existing = new Map<string, ExistingDoc>();
   for (const row of rows) {
     existing.set(row.path, {
       id: row.id,
+      asset_type: row.asset_type,
       content_hash: row.content_hash,
       chunker_version: row.chunker_version,
       accepted_mtime: row.accepted_mtime,
@@ -148,36 +150,43 @@ function isScannedMarkdown(root: string, taxonomy: Taxonomy, path: string): bool
  */
 export function targetedScan(run: IndexRun, options: IndexOptions, existingDocs: Map<string, ExistingDoc>): TargetedScan | undefined {
   if (!options.paths || run.force || run.wantEmbeddings || run.ftsRebuilt) return undefined;
-  const rows = run.db.prepare("SELECT path, asset_type FROM documents").all() as { path: string; asset_type: string }[];
-  const markdown = rows.filter((row) => row.asset_type === "markdown").map((row) => row.path);
-  if (markdown.length === 0) return undefined;
-  for (const path of markdown) {
-    const existing = existingDocs.get(path)!;
+  const markdown: string[] = [];
+  const assetsIndexed = new Set<string>();
+  for (const [path, existing] of existingDocs) {
+    if (existing.asset_type !== "markdown") {
+      assetsIndexed.add(path);
+      continue;
+    }
     if (existing.content_hash === null || existing.chunker_version !== CHUNKER_VERSION) return undefined;
+    markdown.push(path);
   }
+  if (markdown.length === 0) return undefined;
   const named = new Set(options.paths);
   return {
     present: [...named].filter((path) => isScannedMarkdown(run.root, run.taxonomy, path)).sort(),
     unnamed: markdown.filter((path) => !named.has(path)),
-    assetsIndexed: new Set(rows.filter((row) => row.asset_type !== "markdown").map((row) => row.path)),
+    assetsIndexed,
   };
 }
 
 /**
- * Add the corpus the targeted parse did not read to its maps: every unnamed
- * row's title and aliases, as the index recorded them from that row's own
- * frontmatter. Link resolution then sees the same corpus a complete run does.
+ * Add the corpus the parse did not read to its maps: the title and aliases of
+ * every row in `fromIndex` (a targeted run's unnamed rows, and any file the parse
+ * found unchanged), as the index recorded them from that row's own
+ * frontmatter. Link resolution then sees the same corpus a full parse does.
  */
-export function completeCorpusMaps(run: IndexRun, parsed: ParseResult, unnamed: readonly string[]): ParseResult {
-  const read = run.db.prepare(
-    "SELECT d.title, f.aliases FROM documents d LEFT JOIN documents_fts f ON f.rowid = d.id WHERE d.path = ?"
-  );
+export function completeCorpusMaps(run: IndexRun, parsed: ParseResult, fromIndex: readonly string[]): ParseResult {
+  const wanted = new Set(fromIndex);
   const titles = new Map(parsed.fileMap);
   const aliases = new Map<string, string[]>();
   for (const [alias, paths] of parsed.aliasMap) for (const path of paths) aliases.set(path, [...(aliases.get(path) ?? []), alias]);
-  for (const path of unnamed) {
-    const row = read.get(path) as { title: string; aliases: string | null } | null;
-    if (!row) continue;
+  // One statement for the whole corpus, not one per row it fills.
+  const rows = run.db.prepare<{ path: string; title: string; aliases: string | null }, []>(
+    "SELECT d.path, d.title, f.aliases FROM documents d LEFT JOIN documents_fts f ON f.rowid = d.id WHERE d.asset_type = 'markdown'"
+  );
+  for (const row of rows.iterate()) {
+    const path = row.path;
+    if (!wanted.has(path)) continue;
     titles.set(path, row.title);
     const keys = (row.aliases ?? "").split("\n").map((alias) => alias.toLowerCase().trim()).filter(Boolean);
     if (keys.length) aliases.set(path, keys);
