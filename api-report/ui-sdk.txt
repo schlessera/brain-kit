@@ -1574,6 +1574,7 @@ export "./internal" (./src/internal.ts)
   createCleanupReconciler
   createLimitTracker
   createNativeBrainManagerClient
+  createPrivateSocketDirectory
   createSessionRetirement
   createStateLedger
   createTurnTempPressure
@@ -1672,6 +1673,7 @@ export "./internal" (./src/internal.ts)
   safetyRecordSchema
   sameAuthority
   sameSafetyAdmission
+  securePrivateSocket
   sessionPromptContext
   sessionPromptContextLocation
   sessionReplay

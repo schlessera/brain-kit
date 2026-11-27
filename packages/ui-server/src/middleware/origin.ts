@@ -21,6 +21,49 @@ function webOriginProtocol(forwarded: string): string {
 }
 
 /**
+ * The first `X-Forwarded-Proto` value, trimmed and lowercased; `undefined`
+ * when the header is absent or its first value is empty. Callers decide
+ * whether the proxy is trusted before reading it.
+ */
+function forwardedScheme(c: Context): string | undefined {
+  return c.req.header("x-forwarded-proto")?.split(",", 1)[0]?.trim().toLowerCase() || undefined;
+}
+
+/**
+ * The request's externally visible origin, for the routes that require an
+ * exact Origin. The host is the `Host` header, or the request URL's host when
+ * the header is absent; the scheme is the first trusted `X-Forwarded-Proto`
+ * value, or the request URL's scheme. `undefined` when the scheme is not
+ * `http` or `https` (a proxy's `ws` / `wss` is not mapped here) or the parts
+ * do not form an origin.
+ */
+function requestOrigin(c: Context, trustProxy: boolean): string | undefined {
+  const url = new URL(c.req.url);
+  const forwarded = trustProxy ? forwardedScheme(c) : undefined;
+  const protocol = forwarded ? `${forwarded}:` : url.protocol;
+  if (protocol !== "http:" && protocol !== "https:") return undefined;
+  try {
+    return new URL(`${protocol}//${c.req.header("host") ?? url.host}`).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The exact-origin check for browser mutations that must carry their real
+ * Origin whatever their fetch metadata claims: an `Origin` header is present
+ * and equals `requestOrigin`. Each route answers a refusal with its own body.
+ */
+export function requireExactOrigin(trustProxy: boolean): (c: Context) => boolean {
+  return (c) => {
+    const origin = c.req.header("origin");
+    if (!origin) return false;
+    const expected = requestOrigin(c, trustProxy);
+    return expected !== undefined && origin === expected;
+  };
+}
+
+/**
  * Compare the browser's Origin with the request's externally visible origin.
  *
  * Without a trusted proxy the server cannot know whether TLS was terminated
@@ -38,9 +81,9 @@ function originMatchesRequest(
   const parsedOrigin = new URL(origin);
   if (!trustProxy) return parsedOrigin.host === host;
 
-  const forwarded = c.req.header("x-forwarded-proto")?.split(",", 1)[0]?.trim();
+  const forwarded = forwardedScheme(c);
   const protocol = forwarded
-    ? webOriginProtocol(forwarded.toLowerCase())
+    ? webOriginProtocol(forwarded)
     : new URL(c.req.url).protocol;
 
   return parsedOrigin.origin === new URL(`${protocol}//${host}`).origin;

@@ -5,7 +5,8 @@ import { chargeReceivedBytes } from "./egress-accounting.js";
 import { createServer, request as httpRequest, type IncomingMessage } from "node:http";
 import { BlockList, connect, isIP, type Socket } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { chmodSync, chownSync, mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
+import { createPrivateSocketDirectory, securePrivateSocket } from "./private-socket-dir.js";
 import { tmpdir } from "node:os";
 import { safetyRecordSchema } from "../safety.js";
 import { createEgressOperation, TransportHandoffFailed } from "./egress-operation.js";
@@ -306,11 +307,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid outward port");
   }
   const separateIdentity = Boolean(workerIdentityHelper());
-  const dir = mkdtempSync(join(tmpdir(), "brain-egress-"));
-  try {
-    if (separateIdentity) chownSync(dir, process.getuid!(), process.getgid!());
-    chmodSync(dir, separateIdentity ? 0o750 : 0o700);
-  } catch (error) { rmSync(dir, { recursive: true, force: true }); throw error; }
+  const dir = createPrivateSocketDirectory(join(tmpdir(), "brain-egress-"), separateIdentity);
   const socketPath = join(dir, "proxy.sock");
   const inputCurrent = (id: string) => { try { return options.inputCurrent?.(id) !== false; } catch { return false; } };
   const connections = new Set<Socket>();
@@ -721,8 +718,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   server.on("clientError", (_error, socket) => socket.destroy());
   try {
     await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, () => { server.removeListener("error", reject); resolve(); }); });
-    if (separateIdentity) chownSync(socketPath, process.getuid!(), process.getgid!());
-    chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);
+    securePrivateSocket(dir, socketPath, separateIdentity);
   } catch (error) { server.close(); rmSync(dir, { recursive: true, force: true }); throw error; }
   const stop = () => {
     if (stopped) return;

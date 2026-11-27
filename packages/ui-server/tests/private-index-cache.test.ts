@@ -483,13 +483,15 @@ test("the cache identity covers the brain, policy, masks, recipient, mask paths 
  * every delta. `entered` resolves when a delta reaches the gate and `running`
  * when a held run starts, so a test waits for that point instead of a
  * fixed interval. */
-function bench(options: { entries?: number; idleMs?: number; report?: (message: string) => void } = {}) {
+function bench(options: { entries?: number; idleMs?: number | "default"; report?: (message: string) => void;
+  clock?: ReturnType<typeof privateIndexClock>; now?: () => number } = {}) {
   privateTmp();
   const root = mkdtempSync(join(tmpdir(), "odysseus-private-index-bound-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "brain/notes"), { recursive: true }); writeFileSync(join(root, "brain/notes/eagle.md"), "x");
   const state = { gate: Promise.resolve(), holdRuns: false, acquired: 0, failAcquire: false,
     entered: () => {}, running: () => {} };
-  const cache = createPrivateIndexCache({ report: options.report ?? (() => {}), entries: options.entries ?? 2, idleMs: options.idleMs ?? 200,
+  const cache = createPrivateIndexCache({ report: options.report ?? (() => {}), entries: options.entries ?? 2,
+    ...(options.idleMs === "default" ? {} : { idleMs: options.idleMs ?? 200 }), ...options.clock?.options, ...(options.now ? { now: options.now } : {}),
     differ: async (from, to, signal) => {
       // A held delta still ends when the cache closes, as the native one does.
       state.entered();
@@ -534,7 +536,7 @@ test("the cache keeps a bounded number of bases and releases their checkpoints o
   // The cache's idle timers run on a test clock; checkpoints and files stay native.
   const clock = privateIndexClock();
   try {
-    const { cache, views, prepare, live, bases } = bench();
+    const { cache, views, prepare, live, bases } = bench({ clock });
     expect((await prepare("one")).kind).toBe("built");
     expect((await prepare("two")).kind).toBe("built");
     expect(views.map(live), "EACH_BASE_RETAINS_ITS_CHECKPOINT").toEqual([true, true]);
@@ -555,7 +557,7 @@ test("the cache keeps a bounded number of bases and releases their checkpoints o
 test("concurrent keys keep the bound, and a base a turn is reconciling is neither evicted nor expired under it", async () => {
   const clock = privateIndexClock();
   try {
-    const b = bench({ entries: 1, idleMs: 150 });
+    const b = bench({ entries: 1, idleMs: 150, clock });
     expect((await b.prepare("one")).kind).toBe("built");
     let release!: () => void;
     b.state.gate = new Promise<void>(resolve => { release = resolve; });
@@ -578,7 +580,7 @@ test("concurrent keys keep the bound, and a base a turn is reconciling is neithe
 test("an expiry skipped while a turn reconciles applies once that turn finishes", async () => {
   const clock = privateIndexClock();
   try {
-    const b = bench({ idleMs: 150 });
+    const b = bench({ idleMs: 150, clock });
     expect((await b.prepare("one")).kind).toBe("built");
     const expiry = clock.now + 151;
     writeFileSync(join(b.root, "brain/notes/chart.txt"), "x");
@@ -608,7 +610,7 @@ test("bases are kept only where no worker can see them, and a crashed server's a
     const maskPaths: string[] = [];
     expect(["/tmp", ...maskPaths].filter(masked => outside === masked || outside.startsWith(`${masked}/`)),
       "THE_VISIBLE_PARENT_IS_OUTSIDE_EVERY_HIDDEN_ROOT").toEqual([]);
-    const b = bench({ report: message => reports.push(message) });
+    const b = bench({ report: message => reports.push(message), clock });
     const previous = process.env.TMPDIR;
     process.env.TMPDIR = outside;
     try {
@@ -621,7 +623,7 @@ test("bases are kept only where no worker can see them, and a crashed server's a
       expect((await b.prepare("two", { maskPaths: [outside] })).kind, "A_MASKED_PARENT_KEEPS_BASES").toBe("reused");
     } finally { if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous; }
     // A base whose server process is gone is removed by the next cache that looks; a live one stays.
-    const sweeper = bench();
+    const sweeper = bench({ clock });
     const dead = Bun.spawnSync(["/bin/true"]).pid, orphan = join(tmpdir(), `brain-private-index-base-${dead}-odysseus`);
     const alive = join(tmpdir(), `brain-private-index-base-${process.ppid}-odysseus`);
     for (const dir of [orphan, alive]) mkdirSync(dir);
@@ -635,7 +637,7 @@ test("a turn arriving during an advance waits for it and reuses what it made", a
   // Expiry runs on the cache's clock: real time on a loaded runner must not expire a base mid-test.
   const clock = privateIndexClock();
   try {
-    const b = bench();
+    const b = bench({ clock });
     expect((await b.prepare("one")).kind).toBe("built");
     writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
     let release!: () => void;
@@ -657,7 +659,7 @@ test("an advance whose update rewrote rows keeps the old base, and close stops a
   // Expiry runs on the cache's clock: real time on a loaded runner must not expire a base mid-test.
   const clock = privateIndexClock();
   try {
-    const b = bench();
+    const b = bench({ clock });
     expect((await b.prepare("one", { stdout: '{"updated":1,"deleted":0,"added":1}' })).kind).toBe("built");
     writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
     expect(await b.advance(), "UNPROVED_UPDATES_ARE_NOT_PROMOTED").toMatchObject([{ kind: "kept", reason: "the incremental index changed existing rows" }]);
@@ -676,8 +678,8 @@ test("an advance whose update rewrote rows keeps the old base, and close stops a
 
 test("advances share one checkpoint, move bases without renewing them, and fail safe without one", async () => {
   const reports: string[] = [];
-  const b = bench({ idleMs: 1500, report: message => reports.push(message) });
   const clock = privateIndexClock();
+  const b = bench({ idleMs: 1500, report: message => reports.push(message), clock });
   try {
     expect((await b.prepare("one")).kind).toBe("built");
     expect((await b.prepare("two")).kind).toBe("built");
@@ -730,7 +732,7 @@ test("close stops an advance whose build is running", async () => {
   // Expiry runs on the cache's clock: real time on a loaded runner must not expire a base mid-test.
   const clock = privateIndexClock();
   try {
-    const b = bench();
+    const b = bench({ clock });
     expect((await b.prepare("one")).kind).toBe("built");
     writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
     b.state.holdRuns = true;
@@ -741,6 +743,33 @@ test("close stops an advance whose build is running", async () => {
     expect(await running, "THE_RUN_IS_STOPPED").toMatchObject([{ kind: "kept", reason: "the incremental index failed: killed" }]);
     expect(b.bases(), "NOTHING_IS_KEPT").toEqual([]);
   } finally { clock.restore(); }
+});
+
+test("without idleMs, a used base expires 30 minutes and one millisecond after its use", async () => {
+  const clock = privateIndexClock();
+  try {
+    const b = bench({ idleMs: "default", clock });
+    expect((await b.prepare("one")).kind).toBe("built");
+    expect(clock.deadlines(), "THE_DEFAULT_IDLE_DEADLINE").toEqual([clock.now + 30 * 60_000 + 1]);
+    await b.cache.close();
+  } finally { clock.restore(); }
+});
+
+test("without injected timers, the cache registers its expiry on the global setTimeout", async () => {
+  const fixed = Date.parse("2026-07-12T00:00:00Z");
+  const delays: number[] = [];
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!;
+  const native = globalThis.setTimeout;
+  Object.defineProperty(globalThis, "setTimeout", { ...descriptor, value: ((callback: () => void, delay?: number, ...args: unknown[]) => {
+    delays.push(delay ?? 0);
+    return native(callback, delay, ...args);
+  }) as typeof setTimeout });
+  try {
+    const b = bench({ idleMs: "default", now: () => fixed });
+    expect((await b.prepare("one")).kind).toBe("built");
+    expect(delays, "THE_DEFAULT_TIMERS_REGISTER_THE_EXPIRY").toContain(30 * 60_000 + 1);
+    await b.cache.close();
+  } finally { Object.defineProperty(globalThis, "setTimeout", descriptor); }
 });
 
 test("an external build command is identified by its files, not only its name", () => {

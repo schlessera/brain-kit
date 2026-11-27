@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { steeringReferences } from "../src/brain/journal-reference-roles.js";
-import { journalSteeringInputs, nativeJournalSteeringInputs } from "../src/brain/journal-steering.js";
+import { nativeJournalSteeringInputs } from "../src/brain/journal-steering.js";
 import type { JournalSnapshot } from "../src/brain/journal-snapshot.js";
 
 test("native steering follows sealed configuration references without retaining a content baseline", async () => {
@@ -60,7 +60,7 @@ test("Bun module consumers discover nearest nested package scope without activat
   for (const path of ["config/incidental/package.json", "workspaces/ithaca/incidental/package.json", "config/navigator/unused.ts"]) expect(result.paths.has(path), `UNUSED_CONFIGURATION_${path}`).toBe(false);
 });
 
-for (const reader of ["retained", "native"] as const) test(`${reader} steering classifies supported input roles without promoting output/data literals`, async () => {
+test("native steering classifies supported input roles without promoting output/data literals", async () => {
   const inputs = new Map([
     ["CLAUDE.md", "@./guide\n`@./data`\n\n```md\n@./output\n```"],
     ["guide", "Athena advises the voyage."],
@@ -84,16 +84,14 @@ for (const reader of ["retained", "native"] as const) test(`${reader} steering c
   ]);
   const snapshot: JournalSnapshot = {missing:[],entries:[...inputs].map(([path,text])=>({path,scope:"",kind:"file",mode:0o600,bytes:Buffer.byteLength(text),stamp:path,hash:path,ignored:false}))};
   const options = { resolvedIndexPaths: ["cache/index.sqlite"] };
-  const result = reader === "native"
-    ? await nativeJournalSteeringInputs([snapshot], async entry => Buffer.from(inputs.get(entry.path)!), undefined, options)
-    : journalSteeringInputs([snapshot], hash => Buffer.from(inputs.get(hash)!), options);
+  const result = await nativeJournalSteeringInputs([snapshot], async entry => Buffer.from(inputs.get(entry.path)!), undefined, options);
   expect([...result.paths].sort(), "STEERING_INPUT_ROLES_ONLY").toEqual([
     ".claude/settings.json", ".mcp.json", ".pi/settings.json", "CLAUDE.md", "brain.config.json", "brain.config.ts", "bunfig.toml", "entry.ts", "extension.ts", "guide", "helper.ts", "hook.ts", "instructions", "mcp.js", "package.json", "resources/brain.db", "startup.ts", "voyage/module.ts",
   ]);
   expect(result.unavailable).toEqual([".pi/settings.json", "brain.config.ts", "package.json"]);
 });
 
-for (const reader of ["retained", "native"] as const) test(`${reader} steering bounds opaque, computed, unreadable and out-of-scope inputs`, async () => {
+test("native steering bounds opaque, computed, unreadable and out-of-scope inputs", async () => {
   const inputs = new Map([
     ["bunfig.toml", 'preload = ["./unreadable.ts", "./opaque.ts", "./missing.ts", "../escape.ts", "./workspaces/other/run.ts", "./context/policies/governance.md"]'],
     ["unreadable.ts", "export {};"], ["opaque.ts", 'import(variable); readFileSync("./not-proven");'],
@@ -102,7 +100,7 @@ for (const reader of ["retained", "native"] as const) test(`${reader} steering b
   const snapshot: JournalSnapshot = {missing:[],entries:[...inputs].map(([path,text])=>({path,scope:path.startsWith("workspaces/")?"workspaces/other":"",kind:"file",mode:0o600,bytes:Buffer.byteLength(text),stamp:path,hash:path,ignored:false}))};
   const reads: string[] = [];
   const read = (path: string) => { reads.push(path); if(path === "unreadable.ts") throw Error("unreadable fixture"); return Buffer.from(inputs.get(path)!); };
-  const result = reader === "native" ? await nativeJournalSteeringInputs([snapshot], async entry => read(entry.path)) : journalSteeringInputs([snapshot], read);
+  const result = await nativeJournalSteeringInputs([snapshot], async entry => read(entry.path));
   expect([...result.paths].sort()).toEqual(["bunfig.toml", "opaque.ts", "unreadable.ts"]);
   expect(result.unavailable).toEqual(["bunfig.toml", "opaque.ts", "unreadable.ts"]);
   expect(reads).not.toContain("workspaces/other/run.ts"); expect(reads).not.toContain("context/policies/governance.md");
