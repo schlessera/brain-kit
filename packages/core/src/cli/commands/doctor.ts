@@ -37,6 +37,7 @@ import { WriteRefusedError } from "../../lib/safe-path.js";
 import { builtFtsTokenizer, ftsTokenizer } from "../../lib/search-language.js";
 import { cachesWithoutPortableUnionMerge, cachesWithoutUnionMerge, unionMergeCaches } from "../../lib/cache-attributes.js";
 import { isGitWorkTree, looseObjects, originalRefs } from "../../lib/git-storage.js";
+import { gitConfig } from "../../lib/sync/git.js";
 import { INDEX_DB_PATH, LEGACY_INDEX_FAMILY } from "@schlessera/brain-common/internal/index-location";
 import { CACHE_DIR, LEGACY_SIDECAR_CACHES } from "@schlessera/brain-common/internal/cache-location";
 
@@ -61,10 +62,6 @@ interface Check {
 /** Whether `cmd` is on PATH. Looked up, not spawned: a shell may be missing too. */
 function which(cmd: string): boolean {
   return Bun.which(cmd) !== null;
-}
-
-function gitConfig(root: string, key: string): string {
-  return new TextDecoder().decode(Bun.spawnSync(["git", "-C", root, "config", "--get", key]).stdout).trim();
 }
 
 function cmpSemver(a: number[], b: number[]): number {
