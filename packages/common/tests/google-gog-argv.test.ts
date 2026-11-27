@@ -135,8 +135,11 @@ describe("one exact command allow-list per call", () => {
   }
 });
 
+/** Strict UTF-8: an invalid byte throws instead of becoming U+FFFD, and a leading BOM stays in the text. */
+const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
 describe("bodies on stdin", () => {
-  const decode = (bytes: Uint8Array | null) => bytes === null ? null : new TextDecoder().decode(bytes);
+  const decode = (bytes: Uint8Array | null) => bytes === null ? null : STRICT_UTF8.decode(bytes);
   for (const row of CASES) {
     test(`${row.label}: stdin carries exactly the body, and argv none of it`, () => {
       const { call, argv } = build(row.operation, row.input);
@@ -160,24 +163,50 @@ describe("bodies on stdin", () => {
 });
 
 describe("approved draft bodies reach stdin unchanged", () => {
+  const save = (action: "create" | "update", fields: { subject?: string; body?: string }) => action === "create"
+    ? { action, to: ["penelope@example.com"], subject: "Home", body: BODY, ...fields }
+    : { action, draft_id: "r-1234567890123456789", ...fields };
   const bodies: [string, string][] = [
     ["ASCII", "Home to Ithaca."],
     ["astral emoji", "Home \u{1F600}"],
     ["combining marks", "Pe\u0301nelope"],
+    ["precomposed accents", "P\u00E9n\u00E9lope"],
+    ["a compatibility ligature", "\uFB01ne weaving"],
+    ["a leading byte order mark", "\uFEFFHome to Ithaca."],
+    ["a replacement character", "Home \uFFFD Ithaca"],
     ["CRLF", "Home\r\nto Ithaca.\r\n"],
     ["32,768 characters", "a".repeat(32_768)],
+    ["32,768 UTF-16 units of astral emoji", "\u{1F600}".repeat(16_384)],
+  ];
+  /** Ill-formed UTF-16: UTF-8 cannot carry it, and encoding it would replace it with U+FFFD. */
+  const illFormed: [string, string][] = [
+    ["a lone high surrogate", "a\uD800b"],
+    ["a lone low surrogate", "a\uDC00b"],
+    ["a reversed pair", "a\uDE00\uD83Db"],
+    ["a trailing high surrogate", "Home \uD83D"],
   ];
   for (const action of ["create", "update"] as const) {
     for (const [name, body] of bodies) {
       test(`${action}: ${name} round-trips through the real schema and invocation`, () => {
-        const input = action === "create"
-          ? { action, to: ["penelope@example.com"], subject: "Home", body }
-          : { action, draft_id: "r-1234567890123456789", body };
-        const { call } = build("gmail.draft.save", input);
+        const { call } = build("gmail.draft.save", save(action, { body }));
         expect(call.command).toBe(action === "create" ? "gmail.drafts.create" : "gmail.drafts.update");
         expect(call.stdin).not.toBeNull();
-        expect(new TextDecoder().decode(call.stdin!)).toBe(body);
+        expect(STRICT_UTF8.decode(call.stdin!)).toBe(body);
       });
+    }
+    // The transport schema is the host composer's last check too (reversible.ts), so a composed reply or kept text is held to it.
+    for (const [field, values] of [["body", illFormed], ["subject", illFormed.map(([name, text]) => [name, `Re: ${text}`])]] as const) {
+      for (const [name, text] of values) {
+        test(`${action}: a ${field} with ${name} is refused by the transport schema, so no altered text reaches gog`, () => {
+          const parsed = GOG_OPERATION_INPUTS["gmail.draft.save"].safeParse(save(action, { [field]: text }));
+          if (parsed.success && field === "body") {
+            // Without the refusal, the bytes gog would save are not the text the card showed.
+            expect(STRICT_UTF8.decode(gogInvocation("gmail.draft.save", parsed.data as never).stdin!)).toBe(text);
+          }
+          expect(parsed.success).toBe(false);
+          expect(parsed.error!.issues.map(issue => `${issue.path.join(".")}: ${issue.message}`)).toEqual([`${field}: must not hold unpaired UTF-16 surrogates`]);
+        });
+      }
     }
   }
 });
