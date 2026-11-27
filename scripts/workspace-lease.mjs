@@ -5,10 +5,41 @@ import { constants } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+/** @typedef {import("node:child_process").ChildProcess} ChildProcess */
+/**
+ * The lease an ancestor hands down in BRAIN_WORKSPACE_LEASE.
+ * @typedef {object} InheritedLease
+ * @property {"read" | "write"} mode
+ * @property {number} fd
+ * @property {number} dev
+ * @property {number} ino
+ * @property {number} ownerPid
+ * @property {number} ownerFd
+ * @property {string} ownerStart
+ * @property {string} root
+ * @property {number} rootDev
+ * @property {number} rootIno
+ * @property {boolean} [ownsFd]
+ */
+/**
+ * @typedef {object} WorkspaceLeaseIdentity
+ * @property {"read" | "write"} mode
+ * @property {string} root
+ * @property {number} rootDev
+ * @property {number} rootIno
+ * @property {number} dev
+ * @property {number} ino
+ * @property {number} ownerPid
+ * @property {number} ownerFd
+ * @property {string} ownerStart
+ */
+
 const MARKER = "BRAIN_WORKSPACE_LEASE";
 const script = fileURLToPath(import.meta.url);
+/** @type {(root: string) => string} */
 const lockPath = root => join(root, "tmp", "workspace-operation", "output.lock");
 
+/** @returns {InheritedLease | undefined} */
 function inheritedLease() {
   try {
     const lease = JSON.parse(process.env[MARKER] ?? "null");
@@ -24,6 +55,7 @@ function inheritedLease() {
   } catch { /* A closed/reused descriptor is not inherited ownership. */ }
 }
 
+/** @param {InheritedLease} lease */
 function ancestorOwnsLease(lease) {
   if (process.platform !== "linux" || !Number.isSafeInteger(lease.ownerPid) || lease.ownerPid < 1 ||
       !Number.isSafeInteger(lease.ownerFd) || lease.ownerFd < 3) return false;
@@ -42,7 +74,9 @@ function ancestorOwnsLease(lease) {
   return false;
 }
 
-/** Linux process lifetime, including PID reuse and zombie rejection. */
+/** Linux process lifetime, including PID reuse and zombie rejection.
+ * @param {number} pid
+ * @returns {{parent: number, start: string} | undefined} */
 export function processIdentity(pid) {
   try {
     if (!Number.isSafeInteger(pid) || pid < 1) return;
@@ -53,6 +87,11 @@ export function processIdentity(pid) {
   } catch { /* A dead owner has no authority. */ }
 }
 
+/**
+ * @param {number} ownerPid
+ * @param {string} ownerStart
+ * @returns {boolean}
+ */
 export function liveAncestor(ownerPid, ownerStart) {
   if (process.platform !== "linux" || typeof ownerStart !== "string" || !/^\d+$/.test(ownerStart)) return false;
   let pid = process.pid;
@@ -65,7 +104,9 @@ export function liveAncestor(ownerPid, ownerStart) {
   return false;
 }
 
-/** Strict invocation admission, in addition to ordinary inherited lock transport. */
+/** Strict invocation admission, in addition to ordinary inherited lock transport.
+ * @param {string} root
+ * @returns {WorkspaceLeaseIdentity | undefined} */
 export function workspaceLeaseIdentity(root) {
   try {
     const lease = inheritedLease();
@@ -84,6 +125,7 @@ export function workspaceLeaseIdentity(root) {
   } catch { /* Unsupported/missing/replaced ownership cannot attest a build. */ }
 }
 
+/** @type {(root: string) => string} */
 const generationPath = root => join(root, "tmp", "workspace-operation", "output.generation");
 const generationShape = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 
@@ -92,6 +134,8 @@ const generationShape = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
  * Each writer replaces the token first, so a failed, cancelled or nested write
  * still invalidates an outer invocation's attested build. This is revocation
  * only: a matching token never makes a build fresh by itself.
+ * @param {string} root
+ * @returns {string}
  */
 export function advanceOutputGeneration(root) {
   const path = generationPath(resolve(root)), generation = randomUUID(), staged = `${path}.${process.pid}.${generation}`;
@@ -101,6 +145,10 @@ export function advanceOutputGeneration(root) {
   return generation;
 }
 
+/**
+ * @param {string} root
+ * @returns {string | undefined}
+ */
 export function outputGeneration(root) {
   try {
     const fd = openSync(generationPath(resolve(root)), fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
@@ -113,6 +161,10 @@ export function outputGeneration(root) {
   } catch { /* A missing or replaced token matches no attested build. */ }
 }
 
+/**
+ * @param {number} fd
+ * @param {string} path
+ */
 function sameFile(fd, path) {
   try {
     const held = fstatSync(fd), wanted = statSync(path);
@@ -120,29 +172,46 @@ function sameFile(fd, path) {
   } catch { return false; }
 }
 
+/** @returns {"read" | "write"} */
 export function workspaceTestAccess() {
   return process.env.BRAIN_WORKSPACE_ACCESS === "read" || inheritedLease()?.mode === "read" ? "read" : "write";
 }
 
-/** Preserve the lock's open file description, including replaced child environments. */
-export function inheritWorkspaceLease(options = {}, defaultStderr = "inherit", pipeOnly = false) {
+/** @typedef {{env?: Record<string, string | undefined>, stdio?: unknown[], stdin?: unknown, stdout?: unknown, stderr?: unknown}} SpawnFields */
+/** Preserve the lock's open file description, including replaced child environments.
+ * The options pass through with their own type; only the SpawnFields are read.
+ * @template T
+ * @param {T} [options]
+ * @param {"pipe" | "inherit"} [defaultStderr]
+ * @param {boolean} [pipeOnly]
+ * @returns {T} */
+export function inheritWorkspaceLease(options = /** @type {T} */ ({}), defaultStderr = "inherit", pipeOnly = false) {
   const lease = inheritedLease();
   if (!lease) return options;
-  if (!lease.ownsFd || pipeOnly) return { ...options, env: { ...(options.env ?? process.env), [MARKER]: JSON.stringify(lease) } };
-  const { stdin, stdout, stderr, ...rest } = options;
+  if (!lease.ownsFd || pipeOnly) return /** @type {T} */ ({ ...options, env: { ...(/** @type {SpawnFields} */ (options).env ?? process.env), [MARKER]: JSON.stringify(lease) } });
+  const { stdin, stdout, stderr, ...rest } = /** @type {SpawnFields} */ (options);
   const defaults = ["ignore", "pipe", defaultStderr];
-  const stdio = options.stdio ? [...options.stdio] : [stdin === undefined ? defaults[0] : stdin,
+  const stdio = /** @type {SpawnFields} */ (options).stdio ? [.../** @type {unknown[]} */ (/** @type {SpawnFields} */ (options).stdio)] : [stdin === undefined ? defaults[0] : stdin,
     stdout === undefined ? defaults[1] : stdout, stderr === undefined ? defaults[2] : stderr];
   while (stdio.length < 3) stdio.push(defaults[stdio.length]);
   const fd = stdio.length;
   stdio.push(lease.fd);
-  return { ...rest, stdio, env: { ...(options.env ?? process.env), [MARKER]: JSON.stringify({ ...lease, fd }) } };
+  return /** @type {T} */ (/** @type {unknown} */ ({ ...rest, stdio, env: { ...(/** @type {SpawnFields} */ (options).env ?? process.env), [MARKER]: JSON.stringify({ ...lease, fd }) } }));
 }
 
+/**
+ * @param {number | null} code
+ * @param {NodeJS.Signals | null} signal
+ * @returns {number}
+ */
 function exitCode(code, signal) {
   return signal ? 128 + (constants.signals[signal] ?? 0) : code ?? 1;
 }
 
+/**
+ * @param {string} entry
+ * @returns {string[]}
+ */
 function originalCommand(entry) {
   // Bun test's process.argv names the current test file and execArgv omits
   // its test flags. Linux's original argv preserves selection, timeout and
@@ -156,8 +225,14 @@ function originalCommand(entry) {
   return [process.execPath, ...process.execArgv, ...process.argv.slice(1)];
 }
 
+/**
+ * @param {() => ChildProcess} startChild
+ * @param {(child: ChildProcess, signal: NodeJS.Signals) => void} stop
+ * @returns {Promise<number>}
+ */
 async function waitForChild(startChild, stop) {
-  let child, pendingSignal;
+  let /** @type {ChildProcess | undefined} */ child, /** @type {NodeJS.Signals | undefined} */ pendingSignal;
+  /** @type {NodeJS.Signals[]} */
   const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
   const listeners = signals.map(signal => () => {
     if (child) stop(child, signal);
@@ -168,9 +243,10 @@ async function waitForChild(startChild, stop) {
   signals.forEach((signal, index) => process.on(signal, listeners[index]));
   try {
     child = startChild();
+    /** @type {Promise<number>} */
     const result = new Promise((resolveExit, reject) => {
-      child.once("error", reject);
-      child.once("exit", (code, signal) => resolveExit(exitCode(code, signal)));
+      /** @type {ChildProcess} */ (child).once("error", reject);
+      /** @type {ChildProcess} */ (child).once("exit", (code, signal) => resolveExit(exitCode(code, signal)));
     });
     if (pendingSignal) stop(child, pendingSignal);
     return await result;
@@ -179,7 +255,11 @@ async function waitForChild(startChild, stop) {
   }
 }
 
-/** Re-enter this command under flock; nested commands reuse the inherited descriptor. */
+/** Re-enter this command under flock; nested commands reuse the inherited descriptor.
+ * @param {string} root
+ * @param {"read" | "write"} mode
+ * @param {"test" | "script"} [entry]
+ * @returns {Promise<number | undefined>} */
 export async function ensureWorkspaceLease(root, mode, entry = "script") {
   if (!["read", "write"].includes(mode)) throw new Error("Unknown workspace access mode");
   const lease = inheritedLease();
@@ -203,16 +283,25 @@ export async function ensureWorkspaceLease(root, mode, entry = "script") {
   (child, signal) => child.kill(signal));
 }
 
+/**
+ * @param {string} root
+ * @param {string} mode
+ * @param {number} lifetimeFd
+ * @param {string} executable
+ * @param {string[]} args
+ * @returns {Promise<number>}
+ */
 async function waitForLease(root, mode, lifetimeFd, executable, args) {
   const { spawn } = await import("node:child_process");
   const { Socket } = await import("node:net");
-  let child, force, stopRequested;
+  let /** @type {ChildProcess | undefined} */ child, /** @type {ReturnType<typeof setTimeout> | undefined} */ force, /** @type {NodeJS.Signals | undefined} */ stopRequested;
+  /** @type {(signal: NodeJS.Signals) => void} */
   const stop = signal => {
     stopRequested = signal;
     if (!child) return;
     child.kill(signal);
     // An acquired owner has its own one-second process-group cleanup.
-    if (!force) force = setTimeout(() => child.kill("SIGKILL"), 2_000);
+    if (!force) force = setTimeout(() => /** @type {ChildProcess} */ (child).kill("SIGKILL"), 2_000);
   };
   // Watch the outer lifetime before flock acquires access. A killed waiter
   // must disappear even while another command continues holding the lock.
@@ -237,9 +326,18 @@ async function waitForLease(root, mode, lifetimeFd, executable, args) {
   }
 }
 
+/**
+ * @param {string} root
+ * @param {string} mode
+ * @param {number} lifetimeFd
+ * @param {string} executable
+ * @param {string[]} args
+ * @returns {Promise<number>}
+ */
 async function enter(root, mode, lifetimeFd, executable, args) {
   // flock opens the first free descriptor. A test preload may have forwarded
   // another worktree's lock, so do not assume its descriptor is always 3.
+  /** @type {number | undefined} */
   let fd;
   for (let candidate = 3; candidate < 256; candidate++) {
     if (sameFile(candidate, lockPath(root))) { fd = candidate; break; }
@@ -252,7 +350,8 @@ async function enter(root, mode, lifetimeFd, executable, args) {
   process.env[MARKER] = JSON.stringify({ mode, fd, dev: held.dev, ino: held.ino, ...owner });
   const { spawn } = await import("node:child_process");
   const { Socket } = await import("node:net");
-  let child, force, stopRequested;
+  let /** @type {ChildProcess | undefined} */ child, /** @type {ReturnType<typeof setTimeout> | undefined} */ force, /** @type {NodeJS.Signals | undefined} */ stopRequested;
+  /** @type {(signal: NodeJS.Signals) => void} */
   const stop = signal => {
     stopRequested = signal;
     if (!child?.pid) return;

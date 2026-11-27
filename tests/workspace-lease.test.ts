@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { workspaceLeaseDockerArgs } from "../scripts/workspace-lease-container.ts";
 import { resolveBrowserPin } from "../scripts/captures/provenance.ts";
+import { BUILD_INPUTS, copyScriptClosure } from "./helpers/script-closure";
 
 const project = resolve(import.meta.dir, "..");
 const helper = pathToFileURL(join(project, "scripts/workspace-lease.mjs")).href;
@@ -153,7 +154,7 @@ test("shared verification overlaps, blocks a writer and rejects a nested build b
   mkdirSync(join(root, "scripts")); mkdirSync(join(root, "bin"));
   mkdirSync(join(root, "packages/geo/dist"), { recursive: true });
   writeFileSync(join(root, "packages/geo/dist/retained"), "retained\n");
-  for (const name of ["build.ts", "build-execution.ts", "ci-build-boundary.ts", "ci-build-files.ts", "ci-build-lifetime.ts", "ci-build-context.ts", "ci-build-state.ts", "ci-build-data.ts", "ci-build-trace.ts", "ci-build-consumers.ts", "ci-build-evidence.ts", "ci-build-operation.ts", "ci-build-entry.ts", "ci-build-qualification.json", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
+  copyScriptClosure(root, ["scripts/build.ts"], BUILD_INPUTS);
   writeFileSync(join(root, "bin/bunx"), "#!/bin/sh\nexit 77\n", { mode: 0o755 });
   const first = start(root, "read", "hold", "first"), second = start(root, "read", "hold", "second");
   await Promise.all([entered(root, "first"), entered(root, "second")]);

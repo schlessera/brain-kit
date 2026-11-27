@@ -1,5 +1,4 @@
 import { resolve } from 'node:path';
-import { readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { parse } from 'parse5';
 

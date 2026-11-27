@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { observedBuildContext, observedBuildOutputs, observedInventory } from "../scripts/build-repeat-observation";
 import { buildReceipt } from "../scripts/build-receipt";
+import { BUILD_INPUTS, copyScriptClosure } from "./helpers/script-closure";
 
 const repo = resolve(import.meta.dir, "..");
 function fixture() {
@@ -14,9 +15,7 @@ function fixture() {
   write("package.json", '{"name":"odysseus-build-observation","type":"module"}');
   write("bun.lock", "Odysseus keeps a fixed dependency inventory.\n");
   write("tsconfig.json", "{}"); write(".gitignore", "node_modules\ntmp\ndist\n");
-  for (const file of ["build.ts", "build-execution.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
-    write(`scripts/${file}`, ""); copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
-  }
+  copyScriptClosure(root, ["scripts/build.ts"], BUILD_INPUTS);
   write("packages/raft/package.json", '{"name":"@fixture/raft","version":"1.0.0"}');
   write("packages/raft/tsconfig.build.json", "{}");
   write("packages/raft/src/index.ts", "export const cargo = 1;\n");

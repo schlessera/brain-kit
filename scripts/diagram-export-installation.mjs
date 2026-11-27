@@ -2,10 +2,14 @@
 import {createHash} from "node:crypto";
 import {lstatSync,readFileSync,readdirSync,readlinkSync,realpathSync} from "node:fs";
 import {isAbsolute,join,relative} from "node:path";
+/** @typedef {{version:1,packages:number,files:number,bytes:number,sha256:string}} DiagramInstallationIdentity */
 /** Top-level aliases select packages; internal relative file links are bounded.
- * Escaping/directory aliases and special files stay unsupported. */
+ * Escaping/directory aliases and special files stay unsupported.
+ * @param {string} repo
+ * @returns {DiagramInstallationIdentity} */
 export function diagramInstallationIdentity(repo){
  const hash=createHash("sha256");let files=0,bytes=0,packages=0,installationRoot;
+ /** @type {(base:string,path:string)=>void} */
  const walk=(base,path)=>{
   const absolute=path?join(base,path):base,stat=lstatSync(absolute);
   if(stat.isSymbolicLink()){
