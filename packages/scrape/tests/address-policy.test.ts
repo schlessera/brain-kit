@@ -241,4 +241,9 @@ describe("the robots.txt fetch", () => {
     expect(read.loaded).toBe(true);
     expect(read.isAllowed(`${origin}/cellar`, "ithaca-ledger")).toBe(false);
   });
+
+  test.each([NaN, Infinity, -1, 1.5])("refuses maxBytes %p when the cache is built (#4963)", (bound) => {
+    expect(() => new RobotsCache({ maxBytes: bound }), "ROBOTS_INVALID_MAX_BYTES_REFUSED")
+      .toThrow(`RobotsCacheOptions.maxBytes must be a whole number of bytes, 0 or more; got ${bound}`);
+  });
 });
