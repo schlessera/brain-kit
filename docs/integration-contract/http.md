@@ -1574,8 +1574,16 @@ opted-in page or subscription then carries a record
 `{kind:"attribution", toolUseId, attribution:"unknown", id, sequence,
 observedAt, turnId, bindingId, detailPruned}`. Every input of that binding
 joined to that tool-use ID has unknown attribution, whether it was recorded
-before or after the fact. A client shows no tool as the proven source of such
-an input and never infers attribution from its own transcript. No other value
+before or after the fact. A `null` `toolUseId` means the host lost track of
+individual IDs in that turn, so every input of the binding has unknown
+attribution. A fallback name for a report that lost its own (an empty or
+`unknown` tool name) is not a second name. A client shows no tool as the
+proven source of such an input, names none until the whole history has
+loaded, and never infers attribution from its own transcript. Facts are
+charged against the session and brain history row and byte ceilings like
+other history rows. Attribution is display-only: a fact the host could not
+yet write is served from memory to live readers and retried, and a failed
+write never gaps or restricts the chat. No other value
 or duplicate parameter is accepted; the cursor and subscription retain the
 choice. Readers that omit it keep their record shape. The fact changes no
 count, restriction, verdict or review authority.

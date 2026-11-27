@@ -165,7 +165,7 @@ function live(db:Database,c:Collection,reserved=false):void {
  * it for good: the brain's room is spent only when they alone leave no room
  * for one more collection. */
 function unboundScope(db:Database):SafetyCapacityScope {
-  const ended=one<{n:number;bytes:number}>(db,`SELECT COUNT(*) n,COALESCE((SELECT SUM(r.reserved_bytes) FROM safety_records r
+  const ended=one<{n:number;bytes:number}>(db,`SELECT COUNT(*) n,COALESCE((SELECT SUM(r.reserved_bytes) FROM safety_usage r
     JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL AND c.ended=1),0) bytes
     FROM safety_collections WHERE session_id IS NULL AND ended=1`);
   return ended.n>=SAFETY_LIMITS.unbound||ended.bytes+(ended.n+1)*2048>SAFETY_LIMITS.unboundBytes?"brain":"turn";
@@ -174,7 +174,7 @@ function capacity(db:Database,c:Collection,rows:number,bytes:number):void {
   const all=meta(db);
   const {scope,args}=safetyScope(db,c.turn_id,c.session_id);
   const used=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes
-    FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}`,...args);
+    FROM safety_usage r JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}`,...args);
   const pending=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes FROM safety_pending p`);
   const localPending=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes
     FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE ${scope}`,...args);
@@ -187,7 +187,7 @@ function capacity(db:Database,c:Collection,rows:number,bytes:number):void {
     ||used.rows+localPending.rows+rows>SAFETY_LIMITS.sessionRows||used.bytes+localPending.bytes+bytes>SAFETY_LIMITS.sessionBytes)
     throw new SafetyCapacityExhausted("Safety ledger capacity exhausted","turn");
   if(c.session_id===null){
-    const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r
+    const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_usage r
       JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL`);
     if(unbound.bytes+pending.bytes+bytes+one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL").n*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted",unboundScope(db));
   }
@@ -233,7 +233,7 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   const n=one<{n:number}>(db, input.sessionId?"SELECT COUNT(*) n FROM safety_collections WHERE session_id=?":"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL",...(input.sessionId?[input.sessionId]:[]));
   if(n.n>=(input.sessionId?SAFETY_LIMITS.epochs:SAFETY_LIMITS.unbound))throw new SafetyCapacityExhausted("Safety coverage capacity exhausted",input.sessionId?"chat":unboundScope(db));
   if(input.sessionId===null){
-    const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL`);
+    const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_usage r JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL`);
     const pending=one<{bytes:number}>(db,`SELECT COALESCE(SUM(p.reserved_bytes),0) bytes FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE c.session_id IS NULL`);
     if(unbound.bytes+pending.bytes+(n.n+1)*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted",unboundScope(db));
   }
@@ -300,7 +300,7 @@ export function bindSafetyCollection(db:Database,turnId:string,sessionId:string)
  const {scope,args}=safetyScope(db,turnId,sessionId);
  const epochs=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_collections c WHERE ${scope}`,...args);
  if(epochs.n>128)throw new SafetyCapacityExhausted("Safety binding coverage capacity exhausted","chat");
- const totals=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r
+ const totals=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_usage r
   JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}`,...args);
  const pending=one<{rows:number;bytes:number;count:number;serializedBytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes,
   COUNT(*) count,COALESCE(SUM(p.bytes),0) serializedBytes FROM safety_pending p
@@ -369,23 +369,31 @@ export function appendSafetyEvent(db:Database,row:GovernanceEventRow,reserved=fa
   return null;
  }
 }
-/** A collection may hold this many tool-use IDs with differently named calls. */
+/** A collection may hold this many per-ID reuse facts; past it one turn-wide fact covers every ID. */
 const TOOL_REUSE = 2048;
+/** Room each reuse fact holds against the session and brain byte ceilings. */
+const TOOL_REUSE_BYTES = 512;
 /**
  * The collector observed differently named calls under this tool-use ID in
  * this collection (#4513), from any hook, result or loss report, nested
- * calls included. Durable and idempotent; recorded after the collection
- * ended too, since a late report is still an observation. An ID that can
+ * calls included. `null`: under every tool-use ID of the collection. Durable
+ * and idempotent; recorded after the collection ended too, since a late
+ * report is still an observation. Charged like any other history row; past
+ * the per-collection count it becomes the turn-wide fact. An ID that can
  * carry no entry join qualifies no input and is not kept.
  */
-export function recordSafetyToolReuse(db:Database,turnId:string,toolUseId:string,at=Date.now()):void {
- if(!/^[A-Za-z0-9_-]{1,128}$/.test(toolUseId))return;
+export function recordSafetyToolReuse(db:Database,turnId:string,toolUseId:string|null,at=Date.now()):void {
+ if(toolUseId!==null&&!/^[A-Za-z0-9_-]{1,128}$/.test(toolUseId))return;
  db.transaction(()=>{
   const c=collection(db,turnId);if(!c)return;
-  if(db.query("SELECT 1 FROM safety_tool_reuse WHERE collection_id=? AND tool_use_id=?").get(c.id,toolUseId))return;
-  if(one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_tool_reuse WHERE collection_id=?",c.id).n>=TOOL_REUSE)
-   throw new SafetyCapacityExhausted("Safety tool reuse capacity exhausted","turn");
-  db.query("INSERT INTO safety_tool_reuse(id,collection_id,tool_use_id,sequence,observed_at) VALUES(?,?,?,?,?)").run(crypto.randomUUID(),c.id,toolUseId,advance(db),at);
+  const held=(id:string|null)=>!!db.query("SELECT 1 FROM safety_tool_reuse WHERE collection_id=? AND COALESCE(tool_use_id,'')=?").get(c.id,id??"");
+  if(held(null)||toolUseId!==null&&held(toolUseId))return;
+  const key=toolUseId!==null&&one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_tool_reuse WHERE collection_id=?",c.id).n>=TOOL_REUSE?null:toolUseId;
+  if(key===null&&held(null))return;
+  capacity(db,c,1,TOOL_REUSE_BYTES);
+  db.query("INSERT INTO safety_tool_reuse(id,collection_id,tool_use_id,sequence,observed_at,reserved_rows,reserved_bytes) VALUES(?,?,?,?,?,1,?)")
+   .run(crypto.randomUUID(),c.id,key,advance(db),at,TOOL_REUSE_BYTES);
+  db.query("UPDATE safety_meta SET used_rows=used_rows+1,used_bytes=used_bytes+? WHERE singleton=1").run(TOOL_REUSE_BYTES);
  }).immediate();
 }
 /** A collection may hold this many calls that still owe their results. */

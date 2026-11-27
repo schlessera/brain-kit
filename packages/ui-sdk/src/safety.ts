@@ -35,9 +35,9 @@ export const safetyRecordSchema = z.discriminatedUnion("kind", [
   z.strictObject({ ...common, kind:z.literal("exposure"), state:z.enum(["open","finalized","interrupted_unknown","not_delivered"]) }),
   z.strictObject({ ...common, kind:z.literal("safe_decision"), session:safetySessionKeySchema, requestId:id, principalId:id, verdict:z.literal("safe"), channel:z.enum(["owner_history","owner_settings"]) }),
   // Opt-in (#4513): the host saw differently named calls under this
-  // tool-use ID in the binding's turn, so no tool is proven to be the source
-  // of an input joined to it.
-  z.strictObject({ id, sequence:revision, observedAt:time, turnId:id, bindingId:id, detailPruned:z.boolean(), kind:z.literal("attribution"), toolUseId:id, attribution:z.literal("unknown") }),
+  // tool-use ID in the binding's turn (`null`: under every one), so no tool
+  // is proven to be the source of an input joined to it.
+  z.strictObject({ id, sequence:revision, observedAt:time, turnId:id, bindingId:id, detailPruned:z.boolean(), kind:z.literal("attribution"), toolUseId:id.nullable(), attribution:z.literal("unknown") }),
 ]);
 export const safetyPageSchema = z.strictObject({ version:z.literal(1), identity:safetyIdentitySchema, snapshotId:id, cursor:z.string().max(512).nullable(), highWater:revision,
   projection:safetyProjectionSchema, records:z.array(safetyRecordSchema).max(100), nextCursor:z.string().max(512).nullable(), snapshotComplete:z.boolean(), detailPruned:z.boolean() });

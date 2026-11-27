@@ -10,10 +10,14 @@ const queues=new WeakMap<Database,{generation:bigint;pending:Set<PendingSafety>;
  /** First cause of a loss only this process holds, kept for the recovery audit. */
  lossCause:{errorClass:string;message:string;site:string;turnId:string|null;at:number;count:number}|null;
  /** Each turn's tool-result records under way; its collection's end waits for them. */
- recording:Map<string,Set<Promise<void>>>}>();
+ recording:Map<string,Set<Promise<void>>>;
+ /** Reuse facts observed but not yet durable (#4513), per turn; `null` covers
+  * every tool-use ID of the turn. History serves them to live readers until
+  * their write commits. Display-only: they never gap or restrict a chat. */
+ reuse:Map<string,Map<string|null,{sequence:string;at:number}>>}>();
 export function safetyQueue(db:Database){
  let queue=queues.get(db);
- if(!queue){queue={generation:0n,pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null,recording:new Map()};queues.set(db,queue);}
+ if(!queue){queue={generation:0n,pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null,recording:new Map(),reuse:new Map()};queues.set(db,queue);}
  return queue;
 }
 

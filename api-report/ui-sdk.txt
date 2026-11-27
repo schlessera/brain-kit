@@ -22226,7 +22226,7 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"attribution">;
             observedAt: z.ZodNumber;
             sequence: z.ZodString;
-            toolUseId: z.ZodString;
+            toolUseId: z.ZodNullable<z.ZodString>;
             turnId: z.ZodString;
         }, z.core.$strict>], "kind">>;
         snapshotComplete: z.ZodBoolean;
@@ -22394,7 +22394,7 @@ signatures (every public export and the types it is made of)
         kind: z.ZodLiteral<"attribution">;
         observedAt: z.ZodNumber;
         sequence: z.ZodString;
-        toolUseId: z.ZodString;
+        toolUseId: z.ZodNullable<z.ZodString>;
         turnId: z.ZodString;
     }, z.core.$strict>], "kind">;
   safetyReviewBodySchema (packages/ui-sdk/src/safety.ts)
@@ -22913,7 +22913,7 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"attribution">;
             observedAt: z.ZodNumber;
             sequence: z.ZodString;
-            toolUseId: z.ZodString;
+            toolUseId: z.ZodNullable<z.ZodString>;
             turnId: z.ZodString;
         }, z.core.$strict>], "kind">>;
         toRevision: z.ZodString;
@@ -28402,7 +28402,7 @@ signatures (every public export and the types it is made of)
                 kind: z.ZodLiteral<"attribution">;
                 observedAt: z.ZodNumber;
                 sequence: z.ZodString;
-                toolUseId: z.ZodString;
+                toolUseId: z.ZodNullable<z.ZodString>;
                 turnId: z.ZodString;
             }, z.core.$strict>], "kind">>;
             snapshotComplete: z.ZodBoolean;
@@ -28582,7 +28582,7 @@ signatures (every public export and the types it is made of)
                 kind: z.ZodLiteral<"attribution">;
                 observedAt: z.ZodNumber;
                 sequence: z.ZodString;
-                toolUseId: z.ZodString;
+                toolUseId: z.ZodNullable<z.ZodString>;
                 turnId: z.ZodString;
             }, z.core.$strict>], "kind">>;
             toRevision: z.ZodString;
@@ -29283,7 +29283,7 @@ signatures (every public export and the types it is made of)
                 kind: z.ZodLiteral<"attribution">;
                 observedAt: z.ZodNumber;
                 sequence: z.ZodString;
-                toolUseId: z.ZodString;
+                toolUseId: z.ZodNullable<z.ZodString>;
                 turnId: z.ZodString;
             }, z.core.$strict>], "kind">>;
             snapshotComplete: z.ZodBoolean;
@@ -29479,7 +29479,7 @@ signatures (every public export and the types it is made of)
                 kind: z.ZodLiteral<"attribution">;
                 observedAt: z.ZodNumber;
                 sequence: z.ZodString;
-                toolUseId: z.ZodString;
+                toolUseId: z.ZodNullable<z.ZodString>;
                 turnId: z.ZodString;
             }, z.core.$strict>], "kind">>;
             toRevision: z.ZodString;
