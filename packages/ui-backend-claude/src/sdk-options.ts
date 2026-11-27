@@ -43,7 +43,7 @@ import { createTurnTempPressureHook, createTurnTempTool, TURN_TEMP_TOOL_NAME } f
 import { workerStateLimit } from "./worker-state.js";
 import { claudeAutonomousEnvelope } from "./autonomous-envelope.js";
 import { claudeEffort } from "./effort.js";
-import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS, type CliSettingsReport } from "./subscription.js";
+import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS } from "./subscription.js";
 import { RELAYED_TURN_SETTINGS, RELAYED_TURN_TRAFFIC_ENV, telemetryConfigured } from "./relayed-turn-traffic.js";
 import type { TurnLockBinding } from "./turn-lock.js";
 
@@ -126,46 +126,53 @@ export function firstPartyInferenceUpstream(env: Readonly<Record<string, string 
   } catch { return false; }
 }
 
-/** Environment that routes the runtime to a cloud provider instead of the first-party API. */
-const CLOUD_PROVIDER_ENV = ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_AWS"] as const;
+/**
+ * The provider and transport selectors the subscription guard already clears
+ * (`CLEARED_API_CREDENTIALS`): every `CLAUDE_CODE_USE_*` provider switch and
+ * the Unix-socket transport. Used only to name an early refusal; the
+ * runtime's own provider policy is the guard on a direct turn.
+ */
+const ROUTE_SELECTOR_ENV = Object.keys(CLEARED_API_CREDENTIALS).filter(name => name.startsWith("CLAUDE_CODE_USE_") || name === "ANTHROPIC_UNIX_SOCKET");
+
+/** The one provider a fast session may use, enforced by the runtime itself (#4310, ruling 2026-11-27). */
+export const FAST_PROVIDER_PIN = Object.freeze({ allowedProviders: Object.freeze(["anthropic"] as const) });
 
 /**
  * Why a fast session cannot be served on this turn's route (#4310), before
  * anything persists or starts; undefined when the route qualifies. The pinned
  * runtime serves fast output through the relay (keyless qualification:
- * `speed: "fast"` on the wire, `fast_mode_state: "on"`), so only the selected
- * upstream gates it here: the first-party origin, never a cloud provider or
- * another gateway. The runtime's own refusal (model, account) is checked at
- * the prompt gate.
+ * `speed: "fast"` on the wire, `fast_mode_state: "on"`). Here the inherited
+ * upstream must be the first-party origin, and a selector the host can see
+ * that routes elsewhere is named early. On a direct turn the runtime's own
+ * provider policy (`FAST_PROVIDER_PIN`) is the guard, proven in force at the
+ * prompt gate; a relayed turn's route is qualified by the relay.
  */
 export function fastOutputRouteRefusal(inheritedEnv: Readonly<Record<string, string | undefined>>, autonomous: boolean): string | undefined {
   if (autonomous) return "autonomous turns run at standard speed";
-  const cloud = CLOUD_PROVIDER_ENV.find(name => { const value = inheritedEnv[name]; return value !== undefined && value !== "" && value !== "0" && value.toLowerCase() !== "false"; });
-  if (cloud) return `not_first_party: ${cloud} routes this profile to a cloud provider`;
+  const selector = ROUTE_SELECTOR_ENV.find(name => { const value = inheritedEnv[name]; return value !== undefined && value !== "" && value !== "0" && value.toLowerCase() !== "false"; });
+  if (selector) return `not_first_party: ${selector} routes this profile away from the provider's first-party API`;
   if (!firstPartyInferenceUpstream(inheritedEnv)) return "not_first_party: this profile's upstream is not the provider's first-party origin";
   return undefined;
 }
 
 /**
- * Why a direct (unrelayed) fast turn's EFFECTIVE route is not provably the
- * first-party origin (maintainer ruling 2026-11-27 on #4310), from the
- * settings the runtime itself resolved (project, managed and flag tiers);
- * undefined when it is. The inherited environment was qualified at assembly;
- * native settings can still select a gateway or a cloud provider after that.
+ * Whether a direct fast turn runs under the runtime's first-party provider
+ * policy, from the settings report the runtime itself returns (maintainer
+ * ruling 2026-11-27 on #4310). Admission needs POSITIVE proof: a complete
+ * report without errors whose effective policy is exactly the pin. brain-kit
+ * names no route selector here; the runtime refuses every non-first-party
+ * route (base URL, socket, cloud or gateway provider) under that policy.
+ * Undefined means proven.
  */
-export function directFastRouteRefusal(settings: CliSettingsReport | undefined): string | undefined {
-  if (!settings || typeof settings !== "object") return "not_first_party: the runtime's resolved settings could not be read";
-  const layers = [settings.effective?.env, ...(Array.isArray(settings.sources) ? settings.sources.map(source => source?.settings?.env) : [])];
-  for (const env of layers) {
-    if (env === undefined) continue;
-    if (!env || typeof env !== "object") return "not_first_party: the runtime's resolved settings could not be read";
-    const values = env as Record<string, unknown>;
-    const cloud = CLOUD_PROVIDER_ENV.find(name => { const value = values[name]; return value !== undefined && value !== "" && value !== "0" && String(value).toLowerCase() !== "false"; });
-    if (cloud) return `not_first_party: native settings set ${cloud}, routing this profile to a cloud provider`;
-    const base = values.ANTHROPIC_BASE_URL;
-    if (base !== undefined && base !== "" && (typeof base !== "string" || !firstPartyInferenceUpstream({ ANTHROPIC_BASE_URL: base })))
-      return "not_first_party: native settings select an inference upstream that is not the provider's first-party origin";
-  }
+export function directFastRouteRefusal(settings: unknown): string | undefined {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return "not_first_party: the runtime reported no settings";
+  const report = settings as { effective?: unknown; sources?: unknown; errors?: unknown };
+  if (!report.effective || typeof report.effective !== "object" || Array.isArray(report.effective)) return "not_first_party: the runtime reported no effective settings";
+  if (!Array.isArray(report.sources)) return "not_first_party: the runtime reported no settings sources";
+  if (report.errors !== undefined && (!Array.isArray(report.errors) || report.errors.length > 0)) return "not_first_party: the runtime reported settings it could not read";
+  const allowed = (report.effective as { allowedProviders?: unknown }).allowedProviders;
+  if (!Array.isArray(allowed) || allowed.length !== 1 || allowed[0] !== "anthropic")
+    return "not_first_party: the runtime's first-party provider policy is not in force (a managed policy tier may replace it)";
   return undefined;
 }
 
@@ -651,6 +658,14 @@ function assembleClaudeSdkTurn(
   // flag setting that outranks project settings. A session that predates the
   // choice keeps the runtime's own default.
   if (req.outputSpeed && !envelope) sdkOptions.settings = { ...sdkOptions.settings as object, fastMode: req.outputSpeed === "fast" };
+  // A direct fast turn runs under the runtime's own first-party provider
+  // policy, which the prompt gate proves in force (ruling 2026-11-27 on
+  // #4310). Never on a relayed turn: the list would refuse the relay's socket.
+  if (req.outputSpeed === "fast" && !envelope && !options.hostInference) {
+    sdkOptions.managedSettings = { allowedProviders: [...FAST_PROVIDER_PIN.allowedProviders] };
+    // A refused provider then ends with a result naming why, not stderr alone.
+    childEnv.CLAUDE_CODE_STARTUP_FAILURE_RESULTS = "1";
+  }
   if (brainTools) sdkOptions.settings = { ...sdkOptions.settings as object, disabledMcpjsonServers: ["brain"] };
   if (selectionPin !== undefined) {
     sdkOptions.settings = { ...sdkOptions.settings as object,

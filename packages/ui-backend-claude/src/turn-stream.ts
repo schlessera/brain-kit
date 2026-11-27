@@ -51,7 +51,11 @@ export interface TurnStreamInputs {
  * `fast_mode_state` other than `on` (for example `cooldown` after a rate
  * limit). Absent evidence is not a fallback.
  */
+/** The runtime's provider policy refused a fast session's route at startup (#4310, ruling 2026-11-27). */
+const PROVIDER_REFUSED = "not_first_party: Claude Code refused to start this turn outside the first-party provider policy";
+
 function fastFallback(msg: SDKMessage): string | undefined {
+  if (msg.type === "result" && (msg as { startup_failure_reason?: unknown }).startup_failure_reason === "provider_not_allowed") return PROVIDER_REFUSED;
   if (msg.type === "assistant") {
     const speed = (msg.message?.usage as { speed?: unknown } | undefined)?.speed;
     return speed === "standard" ? "a response ran at standard speed" : undefined;
@@ -120,7 +124,15 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
   let fallback: string | undefined;
   try {
     for await (const msg of inputs.stream) {
-      if (inputs.outputSpeed === "fast") fallback ??= fastFallback(msg);
+      if (inputs.outputSpeed === "fast") {
+        fallback ??= fastFallback(msg);
+        // A startup refusal can end a turn its prompt gate already withheld:
+        // that refusal names the provider policy, not a failed handshake.
+        if (fallback === PROVIDER_REFUSED) {
+          const message = `fast_output_unavailable: ${PROVIDER_REFUSED}.`;
+          terminal.refused = { code: "CLAUDE_ERROR", message, failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.fast_output_unavailable, message } };
+        }
+      }
       if (startupTiming && msg.type === "system" && msg.subtype === "init" && !mcpInitObserved) {
         mcpInitObserved = true;
         let omitted = 0, statesOmitted = 0, bytes = 2;

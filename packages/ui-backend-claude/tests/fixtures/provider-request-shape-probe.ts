@@ -233,5 +233,74 @@ try {
       view.cleanup(); turnLock.close(); }
   }
  }
+ // #4310 (ruling 2026-11-27): a direct fast turn runs under the runtime's own
+ // first-party provider policy, pinned by assembly in managedSettings. These
+ // need a runner without an admin managed tier (a private /etc here). Pinned
+ // route scenarios release the prompt whatever the gate says, so they prove
+ // the RUNTIME refuses the route; the unpinned controls show the same route
+ // reaches the fake upstream without the pin.
+ for (scenario of process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? [] : ["fast-direct-policy", "fast-direct-socket-env", "fast-direct-socket-project",
+   "fast-direct-gateway", "fast-direct-socket-unpinned", "fast-direct-gateway-unpinned"]) {
+  const brain = fixtureBrain(scratch, scenario), home = join(scratch, `home-${scenario}`);
+  mkdirSync(join(home, ".claude"), { recursive: true });
+  mkdirSync(join(brain, ".claude"), { recursive: true });
+  // The relay serves plain HTTP on its socket, as production's relayed turns use it.
+  const socketRoute = { ANTHROPIC_UNIX_SOCKET: relay.socketPath, ANTHROPIC_BASE_URL: "http://localhost" };
+  const projectEnv = scenario.startsWith("fast-direct-gateway") ? { ANTHROPIC_BASE_URL: model.url.origin }
+    : scenario === "fast-direct-socket-project" || scenario === "fast-direct-socket-unpinned" ? socketRoute : {};
+  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ env: projectEnv }));
+  const qualification: Record<string, unknown> = { watchdogMs: watchdogMs(45_000) };
+  capture = captures[scenario] = { sessions: [], exchanges: [], appends: [], budgets: [], calls: [], qualification };
+  turnIndex = 0; queue = [];
+  const controller = new AbortController();
+  const view = createFixtureWorkerStartupView(brain);
+  const turnLock = createTurnLockBinding({ turn: { pendingReleases: new Map(), ended: false }, writeLock: createKeyedLock(), lockWaitMs: 1000, log() {} });
+  const environment: Record<string, string> = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"),
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", ANTHROPIC_API_KEY: "offline-odysseus", ...(scenario === "fast-direct-socket-env" ? socketRoute : {}) };
+  let turn: ReturnType<typeof createClaudeSdkTurn>;
+  try {
+    turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: "Odysseus checks Ithaca fast.", applicationAuthority: "server", signal: controller.signal,
+      turnId: `${scenario}-0`, workerStartupView: view, outputSpeed: "fast", workerSandbox: prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] }),
+      bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" }; } } },
+      profile: { id: "fixture", label: "Fixture", model: "claude-opus-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
+      turnEnvironment: environment, abortController: controller, allowedTools: ["Read"], confirmPatterns: [], turnLock, log() {} });
+  } catch (error) {
+    qualification.assemblyRefusal = { errorClass: (error as { errorClass?: unknown }).errorClass, message: error instanceof Error ? error.message : String(error) };
+    view.cleanup(); turnLock.close();
+    continue;
+  }
+  delete turn.options.spawnClaudeCodeProcess;
+  if (scenario.endsWith("-unpinned")) delete turn.options.managedSettings;
+  qualification.managedSettings = turn.options.managedSettings ?? null;
+  turn.options.stderr = text => console.error(text);
+  const terminal = new TurnTerminal({ frames: new TurnFrames({ emit() {}, async requestPermission() { return { behavior: "deny", message: "Qualification cannot approve permission prompts." }; } }, null),
+    hostSignal: new AbortController().signal, abortController: controller, startedAt: Date.now(), pendingFailure: () => null });
+  let runtime!: ReturnType<typeof query>;
+  const release = scenario !== "fast-direct-policy";
+  const prompt = gatedPrompt(turn.prompt, async () => {
+    const check = promptGateCheck({ queryHandle: Promise.resolve(runtime), initialize: value => value.initializationResult(), sdkTurn: turn, relay: undefined,
+      terminal, runtimeRequirements: [], phase: "qualification", abortController: new AbortController(), profileId: "fixture", log() {}, reportActivity() {}, reportRuntime() {} });
+    try {
+      const settings = await (runtime as unknown as { getSettings(): Promise<{ effective?: { allowedProviders?: unknown } }> }).getSettings();
+      qualification.effectiveAllowedProviders = settings?.effective?.allowedProviders ?? null;
+    } catch (error) { qualification.settingsError = String(error); }
+    try { qualification.gateAllowed = await check(); } catch (error) { qualification.gateError = String(error); }
+    qualification.gateRefusal = terminal.refused;
+    // The policy scenario has no upstream to reach; route scenarios release
+    // regardless, so only the runtime's own policy can stop the request.
+    if (!release) controller.abort();
+    return release;
+  });
+  const timer = setTimeout(() => controller.abort(), watchdogMs(45_000));
+  const results: unknown[] = [];
+  try {
+    runtime = query({ prompt, options: turn.options });
+    for await (const message of runtime) {
+      if (message.type === "system" && message.subtype === "init") qualification.init = { state: message.fast_mode_state, reason: message.fast_mode_disabled_reason };
+      if (message.type === "result") results.push({ subtype: message.subtype, startup_failure_reason: (message as { startup_failure_reason?: unknown }).startup_failure_reason ?? null });
+    }
+  } catch (error) { qualification.streamError = error instanceof Error ? error.message.slice(0, 500) : String(error); }
+  finally { clearTimeout(timer); qualification.results = results; await turn.finishWorker().catch(() => {}); view.cleanup(); turnLock.close(); }
+ }
  writeFileSync(join(scratch, "requests.json"), JSON.stringify(captures));
 } finally { restore(); proxy.stop(true); relay.stop(); model.stop(true); }

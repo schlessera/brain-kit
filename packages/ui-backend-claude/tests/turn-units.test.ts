@@ -421,6 +421,18 @@ describe("runTurnStream", () => {
     expect(standard.frames.find((frame) => frame.type === "result"), "STANDARD_SESSION_UNCHANGED").toMatchObject({ outcome: "success" });
   });
 
+  // #4310 (ruling 2026-11-27): the runtime's provider policy refusing a direct
+  // fast turn at startup is named fast_output_unavailable, not a failed handshake.
+  test("a provider-policy startup refusal of a fast turn is named fast_output_unavailable", async () => {
+    const refusal = { ...sdkResult, subtype: "error_during_execution", is_error: true, errors: ["Ithaca's provider is not allowed."], startup_failure_reason: "provider_not_allowed" };
+    const turn = run([{ type: "system", subtype: "init", session_id: "s1" }, refusal], { outputSpeed: "fast" });
+    await turn.done;
+    const result = { ...turn.frames.find((frame) => frame.type === "result") } as { failure?: { errorClass?: string; message?: string } };
+    expect(result.failure?.errorClass, "PROVIDER_REFUSAL_NAMED").toBe("fast_output_unavailable");
+    expect(result.failure?.message, "PROVIDER_REFUSAL_REASON").toContain("first-party provider policy");
+    expect(turn.terminal.refused?.failure?.errorClass, "PROVIDER_REFUSAL_OUTRANKS_HANDSHAKE_FAILURE").toBe("fast_output_unavailable");
+  });
+
   test("a stream that ends without a result fails the turn", async () => {
     const turn = run([{ type: "system", subtype: "init", session_id: "s1" }]);
     await turn.done;

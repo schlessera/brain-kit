@@ -1592,11 +1592,26 @@ no cloud provider is selected; anything else is refused with
 `fast_output_unavailable` before anything persists. The prompt gate then
 requires the runtime to report `fast_mode_state: "on"` before releasing input.
 Per the maintainer ruling of 2026-11-27 on #4310, the EFFECTIVE route is
-qualified on direct turns too: there the gate reads the settings the runtime
-resolved (project, managed and flag tiers) and refuses `fast_output_unavailable`
-(`not_first_party: …`) when any tier selects a base URL other than the
-first-party origin, selects a cloud provider, or cannot be read. A relayed
-turn's route is already qualified by the relay.
+qualified on direct turns too, and brain-kit names no route selector to do
+it: the pinned runtime selects routes from more inputs than a host can list
+(profile base URLs, per-request base URLs, gateway credential slots). A direct
+fast turn's assembly pins the runtime's own provider policy in the SDK parent
+policy tier (`managedSettings: { allowedProviders: ["anthropic"] }`), and sets
+`CLAUDE_CODE_STARTUP_FAILURE_RESULTS` so a refused provider ends with a named
+result. The runtime then refuses any other route (a custom base URL, a socket,
+a cloud or gateway provider) at startup and on contact. The prompt gate admits
+the turn only on positive proof that the policy is in force: a settings report
+with effective settings, sources, no errors, and `allowedProviders` exactly
+`["anthropic"]`. A `provider_not_allowed` startup refusal is reported as
+`fast_output_unavailable` (`not_first_party`). The pin is never set on a
+relayed turn, where the list would refuse the relay's own socket; the relay
+qualifies that route, and its settings conflict refuses the turn at any speed
+with its existing class. Limits: an admin managed tier on the host drops the
+parent tier, so the gate sees no pin and refuses direct fast sessions by name;
+the network path and TLS trust (`HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`) are not
+judged, as through the relay. Selectors the host itself can see (every
+`CLAUDE_CODE_USE_*` switch and `ANTHROPIC_UNIX_SOCKET`, the names the
+subscription guard already clears) are refused early by name.
 Any other state (`off` with its reason, `cooldown`, or no report) refuses the
 turn by name instead of running it at standard speed. A standard session that
 native settings turn fast is a `settings_conflict`. The pinned

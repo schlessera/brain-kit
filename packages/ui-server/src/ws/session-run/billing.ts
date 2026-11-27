@@ -2,7 +2,7 @@ import type { BillingMode, OutputSpeed, PricingRoute } from "@schlessera/brain-u
 import type { BackendRegistry } from "../../agent/backend.js";
 
 /** A run's billing, and for a fast session's run its speed, which selects its fast rates (#4310). */
-export type RunBilling = (NonNullable<Awaited<ReturnType<typeof resolveRunBilling>>> & { outputSpeed?: "fast" }) | undefined;
+export type RunBilling = (Omit<NonNullable<Awaited<ReturnType<typeof resolveRunBilling>>>, "profileId"> & { profileId?: string; outputSpeed?: "fast" }) | undefined;
 
 /**
  * Profile identity + billing mode for a turn's root span. When the slot has no
@@ -46,5 +46,7 @@ export async function resolveRunBilling(
  * follows it instead of reading zero.
  */
 export function outputSpeedBilling(billing: RunBilling, speed: OutputSpeed | null | undefined): RunBilling {
-  return billing && speed === "fast" ? { ...billing, billingMode: "api", outputSpeed: "fast" } : billing;
+  // Even when the roster could not be read (billing unknown), a fast turn
+  // still runs fast: its speed and paid billing are known (#4310, round 3 F7).
+  return speed === "fast" ? { ...billing, billingMode: "api", outputSpeed: "fast" } : billing;
 }

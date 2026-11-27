@@ -17,7 +17,7 @@ beforeEach(() => { home = installTestHome(); brain = mkdtempSync(join(tmpdir(), 
 afterEach(() => { rmSync(brain, { recursive: true, force: true }); home.dispose(); });
 
 /** Production SDK assembly of one hosted, relayed turn. */
-function assemble(outputSpeed: OutputSpeed | undefined, environment: Record<string, string> = {}, extra: Partial<StartTurnRequest> = {}) {
+function assemble(outputSpeed: OutputSpeed | undefined, environment: Record<string, string> = {}, extra: Partial<StartTurnRequest> = {}, relayed = true) {
   return createClaudeSdkTurn({
     backend: { brainPath: brain },
     req: { prompt: "Odysseus checks Ithaca.", bridge: { emit() {} }, applicationAuthority: "server", signal: new AbortController().signal,
@@ -26,7 +26,7 @@ function assemble(outputSpeed: OutputSpeed | undefined, environment: Record<stri
     profile: { id: "fixture", label: "Fixture", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
     turnEnvironment: environment,
     // An autonomous turn has its own transport; ordinary turns go through the relay.
-    ...(extra.autonomous ? {} : { hostInference: { proxyDir: brain, placeholders: { ANTHROPIC_API_KEY: INFERENCE_PLACEHOLDER } } }),
+    ...(extra.autonomous || !relayed ? {} : { hostInference: { proxyDir: brain, placeholders: { ANTHROPIC_API_KEY: INFERENCE_PLACEHOLDER } } }),
     abortController: new AbortController(), allowedTools: ["Read"], confirmPatterns: [],
     turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, log() {},
   });
@@ -64,7 +64,7 @@ test("a fast session on an unqualified route is refused before anything persists
 });
 
 /** Resolved native settings of a direct turn on the first-party API: no tier selects another route. */
-const FIRST_PARTY_SETTINGS = { effective: { env: {} }, sources: [{ source: "projectSettings", settings: { env: {} } }] };
+const FIRST_PARTY_SETTINGS = { effective: { env: {}, allowedProviders: ["anthropic"] }, sources: [{ source: "projectSettings", settings: { env: {} } }] };
 
 function gate(outputSpeed: OutputSpeed | undefined, initialized: Record<string, unknown>, settings: unknown = FIRST_PARTY_SETTINGS) {
   const frames: ServerMessage[] = [], activity: unknown[] = [];
@@ -122,18 +122,17 @@ test("no brain process starts before the prompt gate while the host login is ins
 // Ruling 2026-11-27 on #4310: a direct fast turn's EFFECTIVE route, as the
 // runtime resolved it from project, managed and flag settings, must be the
 // first-party origin before any input is released.
-test("a direct fast turn is released only when the runtime's resolved route is first-party", async () => {
+test("a direct fast turn is released only on positive proof that the runtime's first-party policy is in force", async () => {
   const on = { fast_mode_state: "on" };
-  expect(await gate("fast", on).check(), "FAST_ALLOWED_direct_first_party").toBe(true);
-  expect(await gate("fast", on, { effective: { env: { ANTHROPIC_BASE_URL: "https://api.anthropic.com/" } }, sources: [] }).check(), "FAST_ALLOWED_explicit_first_party").toBe(true);
+  expect(await gate("fast", on).check(), "FAST_ALLOWED_direct_policy_in_force").toBe(true);
   for (const [label, settings, reason] of [
-    ["direct_gateway", { effective: { env: { ANTHROPIC_BASE_URL: "https://gateway.example.com" } },
-      sources: [{ source: "projectSettings", settings: { env: { ANTHROPIC_BASE_URL: "https://gateway.example.com" } } }] }, "not the provider's first-party origin"],
-    ["direct_managed_gateway", { effective: { env: {} },
-      sources: [{ source: "policySettings", settings: { env: { ANTHROPIC_BASE_URL: "https://gateway.example.com" } } }] }, "not the provider's first-party origin"],
-    ["direct_cloud_provider", { effective: { env: { CLAUDE_CODE_USE_VERTEX: "1" } }, sources: [] }, "CLAUDE_CODE_USE_VERTEX"],
-    ["direct_unreported_settings", null, "could not be read"],
-    ["direct_unreadable_settings", new Error("Ithaca settings are sealed."), "could not be read"],
+    ["empty_report", {}, "no effective settings"],
+    ["no_sources", { effective: { allowedProviders: ["anthropic"] } }, "no settings sources"],
+    ["settings_errors", { ...FIRST_PARTY_SETTINGS, errors: [{ path: ".claude/settings.json", message: "Ithaca is not JSON" }] }, "could not read"],
+    ["policy_absent", { effective: { env: {} }, sources: [] }, "policy is not in force"],
+    ["policy_widened", { effective: { allowedProviders: ["anthropic", "customEndpoint"] }, sources: [] }, "policy is not in force"],
+    ["unreported", null, "no settings"],
+    ["unreadable", new Error("Ithaca settings are sealed."), "could not be read"],
   ] as const) {
     const refused = gate("fast", on, settings);
     expect(await refused.check(), `FAST_REFUSED_${label}`).toBe(false);
@@ -142,5 +141,21 @@ test("a direct fast turn is released only when the runtime's resolved route is f
     expect(failure.message.includes("not_first_party: ") && failure.message.includes(reason), `FAST_REFUSED_${label}_REASON ${failure.message}`).toBe(true);
   }
   // A standard session is not route-qualified for fast output.
-  expect(await gate("standard", { fast_mode_state: "off" }, { effective: { env: { ANTHROPIC_BASE_URL: "https://gateway.example.com" } }, sources: [] }).check(), "STANDARD_GATEWAY_UNCHANGED").toBe(true);
+  expect(await gate("standard", { fast_mode_state: "off" }, { effective: { env: {} }, sources: [] }).check(), "STANDARD_UNCHANGED").toBe(true);
+});
+
+test("assembly pins the first-party provider policy on a direct fast turn only, never on a relayed one", async () => {
+  const direct = assemble("fast", {}, {}, false), relayed = assemble("fast"), standard = assemble("standard", {}, {}, false);
+  try {
+    expect(direct.options.managedSettings, "DIRECT_FAST_PINS_POLICY").toEqual({ allowedProviders: ["anthropic"] });
+    expect(direct.options.env!.CLAUDE_CODE_STARTUP_FAILURE_RESULTS, "DIRECT_FAST_NAMES_STARTUP_REFUSALS").toBe("1");
+    expect(relayed.options.managedSettings, "RELAYED_FAST_NO_POLICY").toBeUndefined();
+    expect(standard.options.managedSettings, "STANDARD_NO_POLICY").toBeUndefined();
+  } finally { await direct.finishWorker(); await relayed.finishWorker(); await standard.finishWorker(); }
+  // A selector the host can see that routes away from the first-party API is named before anything starts.
+  for (const name of ["ANTHROPIC_UNIX_SOCKET", "CLAUDE_CODE_USE_GATEWAY", "CLAUDE_CODE_USE_MANTLE"]) {
+    let error: unknown;
+    try { assemble("fast", { [name]: "1" }, {}, false); } catch (caught) { error = caught; }
+    expect((error as Error)?.message, `FAST_SELECTOR_${name}_NAMED`).toContain(name);
+  }
 });

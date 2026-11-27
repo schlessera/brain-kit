@@ -345,7 +345,10 @@ exports `FastOutputUnavailableError`, a `BackendRequestError` with
 throws instead of running a fast session at another speed. The Claude backend
 advertises the capability: it serves fast output only through a first-party
 upstream, pins the speed as a flag setting, and refuses before prompt release
-unless the runtime reports fast output on. The pi backend refuses fast
+unless the runtime reports fast output on. A direct fast turn also runs under
+the runtime's own first-party provider policy (`managedSettings.allowedProviders`)
+and is admitted only when the runtime reports that policy in force; a relayed
+turn's route is qualified by the relay. The pi backend refuses fast
 sessions.
 
 ## Native history removal (additive, #3229)

@@ -102,15 +102,19 @@ async function runRetainedSession(
 ): Promise<void> {
   const starting = beginSlotStart(host, initial);
   let target: Awaited<ReturnType<typeof resolveTurnTarget>>;
+  let storedOutputSpeed: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed | null = null;
   try {
     target = await resolveTurnTarget(host.registry, host.catalog, initial.sessionId, initial.providerId);
+    // A resume's stored speed is read here, where a failed read is a routing
+    // failure that settles every queued follow-up (#4310, round 3 F9).
+    if (initial.sessionId) storedOutputSpeed = host.catalog.getStoredOutputSpeed?.(initial.sessionId) ?? null;
   } catch (err) {
     reportRoutingFailure(host, initial, starting, err, initialLifecycle);
     return;
   } finally {
     host.coordinator.endStarting(initial.sessionId, starting);
   }
-  const slot = registerSessionSlot(host, initial, starting, target, initialTurnId);
+  const slot = registerSessionSlot(host, initial, starting, target, initialTurnId, storedOutputSpeed);
   if (!slot) return;
   const { turn } = slot;
   let next: QueuedFollowUp | null = firstRequest(initial);

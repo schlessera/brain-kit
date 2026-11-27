@@ -62,7 +62,9 @@ export function registerSessionSlot(
   initial: RunSessionInput,
   starting: StartingSession,
   target: Awaited<ReturnType<typeof resolveTurnTarget>>,
-  initialTurnId: string
+  initialTurnId: string,
+  /** A resume's stored speed, read while routing; this function does no fallible I/O (#4310). */
+  storedOutputSpeed: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed | null = null
 ): SessionSlot | undefined {
   const { coordinator } = host;
   if (starting.cancelled || host.closing) {
@@ -101,7 +103,7 @@ export function registerSessionSlot(
     providerId: profileId ?? null,
     // A new session takes its requested speed (standard when absent); a
     // resume keeps the speed it started with, whatever the client sends.
-    outputSpeed: initial.sessionId ? (host.catalog.getStoredOutputSpeed?.(initial.sessionId) ?? null) : (initial.outputSpeed ?? "standard"),
+    outputSpeed: initial.sessionId ? storedOutputSpeed : (initial.outputSpeed ?? "standard"),
     backend,
     abortController: new AbortController(),
     timeoutHandle: setTimeout(() => {}, 0),

@@ -124,7 +124,8 @@ test("fast rates come from the runtime's table, unknown Claude models stay unpri
 test("a fast run is real spend at the fast rate on every billing mode, never zero and never a standard rate", () => {
   expect(outputSpeedBilling({ profileId: "claude", billingMode: "subscription" }, "fast"), "FAST_SUBSCRIPTION_BILLS_AS_SPEND").toEqual({ profileId: "claude", billingMode: "api", outputSpeed: "fast" });
   expect(outputSpeedBilling({ profileId: "claude", billingMode: "subscription" }, "standard")).toEqual({ profileId: "claude", billingMode: "subscription" });
-  expect(outputSpeedBilling(undefined, "fast")).toBeUndefined();
+  expect(outputSpeedBilling(undefined, "fast"), "FAST_WITHOUT_ROSTER_STILL_FAST_SPEND").toEqual({ billingMode: "api", outputSpeed: "fast" });
+  expect(outputSpeedBilling(undefined, "standard")).toBeUndefined();
   const db = createUiDb(":memory:");
   try {
     const store = createActivityStore(db, { writer: "test", pricing: standard });
@@ -180,4 +181,50 @@ test("a fast turn's usage is priced at the fast rate in every budget scope, and 
     // 15 tokens at the standard fixture rate of $1 each, added to the turn's $2.40.
     expect(completion.receipt.scopes.find(scope => scope.scope === "turn")!.costUsd!, "RELAYED_COMPLETION_KEEPS_ITS_RATE").toBeCloseTo(2.4 + 15, 6);
   } finally { db.close(); }
+});
+
+// #4310 round 3 F7: a roster that cannot be read leaves billing unknown, but a
+// fast turn still runs fast, so its accounted cost is priced at the fast rate.
+test("a fast turn whose provider roster cannot be read is still accounted at the fast rate", async () => {
+  const contexts: unknown[] = [];
+  const catalog = { ...speedCatalog(), accountClaudeUsage(_session: string, _backend: string, _turn: string, _evidence: unknown, _resumed: boolean, context: unknown) { contexts.push(context); return 0.004; } };
+  const backend = makeFakeBackend({ id: "fake", capabilities: { fastOutput: true }, startTurn: async request => {
+    request.bridge.emit({ type: "session_info", sessionId: "ithaca-roster", isNew: true });
+    request.bridge.activity?.({ kind: "claude_session_usage", completed: { inputTokens: 2, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+      perModel: { "claude-opus-5-5": { inputTokens: 2 } } } } as never);
+    request.bridge.emit({ type: "result", sessionId: "ithaca-roster", outcome: "success", durationMs: 1, numTurns: 1, isError: false } as never);
+  } });
+  const registry = createStaticBackendRegistry([backend], backend.id);
+  const broken = { ...registry, listAllProviders: async () => { throw new Error("The Ithaca roster is unreadable."); } };
+  const host = new WsHost({ registry: broken as never, catalog, observability: createRecordingObservability(), turnTimeoutMs: 5_000 });
+  await runSession(host, { authorization: AUTHORIZATION, text: "Odysseus sets sail.", attachments: [], outputSpeed: "fast" });
+  expect(contexts, "ROSTER_FAILURE_KEEPS_FAST_PRICING").toEqual([expect.objectContaining({ billingMode: "api", outputSpeed: "fast" })]);
+});
+
+// #4310 round 3 F9: the stored-speed read belongs to routing, so its failure
+// settles every follow-up queued meanwhile and releases its authorization.
+test("a failed stored-speed read on resume settles queued follow-ups and releases their leases", async () => {
+  const requests: StartTurnRequest[] = [];
+  const gate = Promise.withResolvers<void>();
+  const catalog = { ...speedCatalog(), getStoredOutputSpeed() { throw new Error("The Ithaca catalog is unreadable."); } };
+  const backend = recordingBackend(true, requests);
+  const registry = createStaticBackendRegistry([backend], backend.id);
+  const slow = { ...registry, getBackendForSession: async (id: string | null) => { await gate.promise; return registry.getBackendForSession(id); } };
+  const host = new WsHost({ registry: slow as never, catalog, observability: createRecordingObservability(), turnTimeoutMs: 5_000 });
+  const sent: ServerMessage[] = [];
+  const ws: WSContext = { send(data) { sent.push(JSON.parse(data) as ServerMessage); } };
+  host.clients.add(ws, AUTHORIZATION.principalId);
+  let retained = 0, released = 0;
+  const authorization = { ...AUTHORIZATION, retain: () => { retained++; const release = AUTHORIZATION.retain(); return () => { released++; release(); }; } } as typeof AUTHORIZATION;
+  const running = runSession(host, { authorization, text: "Penelope asks.", attachments: [], sessionId: "ithaca-broken" });
+  for (let tries = 0; !host.coordinator.startingBySession.has("ithaca-broken") && tries < 200; tries++) await Bun.sleep(1);
+  await handleChatMessage(host, ws as Socket, { authorization, text: "Telemachus follows up.", attachments: [], sessionId: "ithaca-broken" });
+  gate.resolve();
+  await running;
+  expect(requests, "FAILED_READ_STARTS_NOTHING").toEqual([]);
+  expect(host.coordinator.startingBySession.has("ithaca-broken") || host.coordinator.bySession.has("ithaca-broken"), "FAILED_READ_LEAVES_NO_SLOT").toBe(false);
+  expect(sent.filter(message => message.type === "error").length, "FAILED_READ_REPORTED").toBeGreaterThan(0);
+  for (let tries = 0; released < retained && tries < 200; tries++) await Bun.sleep(1);
+  expect(retained, "FOLLOW_UP_WAS_QUEUED_DURING_ROUTING").toBeGreaterThan(0);
+  expect(released, "EVERY_QUEUED_LEASE_RELEASED").toBe(retained);
 });
