@@ -6,7 +6,7 @@ import { HandoffCard } from "./handoff-links.js";
 import { AskUserFormExchangeCard } from "./ask-user-form-card.js";
 import type { AskUserFormAnswers, AttachmentFile, AttachmentReadEntry } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import type {
   ChatMessage,
@@ -99,11 +99,17 @@ export const MessageBubble = memo(function MessageBubble({
   anchor,
   journalVisible = true,
   arrival,
-  taskContext,
+  taskSessionId,
+  onRevealTask,
 }: {
   message: ChatMessage;
-  /** Exact host request/result navigation supplied by the owning transcript. */
-  taskContext?: ReactNode;
+  /**
+   * Exact host request/result navigation for a voice-context row: the
+   * session the task row reads, and the owning transcript's reveal (#4752).
+   * A primitive and a stable callback, never an element, so the memo holds.
+   */
+  taskSessionId?: string | null;
+  onRevealTask?: (key: string) => void;
   arrival?: TranscriptRange;
   /** Its place in the transcript, which a reload keeps (#1014): where the reader was is restored by it. */
   anchor?: string;
@@ -164,7 +170,7 @@ export const MessageBubble = memo(function MessageBubble({
       {isUser && message.source === "handoff" ? (
         <HandoffCard content={message.content} />
       ) : isUser && message.source === "voice-context" ? (
-        taskContext ?? <ConversationTaskContext message={message} />
+        <ConversationTaskContext message={message} sessionId={taskSessionId} onReveal={onRevealTask} />
       ) : isUser ? (
         <UserTurn spoken={spoken}>
           {spoken && message.content && <span className="chat-message-body whitespace-pre-wrap">{linkifyPaths(message.content)}</span>}
