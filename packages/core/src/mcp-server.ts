@@ -31,7 +31,7 @@ import { packageVersion } from "./package-version.js";
 import { registerModuleTools } from "./lib/module-mcp-tools.js";
 import { APIFY_DESCRIPTIONS, APIFY_INPUT_SCHEMAS, APIFY_OPERATIONS, APIFY_TOOL_NAMES } from "@schlessera/brain-common/internal/apify-operations";
 import { createStandaloneApify, type StandaloneApify } from "./lib/apify/standalone.js";
-import { indexStaleness } from "./lib/ops/staleness.js";
+import { cachedStaleness, indexStaleness, staleWarning, type StalenessCache } from "./lib/ops/staleness.js";
 import { DOCUMENT_PAGE_MAX_BYTES } from "./lib/document-page.js";
 import { coverageNote } from "./lib/context-assembler.js";
 import {
@@ -111,29 +111,16 @@ export function serverInstructions(profileName?: string): string {
   );
 }
 
-/** How long one staleness probe answers for every read tool. */
-const STALENESS_TTL_MS = 10_000;
-
 /**
  * The read tools' staleness warning: markdown files on disk newer than their
- * indexed_at, missing from the index, or deleted from disk. Cached briefly,
- * and never allowed to break a read.
+ * indexed_at, missing from the index, or deleted from disk. Cached for a
+ * lifetime that grows with the probe's cost, and never allowed to break a read.
  */
-function stalenessWarning(db: Database, brain: BrainContext): () => string | null {
-  let cache: { at: number; warning: string | null } = { at: 0, warning: null };
-  return () => {
-    const now = Date.now();
-    if (now - cache.at < STALENESS_TTL_MS) return cache.warning;
-    let warning: string | null = null;
-    try {
-      const { stale } = indexStaleness(db, brain.root, brain.taxonomy);
-      if (stale > 0) warning = `index is stale (${stale} file(s) newer than index); run \`brain index\``;
-    } catch {
-      // Never let the staleness probe break a read.
-    }
-    cache = { at: now, warning };
-    return warning;
-  };
+function stalenessWarning(db: Database, brain: BrainContext): StalenessCache {
+  return cachedStaleness(() => {
+    const { stale } = indexStaleness(db, brain.root, brain.taxonomy);
+    return stale > 0 ? staleWarning(stale) : null;
+  }, Date.now);
 }
 
 /** Everything the core tool wrappers share, resolved once per server. */
@@ -146,6 +133,8 @@ interface CoreTools {
   /** Load the vector extension on first use. */
   ensureVec: () => Promise<void>;
   stale: () => string | null;
+  /** Called by a write tool after its index run, so no read serves a warning from before the write. */
+  resetStale: () => void;
   /** The invalid-config warning, when the server runs on degraded defaults. */
   configWarning: string | null;
   /** The config warning, module-load warnings, then these. */
@@ -519,6 +508,8 @@ function registerWriteTools(server: McpServer, t: CoreTools): void {
         return jsonText(await addDocument(deps, { content: params.content, type: params.type, title: params.title, tags }));
       } catch (e) {
         return errorResult(e);
+      } finally {
+        t.resetStale();
       }
     }
   );
@@ -556,6 +547,8 @@ function registerWriteTools(server: McpServer, t: CoreTools): void {
         }));
       } catch (e) {
         return errorResult(e);
+      } finally {
+        t.resetStale();
       }
     }
   );
@@ -578,6 +571,8 @@ function registerWriteTools(server: McpServer, t: CoreTools): void {
         return jsonText(await archiveWithReindex(deps, { path: params.path, dryRun: params.dry_run }));
       } catch (e) {
         return errorResult(e);
+      } finally {
+        if (!params.dry_run) t.resetStale();
       }
     }
   );
@@ -753,13 +748,15 @@ export async function startMcpServer(
     if (!vecReady) vecReady = (await loadVecSupport(db)).ok;
   };
 
+  const staleness = stalenessWarning(db, brain);
   const tools: CoreTools = {
     brain,
     db,
     embeddings,
     ...(withheld?.embeddings ? { withheldEmbeddings: withheld.embeddings } : {}),
     ensureVec,
-    stale: stalenessWarning(db, brain),
+    stale: staleness.read,
+    resetStale: staleness.reset,
     configWarning,
     toolWarnings: (...warnings) => [
       ...(configWarning ? [configWarning] : []),

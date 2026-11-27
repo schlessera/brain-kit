@@ -10,6 +10,7 @@ import { CORE_TYPES, isPersonalized } from "../../lib/config.js";
 import { COMPLETION_PROVIDERS, DEFAULT_EMBEDDING_PROVIDER, EMBEDDING_PROVIDERS } from "../../lib/registry.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, parseArgs, today, UsageError } from "../io.js";
+import { gitConfig, isGitRepo } from "../../lib/sync/git.js";
 
 const HELP = `brain init — preflight check / non-interactive default setup
 
@@ -18,18 +19,6 @@ const HELP = `brain init — preflight check / non-interactive default setup
 
 The conversational interview lives in the /brain-init skill; this command is its
 mechanical backend and the keyless CI smoke path.`;
-
-function gitConfig(root: string, key: string): string {
-  const proc = Bun.spawnSync(["git", "-C", root, "config", "--get", key]);
-  return new TextDecoder().decode(proc.stdout).trim();
-}
-
-function isGitRepo(root: string): boolean {
-  return (
-    existsSync(join(root, ".git")) ||
-    Bun.spawnSync(["git", "-C", root, "rev-parse", "--git-dir"]).exitCode === 0
-  );
-}
 
 /** Directories for every core type that has a canonical dir. */
 function coreDirs(): string[] {

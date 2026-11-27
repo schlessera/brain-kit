@@ -6,7 +6,8 @@
  * refusal and the mapping to MCP content (#1349).
  */
 import type { Database } from "bun:sqlite";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, realpathSync } from "fs";
+import { relative } from "path";
 
 import { archiveDocument, relevanceOnArchive, type ArchiveResult } from "../archiver.js";
 import { updateDocument, type FrontmatterValue } from "../frontmatter-edit.js";
@@ -28,8 +29,14 @@ export function splitTags(tags: string): string[] {
   return tags.split(",").map((t) => t.trim()).filter(Boolean);
 }
 
-const reindex = (deps: WriteDeps) => (db: Database) =>
-  indexAll(db, { root: deps.root, taxonomy: deps.taxonomy, force: false, quiet: true });
+/**
+ * Index after a write. `paths` names the files the write changed, so only
+ * those are read; the rest of the brain is taken from the index, and a file
+ * edited elsewhere since the last complete run stays unindexed (and counted
+ * stale) until one runs.
+ */
+const reindex = (deps: Pick<WriteDeps, "root" | "taxonomy">) => (db: Database, paths?: readonly string[]) =>
+  indexAll(db, { root: deps.root, taxonomy: deps.taxonomy, force: false, quiet: true, paths });
 
 export interface AddInput {
   content: string;
@@ -116,16 +123,24 @@ export async function updateDocumentFields(deps: WriteDeps, input: UpdateInput):
   // Only these keys change; the rest of the frontmatter keeps its bytes (#449).
   // Staged and renamed over the document, so a failed write leaves it whole (#1355).
   writeFileSafely(fullPath, updateDocument(raw, updates, input.appendContent || undefined));
-  await reindex(deps)(deps.db);
+  await reindex(deps)(deps.db, [relative(realpathSync(deps.root), fullPath)]);
 
   return { path: input.path, updated, changes };
 }
 
-/** Archive a document and reindex; a dry run previews without writing. */
-export function archiveWithReindex(deps: WriteDeps, input: { path: string; dryRun: boolean }): Promise<ArchiveResult> {
+/**
+ * Archive a document and reindex; a dry run previews without writing. Without
+ * a `db` the archiver opens its own handle with `embeddingDimensions` and
+ * migrates the vector schema before the reindex, as `brain archive` does.
+ */
+export function archiveWithReindex(
+  deps: Omit<WriteDeps, "db"> & { db?: Database; embeddingDimensions?: number },
+  input: { path: string; dryRun: boolean }
+): Promise<ArchiveResult> {
   return archiveDocument(deps.root, input.path, {
     dryRun: input.dryRun,
     db: deps.db,
+    embeddingDimensions: deps.embeddingDimensions,
     reindex: input.dryRun ? undefined : reindex(deps),
   });
 }
