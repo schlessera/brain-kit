@@ -722,40 +722,38 @@ function splitHeadings(text: string): TopLevelBlock[] {
 }
 
 /**
- * What the index recorded for a hit's best chunk. `hash` is the file's
- * SHA-256 as indexed, read on its own so every schema answers it, or null
- * when the index cannot say. `range` is the chunk's recorded source lines,
- * or null when it has none: a piece of a split section, an index from an
- * older chunker, or an older schema that cannot be asked.
+ * What the index holds for a hit's best chunk, read in one statement so the
+ * row, its lines and the file's hash are one snapshot: `hash` is the file's
+ * SHA-256 as indexed, `range` the chunk's recorded source lines, or null when
+ * it has none (a piece of a split section, an index from an older chunker or
+ * an older schema). Null when the index no longer holds the chunk the search
+ * returned (the same heading and text at the same place in the same file):
+ * a reindex since the search, or a read that failed.
  */
 interface IndexedChunk {
   hash: string | null;
   range: [number, number] | null;
 }
 
-/** The index's record of a hit's chunk (`IndexedChunk`); a failed read is no answer, never a pass. */
-function indexedChunk(db: Database, path: string, chunk: ChunkMatch): IndexedChunk {
-  let hash: string | null = null;
+/** The index's snapshot of a hit's chunk (`IndexedChunk`); a failed read is no answer, never a pass. */
+function indexedChunk(db: Database, path: string, chunk: ChunkMatch): IndexedChunk | null {
+  const where = "FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? AND c.chunk_index = ? AND c.heading = ? AND c.content = ?";
+  const args = [path, chunk.chunk_index, chunk.heading, chunk.content] as const;
+  type Row = { content_hash: string | null; start_line?: number | null; end_line?: number | null; chunker_version?: number | null };
+  let row: Row | null;
   try {
-    const row = db.prepare("SELECT content_hash FROM documents WHERE path = ?").get(path) as { content_hash: string | null } | null;
-    hash = row?.content_hash ?? null;
+    row = db.prepare(`SELECT d.content_hash, c.start_line, c.end_line, d.chunker_version ${where}`).get(...args) as Row | null;
   } catch {
-    hash = null;
+    // An older schema has no line columns: the same snapshot, without lines.
+    try {
+      row = db.prepare(`SELECT d.content_hash ${where}`).get(...args) as Row | null;
+    } catch {
+      return null;
+    }
   }
-  let range: [number, number] | null = null;
-  try {
-    const row = db
-      .prepare(
-        `SELECT c.start_line, c.end_line, d.chunker_version
-         FROM chunks c JOIN documents d ON d.id = c.document_id
-         WHERE d.path = ? AND c.chunk_index = ? AND c.content = ?`
-      )
-      .get(path, chunk.chunk_index, chunk.content) as { start_line: number | null; end_line: number | null; chunker_version: number | null } | null;
-    if (row && row.start_line !== null && row.end_line !== null && row.chunker_version === CHUNKER_VERSION) range = [row.start_line, row.end_line];
-  } catch {
-    range = null;
-  }
-  return { hash, range };
+  if (!row) return null;
+  const lined = row.start_line != null && row.end_line != null && row.chunker_version === CHUNKER_VERSION;
+  return { hash: row.content_hash, range: lined ? [row.start_line!, row.end_line!] : null };
 }
 
 /**
@@ -769,16 +767,21 @@ function indexedChunk(db: Database, path: string, chunk: ChunkMatch): IndexedChu
  * Null when the range is one part, so the caller reads the chunk as it
  * always has, or when it does not fall on part boundaries.
  */
-function recordedSpan(body: string, range: [number, number]): { components: Array<{ name: string | null; text: string }>; lines: [number, number] } | null {
+function recordedSpan(
+  body: string,
+  range: [number, number]
+): { components: Array<{ name: string | null; heading: string | null; text: string }>; lines: [number, number] } | null {
   const heads = splitHeadings(body);
   // The body's line breaks are found once, so placing every part is linear.
   const lineAt = lineIndex(body);
   // What follows a heading: the rest of its line and blank lines go, indentation stays.
   const tidy = (text: string) => text.replace(/^[ \t]*\r?\n/, "").replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd();
   const parts = [
-    { name: null as string | null, start: 0, content: 0, end: heads[0]?.start ?? body.length },
+    { name: null as string | null, heading: null as string | null, start: 0, content: 0, end: heads[0]?.start ?? body.length },
     ...heads.map((head, i) => ({
       name: headingBlockText(body.slice(head.start, head.end)),
+      // The heading as written, so a match line is compared with it raw.
+      heading: body.slice(head.start, head.end) as string | null,
       start: head.start,
       content: head.end,
       end: heads[i + 1]?.start ?? body.length,
@@ -795,7 +798,7 @@ function recordedSpan(body: string, range: [number, number]): { components: Arra
   const from = parts.findIndex((part) => part.first === range[0]);
   const to = parts.findIndex((part) => part.last === range[1]);
   if (from === -1 || to <= from) return null;
-  return { components: parts.slice(from, to + 1).map(({ name, text }) => ({ name, text })), lines: range };
+  return { components: parts.slice(from, to + 1).map(({ name, heading, text }) => ({ name, heading, text })), lines: range };
 }
 
 /**
@@ -826,16 +829,17 @@ function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null, r
   const span = range ? recordedSpan(body, range) : null;
   if (span) {
     if (matchLine !== null) {
-      // A component with the match line as one of its lines decides; one that
-      // only contains it inside a longer line counts when none does.
-      const exact = span.components.filter(
-        (c) => c.text.split("\n").some((line) => line.trim() === matchLine) || (asHeading !== null && c.name === asHeading)
-      );
-      const holding = exact.length > 0 ? exact : span.components.filter(holds);
+      // A component with the match line as one of its own source lines, its
+      // heading as written included, decides; one that only contains it
+      // inside a longer line counts when none does. Lines are compared raw
+      // (trimmed only), never by a heading's normalised name.
+      const own = (c: (typeof span.components)[number]) => [...(c.heading === null ? [] : c.heading.split("\n")), ...c.text.split("\n")];
+      const exact = span.components.filter((c) => own(c).some((line) => line.trim() === matchLine));
+      const holding = exact.length > 0 ? exact : span.components.filter((c) => own(c).some((line) => line.includes(matchLine)));
       if (holding.length === 0) return null;
-      if (holding.length === 1) return { parts: [holding[0]!] };
+      if (holding.length === 1) return { parts: [{ name: holding[0]!.name, text: holding[0]!.text }] };
     }
-    return { parts: span.components, lines: span.lines };
+    return { parts: span.components.map(({ name, text }) => ({ name, text })), lines: span.lines };
   }
   const { lead, sections } = splitSections(body);
   const parts: SourcePart[] = [
@@ -909,14 +913,13 @@ function hitSection(
   matchLine: string | null,
   read: SourceReader,
   cap: number,
-  indexed: IndexedChunk
+  indexed: IndexedChunk | null
 ): HitSection | "budget" | null {
   const doc = read(result.path);
-  // A file changed since the index run no longer holds the chunk the search
-  // matched, and a file whose indexed hash cannot be read may not: the hit
-  // keeps its snippet, and nothing of the file is read for it (#3683). This
-  // does not rest on the range read, which an older schema cannot answer.
-  if (!doc || indexed.hash !== doc.hash) return null;
+  // The index no longer holding the chunk the search matched, or a file
+  // changed since that index snapshot, keeps the hit's snippet, and nothing
+  // of the file is read for it (#3683).
+  if (!doc || !indexed || indexed.hash === null || indexed.hash !== doc.hash) return null;
   const range: [number, number] | null = indexed.range ? [indexed.range[0] - doc.dropped, indexed.range[1] - doc.dropped] : null;
   const found = sourcePart(doc.body, best, matchLine, range);
   if (!found) return null;

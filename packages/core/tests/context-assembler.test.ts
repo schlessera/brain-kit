@@ -21,6 +21,7 @@ import { initContext, type BrainContext } from "../src/lib/context";
 import { assembleContext, emptyAssembleReport, emptyContextCoverage, estimateTokens } from "../src/lib/context-assembler";
 import { openDatabase } from "../src/lib/db";
 import { topLevelBlocks } from "../src/lib/document-parts";
+import * as searchEngine from "../src/lib/search-engine";
 import { hybridSearch } from "../src/lib/search-engine";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
@@ -1263,6 +1264,54 @@ describe("sections from chunks", () => {
         expect(hitsOf(out).find((h) => h.includes("(studies/notes.md)"))).toContain("#### Notes\nThe beacon log opens here.");
       } finally {
         old.close();
+      }
+    });
+
+    test("a reindex between the search and the expansion keeps the hit's snippet", async () => {
+      const file = study("Folded", `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n`);
+      const { ctx, db } = await brainWith({ "studies/folded.md": file });
+      const other = openDatabase(ctx.dbPath);
+      const real = searchEngine.hybridSearch;
+      // The search answers from the old index; then another process edits the
+      // file and reindexes it before the hit is expanded.
+      const search = spyOn(searchEngine, "hybridSearch").mockImplementation((async (...args: Parameters<typeof real>) => {
+        const found = await real(...args);
+        writeFileSync(join(ctx.root, "studies/folded.md"), study("Folded", `## Cargo\n\nThe beacon code is violet.\n\nTwelve jars of oil.\n\n## Tides\n\n${para("Tide", 8)}\n`));
+        await indexAll(other, { root: ctx.root, taxonomy: ctx.taxonomy, quiet: true });
+        return found;
+      }) as typeof real);
+      try {
+        const coverage = emptyContextCoverage();
+        const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false, scope: { include: ["studies/"] }, coverage });
+        // The premise: the search ran, and the hit it found is the old chunk.
+        expect(search).toHaveBeenCalled();
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).toContain("Signal");
+        expect(hit).not.toContain("Twelve jars of oil");
+        expect(coverage.excerpts.find((e) => e.path === "studies/folded.md")).toEqual({ path: "studies/folded.md", lane: "search", form: "snippet" });
+      } finally {
+        search.mockRestore();
+        other.close();
+        db.close();
+      }
+    });
+
+    test("a heading with a closing sequence matches only its own raw line, not the same name without it", async () => {
+      const body = `## Beacon ##\n\nThe tower is lit at dusk.\n\n## Beacon\n\n${para("Tide", 8)}\n`;
+      const file = study("Folded", body);
+      const { ctx, db } = await brainWith({ "studies/folded.md": file });
+      try {
+        const chunks = db.prepare("SELECT c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ?").all("studies/folded.md") as { content: string }[];
+        // The premise: the first section is folded into the second, under its raw heading line.
+        expect(chunks.map((c) => c.content.startsWith("## Beacon ##\n\n"))).toEqual([true]);
+        const coverage = emptyContextCoverage();
+        const out = await assembleContext(db, ctx, { query: "Beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false, scope: { include: ["studies/"] }, coverage });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).toContain("#### Beacon\nThe tower is lit at dusk.");
+        expect(hit).not.toContain("Tide paragraph 1");
+        expect(coverage.excerpts.find((e) => e.path === "studies/folded.md")?.lines).toBeUndefined();
+      } finally {
+        db.close();
       }
     });
 
