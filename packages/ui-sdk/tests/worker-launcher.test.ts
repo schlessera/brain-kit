@@ -1,13 +1,14 @@
 import { createFixtureWorkerStartupView, launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { describe, expect, spyOn, test } from "bun:test";
-import { closeSync, existsSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
 import { join, resolve } from "node:path";
 import { chmodSync } from "node:fs";
-import { launchAgentWorker as launchUnpreparedWorker, prepareWorkerSandbox, probeWorkerHost, restrictedReadPaths, workerBootstrap, workerCommand, WorkerHostError } from "../src/server/worker-launcher";
+import { launchAgentWorker as launchUnpreparedWorker, launchAgentWorkerAsync, prepareWorkerSandbox, probeWorkerHost, restrictedReadPaths, workerBootstrap, workerCommand, WorkerHostError, type WorkerLaunch } from "../src/server/worker-launcher";
 import { WORKER_INFERENCE_DIR } from "../src/server/inference-relay";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { createWorkerPipes } from "../src/server/worker-pipes";
+import { procChildren, readProcStat } from "../src/server/proc-identity";
 
 const GOLDEN = "Odysseus: only the server owns policy writes.\n";
 const PAYLOAD = "Odysseus: scratch writer is functional.\n";
@@ -310,6 +311,99 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
     try { mkdirSync(join(f.brain, "scratch")); expect(() => workerCommand({ brainPath: f.brain, scratchPath: join(f.brain, "scratch"),
       command: [process.execPath], env: {} })).toThrow("outside the authoritative brain"); }
     finally { f.cleanup(); }
+  });
+
+  // bubblewrap reports its sandbox's PID right after the clone, but the
+  // sandbox arms --die-with-parent only once its setup is done: a supervisor
+  // killed in between left the program running (#4881).
+  describe("a SIGKILL sent in the turn the launch resolves (#4881)", () => {
+    type Identity = { pid: number; start: string };
+    const command = ["/bin/sh", "-c", "printf Ithaca; exec sleep 600"];
+    const sandboxOf = (supervisor: number) => procChildren(supervisor).map(({ pid, start }) => ({ pid, start }));
+    const alive = ({ pid, start }: Identity) => { const stat = readProcStat(pid); return stat?.start === start && !["Z", "X", "x"].includes(stat.state); };
+
+    /** Waits for the stopped program's stdout to end and its sandbox to die, both bounded by one watchdog. */
+    async function stopped(worker: Awaited<ReturnType<typeof launchAgentWorkerAsync>>, sandbox: Identity[]) {
+      worker.stdin.end();
+      void worker.stderr.resume();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const watchdog = new Promise<string>(resolve => { timer = setTimeout(() => resolve("still open"), watchdogMs(10_000)); });
+      const eof = await Promise.race([collect(worker.stdout).then(() => "eof"), watchdog]);
+      let dead = eof === "eof";
+      while (dead && sandbox.some(alive)) dead = await Promise.race([Bun.sleep(5).then(() => true), watchdog.then(() => false)]);
+      clearTimeout(timer);
+      expect(eof, "WORKER_STDOUT_EOF_AFTER_KILL").toBe("eof");
+      expect(dead, "SANDBOX_DEAD_AFTER_KILL").toBe(true);
+      expect(await worker.exited, "SUPERVISOR_KILLED").toBe(137);
+    }
+
+    /**
+     * A startup view the launch cannot remove when its supervisor exits. A
+     * removed view fails a sandbox whose setup has not mounted it yet, which
+     * would hide the race; a governed launch has no view at all.
+     */
+    function keptView(brain: string) {
+      const view = createFixtureWorkerStartupView(brain);
+      return { startupView: { ...view, cleanup() { /* removed by release() */ } }, release: () => view.cleanup() };
+    }
+
+    /** A surviving sandbox is killed here, so a failure leaks no program. */
+    const reap = (sandbox: Identity[]) => { for (const target of sandbox) if (alive(target)) try { process.kill(target.pid, "SIGKILL"); } catch { /* gone */ } };
+
+    test("launchAgentWorkerAsync, with its sandbox held before its setup ends", async () => {
+      const f = fixture();
+      const ownNamespace = readlinkSync("/proc/self/ns/pid");
+      const view = keptView(f.brain);
+      let held: Identity | undefined, polling = true;
+      // The barrier: stop the sandbox as soon as bubblewrap has cloned it,
+      // which is before it can have armed its parent-death signal.
+      const hold = () => {
+        if (!polling) return;
+        for (const supervisor of procChildren(process.pid)) for (const child of procChildren(supervisor.pid)) {
+          try {
+            if (readlinkSync(`/proc/${child.pid}/ns/pid`) === ownNamespace) continue;
+            process.kill(child.pid, "SIGSTOP");
+            held = { pid: child.pid, start: child.start };
+            return;
+          } catch { /* gone or not yet readable */ }
+        }
+        setImmediate(hold);
+      };
+      try {
+        setImmediate(hold);
+        const worker = await launchAgentWorkerAsync({ brainPath: f.brain, env: {}, command, startupView: view.startupView });
+        // Read before the kill: a dead supervisor's children are reparented.
+        const sandbox = sandboxOf(worker.pid);
+        worker.kill("SIGKILL");
+        polling = false;
+        expect(held, "SANDBOX_HELD").toBeDefined();
+        expect(sandbox, "SANDBOX_HELD_IS_THE_REPORTED_ONE").toEqual([held!]);
+        // Stopped with no child yet: it has not forked the program's process,
+        // which comes after its setup, so it has not armed the signal.
+        expect(readProcStat(held!.pid)?.state, "SANDBOX_STOPPED").toBe("T");
+        expect(procChildren(held!.pid), "SANDBOX_HELD_BEFORE_ITS_FORK").toEqual([]);
+        await worker.exited;
+        process.kill(held!.pid, "SIGCONT");
+        await stopped(worker, [held!]);
+      } finally { polling = false; if (held) reap([held]); view.release(); f.cleanup(); }
+    });
+
+    test.each([
+      ["launchAgentWorkerAsync", (launch: WorkerLaunch) => launchAgentWorkerAsync(launch)],
+      ["launchAgentWorker", (launch: WorkerLaunch) => Promise.resolve(launchUnpreparedWorker(launch))],
+    ] as const)("%s, unheld", async (_name, launch) => {
+      const f = fixture();
+      const view = keptView(f.brain);
+      let sandbox: Identity[] = [];
+      try {
+        const worker = await launch({ brainPath: f.brain, env: {}, command, startupView: view.startupView });
+        // Read before the kill: a dead supervisor's children are reparented.
+        sandbox = sandboxOf(worker.pid);
+        worker.kill("SIGKILL");
+        expect(sandbox, "SANDBOX_FOUND").toHaveLength(1);
+        await stopped(worker, sandbox);
+      } finally { reap(sandbox); view.release(); f.cleanup(); }
+    });
   });
 
   describe("restricted envelope (#676)", () => {
