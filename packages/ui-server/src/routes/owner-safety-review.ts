@@ -5,7 +5,7 @@ import { safetyReviewBodySchema, safetyFutureStatusSchema } from "@schlessera/br
 import type { AppEnv } from "../app-env.js";
 import { OwnerSafetyReviews, OwnerSafetyUnavailable } from "../governance/owner-safety-reviews.js";
 import { readJsonBody } from "../middleware/body-limit.js";
-import { requireJson } from "../middleware/origin.js";
+import { requireExactOrigin, requireJson } from "../middleware/origin.js";
 import { requireOwner } from "../middleware/require-owner.js";
 
 /** These browser mutations require a present exact Origin, even for clients
@@ -13,18 +13,12 @@ import { requireOwner } from "../middleware/require-owner.js";
 export function createOwnerSafetyReviewRoutes(reviews: OwnerSafetyReviews, trustProxy: boolean, combined?: CombinedSafetyReviews): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const prefix = "/sessions/:id/safety/reviews";
+  const exactOrigin = requireExactOrigin(trustProxy);
   app.use(`${prefix}/*`, async (c,next)=>{
     c.header("Cache-Control","no-store");
     const principal = c.get("principal");
     if (!principal || !reviews.authorized(principal)) return c.json({code:"unauthorized",reason:"owner_required",retryable:false},403);
-    const origin = c.req.header("origin");
-    try {
-      const expected = new URL(c.req.url);
-      const proto = trustProxy ? c.req.header("x-forwarded-proto")?.split(",",1)[0]?.trim() : undefined;
-      if (proto) expected.protocol = `${proto}:`;
-      if (!origin || !["http:","https:"].includes(expected.protocol) || origin !== expected.origin)
-        return c.json({code:"unauthorized",reason:"cross_origin_rejected",retryable:false},403);
-    } catch { return c.json({code:"unauthorized",reason:"cross_origin_rejected",retryable:false},403); }
+    if (!exactOrigin(c)) return c.json({code:"unauthorized",reason:"cross_origin_rejected",retryable:false},403);
     return next();
   }, requireOwner(), requireJson());
   if (combined) app.post(`${prefix}/future/status`, async c => {

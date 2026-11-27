@@ -13,6 +13,7 @@
  */
 import { Hono } from "hono";
 import type { AppEnv } from "../app-env.js";
+import { isHumanOwner } from "../db/principals.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 import { ApifyAuthorityError, type ApifyAuthority } from "@schlessera/brain-common/internal/apify";
@@ -48,7 +49,7 @@ export function createApifyRoutes(deps: ApifyRoutesDeps): Hono<AppEnv> {
     c.header("Cache-Control", "private, no-store");
     const principal = c.get("principal");
     if (!principal) return c.json({ error: "Authentication required." }, 401);
-    if (!["owner", "ambient"].includes(principal.kind) || !deps.authorized(principal.id))
+    if (!isHumanOwner(principal) || !deps.authorized(principal.id))
       return c.json({ error: "Apify settings require human-owner access." }, 403);
     await next();
   });

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../app-env.js";
 import { requireJson } from "../middleware/origin.js";
+import { requireHumanOwner } from "../middleware/require-owner.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { StorageUnavailable } from "../storage/coordinator.js";
 import type { StorageRemoval } from "../storage/removal.js";
@@ -10,12 +11,7 @@ const review = z.object({ id, paths }).strict(), undo = z.object({ id, sourceId:
 export function createStorageRemovalRoutes(removal: StorageRemoval): Hono<AppEnv> {
   const routes = new Hono<AppEnv>();
   routes.onError((error, c) => c.json({ error: error instanceof StorageUnavailable ? error.message : "Attachment operation unavailable; read its original receipt before starting another operation." }, error instanceof StorageUnavailable ? error.status : 503));
-  routes.use("/storage/removals*", async (c, next) => {
-    c.header("Cache-Control", "private, no-store"); const principal = c.get("principal");
-    if (!principal) return c.json({ error: "Authentication required." }, 401);
-    if (!["owner", "ambient"].includes(principal.kind)) return c.json({ error: "Attachment removal requires human-owner access." }, 403);
-    await next();
-  });
+  routes.use("/storage/removals*", requireHumanOwner("Attachment removal requires human-owner access."));
   routes.get("/storage/removals", c => c.json(removal.capability(c.get("principal")!.id)));
   routes.get("/storage/removals/:id", c => c.json(removal.receipt(c.get("principal")!.id, c.req.param("id"))));
   routes.post("/storage/removals/inspection", requireJson(), async c => {

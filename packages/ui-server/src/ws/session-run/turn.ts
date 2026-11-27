@@ -8,6 +8,7 @@ import { resolveRunBilling } from "./billing.js";
 import { budgetAttribution, budgetEvent, createTurnBudget, settleBudgetWrites } from "./budget.js";
 import { AdmissionRevoked, classifyCompletedTurn, classifyFailedTurn, UNCLASSIFIED_OUTCOME, type TurnOutcome } from "./outcome.js";
 import { teardownTurn } from "./teardown.js";
+import { releaseRevokedRequest } from "./turn-state.js";
 import type { SessionSlot, TurnLifecycle, TurnRun } from "./types.js";
 
 /**
@@ -48,7 +49,7 @@ export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, li
   if (!turn.authorization.valid) {
     lifecycle?.stopAdmission();
     host.budgets?.end(turn.turnId);
-    turn.revision = undefined;
+    releaseRevokedRequest(turn);
     const failureEnd = lifecycle?.timer("closing", {}, { lateEnd: true })("failure_recording");
     await failureRecording.finish(undefined, () => failureEnd?.());
     clearTimeout(timeoutHandle);

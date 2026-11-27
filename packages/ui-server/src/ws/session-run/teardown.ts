@@ -7,6 +7,7 @@ import { hostStopOf } from "../host-stop.js";
 import type { TurnOutcome } from "./outcome.js";
 import { releaseActive } from "./slot.js";
 import type { TurnRun } from "./types.js";
+import { teardownAdmission, teardownRecorder, teardownShare, teardownWork } from "./turn-state.js";
 
 /**
  * Release everything a turn held, in the order its invariants need: relay
@@ -90,20 +91,18 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
     // The recorder has written the terminal: from here on the Activity
     // record, not this slot, answers for the request (#964).
     await host.inboxTools?.shares?.end(turn.turnId);
-    turn.shareId = undefined;
+    teardownShare(turn);
     host.budgets?.end(turn.turnId);
-    turn.revision = undefined;
-    turn.startedAt = undefined;
-    turn.backendStarted = false;
+    teardownAdmission(turn);
     // Its catalog writes may confirm after the terminal; the step then ends late.
     const failureEnd = lifecycle?.timer("closing", {}, { lateEnd: true })("failure_recording");
     await failureRecording.finish(turn.sessionId, () => failureEnd?.());
     lifecycle?.finish(outcome.lifecycle, outcome.reason ?? null);
     run.clientReceiptEligible = !!lifecycle && prepareClientTurnReceipt(host, run.turnId, current.principalId, lifecycle.settled);
     clearTimeout(timeoutHandle);
-    turn.recorder = undefined;
+    teardownRecorder(turn);
     work?.settle(outcome.work, { sessionId: turn.sessionId, ...(outcome.reason ? { reason: outcome.reason } : {}) });
-    turn.work = undefined;
+    teardownWork(turn);
     releaseActive(slot);
     // The recorder's writes, terminal included, commit off the event loop
     // (#2814); recovery must see them before the final idle notification,

@@ -13,13 +13,8 @@ import type {
 import { isLiveSettingsWriter } from "./live-settings.js";
 import type { AppEnv } from "../app-env.js";
 import { readJsonBody } from "../middleware/body-limit.js";
-import type { Principal } from "../db/principals.js";
+import { isHumanOwner } from "../db/principals.js";
 import { PERSONA_ID, PersonaError, type LivePersonaService, type LivePersonaWriteFields } from "../voice/personas.js";
-
-/** A human session of this brain: its owner, or the single user of an ambient-auth host. */
-function human(principal: Principal | undefined): boolean {
-  return principal !== undefined && principal.authMethod !== "delegated" && (principal.kind === "owner" || principal.kind === "ambient");
-}
 
 const refuse = (c: Context<AppEnv>) => c.body(null, 403);
 
@@ -59,7 +54,7 @@ export function createVoicePersonaRoutes(personas: LivePersonaService, live: Liv
   return new Hono<AppEnv>()
     .get("/voice/personas", async (c) => {
       c.header("Cache-Control", "no-store");
-      if (!human(c.get("principal"))) return refuse(c);
+      if (!isHumanOwner(c.get("principal"))) return refuse(c);
       try {
         const body: LivePersonaListResponse = { personas: await personas.list() };
         return c.json(body);
@@ -67,7 +62,7 @@ export function createVoicePersonaRoutes(personas: LivePersonaService, live: Liv
     })
     .get("/voice/personas/:id", async (c) => {
       c.header("Cache-Control", "no-store");
-      if (!human(c.get("principal"))) return refuse(c);
+      if (!isHumanOwner(c.get("principal"))) return refuse(c);
       try {
         const persona = await personas.read(c.req.param("id"));
         if (!persona) return c.json({ error: "PERSONA_NOT_FOUND" }, 404);
@@ -77,7 +72,7 @@ export function createVoicePersonaRoutes(personas: LivePersonaService, live: Liv
     })
     .post("/voice/personas", async (c) => {
       c.header("Cache-Control", "no-store");
-      if (!human(c.get("principal"))) return refuse(c);
+      if (!isHumanOwner(c.get("principal"))) return refuse(c);
       const read = await readJsonBody(c).catch(() => null);
       if (read instanceof Response) return read;
       const body = read as Record<string, unknown> | null;
@@ -90,7 +85,7 @@ export function createVoicePersonaRoutes(personas: LivePersonaService, live: Liv
     })
     .put("/voice/personas/:id", async (c) => {
       c.header("Cache-Control", "no-store");
-      if (!human(c.get("principal"))) return refuse(c);
+      if (!isHumanOwner(c.get("principal"))) return refuse(c);
       const read = await readJsonBody(c).catch(() => null);
       if (read instanceof Response) return read;
       const body = read as Record<string, unknown> | null;
@@ -109,7 +104,7 @@ export function createVoicePersonaRoutes(personas: LivePersonaService, live: Liv
     })
     .delete("/voice/personas/:id", async (c) => {
       c.header("Cache-Control", "no-store");
-      if (!human(c.get("principal"))) return refuse(c);
+      if (!isHumanOwner(c.get("principal"))) return refuse(c);
       const base = c.req.query("baseRevision");
       if (!base) return c.json({ error: "PERSONA_INVALID" }, 400);
       try {
@@ -119,7 +114,7 @@ export function createVoicePersonaRoutes(personas: LivePersonaService, live: Liv
     })
     .get("/settings/voice", async (c) => {
       c.header("Cache-Control", "no-store");
-      if (!human(c.get("principal"))) return refuse(c);
+      if (!isHumanOwner(c.get("principal"))) return refuse(c);
       try {
         return c.json(await settings());
       } catch (error) { return failed(c, error); }
@@ -127,7 +122,7 @@ export function createVoicePersonaRoutes(personas: LivePersonaService, live: Liv
     .put("/settings/voice", async (c) => {
       c.header("Cache-Control", "no-store");
       // The owner-only write guard (#3616 §3), checked before the body is read.
-      if (!human(c.get("principal")) || !isLiveSettingsWriter(c.get("principal"), Date.now())) return refuse(c);
+      if (!isHumanOwner(c.get("principal")) || !isLiveSettingsWriter(c.get("principal"), Date.now())) return refuse(c);
       const read = await readJsonBody(c).catch(() => null);
       if (read instanceof Response) return read;
       const body = read as Record<string, unknown> | null;
