@@ -142,6 +142,8 @@ const checks: Record<string, Check> = {
   "POST /api/sessions/:id/safety/reviews/future/status": { path: "/api/sessions/fixture-session/safety/reviews/future/status", init: json("POST", {version:1,session:safetyReviewBody.session,occurrenceId:safetyReviewBody.occurrenceId}), status: 404,
     body: { code: "unavailable", retryable: false }, verify: unavailableSafetyReview },
   "GET /api/sessions/:id/attachment-reads": { path: "/api/sessions/fixture-session/attachment-reads", body: { sessionId: "fixture-session", reads: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
+  "GET /api/sessions/:id/network-grants": { path: "/api/sessions/fixture-session/network-grants", status: 404, body: { error: "Session not found" }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
+  "DELETE /api/sessions/:id/network-grants/:grantId": { path: "/api/sessions/fixture-session/network-grants/missing", init: { method: "DELETE" }, status: 404, body: { error: "Session not found" }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/sessions/:id/recovery": { path: "/api/sessions/fixture-session/recovery", body: { sessionId: "fixture-session", revision: 0, latest: { requestId: null, turnId: null, state: "unknown", outcome: null }, pending: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/push/public-key": { verify: async (r) => { const b = await r.json(); expect(b.publicKey.length).toBeGreaterThan(0); expect(Object.keys(b)).toEqual(["publicKey"]); } },
   "GET /api/push/subscriptions": { body: { subscriptions: [] } },

@@ -6,6 +6,7 @@
 export "." (./src/index.ts)
   ACTIVITY_COMPUTE_CAPABILITY
   ALLOWED_IMAGE_MEDIA_TYPES
+  APPROVAL_UPDATES_CAPABILITY
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
   ATTACHMENT_DIR
@@ -300,6 +301,11 @@ export "." (./src/index.ts)
   type ModuleSettingsMigrationPreview
   type ModuleSettingsOption
   type ModuleSettingsSnapshot
+  NETWORK_APPROVAL_SCOPES_CAPABILITY
+  NETWORK_GRANTS_CAPABILITY
+  type NetworkApprovalOffer
+  type NetworkApprovalScope
+  type NetworkGrantView
   PILL_LABEL_MAX_CHARS
   PROFILE_UNAVAILABLE_REASONS
   PROTOCOL_REV
@@ -401,6 +407,7 @@ export "." (./src/index.ts)
   type ServerMessage
   type ServerMessageBlocks
   type ServerMessageLinks
+  type ServerNetworkGrants
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
@@ -425,6 +432,7 @@ export "." (./src/index.ts)
   type SessionAttachmentReadsResponse
   type SessionDraftLimits
   type SessionHistoryMessage
+  type SessionNetworkGrantsResponse
   type SessionRecovery
   type SessionRecoveryLatest
   type SessionRecoveryPending
@@ -497,6 +505,7 @@ export "." (./src/index.ts)
   THINKING_LEVELS
   TRACK_MAX_FILE_BYTES
   type ThinkingLevel
+  type ToolResolutionExpiryCause
   type ToolResolutionOutcome
   type TrackFileSummary
   type TrackFileView
@@ -558,6 +567,7 @@ export "./client" (./src/client/index.ts)
   APIFY_OPERATIONS
   APIFY_TOOL_CONTRACTS
   APIFY_TOOL_NAMES
+  APPROVAL_UPDATES_CAPABILITY
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
   ASK_USER_CONTRACT
@@ -1042,6 +1052,11 @@ export "./client" (./src/client/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
+  NETWORK_APPROVAL_SCOPES_CAPABILITY
+  NETWORK_GRANTS_CAPABILITY
+  type NetworkApprovalOffer
+  type NetworkApprovalScope
+  type NetworkGrantView
   PILL_LABEL_MAX_CHARS
   POLICY_CHANGE_REVIEW_SCHEMA
   PROFILE_UNAVAILABLE_REASONS
@@ -1211,6 +1226,7 @@ export "./client" (./src/client/index.ts)
   type ServerMessage
   type ServerMessageBlocks
   type ServerMessageLinks
+  type ServerNetworkGrants
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
@@ -1235,6 +1251,7 @@ export "./client" (./src/client/index.ts)
   type SessionAttachmentReadsResponse
   type SessionDraftLimits
   type SessionHistoryMessage
+  type SessionNetworkGrantsResponse
   type SessionRecovery
   type SessionRecoveryLatest
   type SessionRecoveryPending
@@ -1323,6 +1340,7 @@ export "./client" (./src/client/index.ts)
   type ToolPayload
   type ToolRenderer
   type ToolRendererRegistry
+  type ToolResolutionExpiryCause
   type ToolResolutionOutcome
   type ToolSemantics
   type TrackFileSummary
@@ -1727,6 +1745,7 @@ export "./package.json" (./package.json) [asset]
 export "./protocol" (./src/protocol.ts)
   ACTIVITY_COMPUTE_CAPABILITY
   ALLOWED_IMAGE_MEDIA_TYPES
+  APPROVAL_UPDATES_CAPABILITY
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
   ATTACHMENT_DIR
@@ -2013,6 +2032,11 @@ export "./protocol" (./src/protocol.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
+  NETWORK_APPROVAL_SCOPES_CAPABILITY
+  NETWORK_GRANTS_CAPABILITY
+  type NetworkApprovalOffer
+  type NetworkApprovalScope
+  type NetworkGrantView
   PILL_LABEL_MAX_CHARS
   PROFILE_UNAVAILABLE_REASONS
   PROTOCOL_REV
@@ -2114,6 +2138,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerMessage
   type ServerMessageBlocks
   type ServerMessageLinks
+  type ServerNetworkGrants
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
@@ -2138,6 +2163,7 @@ export "./protocol" (./src/protocol.ts)
   type SessionAttachmentReadsResponse
   type SessionDraftLimits
   type SessionHistoryMessage
+  type SessionNetworkGrantsResponse
   type SessionRecovery
   type SessionRecoveryLatest
   type SessionRecoveryPending
@@ -2210,6 +2236,7 @@ export "./protocol" (./src/protocol.ts)
   THINKING_LEVELS
   TRACK_MAX_FILE_BYTES
   type ThinkingLevel
+  type ToolResolutionExpiryCause
   type ToolResolutionOutcome
   type TrackFileSummary
   type TrackFileView
@@ -2393,6 +2420,9 @@ export "./schemas" (./src/schemas.ts)
   localExchangeSchema
   messageBlockSchema
   messageSourceSchema
+  networkApprovalOfferSchema
+  networkApprovalScopeSchema
+  networkGrantViewSchema
   parseClientMessage
   parseServerMessage
   parseTrustGithub
@@ -2444,6 +2474,7 @@ export "./schemas" (./src/schemas.ts)
   serverMessageBlocksSchema
   serverMessageLinksSchema
   serverMessageSchema
+  serverNetworkGrantsSchema
   serverPongSchema
   serverResultSchema
   serverRetryReceiptSchema
@@ -2463,10 +2494,12 @@ export "./schemas" (./src/schemas.ts)
   serverUsageSchema
   sessionAttachmentReadsResponseSchema
   sessionDraftLimitsSchema
+  sessionNetworkGrantsResponseSchema
   sessionRecoverySchema
   sessionWorkerProfileSchema
   sharedFileMetaSchema
   stateRoomObservationSchema
+  toolResolutionExpiryCauseSchema
   turnBudgetReceiptSchema
   turnJournalSummarySchema
   turnScopeSummarySchema
@@ -2483,6 +2516,7 @@ export "./server" (./src/server/index.ts)
   APIFY_OPERATIONS
   APIFY_TOOL_CONTRACTS
   APIFY_TOOL_NAMES
+  APPROVAL_UPDATES_CAPABILITY
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
   ASK_USER_CONTRACT
@@ -3056,6 +3090,12 @@ export "./server" (./src/server/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
+  NETWORK_APPROVAL_SCOPES_CAPABILITY
+  NETWORK_GRANTS_CAPABILITY
+  type NetworkApprovalOffer
+  type NetworkApprovalScope
+  type NetworkCardController
+  type NetworkGrantView
   OSM_ATTRIBUTION
   PILL_LABEL_MAX_CHARS
   POLICY_CHANGE_REVIEW_SCHEMA
@@ -3225,6 +3265,7 @@ export "./server" (./src/server/index.ts)
   type ServerMessage
   type ServerMessageBlocks
   type ServerMessageLinks
+  type ServerNetworkGrants
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
@@ -3252,6 +3293,7 @@ export "./server" (./src/server/index.ts)
   type SessionHistoryRemovalOutcome
   type SessionHistoryRemovalRequest
   type SessionHistoryRemovalResult
+  type SessionNetworkGrantsResponse
   type SessionRecovery
   type SessionRecoveryLatest
   type SessionRecoveryPending
@@ -3346,6 +3388,7 @@ export "./server" (./src/server/index.ts)
   type ToolPayload
   type ToolPermissionApproval
   type ToolPermissionDecisionInput
+  type ToolResolutionExpiryCause
   type ToolResolutionOutcome
   type TrackFileSummary
   type TrackFileView
@@ -3916,6 +3959,8 @@ signatures (every public export and the types it is made of)
     }>;
   API_FAILURE_DETAIL (packages/ui-sdk/src/testing/index.ts)
     const API_FAILURE_DETAIL: "model not supported by this runtime";
+  APPROVAL_UPDATES_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const APPROVAL_UPDATES_CAPABILITY: "approvalUpdates";
   ASK_ANSWER_UPDATE_REQUIRED (packages/ui-sdk/src/protocol.ts)
     const ASK_ANSWER_UPDATE_REQUIRED: "ASK_ANSWER_UPDATE_REQUIRED";
   ASK_RECEIPTS_CAPABILITY (packages/ui-sdk/src/protocol.ts)
@@ -7735,6 +7780,8 @@ signatures (every public export and the types it is made of)
         always?: boolean;
         channel?: ApprovalChannel;
         turnId?: string;
+        revision?: string;
+        networkScope?: NetworkApprovalScope;
     }
   ClientToolDenial (packages/ui-sdk/src/protocol.ts)
     export interface ClientToolDenial {
@@ -7743,6 +7790,7 @@ signatures (every public export and the types it is made of)
         message: string;
         channel?: ApprovalChannel;
         turnId?: string;
+        revision?: string;
     }
   ClientTurnReceipt (packages/ui-sdk/src/protocol.ts)
     export interface ClientTurnReceipt {
@@ -11545,6 +11593,63 @@ signatures (every public export and the types it is made of)
         changed?: boolean;
         commit?: string | null;
     }
+  NETWORK_APPROVAL_SCOPES_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const NETWORK_APPROVAL_SCOPES_CAPABILITY: "networkApprovalScopes";
+  NETWORK_GRANTS_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const NETWORK_GRANTS_CAPABILITY: "networkGrants";
+  NetworkApprovalOffer (packages/ui-sdk/src/protocol.ts)
+    export interface NetworkApprovalOffer {
+        transport: "http" | "connect";
+        scheme: "http" | "https" | "connect";
+        host: string;
+        port: number;
+        managedReference?: boolean;
+        scopes: NetworkApprovalScope[];
+        suspendedGrant?: boolean;
+        classes?: string[];
+    }
+  NetworkApprovalScope (packages/ui-sdk/src/protocol.ts)
+    export type NetworkApprovalScope = "once" | "origin" | "session";
+  NetworkCardController (packages/ui-sdk/src/server/backend.ts)
+    export interface NetworkCardController {
+        readonly signal?: AbortSignal;
+        evaluateChange(): "noop" | {
+            action: "update";
+            revision: string;
+            description: string;
+            network?: import("../protocol.js").NetworkApprovalOffer;
+        } | {
+            action: "withdraw";
+            reason: string;
+        } | {
+            action: "settle_allowed";
+            reason: string;
+        };
+        revalidate(expectedRevision?: string): string | null;
+        commitScope?(scope: import("../protocol.js").NetworkApprovalScope | undefined, principalId: string): Promise<{
+            ok: true;
+            scope?: import("../protocol.js").NetworkApprovalScope;
+            grantedByGrant?: boolean;
+        } | {
+            ok: false;
+            reason: string;
+            cause: "grant_storage_failed" | "safety_changed" | "operation_cancelled";
+        }>;
+        onGrantedByGrant?(scope: import("../protocol.js").NetworkApprovalScope | undefined, grantedClasses?: readonly string[]): void;
+    }
+  NetworkGrantView (packages/ui-sdk/src/protocol.ts)
+    export interface NetworkGrantView {
+        grantId: string;
+        scope: "origin" | "session";
+        origin?: string;
+        transport?: "http" | "connect";
+        scheme?: "http" | "https" | "connect";
+        host?: string;
+        port?: number;
+        grantedClasses: string[];
+        suspended: boolean;
+        createdAt: number;
+    }
   OSM_ATTRIBUTION (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   OutwardActionKind (packages/ui-sdk/src/server/outward-actions.ts)
     export type OutwardActionKind = "git_push" | "gh_write" | "mcp_tool" | "http_write";
@@ -11629,6 +11734,8 @@ signatures (every public export and the types it is made of)
         behavior: "allow";
         updatedInput?: Record<string, unknown>;
         always?: boolean;
+        networkScope?: import("../protocol.js").NetworkApprovalScope;
+        grantedByGrant?: boolean;
     } | {
         behavior: "deny";
         message: string;
@@ -11651,6 +11758,9 @@ signatures (every public export and the types it is made of)
         kind?: "tool" | "command" | "policy" | "actor";
         outsideEnforcedAllowlist?: boolean;
         display?: import("../protocol.js").ApprovalDisplay;
+        revision?: string;
+        origin?: string;
+        network?: import("../protocol.js").NetworkApprovalOffer;
     }
   PermissionScenario (packages/ui-sdk/src/testing/index.ts)
     export type PermissionScenario = "mutation" | "shortcut" | "command";
@@ -14039,7 +14149,7 @@ signatures (every public export and the types it is made of)
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable | ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerMarkupRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerLivePersona | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage | ServerChatRetired | ServerAttachmentRead | ServerLiveSettings;
+    export type ServerMessage = ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable | ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerMarkupRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerLivePersona | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage | ServerChatRetired | ServerAttachmentRead | ServerLiveSettings | ServerNetworkGrants;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -14051,6 +14161,12 @@ signatures (every public export and the types it is made of)
         type: "message_links";
         sessionId: string;
         links: MessageLink[];
+    }
+  ServerNetworkGrants (packages/ui-sdk/src/protocol.ts)
+    export interface ServerNetworkGrants {
+        type: "network_grants";
+        sessionId: string;
+        grants: NetworkGrantView[];
     }
   ServerPong (packages/ui-sdk/src/protocol.ts)
     export interface ServerPong {
@@ -14167,6 +14283,9 @@ signatures (every public export and the types it is made of)
         kind?: "tool" | "command" | "policy" | "actor";
         rememberable?: boolean;
         display?: ApprovalDisplay;
+        revision?: string;
+        origin?: string;
+        network?: NetworkApprovalOffer;
     }
   ServerToolInputDelta (packages/ui-sdk/src/protocol.ts)
     export interface ServerToolInputDelta extends SessionScoped {
@@ -14181,6 +14300,9 @@ signatures (every public export and the types it is made of)
         outcome: ToolResolutionOutcome;
         channel?: ApprovalChannel;
         reason?: string;
+        expiryCause?: ToolResolutionExpiryCause;
+        networkScope?: NetworkApprovalScope;
+        grantedByGrant?: boolean;
     }
   ServerToolResult (packages/ui-sdk/src/protocol.ts)
     export interface ServerToolResult extends SessionScoped {
@@ -14287,6 +14409,11 @@ signatures (every public export and the types it is made of)
   SessionHistoryRemovalResult (packages/ui-sdk/src/server/backend.ts)
     export interface SessionHistoryRemovalResult {
         outcome: SessionHistoryRemovalOutcome;
+    }
+  SessionNetworkGrantsResponse (packages/ui-sdk/src/protocol.ts)
+    export interface SessionNetworkGrantsResponse {
+        sessionId: string;
+        grants: NetworkGrantView[];
     }
   SessionRecovery (packages/ui-sdk/src/protocol.ts)
     export interface SessionRecovery {
@@ -15235,6 +15362,8 @@ signatures (every public export and the types it is made of)
         resolve(tool: ToolCallView, backendId: string): ToolRenderer | null;
         reset(): void;
     }
+  ToolResolutionExpiryCause (packages/ui-sdk/src/protocol.ts)
+    export type ToolResolutionExpiryCause = "safety_changed" | "turn_ended" | "grant_storage_failed" | "operation_cancelled";
   ToolResolutionOutcome (packages/ui-sdk/src/protocol.ts)
     export type ToolResolutionOutcome = "granted" | "denied" | "expired" | "unknown";
   ToolSemantics (packages/ui-sdk/src/client/renderers.ts)
@@ -16584,6 +16713,12 @@ signatures (every public export and the types it is made of)
             card: "card";
             voice: "voice";
         }>>;
+        networkScope: z.ZodOptional<z.ZodEnum<{
+            once: "once";
+            origin: "origin";
+            session: "session";
+        }>>;
+        revision: z.ZodOptional<z.ZodString>;
         toolUseId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_approval">;
@@ -16594,6 +16729,7 @@ signatures (every public export and the types it is made of)
             voice: "voice";
         }>>;
         message: z.ZodString;
+        revision: z.ZodOptional<z.ZodString>;
         toolUseId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_denial">;
@@ -16977,6 +17113,12 @@ signatures (every public export and the types it is made of)
             card: "card";
             voice: "voice";
         }>>;
+        networkScope: z.ZodOptional<z.ZodEnum<{
+            once: "once";
+            origin: "origin";
+            session: "session";
+        }>>;
+        revision: z.ZodOptional<z.ZodString>;
         toolUseId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_approval">;
@@ -16989,6 +17131,7 @@ signatures (every public export and the types it is made of)
             voice: "voice";
         }>>;
         message: z.ZodString;
+        revision: z.ZodOptional<z.ZodString>;
         toolUseId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_denial">;
@@ -21556,6 +21699,57 @@ signatures (every public export and the types it is made of)
         handoff: "handoff";
         typed: "typed";
     }>;
+  networkApprovalOfferSchema (packages/ui-sdk/src/schemas.ts)
+    const networkApprovalOfferSchema: z.ZodObject<{
+        classes: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        host: z.ZodString;
+        managedReference: z.ZodOptional<z.ZodBoolean>;
+        port: z.ZodNumber;
+        scheme: z.ZodEnum<{
+            connect: "connect";
+            http: "http";
+            https: "https";
+        }>;
+        scopes: z.ZodArray<z.ZodEnum<{
+            once: "once";
+            origin: "origin";
+            session: "session";
+        }>>;
+        suspendedGrant: z.ZodOptional<z.ZodBoolean>;
+        transport: z.ZodEnum<{
+            connect: "connect";
+            http: "http";
+        }>;
+    }, z.core.$loose>;
+  networkApprovalScopeSchema (packages/ui-sdk/src/schemas.ts)
+    const networkApprovalScopeSchema: z.ZodEnum<{
+        once: "once";
+        origin: "origin";
+        session: "session";
+    }>;
+  networkGrantViewSchema (packages/ui-sdk/src/schemas.ts)
+    const networkGrantViewSchema: z.ZodObject<{
+        createdAt: z.ZodNumber;
+        grantId: z.ZodString;
+        grantedClasses: z.ZodArray<z.ZodString>;
+        host: z.ZodOptional<z.ZodString>;
+        origin: z.ZodOptional<z.ZodString>;
+        port: z.ZodOptional<z.ZodNumber>;
+        scheme: z.ZodOptional<z.ZodEnum<{
+            connect: "connect";
+            http: "http";
+            https: "https";
+        }>>;
+        scope: z.ZodEnum<{
+            origin: "origin";
+            session: "session";
+        }>;
+        suspended: z.ZodBoolean;
+        transport: z.ZodOptional<z.ZodEnum<{
+            connect: "connect";
+            http: "http";
+        }>>;
+    }, z.core.$loose>;
   parseClientMessage (packages/ui-sdk/src/schemas.ts)
     export function parseClientMessage(raw: string | ArrayBufferView | ArrayBuffer): ParseFrameResult<ClientMessage>;
   parseGithubRepository (packages/ui-sdk/src/tool-contracts/github.ts)
@@ -25327,7 +25521,30 @@ signatures (every public export and the types it is made of)
             policy: "policy";
             tool: "tool";
         }>>;
+        network: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            classes: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            host: z.ZodString;
+            managedReference: z.ZodOptional<z.ZodBoolean>;
+            port: z.ZodNumber;
+            scheme: z.ZodEnum<{
+                connect: "connect";
+                http: "http";
+                https: "https";
+            }>;
+            scopes: z.ZodArray<z.ZodEnum<{
+                once: "once";
+                origin: "origin";
+                session: "session";
+            }>>;
+            suspendedGrant: z.ZodOptional<z.ZodBoolean>;
+            transport: z.ZodEnum<{
+                connect: "connect";
+                http: "http";
+            }>;
+        }, z.core.$loose>>>;
+        origin: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         rememberable: z.ZodOptional<z.ZodBoolean>;
+        revision: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         sessionId: z.ZodOptional<z.ZodString>;
         toolName: z.ZodString;
         toolUseId: z.ZodString;
@@ -28144,6 +28361,18 @@ signatures (every public export and the types it is made of)
             card: "card";
             voice: "voice";
         }>>>;
+        expiryCause: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            grant_storage_failed: "grant_storage_failed";
+            operation_cancelled: "operation_cancelled";
+            safety_changed: "safety_changed";
+            turn_ended: "turn_ended";
+        }>>>;
+        grantedByGrant: z.ZodCatch<z.ZodOptional<z.ZodBoolean>>;
+        networkScope: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            once: "once";
+            origin: "origin";
+            session: "session";
+        }>>>;
         outcome: z.ZodEnum<{
             denied: "denied";
             expired: "expired";
@@ -28976,7 +29205,59 @@ signatures (every public export and the types it is made of)
             }>;
         }, z.core.$loose>;
         type: z.ZodLiteral<"live_settings">;
+    }, z.core.$loose>, z.ZodObject<{
+        grants: z.ZodArray<z.ZodObject<{
+            createdAt: z.ZodNumber;
+            grantId: z.ZodString;
+            grantedClasses: z.ZodArray<z.ZodString>;
+            host: z.ZodOptional<z.ZodString>;
+            origin: z.ZodOptional<z.ZodString>;
+            port: z.ZodOptional<z.ZodNumber>;
+            scheme: z.ZodOptional<z.ZodEnum<{
+                connect: "connect";
+                http: "http";
+                https: "https";
+            }>>;
+            scope: z.ZodEnum<{
+                origin: "origin";
+                session: "session";
+            }>;
+            suspended: z.ZodBoolean;
+            transport: z.ZodOptional<z.ZodEnum<{
+                connect: "connect";
+                http: "http";
+            }>>;
+        }, z.core.$loose>>;
+        sessionId: z.ZodString;
+        type: z.ZodLiteral<"network_grants">;
     }, z.core.$loose>], "type">;
+  serverNetworkGrantsSchema (packages/ui-sdk/src/schemas.ts)
+    const serverNetworkGrantsSchema: z.ZodObject<{
+        grants: z.ZodArray<z.ZodObject<{
+            createdAt: z.ZodNumber;
+            grantId: z.ZodString;
+            grantedClasses: z.ZodArray<z.ZodString>;
+            host: z.ZodOptional<z.ZodString>;
+            origin: z.ZodOptional<z.ZodString>;
+            port: z.ZodOptional<z.ZodNumber>;
+            scheme: z.ZodOptional<z.ZodEnum<{
+                connect: "connect";
+                http: "http";
+                https: "https";
+            }>>;
+            scope: z.ZodEnum<{
+                origin: "origin";
+                session: "session";
+            }>;
+            suspended: z.ZodBoolean;
+            transport: z.ZodOptional<z.ZodEnum<{
+                connect: "connect";
+                http: "http";
+            }>>;
+        }, z.core.$loose>>;
+        sessionId: z.ZodString;
+        type: z.ZodLiteral<"network_grants">;
+    }, z.core.$loose>;
   serverPongSchema (packages/ui-sdk/src/schemas.ts)
     const serverPongSchema: z.ZodObject<{
         probeId: z.ZodString;
@@ -30137,7 +30418,30 @@ signatures (every public export and the types it is made of)
             policy: "policy";
             tool: "tool";
         }>>;
+        network: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            classes: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            host: z.ZodString;
+            managedReference: z.ZodOptional<z.ZodBoolean>;
+            port: z.ZodNumber;
+            scheme: z.ZodEnum<{
+                connect: "connect";
+                http: "http";
+                https: "https";
+            }>;
+            scopes: z.ZodArray<z.ZodEnum<{
+                once: "once";
+                origin: "origin";
+                session: "session";
+            }>>;
+            suspendedGrant: z.ZodOptional<z.ZodBoolean>;
+            transport: z.ZodEnum<{
+                connect: "connect";
+                http: "http";
+            }>;
+        }, z.core.$loose>>>;
+        origin: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         rememberable: z.ZodOptional<z.ZodBoolean>;
+        revision: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         sessionId: z.ZodOptional<z.ZodString>;
         toolName: z.ZodString;
         toolUseId: z.ZodString;
@@ -30157,6 +30461,18 @@ signatures (every public export and the types it is made of)
         channel: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
             card: "card";
             voice: "voice";
+        }>>>;
+        expiryCause: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            grant_storage_failed: "grant_storage_failed";
+            operation_cancelled: "operation_cancelled";
+            safety_changed: "safety_changed";
+            turn_ended: "turn_ended";
+        }>>>;
+        grantedByGrant: z.ZodCatch<z.ZodOptional<z.ZodBoolean>>;
+        networkScope: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            once: "once";
+            origin: "origin";
+            session: "session";
         }>>>;
         outcome: z.ZodEnum<{
             denied: "denied";
@@ -30445,6 +30761,32 @@ signatures (every public export and the types it is made of)
         maxTextBytes: z.ZodNumber;
         maxTotalBytes: z.ZodNumber;
     }, z.core.$loose>;
+  sessionNetworkGrantsResponseSchema (packages/ui-sdk/src/schemas.ts)
+    const sessionNetworkGrantsResponseSchema: z.ZodObject<{
+        grants: z.ZodArray<z.ZodObject<{
+            createdAt: z.ZodNumber;
+            grantId: z.ZodString;
+            grantedClasses: z.ZodArray<z.ZodString>;
+            host: z.ZodOptional<z.ZodString>;
+            origin: z.ZodOptional<z.ZodString>;
+            port: z.ZodOptional<z.ZodNumber>;
+            scheme: z.ZodOptional<z.ZodEnum<{
+                connect: "connect";
+                http: "http";
+                https: "https";
+            }>>;
+            scope: z.ZodEnum<{
+                origin: "origin";
+                session: "session";
+            }>;
+            suspended: z.ZodBoolean;
+            transport: z.ZodOptional<z.ZodEnum<{
+                connect: "connect";
+                http: "http";
+            }>>;
+        }, z.core.$loose>>;
+        sessionId: z.ZodString;
+    }, z.core.$loose>;
   sessionRecoverySchema (packages/ui-sdk/src/schemas.ts)
     const sessionRecoverySchema: z.ZodObject<{
         backendId: z.ZodNullable<z.ZodString>;
@@ -30538,6 +30880,13 @@ signatures (every public export and the types it is made of)
     export function toolBriefLines(contracts: readonly ToolContract[], available: (contract: ToolContract) => string | false | undefined): string[];
   toolInputJsonSchema (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function toolInputJsonSchema(contract: ToolContract | z.ZodObject): Record<string, unknown>;
+  toolResolutionExpiryCauseSchema (packages/ui-sdk/src/schemas.ts)
+    const toolResolutionExpiryCauseSchema: z.ZodEnum<{
+        grant_storage_failed: "grant_storage_failed";
+        operation_cancelled: "operation_cancelled";
+        safety_changed: "safety_changed";
+        turn_ended: "turn_ended";
+    }>;
   tunnel (packages/common/src/taint-trust.ts)
     const tunnel: z.ZodObject<{
         host: z.ZodString;

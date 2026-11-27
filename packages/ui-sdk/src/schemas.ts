@@ -139,6 +139,12 @@ import type {
   ApprovalChannel,
   ClientToolApproval,
   ClientToolDenial,
+  NetworkApprovalOffer,
+  NetworkApprovalScope,
+  NetworkGrantView,
+  ServerNetworkGrants,
+  SessionNetworkGrantsResponse,
+  ToolResolutionExpiryCause,
   ClientActivitySubscribe,
   ClientActivityUnsubscribe,
   ClientLocalExchange,
@@ -446,6 +452,42 @@ export const clientChatMessageSchema = z
   .refine(m => !(m.shareId && m.handoff), { message: "A share start cannot also create a handoff" }) satisfies z.ZodType<ClientChatMessage>;
 
 const approvalChannelSchema = z.enum(["card", "voice"]) satisfies z.ZodType<ApprovalChannel>;
+export const networkApprovalScopeSchema = z.enum(["once", "origin", "session"]) satisfies z.ZodType<NetworkApprovalScope>;
+export const toolResolutionExpiryCauseSchema = z.enum(["safety_changed", "turn_ended", "grant_storage_failed", "operation_cancelled"]) satisfies z.ZodType<ToolResolutionExpiryCause>;
+export const networkApprovalOfferSchema = z.looseObject({
+  transport: z.enum(["http", "connect"]),
+  scheme: z.enum(["http", "https", "connect"]),
+  host: z.string().min(1).max(255),
+  port: z.number().int().min(1).max(65535),
+  managedReference: z.boolean().optional(),
+  scopes: z.array(networkApprovalScopeSchema).max(8),
+  suspendedGrant: z.boolean().optional(),
+  classes: z.array(z.string().min(1).max(64)).max(32).optional(),
+}) satisfies z.ZodType<NetworkApprovalOffer>;
+
+export const networkGrantViewSchema = z.looseObject({
+  grantId: id,
+  scope: z.enum(["origin", "session"]),
+  origin: z.string().min(1).max(512).optional(),
+  transport: z.enum(["http", "connect"]).optional(),
+  scheme: z.enum(["http", "https", "connect"]).optional(),
+  host: z.string().min(1).max(255).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  grantedClasses: z.array(z.string().min(1).max(64)).max(32),
+  suspended: z.boolean(),
+  createdAt: z.number().int().nonnegative(),
+}) satisfies z.ZodType<NetworkGrantView>;
+
+export const sessionNetworkGrantsResponseSchema = z.looseObject({
+  sessionId: id,
+  grants: z.array(networkGrantViewSchema).max(256),
+}) satisfies z.ZodType<SessionNetworkGrantsResponse>;
+
+export const serverNetworkGrantsSchema = z.looseObject({
+  type: z.literal("network_grants"),
+  sessionId: id,
+  grants: z.array(networkGrantViewSchema).max(256),
+}) satisfies z.ZodType<ServerNetworkGrants>;
 
 export const clientToolApprovalSchema = z.looseObject({
   type: z.literal("tool_approval"),
@@ -473,6 +515,8 @@ export const clientToolApprovalSchema = z.looseObject({
   always: z.boolean().optional(),
   channel: approvalChannelSchema.optional(),
   turnId: id.optional(),
+  revision: id.optional(),
+  networkScope: networkApprovalScopeSchema.optional(),
 }) satisfies z.ZodType<ClientToolApproval>;
 
 export const clientToolDenialSchema = z.looseObject({
@@ -481,6 +525,7 @@ export const clientToolDenialSchema = z.looseObject({
   message: z.string().max(MAX_ANSWER_CHARS),
   channel: approvalChannelSchema.optional(),
   turnId: id.optional(),
+  revision: id.optional(),
 }) satisfies z.ZodType<ClientToolDenial>;
 
 export const clientCancelSchema = z.looseObject({
@@ -1421,6 +1466,9 @@ export const serverToolApprovalRequestSchema = z.looseObject({
   kind: z.enum(["tool", "command", "policy", "actor"]).optional(),
   rememberable: z.boolean().optional(),
   display: approvalDisplaySchema.optional().catch(undefined),
+  revision: z.string().max(MAX_ID_CHARS).optional().catch(undefined),
+  origin: z.string().max(512).optional().catch(undefined),
+  network: networkApprovalOfferSchema.optional().catch(undefined),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolApprovalRequest>;
 
@@ -2153,6 +2201,9 @@ export const serverToolResolutionSchema = z.looseObject({
   outcome: z.enum(["granted", "denied", "expired", "unknown"]),
   channel: approvalChannelSchema.optional().catch(undefined),
   reason: z.string().max(500).optional(),
+  expiryCause: toolResolutionExpiryCauseSchema.optional().catch(undefined),
+  networkScope: networkApprovalScopeSchema.optional().catch(undefined),
+  grantedByGrant: z.boolean().optional().catch(undefined),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolResolution>;
 
@@ -2273,6 +2324,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverConversationOutputSchema,
   serverConversationPermissionSchema,
   serverLiveSettingsSchema,
+  serverNetworkGrantsSchema,
 ]) satisfies z.ZodType<ServerMessage>;
 
 /**

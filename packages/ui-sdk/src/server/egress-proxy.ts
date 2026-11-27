@@ -90,6 +90,8 @@ export interface EgressRecord extends Partial<Record<InferenceTimingMark | "loop
   managedReference?: true;
   /** Explicit Network card approval, independent of source trust. */
   recipientApproved?: true;
+  /** Scope of the Network card approval that admitted this connection (#3595). */
+  approvalScope?: "once" | "origin" | "session" | "legacy";
   /** False for charged preparation that never crossed the dispatch boundary. */
   dispatched?: boolean;
   failureReason?: EgressFailureReason;
@@ -135,7 +137,13 @@ export interface EgressProxyOptions {
     /** Immutable evidence/authority marker; excludes inputs admitted under this exact shared card. */
     approvalRevision?(connectionId?: string, kind?: "network" | "outward"): string;
     recipient?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): boolean | Extract<EgressRecipientAuthority,{kind:"rule"}>["admission"];
-    approve?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?: string, replacement?:boolean): Promise<boolean | "superseded" | "expired" | "unconfirmed">;
+    /** Active standing origin/session grant for this destination, or suspended when a new class arrived (#3595). */
+    standingGrant?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): { kind: "standing"; scope: "origin" | "session"; grantId: string } | { kind: "suspended"; scope: "origin" | "session"; grantId: string; newClasses: readonly string[] } | null;
+    /** Notifies the host once when a connection proceeds under a standing grant (#3595). */
+    onStandingGrantApplied?(info: { connectionId: string; destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }; scope: "origin" | "session"; grantId: string }): void;
+    /** Checks a Network taint grant's class set, authority, trust and recording health (#4966). */
+    grantCurrent?(connectionId: string, destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, scope: "once" | "origin" | "session" | "legacy" | undefined): "ok" | "new_class" | "refuse";
+    approve?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?: string, replacement?:boolean): Promise<boolean | "once" | "origin" | "session" | "legacy" | "recheck" | "superseded" | "expired" | "unconfirmed">;
     /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
     cause?(): string | null };
   /**
@@ -147,7 +155,7 @@ export interface EgressProxyOptions {
   admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?: string }): unknown;
   /** Synchronous notification only after final admission, immediately before dispatch. */
   preparing?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean }): void;
-  committed?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean; recipientAuthority: EgressRecipientAuthority }): void;
+  committed?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean; approvalScope?: "once" | "origin" | "session" | "legacy"; recipientAuthority: EgressRecipientAuthority }): void;
   signal?: AbortSignal;
   /**
    * Destination address policy (#3687). When set, the proxy resolves every
@@ -352,7 +360,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     // Matching may ignore a DNS root dot; resolution must preserve it.
     const dialHost = url.hostname.startsWith("[") ? url.hostname.slice(1, -1) : url.hostname;
     const host = canonicalEgressHost(dialHost), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
-    let bytes = 0, granted = false;
+    let bytes = 0, granted = false, onceApproved = false;
+    let approvalScope: "once" | "origin" | "session" | "legacy" | undefined;
+    let standingApplied: { scope: "origin" | "session"; grantId: string } | undefined;
+    let standingNotified = false;
     /** The checked address this connection is pinned to, under a destination policy. */
     let pinned: { address: string; family: number } | undefined;
     let finalOutcome: EgressRecord["outcome"] | undefined, finalReason: string | undefined;
@@ -367,9 +378,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       abort:()=>controller.abort(),
       observe({outcome,reason,dispatched}) {
         lifecycles.delete(lifecycle);
+        const effectiveScope = approvalScope ?? standingApplied?.scope;
         // Records never contain request headers, content, credentials or query strings.
         try { options.observe({connectionId,...(inference?{inference:true}:{}),...(provider?{provider:true}:{}),...(managedReference?{managedReference:true}:{}),method,host,port,dispatched,
-          ...(failure?{failureReason:failure.reason}:{}),...(dispatched&&granted?{recipientApproved:true}:{}),...(method==="CONNECT"?{}:{path:url.pathname}),bytes,
+          ...(failure?{failureReason:failure.reason}:{}),...(dispatched&&(granted||standingApplied)?{recipientApproved:true,...(effectiveScope?{approvalScope:effectiveScope}:{})}:{}),...(method==="CONNECT"?{}:{path:url.pathname}),bytes,
           accounting:method==="CONNECT"?"opaque_bytes":"http_wire_bound",...(inference ? { ...marks, ...usage } : {}),durationMs:performance.now()-started,outcome,...(reason?{reason}:{})}); } catch { /* A recorder cannot keep a connection alive. */ }
       },
     });
@@ -391,9 +403,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const receive=(count:number):EgressChargeResult=>chargeReceivedBytes(count,{remaining:()=>Math.max(0,options.maxBytes-usedBytes),charge:bytes=>{const result=charge(bytes);return result.ok?undefined:result;}})??{ok:true};
     const receiveHead=(first:string,rawHeaders:readonly string[]):EgressChargeResult=>readReceivedHead(first,rawHeaders,{remaining:()=>Math.max(0,options.maxBytes-usedBytes),charge:bytes=>{const result=charge(bytes);return result.ok?undefined:result;}})??{ok:true};
     /** One approval wait; cancelling this connection or the turn resolves it as refused. */
-    const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean | "superseded" | "expired" | "unconfirmed">) | undefined) => {
+    type ApprovalAnswer = boolean | "once" | "origin" | "session" | "legacy" | "recheck" | "superseded" | "expired" | "unconfirmed";
+    const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<ApprovalAnswer>) | undefined) => {
       if (!ask || !lifecycle.active()) return false;
-      let answer: boolean | "superseded" | "expired" | "unconfirmed" = "unconfirmed";
+      let answer: ApprovalAnswer = "unconfirmed";
       let cancelled: (() => void) | undefined;
       try {
         const cancellation = new Promise<false>(resolve => {
@@ -408,6 +421,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     // An approval of this destination outside the taint allow-list (#3430).
     let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
+    const isOutwardTarget = () => matches(host, options.outwardHosts) || options.outwardPorts?.includes(port) === true;
+    const allowPendingWrites = () => !inference && !provider && !outwardApproved && !isOutwardTarget() && Boolean(options.taint?.grantCurrent);
     const readSafety = () => {
       try { return options.admissionSafety?.read(options.pendingReservations?.(connectionId)); }
       catch (error) {
@@ -417,6 +432,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
     };
     function* pendingRecording() {
+      if (allowPendingWrites()) return;
       try {
         yield* options.admissionSafety?.pendingRecording?.(snapshot, controller.signal,
           () => options.pendingReservations?.(connectionId)) ?? [];
@@ -426,16 +442,23 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const grantCurrent = (own = false) => {
       if (!granted && !outwardApproved) return true;
       try {
-        // After handoff, an explicit Network answer is the standing session grant.
-        const sessionGrant=granted&&lifecycle.dispatched()&&options.taint?.contacted(host);
-        return (!granted||sessionGrant||grantRevision===approvalRevision(own))&&(!outwardApproved||outwardRevision===approvalRevision(own,true));
+        if (outwardApproved && outwardRevision !== approvalRevision(own, true)) return false;
+        if (!granted) return true;
+        // After handoff, once is per-connection and legacy/standing grants keep running (#3595, #4966).
+        if (lifecycle.dispatched()) {
+          if (onceApproved) return true;
+          if (options.taint?.grantCurrent) return options.taint.grantCurrent(connectionId, recipient, approvalScope) === "ok";
+          return options.taint?.contacted(host) === true || grantRevision === approvalRevision(own);
+        }
+        if (options.taint?.grantCurrent) return options.taint.grantCurrent(connectionId, recipient, approvalScope) === "ok";
+        return grantRevision === approvalRevision(own);
       } catch { return false; }
     };
     // A marker can change because recording or authority disappeared while a
     // card was pending. Classify that live failure before a generic stale card.
-    const refuseStaleApproval = () => {
-      try { if (!refuseSafety(readSafety(),snapshot)) finish("denied","safety_changed"); }
-      catch { finish("denied","egress_unavailable"); }
+    const refuseStaleApproval = (allowPending = false) => {
+      try { if (!refuseSafety(readSafety(), snapshot, allowPending)) finish("denied", "safety_changed"); }
+      catch { finish("denied", "egress_unavailable"); }
     };
     const recipient = { host, port, method, protocol: url.protocol, managedReference };
     // Checked again after an approval wait, during which another connection may taint the session.
@@ -446,53 +469,98 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if(inference||provider)return {kind:"allowance"};
       const rule=options.taint?.recipient?.(recipient);
       if(rule)return typeof rule === "object" ? {kind:"rule",admission:rule} : {kind:"allowance"};
-      if(!options.taint?.tainted(final?connectionId:undefined)||matches(host,options.taint.allow)||options.taint.contacted(host))return {kind:"allowance"};
+      if (!managedReference) {
+        const standing = options.taint?.standingGrant?.(recipient);
+        if (standing?.kind === "standing") {
+          standingApplied = { scope: standing.scope, grantId: standing.grantId };
+          return { kind: "allowance" };
+        }
+      }
+      if(!options.taint?.tainted(final?connectionId:undefined)||matches(host,options.taint.allow)||(!managedReference && options.taint.contacted(host)))return {kind:"allowance"};
       return null;
     };
     const narrowed = (final = false) => recipientDecision(final) === null;
-    const narrowing = async () => {
-      for (const pending of pendingRecording()) await pending;
-      if (options.admissionSafety?.pendingRecording) {
-        if (!lifecycle.active() || refuseSafety(readSafety(), snapshot)) return false;
-      }
-      if (!narrowed()) return true;
-      const ask = options.taint?.approve;
-      if (!ask) { finish("denied","taint_not_allowed"); return false; }
-      const askNetwork = (replacement:boolean) => {
-        grantRevision = approvalRevision();
-        return approval((destination, signal) => ask(destination, signal, connectionId, replacement));
-      };
-      let beforeCard = readSafety();
-      let answer = await askNetwork(false);
-      while (answer === "superseded") {
-        const current = readSafety();
-        // The host withdrew this card. A new card can ask about new evidence
-        // for the same pending connection only while its authority still holds.
-        if (!snapshot || !beforeCard || !current || !lifecycle.active() || lifecycle.dispatched() ||
-            refuseSafety(current, snapshot) || current.trustRevision !== snapshot.trustRevision || current.trustRevision !== beforeCard.trustRevision ||
-            current.evidenceRevision === beforeCard.evidenceRevision || !narrowed()) {
-          refuseStaleApproval(); return false;
+    const narrowing = async (final = false) => {
+      const allowPending = allowPendingWrites();
+      for (let attempts = 0; attempts < 8; attempts++) {
+        for (const pending of pendingRecording()) await pending;
+        if (options.admissionSafety?.pendingRecording) {
+          if (!lifecycle.active() || refuseSafety(readSafety(), snapshot, allowPending)) return false;
         }
-        if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
-        beforeCard = current;
-        answer = await askNetwork(true);
+        if (!narrowed(final)) {
+          if (standingApplied && !standingNotified) {
+            standingNotified = true;
+            try { options.taint?.onStandingGrantApplied?.({ connectionId, destination: recipient, ...standingApplied }); } catch { /* Receipt emission cannot break an admitted connection. */ }
+          }
+          return true;
+        }
+        const ask = options.taint?.approve;
+        if (!ask) { finish("denied", "taint_not_allowed"); return false; }
+        grantRevision = approvalRevision();
+        const answer = await approval((destination, signal) => ask(destination, signal, connectionId, attempts > 0));
+        if (answer === "recheck") {
+          if (!lifecycle.active() || refuseSafety(readSafety(), snapshot, allowPending)) return false;
+          continue;
+        }
+        if (answer === "superseded") {
+          // Legacy fallback for unit tests that supply a bare approve callback without networkCard.
+          const current = readSafety();
+          if (!snapshot || !current || !lifecycle.active() || lifecycle.dispatched() || refuseSafety(current, snapshot, allowPending) || !narrowed(final)) {
+            refuseStaleApproval(allowPending); return false;
+          }
+          if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
+          continue;
+        }
+        const allowed = answer === true || answer === "legacy" || answer === "once" || answer === "origin" || answer === "session";
+        if (!allowed) {
+          finish(stopped ? "cancelled" : "denied", answer === "expired" ? "network_approval_expired"
+            : answer === "unconfirmed" ? "network_approval_unconfirmed" : "taint_not_approved");
+          return false;
+        }
+        granted = true;
+        approvalScope = answer === true ? "legacy" : answer;
+        onceApproved = approvalScope === "once";
+        if (options.taint?.grantCurrent) {
+          const verdict = options.taint.grantCurrent(connectionId, recipient, approvalScope);
+          if (verdict === "new_class" && !lifecycle.dispatched()) {
+            granted = false; approvalScope = undefined; onceApproved = false;
+            continue;
+          }
+          if (verdict !== "ok") { refuseStaleApproval(allowPending); return false; }
+        } else if (!grantCurrent()) {
+          refuseStaleApproval(allowPending); return false;
+        }
+        return true;
       }
-      granted = answer === true;
-      if (granted && !grantCurrent()) { refuseStaleApproval(); return false; }
-      if (!granted) finish(stopped ? "cancelled" : "denied", answer === "expired" ? "network_approval_expired"
-        : answer === "unconfirmed" ? "network_approval_unconfirmed" : "taint_not_approved");
-      return granted;
+      refuseStaleApproval(allowPending);
+      return false;
     };
-    const refuseSafety = (current: AdmissionSafetySnapshot | undefined, before?: AdmissionSafetySnapshot) => {
+    const refuseSafety = (current: AdmissionSafetySnapshot | undefined, before?: AdmissionSafetySnapshot, allowPending = false) => {
+      if (allowPending && current) {
+        if ((!current.recordingAvailable && !current.recordingPending) || current.operationRecordingAvailable === false) {
+          finish("denied", egressChargeRefusal({ ok: false, reason: "unavailable" }, "Network").reason);
+          return true;
+        }
+        if (before && !(current.authorityCurrent && current.scope === before.scope && current.policyHash === before.policyHash && current.authorityEpoch === before.authorityEpoch)) {
+          finish("denied", egressChargeRefusal({ ok: false, reason: "safety_changed" }, "Network").reason);
+          return true;
+        }
+        if (!current.authorityCurrent) {
+          finish("denied", egressChargeRefusal({ ok: false, reason: "safety_changed" }, "Network").reason);
+          return true;
+        }
+        return false;
+      }
       const reason = current && !current.recordingAvailable && current.operationRecordingAvailable !== true ? "unavailable" : safetySnapshotRefusal(current,before) ? "safety_changed" : undefined;
       if (!reason) return false;
       finish("denied",egressChargeRefusal({ok:false,reason},"Network").reason); return true;
     };
     const admitDestination = () => lifecycle.admit(async () => {
       if (!lifecycle.active()) return false;
+      const allowPending = allowPendingWrites();
       snapshot = readSafety();
       for (const pending of pendingRecording()) await pending;
-      if (!lifecycle.active() || refuseSafety(snapshot?.recordingAvailable === false ? readSafety() : snapshot, snapshot)) return false;
+      if (!lifecycle.active() || refuseSafety(snapshot?.recordingAvailable === false && !allowPending ? readSafety() : snapshot, snapshot, allowPending)) return false;
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       if (matches(host, options.deny) || options.mode === "allowlist" && !matches(host, options.allow)) { finish("denied", "destination_not_allowed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
@@ -511,7 +579,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         pinned = addresses[0];
       }
       if (!await narrowing() || !lifecycle.active()) return false;
-      if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
+      if (isOutwardTarget()) {
         outwardRevision = approvalRevision(false,true);
         const approveOutward=options.approveOutward;
         if ((await approval(approveOutward ? ({host,port,method},signal)=>approveOutward({host,port,method},signal) : undefined)) !== true) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
@@ -523,13 +591,37 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       try {
         for (const pending of pendingRecording()) await pending;
         if (options.admissionSafety?.pendingRecording) {
-          if (!lifecycle.active() || refuseSafety(readSafety(), snapshot)) return false;
+          if (!lifecycle.active() || refuseSafety(readSafety(), snapshot, allowPending)) return false;
+        }
+        // Re-check narrowing right before recording admission so a sibling
+        // losing the clean-session race asks a card before committing taint (#4966 RC8).
+        if (!inference && !provider && !granted && narrowed()) {
+          if (!await narrowing() || !lifecycle.active()) return false;
         }
         if (!await lifecycle.effect(() => options.admitted?.({ host, port, method, inference, provider, managedReference, connectionId, protocol:url.protocol }))) return false;
       } catch (error) { if (error instanceof EgressAdmissionRefused && error.reason === "source_trust_changed") revokeInput(); else if (error instanceof EgressAdmissionRefused) finish("denied", error.reason); else finish("failed", "proxy_error"); return false; }
+      // If a concurrent first connection tainted the session while admitted() ran,
+      // or a new class arrived before first byte, ask a card instead of refusing without one (#4966 RC8).
+      if (!inference && !provider) {
+        const needsNewClassCard = granted && options.taint?.grantCurrent?.(connectionId, recipient, approvalScope) === "new_class";
+        if (needsNewClassCard) { granted = false; approvalScope = undefined; onceApproved = false; }
+        if (needsNewClassCard || narrowed(true)) {
+          if (!await narrowing(true) || !lifecycle.active()) return false;
+        }
+      }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     });
+    const recheckBeforeDispatch = async (): Promise<boolean> => {
+      if (!lifecycle.active() || lifecycle.dispatched() || inference || provider || outwardApproved) return lifecycle.active();
+      const needsNewClassCard = granted && options.taint?.grantCurrent?.(connectionId, recipient, approvalScope) === "new_class";
+      if (needsNewClassCard) { granted = false; approvalScope = undefined; onceApproved = false; }
+      if (needsNewClassCard || narrowed(true)) {
+        if (!options.taint?.approve) return true;
+        return await narrowing(true);
+      }
+      return true;
+    };
     const admit = !inference ? admitDestination : async () => {
       const first = !firstAdmissionStarted;
       if (first) { firstAdmissionStarted = true; firstAdmissionPending = true; }
@@ -548,9 +640,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!lifecycle.active() || stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return null; }
       const stateRefusal=lifecycle.sendRefusal(count,options.maxBytes-usedBytes);
       if (stateRefusal) { finish(stateRefusal==="turn_cancelled"?"cancelled":"denied",stateRefusal);return null; }
+      const allowPending = allowPendingWrites();
       const current = readSafety();
-      if (refuseSafety(current,snapshot)) return null;
-      if (!grantCurrent(true)) { refuseStaleApproval(); return null; }
+      if (refuseSafety(current, snapshot, allowPending)) return null;
+      if (!grantCurrent(true)) { refuseStaleApproval(allowPending); return null; }
       if (!inputCurrent(connectionId)) { revokeInput(); return null; }
       const authority=recipientDecision(true);
       if (!authority) { finish("denied", "taint_not_allowed"); return null; }
@@ -565,7 +658,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const dispatch = (send:()=>void): EgressChargeResult => {
       const prepared=prepare();if(!prepared.ok)return prepared;
       let authority:EgressRecipientAuthority|null=null;
-      try{return lifecycle.dispatch(options.maxBytes-usedBytes,()=>Boolean(authority=maySendNow(0)),send,()=>options.committed?.({...recipient,connectionId,inference,provider,recipientApproved:granted,recipientAuthority:authority!}))?{ok:true}:failure??{ok:false,reason:"cancelled"};}
+      const effectiveScope = approvalScope ?? standingApplied?.scope;
+      try{return lifecycle.dispatch(options.maxBytes-usedBytes,()=>Boolean(authority=maySendNow(0)),send,()=>options.committed?.({...recipient,connectionId,inference,provider,recipientApproved:granted,...(effectiveScope?{approvalScope:effectiveScope}:{}),recipientAuthority:authority!}))?{ok:true}:failure??{ok:false,reason:"cancelled"};}
       catch(error){if(error instanceof TransportHandoffFailed)throw error;finish("failed","upstream_unreachable");throw new Error("Egress transport could not start");}
     };
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
@@ -575,7 +669,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { pendingRecording, observeUsage, mark, host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, receive, receiveHead, admit, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { pendingRecording, observeUsage, mark, host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, receive, receiveHead, admit, recheckBeforeDispatch, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -606,7 +700,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
           : "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
     };
     void (async () => {
-      if (!await op.admit() || client.destroyed || !op.prepare().ok) {
+      if (!await op.admit() || client.destroyed || !await op.recheckBeforeDispatch() || client.destroyed || !op.prepare().ok) {
         refuseConnect();return;
       }
       for (const pending of op.pendingRecording()) await pending;
@@ -642,7 +736,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     } catch { response.writeHead(400); response.end(); return; }
     const op = operation(request.method ?? "GET", target);
     op.signal.addEventListener("abort", () => { if (response.headersSent) response.destroy(); }, { once: true });
-    response.once("close", () => op.finish(stopped ? "cancelled" : response.writableFinished ? "completed" : "cancelled"));
+    const onRequestEnd = () => op.finish(stopped ? "cancelled" : response.writableFinished ? "completed" : "cancelled");
+    response.once("close", onRequestEnd);
+    request.socket?.once("close", onRequestEnd);
     const refuse = () => {
       if(response.destroyed||response.writableEnded)return;
       if(response.headersSent){response.destroy();return;}
@@ -651,7 +747,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       else { response.writeHead(403); response.end(); }
     };
     void (async () => {
-      if (!await op.admit() || response.destroyed) { refuse(); return; }
+      if (!await op.admit() || response.destroyed || !await op.recheckBeforeDispatch() || response.destroyed) { refuse(); return; }
       for (const pending of op.pendingRecording()) await pending;
       if(!op.receiveHead(`${request.method} ${request.url} HTTP/${request.httpVersion}`,request.rawHeaders).ok){refuse();return;}
       const outgoingHeaders = { ...headers(request), host: target.host, connection: "close" };

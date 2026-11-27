@@ -19,7 +19,11 @@ describe("clientMessageSchema", () => {
       { type: "tool_approval", toolUseId: "t1", updatedInput: { a: 1 }, turnId: "turn-1" },
       { type: "tool_denial", toolUseId: "t1", message: "no" },
       { type: "tool_approval", toolUseId: "t1", channel: "card" },
+      { type: "tool_approval", toolUseId: "t1", channel: "card", revision: "rev-ithaca", networkScope: "once" },
+      { type: "tool_approval", toolUseId: "t1", channel: "card", revision: "rev-ithaca", networkScope: "origin" },
+      { type: "tool_approval", toolUseId: "t1", channel: "card", revision: "rev-ithaca", networkScope: "session" },
       { type: "tool_denial", toolUseId: "t1", message: "no", channel: "voice" },
+      { type: "tool_denial", toolUseId: "t1", message: "no", channel: "card", revision: "rev-ithaca" },
       { type: "cancel" },
       { type: "cancel", sessionId: "s1" },
       { type: "session_resume", sessionId: "s1" },
@@ -69,6 +73,7 @@ describe("clientMessageSchema", () => {
       // The channel decides whether a grant is refused, so it is not free text.
       { type: "tool_approval", toolUseId: "t1", channel: "Voice" },
       { type: "tool_denial", toolUseId: "t1", message: "no", channel: "phone" },
+      { type: "tool_approval", toolUseId: "t1", networkScope: "forever" },
     ];
     for (const f of bad) {
       expect(clientMessageSchema.safeParse(f).success).toBe(false);

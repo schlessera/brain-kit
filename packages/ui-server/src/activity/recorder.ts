@@ -87,6 +87,13 @@ export interface TurnRecorderDeps {
   hostStop?(): HostStopCause | undefined;
 }
 
+/** Automatic expiry metadata carried into Activity spans (#1763). */
+export interface ApprovalExpiryDetail {
+  outcome: "timeout" | "cancelled";
+  cause: "safety_changed" | "turn_ended" | "grant_storage_failed" | "operation_cancelled";
+  reason: string;
+}
+
 export interface TurnRecorder {
   /** Settles once every write this recorder has submitted has committed or failed. */
   settled(): Promise<void>;
@@ -118,15 +125,17 @@ export interface TurnRecorder {
   /** A deferred index outcome for an application this turn recorded (#2835). */
   recordApplicationIndex?(outcome: import("../brain/application.js").BrainApplicationIndexOutcome): void;
   /**
-   * The user's approval decision arrived for a gated tool call. `channel` is
-   * how it arrived, when the client said; absent is stored as absent.
+   * An approval decision or automatic expiry arrived for a gated tool call.
+   * `channel` is how a user decision arrived; `expiry` carries the host cause
+   * when `decision === "expire"` (#1763).
    */
   onApprovalDecision(
     toolUseId: string,
-    decision: "allow" | "always_allow" | "deny",
+    decision: "allow" | "always_allow" | "deny" | "expire",
     requestKind: "tool" | "command" | "policy" | "actor",
     principalId?: string,
-    channel?: ApprovalChannel
+    channel?: ApprovalChannel,
+    expiry?: ApprovalExpiryDetail
   ): void;
   /**
    * Close the turn: merge the buffered result enrichment into the root's
@@ -219,8 +228,14 @@ export function createTurnRecorder(
   };
   const traceDenial = (toolUseId: string, reason: string | null) => {
     const call = calls.get(toolUseId);
-    if (!call || call.denied || call.output !== null) return;
+    if (!call || call.denied || call.expired || call.output !== null) return;
     call.denied = { reason };
+    call.endedAt = Date.now();
+  };
+  const traceExpiry = (toolUseId: string, cause: string, reason: string) => {
+    const call = calls.get(toolUseId);
+    if (!call || call.denied || call.expired || call.output !== null) return;
+    call.expired = { cause, reason };
     call.endedAt = Date.now();
   };
 
@@ -398,7 +413,7 @@ export function createTurnRecorder(
               try { signals=[...ingestion.signals,...outputTaintSignals(ingestion.tool,msg.output,deps.brainPath,marked,{...ingestion.searchContext,displayOnly:true,outputComplete:msg.output==="No matches."?false:undefined})]; }
               catch { deps.abort?.(new Error("Safety result detection failed; the turn was stopped."));if(governanceWrites)writes.after(()=>governanceWrites.safetyFail(runId)); }
             }
-            if (!safetyHooked && ingestion && signals.length && !traced?.denied && firstTaint && deps.governance) {
+            if (!safetyHooked && ingestion && signals.length && !traced?.denied && !traced?.expired && firstTaint && deps.governance) {
               const untracked = (error: unknown) => {
                 log?.emit({ severityText: "WARN", body: `taint not recorded: ${error instanceof Error ? error.message : String(error)}` });
                 deps.abort?.(new Error("Untrusted input could not be recorded; the turn was stopped."));
@@ -414,7 +429,7 @@ export function createTurnRecorder(
               } catch (error) { untracked(error); }
             }
             // A `brain` command in the worker that needed a withheld provider key (#1666).
-            if (turn.origin !== "autonomous" && deps.governance && !traced?.denied && providerUnavailableRecorded < MAX_PROVIDER_UNAVAILABLE_PER_TURN) {
+            if (turn.origin !== "autonomous" && deps.governance && !traced?.denied && !traced?.expired && providerUnavailableRecorded < MAX_PROVIDER_UNAVAILABLE_PER_TURN) {
               for (const payload of providerUnavailablePayloads(traced?.tool ?? ingestion?.tool ?? "tool", traced?.input, msg.output)) {
                 if (providerUnavailableRecorded >= MAX_PROVIDER_UNAVAILABLE_PER_TURN) break;
                 providerUnavailableRecorded++;
@@ -426,7 +441,7 @@ export function createTurnRecorder(
                 }
               }
             }
-            if (traced && traced.output === null && !traced.denied) {
+            if (traced && traced.output === null && !traced.denied && !traced.expired) {
               traced.output = headAndTail(msg.output);
               traced.isError = msg.isError;
               traced.endedAt = Date.now();
@@ -747,8 +762,25 @@ export function createTurnRecorder(
       });
     },
 
-    onApprovalDecision(toolUseId, decision, requestKind, principalId, channel) {
+    onApprovalDecision(toolUseId, decision, requestKind, principalId, channel, expiry) {
       guard(() => {
+        if (decision === "expire") {
+          const cause = expiry?.cause ?? "turn_ended";
+          const reason = clip(expiry?.reason || "Approval expired", 500);
+          const outcome = expiry?.outcome ?? "cancelled";
+          // Automatic settlement has no responding principal: record an expiry
+          // event and close the span with the truthful cause (#1763). Write-once
+          // endSpan prevents a later backend error frame from overwriting it.
+          store.appendEvent(toolUseId, "approval_expired", {
+            requestKind,
+            cause,
+            reason,
+          });
+          traceExpiry(toolUseId, cause, reason);
+          store.endSpan(toolUseId, { outcome, reason });
+          onWrite?.();
+          return;
+        }
         if (principalId) {
           // One tool can raise several approval requests. The span-level actor
           // remains the latest responder for compact views, while this

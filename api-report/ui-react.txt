@@ -624,8 +624,40 @@ signatures (every public export and the types it is made of)
         expiresAt: number;
         cookie: string;
     }
+  NetworkApprovalReceipt (packages/ui-react/src/stores/chat-state.ts)
+    export interface NetworkApprovalReceipt {
+        id: string;
+        toolUseId: string;
+        turnId?: string;
+        origin: string;
+        originLabel: string;
+        state: "granted" | "withdrawn" | "expired" | "unknown";
+        scope?: NetworkApprovalScope | "legacy";
+        grantedByGrant?: boolean;
+        reason?: string;
+        at: number;
+    }
   PartitionId (packages/ui-react/src/lib/local-partitions.ts)
     export type PartitionId = `account:${string}` | "unassigned";
+  PendingNetworkApproval (packages/ui-react/src/stores/chat-state.ts)
+    export interface PendingNetworkApproval {
+        toolUseId: string;
+        toolName: string;
+        input: Record<string, unknown>;
+        description?: string;
+        turnId?: string;
+        origin: string;
+        originLabel: string;
+        revision?: string;
+        network?: NetworkApprovalOffer;
+        createdAt: number;
+        updatedAt: number;
+        revisionCount: number;
+        sending?: boolean;
+        sendingScope?: NetworkApprovalScope;
+        restored?: true;
+        readOnly?: RestoredApprovalClosure;
+    }
   PiAuthProviderStatus (packages/ui-react/src/lib/api-client.ts)
     export interface PiAuthProviderStatus {
         providerId: string;
@@ -757,6 +789,8 @@ signatures (every public export and the types it is made of)
     export interface SessionChat {
         journals?: Record<string, TurnJournalSummary>;
         messages: ChatMessage[];
+        networkApprovals?: PendingNetworkApproval[];
+        networkReceipts?: NetworkApprovalReceipt[];
         isStreaming: boolean;
         askUser: AskUserExchange | null;
         lastTouched: number;
@@ -910,6 +944,10 @@ signatures (every public export and the types it is made of)
         approvalRememberable?: false;
         approvalDescription?: string;
         approvalDisplay?: ApprovalDisplay;
+        approvalRevision?: string;
+        approvalOrigin?: string;
+        approvalNetwork?: NetworkApprovalOffer;
+        approvalSending?: boolean;
         restored?: true;
         approvalTurnId?: string;
         readOnly?: RestoredApprovalClosure;
@@ -1288,6 +1326,7 @@ signatures (every public export and the types it is made of)
         hygieneMediaUndo: (journalId: string) => Promise<HygieneReviewRead>;
         hygienePreview: (request: HygienePreviewRequest, signal?: AbortSignal) => Promise<HygienePreviewResponse>;
         hygieneReview: () => Promise<HygieneReviewRead>;
+        listNetworkGrants: (sessionId: string) => Promise<SessionNetworkGrantsResponse>;
         livePersona: (id: string) => Promise<LivePersona>;
         livePersonas: () => Promise<LivePersonaListResponse>;
         liveSettings: () => Promise<VoiceLiveSettings>;
@@ -1392,6 +1431,10 @@ signatures (every public export and the types it is made of)
             timeZone: null | string;
         }>;
         refreshModels: () => Promise<ModelCatalogResponse>;
+        revokeNetworkGrant: (sessionId: string, grantId: string) => Promise<{
+            grantId: string;
+            revoked: boolean;
+        }>;
         safetyCommit: (requestId: string, body: SafetyReviewBody, signal: AbortSignal) => Promise<{
             code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
             currentProjection: null | {
@@ -2404,6 +2447,7 @@ signatures (every public export and the types it is made of)
         hygieneMediaUndo: (journalId: string) => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
         hygienePreview: (request: import("@schlessera/brain-ui-sdk").HygienePreviewRequest, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").HygienePreviewResponse>;
         hygieneReview: () => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
+        listNetworkGrants: (sessionId: string) => Promise<import("@schlessera/brain-ui-sdk").SessionNetworkGrantsResponse>;
         livePersona: (id: string) => Promise<import("@schlessera/brain-ui-sdk").LivePersona>;
         livePersonas: () => Promise<import("@schlessera/brain-ui-sdk").LivePersonaListResponse>;
         liveSettings: () => Promise<import("@schlessera/brain-ui-sdk").VoiceLiveSettings>;
@@ -2508,6 +2552,10 @@ signatures (every public export and the types it is made of)
             timeZone: null | string;
         }>;
         refreshModels: () => Promise<import("@schlessera/brain-ui-sdk").ModelCatalogResponse>;
+        revokeNetworkGrant: (sessionId: string, grantId: string) => Promise<{
+            grantId: string;
+            revoked: boolean;
+        }>;
         safetyCommit: (requestId: string, body: import("@schlessera/brain-ui-sdk").SafetyReviewBody, signal: AbortSignal) => Promise<{
             code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
             currentProjection: null | {

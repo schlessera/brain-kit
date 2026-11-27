@@ -692,6 +692,12 @@ signatures (every public export and the types it is made of)
                     opaque_bytes: "opaque_bytes";
                 }>;
                 admitMs: z.ZodOptional<z.ZodNumber>;
+                approvalScope: z.ZodOptional<z.ZodEnum<{
+                    legacy: "legacy";
+                    once: "once";
+                    origin: "origin";
+                    session: "session";
+                }>>;
                 bodyMs: z.ZodOptional<z.ZodNumber>;
                 bytes: z.ZodNumber;
                 cacheCreationTokens: z.ZodOptional<z.ZodNumber>;
@@ -751,6 +757,39 @@ signatures (every public export and the types it is made of)
                     not_allowlisted: "not_allowlisted";
                     taint_allowlist: "taint_allowlist";
                 }>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly network_grant: {
+            payload: z.ZodObject<{
+                grantId: z.ZodString;
+                grantedClasses: z.ZodArray<z.ZodString>;
+                historyGeneration: z.ZodString;
+                host: z.ZodOptional<z.ZodString>;
+                origin: z.ZodOptional<z.ZodString>;
+                port: z.ZodOptional<z.ZodNumber>;
+                principalId: z.ZodString;
+                scheme: z.ZodOptional<z.ZodEnum<{
+                    connect: "connect";
+                    http: "http";
+                    https: "https";
+                }>>;
+                scope: z.ZodEnum<{
+                    origin: "origin";
+                    session: "session";
+                }>;
+                toolUseId: z.ZodString;
+                transport: z.ZodOptional<z.ZodEnum<{
+                    connect: "connect";
+                    http: "http";
+                }>>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly network_grant_revoked: {
+            payload: z.ZodObject<{
+                grantId: z.ZodString;
+                principalId: z.ZodString;
             }, z.core.$strict>;
             version: number;
         };
@@ -1038,6 +1077,7 @@ signatures (every public export and the types it is made of)
                 evidenceRevision: z.ZodString;
                 reason: z.ZodEnum<{
                     grant_storage_failed: "grant_storage_failed";
+                    operation_cancelled: "operation_cancelled";
                     safety_changed: "safety_changed";
                     turn_ended: "turn_ended";
                 }>;
@@ -2517,6 +2557,7 @@ signatures (every public export and the types it is made of)
         readonly liveProviders: LiveProviderRegistry;
         readonly dialogue: DialogueJournal;
         constructor(options: WsHostOptions);
+        broadcastNetworkGrants(sessionId: string): void;
         close(): Promise<void>;
     }
   WsHostOptions (packages/ui-server/src/ws/host.ts)

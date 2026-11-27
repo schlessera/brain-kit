@@ -70,7 +70,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     evidenceRevision: z.string().regex(/^(0|[1-9][0-9]{0,19})$/),
     trustRevision: z.string().regex(/^(0|[1-9][0-9]{0,19})$/),
     authorityEpoch: z.string().regex(/^(0|[1-9][0-9]{0,19})$/),
-    reason: z.enum(["safety_changed", "turn_ended", "grant_storage_failed"]),
+    reason: z.enum(["safety_changed", "turn_ended", "grant_storage_failed", "operation_cancelled"]),
   })),
   /** Completed or refused connection, using the proxy's actual visibility. */
   egress_connection: kind(1, z.strictObject({
@@ -82,7 +82,26 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     admitMs: amount.optional(), bodyMs: amount.optional(), credentialMs: amount.optional(), dispatchMs: amount.optional(),
     headersMs: amount.optional(), firstChunkMs: amount.optional(), loopLagMaxMs: amount.optional(),
     outcome: z.enum(["completed", "denied", "failed", "cancelled"]),
-    inference: z.literal(true).optional(), provider: z.literal(true).optional(), managedReference: z.literal(true).optional(), trustedSource: z.literal(true).optional(), recipientApproved: z.literal(true).optional(), dispatched: z.boolean().optional(), failureReason: z.enum(["budget","safety_changed","policy_denied","unavailable","cancelled"]).optional(), standingRecipient: z.literal(true).optional(), recipientAdmission: safetyAdmissionSchema.options[1].omit({trusted:true}).extend({instance:safetyAdmissionSchema.options[1].shape.trustRevision.optional()}).optional(), reason: z.string().max(200).optional(),
+    inference: z.literal(true).optional(), provider: z.literal(true).optional(), managedReference: z.literal(true).optional(), trustedSource: z.literal(true).optional(), recipientApproved: z.literal(true).optional(), approvalScope: z.enum(["once", "origin", "session", "legacy"]).optional(), dispatched: z.boolean().optional(), failureReason: z.enum(["budget","safety_changed","policy_denied","unavailable","cancelled"]).optional(), standingRecipient: z.literal(true).optional(), recipientAdmission: safetyAdmissionSchema.options[1].omit({trusted:true}).extend({instance:safetyAdmissionSchema.options[1].shape.trustRevision.optional()}).optional(), reason: z.string().max(200).optional(),
+  })),
+  /** Host-owned standing network grant for a tainted chat session (#3595). */
+  network_grant: kind(1, z.strictObject({
+    grantId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+    scope: z.enum(["origin", "session"]),
+    origin: z.string().min(1).max(512).optional(),
+    transport: z.enum(["http", "connect"]).optional(),
+    scheme: z.enum(["http", "https", "connect"]).optional(),
+    host: z.string().min(1).max(255).optional(),
+    port: z.number().int().min(1).max(65535).optional(),
+    grantedClasses: z.array(z.string().min(1).max(64)).max(32),
+    historyGeneration: z.string().regex(/^(0|[1-9][0-9]{0,19})$/),
+    toolUseId: z.string().min(1).max(200),
+    principalId: z.string().min(1).max(200),
+  })),
+  /** Explicit revocation of a session's network grant (#3595). Affects later connections only. */
+  network_grant_revoked: kind(1, z.strictObject({
+    grantId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+    principalId: z.string().min(1).max(200),
   })),
   steering_change: kind(1, z.strictObject({ path, sequence: count,
     tainted: z.literal(true).optional(),

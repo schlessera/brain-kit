@@ -1,11 +1,15 @@
 import { approvalRequestFrame, withTurnScope } from "../frames.js";
 import { turnIdMatches, type ClientMessageHandler, type HandlerContext } from "./context.js";
 
+/** Arming window for revisionless replies after an in-place revision update (#4966). */
+const REVISIONLESS_ARMING_WINDOW_MS = 500;
+
 /**
  * Answer a permission reply that applied to nothing pending (#957): the host
  * says what actually happened instead of letting the sender assume. A reply
  * whose turn echo does not match the settled request learns `unknown` — it
- * was never about that request.
+ * was never about that request. A reply inside the durable expiry write window
+ * receives a provisional `expired` with `sessionId` and no cause (#4966).
  */
 function replyResolution(
   { host, ws, connection, requireEcho }: HandlerContext,
@@ -23,14 +27,48 @@ function replyResolution(
       turnId: record.turnId,
       ...(record.channel ? { channel: record.channel } : {}),
       ...(record.reason ? { reason: record.reason } : {}),
+      ...(record.expiryCause ? { expiryCause: record.expiryCause } : {}),
+      ...(record.networkScope ? { networkScope: record.networkScope } : {}),
+      ...(record.grantedByGrant ? { grantedByGrant: true } : {}),
+    });
+    return;
+  }
+  const expiring = host.coordinator.expiringApprovals.get(toolUseId);
+  if (expiring && turnIdMatches(expiring, echoed, requireEcho)) {
+    // Provisional expired with no cause while the durable write commits (#4966).
+    host.sendMessage(ws, {
+      type: "tool_resolution",
+      toolUseId,
+      outcome: "expired",
+      ...(expiring.sessionId ? { sessionId: expiring.sessionId } : {}),
+      turnId: expiring.turnId,
     });
     return;
   }
   host.sendMessage(ws, { type: "tool_resolution", toolUseId, outcome: "unknown", ...(echoed ? { turnId: echoed } : {}) });
 }
 
+function redeliverCard(ctx: HandlerContext, pending: { request: Parameters<typeof approvalRequestFrame>[0]; turn: Parameters<typeof withTurnScope>[1]; turnId: string }): void {
+  ctx.host.sendMessage(
+    ctx.ws,
+    withTurnScope(
+      approvalRequestFrame(pending.request, ctx.host.toolPermissions !== null),
+      pending.turn,
+      pending.turnId
+    )
+  );
+}
+
+/** True when a reply carries an outdated revision or a revisionless reply lands inside the arming window (#4966). */
+function isStaleOrArmingReply(pending: { request: { revision?: string }; revisionUpdatedAt?: number }, echoedRevision: string | undefined): boolean {
+  const current = pending.request.revision;
+  if (!current) return false;
+  if (echoedRevision !== undefined) return echoedRevision !== current;
+  return pending.revisionUpdatedAt !== undefined && Date.now() - pending.revisionUpdatedAt < REVISIONLESS_ARMING_WINDOW_MS;
+}
+
 export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (ctx, msg) => {
-  const { host, ws, connection, requireEcho } = ctx;
+  const { host, connection, requireEcho } = ctx;
   const { coordinator } = host;
   const pending = coordinator.pendingApprovals.get(msg.toolUseId);
   if (!pending || !turnIdMatches(pending, msg.turnId, requireEcho)) {
@@ -38,11 +76,6 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
     return;
   }
   // Voice may deny; it may never grant (docs/decisions/voice-permission.md).
-  // A grant attributed to voice is refused before anything else looks
-  // at it: the request stays pending, nothing is recorded or
-  // remembered, and the card is still there to answer it. The wire is
-  // not trusted to enforce policy — a client offering no spoken grant
-  // is not the reason this holds.
   if (msg.channel === "voice") {
     host.log.emit({
       severityText: "WARN",
@@ -52,37 +85,58 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
         "toolUse.id": pending.request.toolUseId,
       },
     });
-    // The sender treated its reply as the end of the exchange — a
-    // client drops the request's turn correlation once it answers, and
-    // may have cleared the card — so hand it the card again, exactly
-    // as a reconnect would. Without this its next answer (the card's,
-    // or a spoken denial) arrives uncorrelated and is dropped too.
-    host.sendMessage(
-      ws,
-      withTurnScope(
-        approvalRequestFrame(pending.request, host.toolPermissions !== null),
-        pending.turn,
-        pending.turnId
-      )
+    redeliverCard(ctx, pending);
+    return;
+  }
+  // Stale revision echo, or revisionless reply during the arming window (#4966):
+  // do not apply; keep card pending and re-deliver the current revision.
+  if (isStaleOrArmingReply(pending, msg.revision)) {
+    redeliverCard(ctx, pending);
+    return;
+  }
+  // Unadvertised networkScope is refused before claiming (#3595).
+  if (msg.networkScope !== undefined) {
+    const advertised = pending.request.network?.scopes;
+    if (!advertised || !advertised.includes(msg.networkScope)) {
+      host.log.emit({
+        severityText: "WARN",
+        body: "unadvertised network approval scope refused",
+        attributes: {
+          "tool.name": pending.request.toolName,
+          "toolUse.id": pending.request.toolUseId,
+          scope: msg.networkScope,
+        },
+      });
+      redeliverCard(ctx, pending);
+      return;
+    }
+  }
+  const claimed = coordinator.claimApproval(msg.toolUseId, p => p === pending);
+  if (!claimed) {
+    replyResolution(ctx, msg.toolUseId, msg.turnId);
+    return;
+  }
+  // Host-owned network scope persistence & sibling settlement (#3595, #4966).
+  if (claimed.request.networkCard?.commitScope) {
+    const committed = await claimed.request.networkCard.commitScope(msg.networkScope, connection.authorization.principalId);
+    if (!committed.ok) {
+      coordinator.expireApproval(msg.toolUseId, committed.reason, committed.cause, p => p === claimed);
+      return;
+    }
+    coordinator.settleApproval(
+      msg.toolUseId,
+      claimed,
+      { behavior: "allow", ...(committed.scope ? { networkScope: committed.scope } : {}) },
+      {
+        principalId: connection.authorization.principalId,
+        ...(msg.channel ? { channel: msg.channel } : {}),
+        ...(committed.scope ? { networkScope: committed.scope } : {}),
+      }
     );
     return;
   }
-  const claimed = coordinator.claimApproval(msg.toolUseId, p => p === pending);
-  if (!claimed) return;
   // Remember-on-approve. Kind "command" never persists (the client
   // hides the option, but the wire is not trusted to enforce policy).
-  // Neither does an approval given under an enforced allowlist that
-  // this tool is outside of: the store is read by every OTHER turn, and
-  // a grant made inside a narrower posture must not widen the ones the
-  // user was not looking at. The call itself still runs — they approved
-  // it — it is only the memory that is refused.
-  // The store being absent is one of the reasons, not an exemption from
-  // them: optional-chaining the add() away would take the "remembered"
-  // branch, write nothing, log nothing, and still stamp the activity
-  // record `always_allow` — the exact silent refusal this block exists
-  // to rule out. Embedders wire a store (app.ts) so this is the
-  // test/embedder path, which is precisely where a silent no-op is
-  // hardest to notice.
   const store = host.toolPermissions;
   const remembers =
     store !== null &&
@@ -100,11 +154,6 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
       return;
     }
   } else if (msg.always && !actorAlways) {
-    // The user asked for something the host will not do. Recorded for
-    // the same reason the bridge records a grant it declines to apply:
-    // a refusal nobody can see is indistinguishable from a bug, and for
-    // kind "command" it also says a client sent an option its own UI
-    // does not offer.
     host.log.emit({
       severityText: "INFO",
       body: "always-allow not remembered",
@@ -136,6 +185,11 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
 
 export const handleToolDenial: ClientMessageHandler<"tool_denial"> = (ctx, msg) => {
   const { host, connection, requireEcho } = ctx;
+  const waiting = host.coordinator.pendingApprovals.get(msg.toolUseId);
+  if (waiting && turnIdMatches(waiting, msg.turnId, requireEcho) && isStaleOrArmingReply(waiting, msg.revision)) {
+    redeliverCard(ctx, waiting);
+    return;
+  }
   const pending = host.coordinator.claimApproval(msg.toolUseId, (p) => turnIdMatches(p, msg.turnId, requireEcho));
   if (pending) {
     host.coordinator.settleApproval(msg.toolUseId, pending, { behavior: "deny", message: msg.message }, {

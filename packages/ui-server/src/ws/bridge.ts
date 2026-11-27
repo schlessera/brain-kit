@@ -210,16 +210,24 @@ export function applyIndexReads(ctx: Pick<BridgeContext, "host" | "signal">, bri
  * hook. Check live server authority on every parent effect, not only at
  * tool admission. Voice retains the same narrower named capabilities.
  */
-export function applyLiveAuthority(ctx: Pick<BridgeContext, "work" | "afterHolds" | "assertAuthority">, bridge: BackendBridge): void {
-  const { work, afterHolds, assertAuthority } = ctx;
+export function applyLiveAuthority(ctx: Pick<BridgeContext, "work" | "afterHolds" | "assertAuthority" | "principalIsAuthorized" | "signal">, bridge: BackendBridge): void {
+  const { work, afterHolds, assertAuthority, principalIsAuthorized, signal } = ctx;
   for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "requestImageMarkup", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "github", "readAttachment", "webAccess"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {
       if (name === "requestPermission" && work?.posture === "voice") return Promise.resolve({ behavior: "deny", message: "Voice cannot grant tools." });
+      const first = name === "requestPermission" ? (args[0] as { toolName?: string; networkCard?: unknown } | undefined) : undefined;
+      const isNetworkTaintCard = first?.toolName === "Network" && first?.networkCard !== undefined;
       try {
         return await afterHolds(() => {
-          assertAuthority();
+          if (isNetworkTaintCard) {
+            // Network taint cards allow sibling `recordingPending` writes and check
+            // non-pending recording health + authority inside `createPermissions` (#4966).
+            if (signal.aborted || !principalIsAuthorized()) throw new Error("This turn no longer has current principal authority.");
+          } else {
+            assertAuthority();
+          }
           if (work?.posture === "voice" && ["askUserList", "askUserRank", "askUserForm", "requestMask", "requestImageMarkup", "pruneScratch"].includes(name))
             throw new Error("This capability is outside the voice membership.");
           return (original as (...input: unknown[]) => unknown)(...args);

@@ -106,7 +106,7 @@ describe("tool_resolution", () => {
     await until(() => s.host.coordinator.pendingApprovals.size === 0);
     await until(() => client.frames("tool_resolution").length > 0);
     expect(client.frames("tool_resolution")[0]).toEqual({
-      type: "tool_resolution", toolUseId: "tool-loom", outcome: "expired", sessionId: "sess-loom", turnId, reason: "Cancelled by user",
+      type: "tool_resolution", toolUseId: "tool-loom", outcome: "expired", expiryCause: "turn_ended", sessionId: "sess-loom", turnId, reason: "Cancelled by user",
     });
     expect(client.frames("tool_result")).toEqual([]);
     expect(s.host.coordinator.pendingApprovals.size).toBe(0);

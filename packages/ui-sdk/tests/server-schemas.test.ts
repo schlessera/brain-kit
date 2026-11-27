@@ -138,7 +138,25 @@ const SAMPLES: ServerMessage[] = [
   { type: "local_exchange_result", sessionId: "s1", exchangeId: "x1", saved: false, reason: "No store." },
   { type: "handoff_draft", handoffId: "h-ithaca-01-p1", state: "ready", text: "Odysseus is sailing home.", runId: "r1", costUsd: 0.03 },
   { type: "handoff_receipt", handoffId: "h-ithaca-01", state: "created", sessionId: "s2" },
-  { type: "tool_resolution", toolUseId: "t1", outcome: "expired", sessionId: "s1", turnId: "turn-1", reason: "Turn timed out" },
+  { type: "tool_resolution", toolUseId: "t1", outcome: "expired", sessionId: "s1", turnId: "turn-1", expiryCause: "turn_ended", reason: "Turn timed out" },
+  {
+    type: "network_grants",
+    sessionId: "s1",
+    grants: [
+      {
+        grantId: "ng_ithaca",
+        scope: "origin",
+        origin: "https://ithaca.example:443",
+        host: "ithaca.example",
+        port: 443,
+        scheme: "https",
+        transport: "connect",
+        grantedClasses: ["web_fetch"],
+        suspended: false,
+        createdAt: 1_783_814_400_000,
+      },
+    ],
+  },
   { type: "chat_retired", sessionId: "s1", historyOwnerIds: ["ithaca"], generation: 2 },
   { type: "attachment_read", sessionId: "s1", read: {
     fileId: "8e9a1c52-3f4b-4d6e-9a7b-1c2d3e4f5a6b", turnId: "turn-1", outcome: "partial",

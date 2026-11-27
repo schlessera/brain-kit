@@ -79,7 +79,9 @@ test("a tainted interactive session asks before a new host, naming it and the ta
     expect(asks.requests).toHaveLength(1);
     expect(asks.requests[0], "TAINTED_ASK_CARD_NAMES_DESTINATION_AND_SOURCE").toMatchObject({ toolName: "Network", kind: "command",
       input: { host: "127.0.0.2", port: island.port, method: "GET", target: `127.0.0.2:${island.port}` },
-      description: taintedDestinationDescription({ host: "127.0.0.2", port: island.port!, method: "GET" }, "web_fetch") });
+      origin: `http://127.0.0.2:${island.port}`,
+      network: { transport: "http", scheme: "http", host: "127.0.0.2", port: island.port, scopes: ["once", "origin", "session"] },
+      description: taintedDestinationDescription({ host: "127.0.0.2", port: island.port!, method: "GET" }, "web_fetch", { scopes: ["once", "origin", "session"] }) });
     expect(asks.requests[0]!.description).toContain("fetched a web page");
     asks.answer({ behavior: "allow" });
     expect((await response).status, "TAINTED_ASK_ALLOW_ADMITS").toBe(200);
@@ -140,7 +142,7 @@ test("an allowed host stays admitted for the rest of the session without asking;
   } finally { asks.answer({ behavior: "deny", message: "Fixture cleanup" }); island.stop(true); harbour.stop(true); db.close(); }
 });
 
-test("concurrent connections to the same new host share one card", async () => {
+test("concurrent connections to the same new host carry one origin grouping key and independent request ids (#4966)", async () => {
   const db = taintedSession();
   const island = Bun.serve({ hostname: "127.0.0.2", port: 0, fetch: () => new Response("Aeaea") });
   const { bridge, asks } = cards();
@@ -148,15 +150,15 @@ test("concurrent connections to the same new host share one card", async () => {
   try {
     const both = [get(proxy.socketPath, island.url.href), get(proxy.socketPath, `${island.url.href}again`)];
     await raised(asks, Promise.all(both));
-    // Negative window, kept real time: nothing outside the proxy marks the
-    // second connection reaching the shared card, and the bridge double sees
-    // only cards, the action under test. 50 ms lets its loopback request
-    // reach admission and raise a second card if the host does not share it.
-    await Bun.sleep(50);
-    expect(asks.requests, "TAINTED_ASK_ONE_CARD_PER_HOST").toHaveLength(1);
+    if (asks.requests.length < 2) await raised(asks, Promise.all(both));
+    expect(asks.requests, "TAINTED_ASK_ONE_REQUEST_PER_CONNECTION").toHaveLength(2);
+    expect(asks.requests[0]!.toolUseId).not.toBe(asks.requests[1]!.toolUseId);
+    expect(asks.requests[0]!.origin).toBe(`http://127.0.0.2:${island.port}`);
+    expect(asks.requests[1]!.origin).toBe(asks.requests[0]!.origin);
+    asks.answer({ behavior: "allow" });
     asks.answer({ behavior: "allow" });
     expect((await Promise.all(both)).map(result => result.status)).toEqual([200, 200]);
-  } finally { asks.answer({ behavior: "deny", message: "Fixture cleanup" }); proxy.stop(); island.stop(true); db.close(); }
+  } finally { asks.answer({ behavior: "deny", message: "Fixture cleanup" }); asks.answer({ behavior: "deny", message: "Fixture cleanup" }); proxy.stop(); island.stop(true); db.close(); }
 });
 
 test("voice refuses a narrowed host without a card, as before", async () => {

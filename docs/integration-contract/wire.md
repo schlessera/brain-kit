@@ -3930,3 +3930,75 @@ after the policy lock and refresh waits. Expired or concurrently pruned receipts
 return JSON null without needing another write to prune storage. Authority and
 session fences still apply before delivery. The UI sequences focus reads so an older
 success or failure cannot replace a newer rule-presence result.
+
+<a id="stable-scoped-network-approvals-and-expiry-attribution-additive-0450-4966-1763-3595"></a>
+
+## Stable, scoped network approvals and expiry attribution (additive, 0.45.0, #4966, #1763, #3595)
+
+Three optional capability booleans are added to `client_hello.capabilities` and
+`server_hello.capabilities` (`PROTOCOL_REV` stays 5; older clients and servers
+ignore unknown fields):
+
+- `approvalUpdates` (#4966): the client handles in-place `tool_approval_request`
+  updates carrying the same `toolUseId` and a higher positive-integer `revision`.
+- `networkApprovalScopes` (#3595): the client supports `network.scopes` on
+  `tool_approval_request` and sending `networkScope` (`"once" | "origin" | "session"`)
+  on `tool_approval`.
+- `networkGrants` (#3595): the client accepts `network_grants` frames reporting
+  active standing grants for a session.
+
+### In-place network card updates and arming (#4966)
+
+A `tool_approval_request` for `toolName: "Network"` may carry optional
+`revision` (positive integer), `origin` (canonical origin key string), and
+`network` (`NetworkApprovalOffer`: `{ origin, transport, scheme, host, port,
+scopes, managedReference?, armingMs?, updateNotice? }`). When a new taint class
+arrives or trust policy changes without removing restriction while a `Network`
+card is waiting, a capable connection receives an updated
+`tool_approval_request` with the same `toolUseId`, incremented `revision`,
+updated `description`/`network.updateNotice`, and `network.armingMs` (500 ms).
+`tool_approval` and `tool_denial` accept optional `revision` (and
+`tool_approval` accepts optional `networkScope`). The host rejects a reply
+whose `revision` does not match the card's current `revision` or that arrives
+during the host-enforced arming window, answering with an `error` frame without
+settling the card. Older clients that do not advertise `approvalUpdates` keep
+legacy withdrawal (`safety_changed`) and single legacy approval semantics.
+
+If the waiting proxy connection closes before the user answers, the host
+records `safety_admission_expired` with `reason: "operation_cancelled"` and
+emits `tool_resolution` with `outcome: "expired"` and
+`expiryCause: "operation_cancelled"`.
+
+### Truthful approval expiry attribution (#1763)
+
+`tool_resolution.outcome` (`"granted" | "denied" | "expired" | "unknown"`)
+and Activity span outcomes distinguish non-denial endings from explicit user
+denials:
+
+- Approval deadline expiry resolves with `outcome: "expired"` on
+  `tool_resolution` and `outcome: "timeout"` on the Activity permission span.
+- Host stop, safety-change withdrawal, turn end, orphan connection close, or
+  grant-storage failure resolves with `outcome: "expired"` (and optional
+  `expiryCause`: `"safety_changed" | "turn_ended" | "grant_storage_failed" |
+  "operation_cancelled"`) on `tool_resolution`, and `outcome: "cancelled"` on
+  the Activity permission span.
+- Only an explicit user denial emits `outcome: "denied"`.
+- Roadblock extraction does not count `timeout` or `cancelled` permission
+  expiries as user `permission_denied` denials.
+
+### Scoped network approvals and standing grants (#3595)
+
+Interactive tainted-destination `Network` cards offer `scopes: ["once",
+"origin", "session"]` (or `["once"]` for `managedReference` GitHub
+acquisitions). The host rejects an unadvertised `networkScope` on
+`tool_approval` with an error frame without settling the card. Settling a card
+emits `tool_resolution` with optional `networkScope` and, for sibling cards
+settled by a standing grant, `grantedByGrant: true`.
+
+Approving with `origin` or `session` records a `network_grant` governance event
+and pushes `{ type: "network_grants", sessionId, grants }` (`ServerNetworkGrants`)
+to connections that advertised `networkGrants` and belong to the session's
+account. Grants suspend automatically whenever a new taint class arrives that
+was not in `grantedClasses`, never bypass `network.deny` or voice restrictions,
+and can be revoked through the HTTP grant routes. Nothing here enters provider
+history.

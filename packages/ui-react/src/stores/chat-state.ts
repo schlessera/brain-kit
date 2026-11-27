@@ -22,6 +22,10 @@ import type {
   TurnJournalSummary,
   ApprovalDisplay,
   HostStopCause,
+  NetworkApprovalOffer,
+  NetworkApprovalScope,
+  NetworkGrantView,
+  ServerToolResolution,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../lib/stats/compose-stats.js";
@@ -203,6 +207,14 @@ export interface ToolCall {
    * model. Absent means unknown, and the card shows its neutral state.
    */
   approvalDisplay?: ApprovalDisplay;
+  /** Host card revision for network taint approvals (#4966). */
+  approvalRevision?: string;
+  /** Host canonical origin grouping key (#4966, #3595). */
+  approvalOrigin?: string;
+  /** Host-advertised network approval scope offer (#3595). */
+  approvalNetwork?: NetworkApprovalOffer;
+  /** Reply sent and awaiting host `tool_resolution` (#4967). */
+  approvalSending?: boolean;
   /**
    * The host re-delivered this pending approval after the transcript was
    * rebuilt from history (#964, D52 §4 R3): it is the original request,
@@ -293,6 +305,46 @@ export interface AskUserExchange {
   answeredAt?: number;
 }
 
+/** Pending Network taint approval kept in the open chat's stack, never as a transcript tool row (#4967). */
+export interface PendingNetworkApproval {
+  toolUseId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  description?: string;
+  turnId?: string;
+  origin: string;
+  originLabel: string;
+  revision?: string;
+  network?: NetworkApprovalOffer;
+  createdAt: number;
+  updatedAt: number;
+  revisionCount: number;
+  sending?: boolean;
+  sendingScope?: NetworkApprovalScope;
+  restored?: true;
+  readOnly?: RestoredApprovalClosure;
+}
+
+/** One-line terminal receipt left in the transcript after a Network approval settles (#4967, #3595). */
+export interface NetworkApprovalReceipt {
+  id: string;
+  toolUseId: string;
+  turnId?: string;
+  origin: string;
+  originLabel: string;
+  state: "granted" | "withdrawn" | "expired" | "unknown";
+  scope?: NetworkApprovalScope | "legacy";
+  grantedByGrant?: boolean;
+  reason?: string;
+  at: number;
+}
+
+export interface ToolApprovalMeta {
+  revision?: string;
+  origin?: string;
+  network?: NetworkApprovalOffer;
+}
+
 /**
  * One session's live transcript state. Every session the user has viewed (or
  * that bound from the draft) keeps its own buffer, so frames from a background
@@ -303,6 +355,10 @@ export interface SessionChat {
   /** Turn-scoped receipts may precede the first assistant frame. Never persisted in browser storage. */
   journals?: Record<string, TurnJournalSummary>;
   messages: ChatMessage[];
+  /** Pending Network approvals for this chat's composer stack (#4967). */
+  networkApprovals?: PendingNetworkApproval[];
+  /** One-line terminal Network approval receipts kept in this chat's transcript (#4967). */
+  networkReceipts?: NetworkApprovalReceipt[];
   isStreaming: boolean;
   /**
    * The currently-pending ask-user exchange in this session (no answers yet).
@@ -481,6 +537,12 @@ export interface ChatState {
     toolName: string,
     input: Record<string, unknown>
   ) => void;
+  /** Ephemeral active session network grants pushed by the host or read via REST (#3595). */
+  networkGrants: Record<string, NetworkGrantView[]>;
+  setNetworkGrants: (sessionId: string, grants: NetworkGrantView[]) => void;
+  markNetworkApprovalSending: (key: ChatKey, toolUseId: string, scope?: NetworkApprovalScope) => void;
+  resetNetworkApprovalSending: (key: ChatKey, toolUseId: string) => void;
+  applyToolResolution: (msg: ServerToolResolution) => void;
   requestToolApproval: (
     key: ChatKey,
     toolUseId: string,
@@ -492,7 +554,9 @@ export interface ChatState {
     /** The host turn the request belongs to, from the frame. */
     turnId?: string,
     /** Display-only facts the host verified for the card (#4154). */
-    display?: ApprovalDisplay
+    display?: ApprovalDisplay,
+    /** Network approval card metadata (#4966, #3595). */
+    meta?: ToolApprovalMeta
   ) => void;
   applyVoicePermission: (receipt: VoicePermissionReceipt) => void;
   resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
@@ -717,6 +781,28 @@ export function pendingApprovals(state: Pick<ChatState, "buffers" | "draft">): A
     if (!chat) return;
     for (const message of chat.messages) {
       for (const tool of message.toolCalls) if (awaitsDecision(tool)) out.push({ key, tool });
+    }
+    for (const item of chat.networkApprovals ?? []) {
+      if (item.readOnly) continue;
+      out.push({
+        key,
+        tool: {
+          id: item.toolUseId,
+          name: item.toolName,
+          input: item.input,
+          inputJson: JSON.stringify(item.input, null, 2),
+          status: "pending_approval",
+          approvalKind: "command",
+          approvalRememberable: false,
+          ...(item.description ? { approvalDescription: item.description } : {}),
+          ...(item.turnId ? { approvalTurnId: item.turnId } : {}),
+          ...(item.revision ? { approvalRevision: item.revision } : {}),
+          approvalOrigin: item.origin,
+          ...(item.network ? { approvalNetwork: item.network } : {}),
+          ...(item.sending ? { approvalSending: true } : {}),
+          ...(item.restored ? { restored: true as const } : {}),
+        },
+      });
     }
   };
   for (const [id, chat] of Object.entries(state.buffers)) scan(id, chat);

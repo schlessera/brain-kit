@@ -390,9 +390,25 @@ export function ActivityPage() {
     setDrained(approvals.length === 0);
     void acknowledgeAllIntents();
   }
-  function decideApproval(key: string | null, toolUseId: string, approved: boolean, asked?: boolean) {
+  function decideApproval(
+    key: string | null,
+    toolUseId: string,
+    approved: boolean,
+    asked?: boolean,
+    networkScope?: import("@schlessera/brain-ui-sdk/protocol").NetworkApprovalScope
+  ) {
     const tool = approvals.find((a) => a.tool.id === toolUseId)?.tool;
-    const { receipt, frame } = approvalOutcome(tool, toolUseId, approved, asked);
+    const { receipt, frame } = approvalOutcome(tool, toolUseId, approved, asked, networkScope);
+    // Network approvals are host-owned (#4967): mark Sending… and wait for tool_resolution.
+    if (tool?.approvalNetwork) {
+      const chatState = root.stores.chat.getState();
+      chatState.markNetworkApprovalSending(key, toolUseId, networkScope);
+      if (!root.connection.send(frame)) {
+        chatState.resetNetworkApprovalSending(key, toolUseId);
+        return;
+      }
+      return;
+    }
     // A refused send keeps the card open and produces no decision receipt.
     if (!root.connection.send(frame)) return;
     setReceipt(receipt);
@@ -686,7 +702,7 @@ export function ActivityPage() {
                           tool={tool}
                           origin={key ? `session ${key.slice(0, 8)}` : "this conversation"}
                           keys={keys}
-                          onDecide={(approved, always) => decideApproval(key, tool.id, approved, always)}
+                          onDecide={(approved, always, networkScope) => decideApproval(key, tool.id, approved, always, networkScope)}
                         />
                       ))}
                     </div>

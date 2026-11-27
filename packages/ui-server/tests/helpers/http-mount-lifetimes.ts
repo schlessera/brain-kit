@@ -109,6 +109,8 @@ export const mountLifetimes: Record<string, { shared: boolean; effects: string }
   "POST /api/sessions/:id/safety/reviews/future/commit": { shared: false, effects: "Combined owner review reads durable policy, request and decision state; fresh authority, history and publisher lifetime." },
   "POST /api/sessions/:id/safety/reviews/future/status": { shared: false, effects: "Combined owner review reads durable policy, request and decision state; fresh authority, history and publisher lifetime." },
   "GET /api/sessions/:id/attachment-reads": { shared: true, effects: "Reads recorded attachment reads of an unknown session only; no read, record, reference change or backend." },
+  "GET /api/sessions/:id/network-grants": { shared: true, effects: "Reads active standing network grants of the seeded session only; no mutation." },
+  "DELETE /api/sessions/:id/network-grants/:grantId": { shared: false, effects: "Network grant revocation records a governance event and broadcasts updates; fresh session/database state." },
   "GET /api/sessions/:id/recovery": { shared: false, effects: "History/list/recovery reconciliation, pending listings, or revert admission; fresh host/catalog and task state." },
   "GET /api/push/public-key": { shared: false, effects: "GET lazily creates VAPID keys in SQLite; retain fresh first-use semantics." },
   "GET /api/push/subscriptions": { shared: true, effects: "Reads only the new owner's empty subscription set." },

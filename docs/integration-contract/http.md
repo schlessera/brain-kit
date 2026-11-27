@@ -613,6 +613,21 @@ Version 1 gains an additive `view` operation and launch field in 0.44.0
 (#2696). A governed launch that retains provider folders requires it, and a
 helper without it refuses those launches before payload start.
 
+<a id="session-network-grants-additive-0450-3595"></a>
+
+### Session network grants (additive, 0.45.0, #3595)
+
+`GET /api/sessions/:id/network-grants` returns `{ sessionId, grants }`
+(`SessionNetworkGrantsResponse`, each entry a `NetworkGrantView` with
+`suspended: boolean`) for the authenticated owner's live session, omitting
+revoked grants and grants from an older history generation.
+`DELETE /api/sessions/:id/network-grants/:grantId` revokes one active standing
+grant, records `network_grant_revoked`, notifies subscribed connections with
+`network_grants`, and answers `{ revoked: true, grantId }`; revocation affects
+later connections only. Both routes return `Cache-Control: no-store` and enforce
+session account ownership (`401`/`400`/`403`/`404`). See
+[the HTTP reference](../http-api.md#session-network-grants-3595).
+
 <a id="governance-events-additive-1651"></a>
 
 ### Governance events (additive, #1651)
@@ -628,6 +643,10 @@ payload fields.
 
 The additive `egress_connection` kind records the concrete turn proxy's host,
 port, visible HTTP method/path, bytes, accounting scope, duration and outcome.
+Additively (#3595), `egress_connection` may carry `approvalScope`
+(`once | origin | session | legacy`), `safety_admission_expired.reason` accepts
+`operation_cancelled` (#4966), and two governance event kinds are added:
+`network_grant` (v1) and `network_grant_revoked` (v1).
 CONNECT records opaque bytes without a path or content claim; the inference
 tag comes only from the actual relay. Inference records may carry monotonic
 millisecond offsets from the operation start: `admitMs` (first admission returned after its final synchronous commit check), `bodyMs` (body read), `credentialMs` (credential resolved),

@@ -2,7 +2,7 @@ import { SAFETY_READ_CAPABILITIES, IMAGE_MARKUP_CAPABILITY } from "@schlessera/b
 import { createHash } from "node:crypto";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import type { MiddlewareHandler } from "hono";
-import { ASK_RECEIPTS_CAPABILITY, ATTACHMENT_READS_CAPABILITY, CHAT_DELETION_CAPABILITY, COMPOSER_FILES_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
+import { APPROVAL_UPDATES_CAPABILITY, ASK_RECEIPTS_CAPABILITY, ATTACHMENT_READS_CAPABILITY, CHAT_DELETION_CAPABILITY, COMPOSER_FILES_CAPABILITY, LIVENESS_CAPABILITY, NETWORK_APPROVAL_SCOPES_CAPABILITY, NETWORK_GRANTS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage, MAX_CLIENT_TURN_RECEIPT_BYTES } from "@schlessera/brain-ui-sdk/schemas";
 import { withTurnScope } from "./frames.js";
 import { resendPendingInteractive } from "./resend.js";
@@ -111,6 +111,10 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           ...(host.inbox ? { inbox: true } : {}),
           // Offered to clients that declare it in client_hello (#957).
           toolResolution: true,
+          // In-place card updates & revision echo (#4966); explicit scopes & grant list (#3595).
+          [APPROVAL_UPDATES_CAPABILITY]: true,
+          [NETWORK_APPROVAL_SCOPES_CAPABILITY]: true,
+          ...(host.activity?.governanceDb ? { [NETWORK_GRANTS_CAPABILITY]: true } : {}),
           ...(host.catalog.dialogueRead ? { sessionDialogue: true } : {}),
           // `session_queue` to connections that declare it (#1002).
           followUpQueue: true,
