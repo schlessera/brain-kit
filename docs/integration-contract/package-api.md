@@ -694,6 +694,29 @@ changes here.
   them renders as before.
 - The icon map adds `mail`, `trash` and `hidden-copy`.
 
+## UI-kit Google journal calls (additive, 0.46.0, #4216)
+
+`@schlessera/brain-ui-kit` exports `GoogleJournalCalls`, the presentational
+list of reversible Google call decisions. It takes `GoogleJournalCallsProps`:
+`calls: readonly GoogleJournalCall[]`, optional `truncated`, and optional
+`headingLevel: 2 | 3 | 4` (default 3). Empty input renders nothing.
+
+`GoogleJournalCall` declares `id: number | string`, `operation: string`,
+`target: string | null`, `tainted: boolean`, `decision: "allowed" | "approved" |
+"declined" | "refused"`, and `admission: "policy" | "remembered_approval" |
+"session_allowance" | null`. Targets appear only when non-null and distinct
+from the operation. Tainted allowed or approved rows recommend review;
+declined and refused rows do not. Truncation names the first 1,000 rows and
+the retained governance records. The component inherits its surrounding
+journal's typography and makes no claim of external completion or available
+undo. No SDK dependency, client, store, or callbacks are involved.
+
+`googleOperationWords(operation: string)` returns `{ text: string; mono?:
+string }`: Gmail label change, draft save, send, draft delete, and trash have
+known words; unknown operations return `Google call` with the operation id
+in `mono`. The helper also serves the host's outward receipts. This is an
+additive package API; no tool or wire contract changes.
+
 ## UI-kit enlarge icon (additive #3397)
 
 The semantic `IconName` gains `enlarge`: open content in its dedicated

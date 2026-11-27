@@ -396,6 +396,7 @@ export { invisibleSegments, revealInvisibles, type InvisibleSegment } from "./go
 /* Gmail standing permissions: presentational, props and callbacks only (#4212). */
 export { GoogleApprovalList, type GoogleApprovalListProps } from "./google/GoogleApprovalList.js";
 export { GoogleAllowanceList, type GoogleAllowanceListProps } from "./google/GoogleAllowanceList.js";
+export { GoogleJournalCalls, googleOperationWords, type GoogleJournalCall, type GoogleJournalCallsProps } from "./google/GoogleJournalCalls.js";
 export { googleActionWords, type GoogleHostTime, type GoogleStandingAction } from "./google/shared.js";
 /* Gmail approval cards: presentational, props and callbacks only (#4215, M1–M6). */
 export {
