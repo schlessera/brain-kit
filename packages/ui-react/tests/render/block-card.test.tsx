@@ -7,9 +7,11 @@ import { registerBlockCardDom, unregisterBlockCardDom } from "./block-card-dom.j
 
 registerBlockCardDom();
 
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
 import { act, cleanup, render as mount, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
+import * as kit from "@schlessera/brain-ui-kit";
+import * as sdkClient from "@schlessera/brain-ui-sdk/client";
 import {
   SHOW_BLOCK_CONTRACT,
   parseToolPayload,
@@ -28,6 +30,9 @@ import {
 import { registerBuiltinRenderers } from "../../src/components/chat/renderers/index.js";
 import type { CoastlineGeometry } from "../../src/lib/api-client.js";
 import { isShowBlockTool } from "../../src/lib/tool-names.js";
+import { MessageBubble } from "../../src/components/chat/message-bubble.js";
+import type { ChatMessage, ToolCall } from "../../src/stores/chat-store.js";
+import { countSafeParse } from "../safe-parse-counter.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 
@@ -77,7 +82,11 @@ function render(ui: ReactElement) {
     },
   });
   roots.push(root);
-  return mount(<BrainUiProvider root={root}>{ui}</BrainUiProvider>);
+  const view = mount(<BrainUiProvider root={root}>{ui}</BrainUiProvider>);
+  // A re-render keeps the provider, so the tree under it is updated in place.
+  const update = view.rerender;
+  const rerender = (next: ReactElement) => update(<BrainUiProvider root={root}>{next}</BrainUiProvider>);
+  return { ...view, rerender };
 }
 
 afterEach(() => {
@@ -346,5 +355,121 @@ describe("the map block", () => {
       cleanup();
     }
     expect(requested).toHaveLength(0);
+  });
+});
+
+describe("an inline block across the frames of its answer (#4749)", () => {
+  const UPDATES = 20;
+  const noop = () => {};
+  const handlers = { onToolApproval: noop, onAskUserSubmit: noop, onAskUserCancel: noop, onAskUserListSubmit: noop };
+  const blockTool = (block: Block, id = "block-1"): ToolCall => ({
+    id,
+    name: visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude"),
+    input: {},
+    inputJson: "{}",
+    output: JSON.stringify({ block }),
+    status: "complete",
+  });
+  /** A streaming answer: the block's call, then the text that is still growing. */
+  const streaming = (call: ToolCall, text: string): ChatMessage => ({
+    id: "answer-1",
+    role: "assistant",
+    content: text,
+    toolCalls: [call],
+    parts: [{ kind: "tool", toolIndex: 0 }, { kind: "text", text }],
+    isStreaming: true,
+    timestamp: 0,
+  });
+
+  test("an unchanged block call is parsed once while the answer's text grows", () => {
+    const parse = countSafeParse(SHOW_BLOCK_CONTRACT.payload);
+    try {
+      const call = blockTool(BLOCKS.table);
+      const view = render(<MessageBubble message={streaming(call, "The nights")} {...handlers} />);
+      expect(view.container.querySelector('[data-block="table"]')?.textContent).toContain("Aeaea");
+      const afterMount = parse.calls;
+      expect(afterMount).toBeGreaterThan(0);
+      for (let i = 1; i <= UPDATES; i++) {
+        act(() => view.rerender(<MessageBubble message={streaming(call, `The nights${" at sea".repeat(i)}`)} {...handlers} />));
+      }
+      expect(view.container.textContent).toContain(" at sea".repeat(UPDATES));
+      expect(parse.calls).toBe(afterMount);
+    } finally {
+      parse.restore();
+    }
+  });
+
+  test("a call replaced by a new object with a new output redraws the block from it", () => {
+    const parse = countSafeParse(SHOW_BLOCK_CONTRACT.payload);
+    try {
+      const view = render(<MessageBubble message={streaming(blockTool(BLOCKS.table), "The nights")} {...handlers} />);
+      expect(view.container.querySelector('[data-block="table"]')?.textContent).toContain("Ogygia");
+      const replayed: Block = {
+        kind: "table",
+        columns: [{ label: "Island" }, { label: "Nights" }],
+        rows: [{ cells: [{ v: "Thrinacia" }, { v: "30" }] }],
+      };
+      const parsedBefore = parse.calls;
+      act(() => view.rerender(<MessageBubble message={streaming(blockTool(replayed), "The nights")} {...handlers} />));
+      const table = view.container.querySelector('[data-block="table"]')?.textContent ?? "";
+      expect(table).toContain("Thrinacia");
+      expect(table).not.toContain("Ogygia");
+      expect(parse.calls).toBe(parsedBefore + 1);
+      // The cache key is the object, not the id: a new object with the same id
+      // and the same output is parsed again, once.
+      act(() => view.rerender(<MessageBubble message={streaming(blockTool(replayed), "The nights at sea")} {...handlers} />));
+      expect(parse.calls).toBe(parsedBefore + 2);
+    } finally {
+      parse.restore();
+    }
+  });
+
+  test("a memoized card renders for its mount only while its parent re-renders with the same payload", () => {
+    // A React Profiler commits whenever its own parent re-renders, whether or
+    // not the card under it did, so the count is taken on the kit component
+    // the card renders instead: it runs only when the card itself renders.
+    const table = spyOn(kit, "DataTable");
+    try {
+      const payload = { block: BLOCKS.table };
+      const Parent = ({ tick }: { tick: number }) => (
+        <div data-tick={tick}>
+          <BlockCard {...payload} />
+        </div>
+      );
+      const view = render(<Parent tick={0} />);
+      expect(table).toHaveBeenCalledTimes(1);
+      for (let i = 1; i <= UPDATES; i++) act(() => view.rerender(<Parent tick={i} />));
+      expect(view.container.querySelector("[data-tick]")?.getAttribute("data-tick")).toBe(String(UPDATES));
+      expect(view.container.querySelector('[data-block="table"]')?.textContent).toContain("Ogygia");
+      expect(table).toHaveBeenCalledTimes(1);
+    } finally {
+      table.mockRestore();
+    }
+  });
+
+  test("an unchanged map plans once and asks once per frame, and equal places in a new block ask nothing more", async () => {
+    const plan = spyOn(sdkClient, "planPlaces");
+    try {
+      const block: Block = {
+        kind: "map",
+        places: [
+          { label: "Vathy", lat: 38.3647, lon: 20.7202 },
+          { label: "Hisarlik", lat: 39.9575, lon: 26.2389 },
+        ],
+      };
+      const frames = sdkClient.planPlaces(block.places).frames.length;
+      plan.mockClear();
+      const view = render(<BlockCard block={block} />);
+      await waitFor(() => expect(requested).toHaveLength(frames));
+      for (let i = 1; i <= UPDATES; i++) act(() => view.rerender(<BlockCard block={block} />));
+      // A replay, a history reload or `blocksFor` hands the card a new block with equal places.
+      const equal: Block = { ...block, places: block.places.map((place) => ({ ...place })) };
+      act(() => view.rerender(<BlockCard block={equal} />));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(plan).toHaveBeenCalledTimes(1);
+      expect(requested).toHaveLength(frames);
+    } finally {
+      plan.mockRestore();
+    }
   });
 });
