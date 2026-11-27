@@ -37,7 +37,7 @@ function forwardedScheme(c: Context): string | undefined {
  * `http` or `https` (a proxy's `ws` / `wss` is not mapped here) or the parts
  * do not form an origin.
  */
-export function requestOrigin(c: Context, trustProxy: boolean): string | undefined {
+function requestOrigin(c: Context, trustProxy: boolean): string | undefined {
   const url = new URL(c.req.url);
   const forwarded = trustProxy ? forwardedScheme(c) : undefined;
   const protocol = forwarded ? `${forwarded}:` : url.protocol;
