@@ -1,5 +1,6 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, statSync } from "fs";
 import { join, resolve } from "path";
+import { gitInstalled, isGitRepo } from "../lib/sync/git.js";
 
 /** Hook scripts shipped in the core package (src/hooks). */
 export const HOOK_NAMES = ["pre-commit", "post-commit", "post-checkout", "post-merge"];
@@ -12,16 +13,7 @@ export function packagedHooksDir(): string {
 /** What a git-dependent step says when there is no git to run. */
 export const GIT_MISSING = "git is not installed or not on PATH";
 
-/** Whether a `git` executable is on PATH. Spawning a missing one throws. */
-export function gitInstalled(): boolean {
-  return Bun.which("git") !== null;
-}
-
-export function isGitRepo(root: string): boolean {
-  if (existsSync(join(root, ".git"))) return true;
-  if (!gitInstalled()) return false;
-  return Bun.spawnSync(["git", "-C", root, "rev-parse", "--git-dir"]).exitCode === 0;
-}
+export { gitInstalled, isGitRepo };
 
 export interface HookInstallResult {
   installed: boolean;
