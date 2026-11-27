@@ -4,9 +4,9 @@
 // client); the shell it builds is rendered by the transcript's own
 // `MessageBubble`. Queries come from `render()`, never `screen` — see
 // tests/render/dom.ts for why.
-import { unregisterRestoredApprovalDom } from "./restored-approval-dom.js";
+import { registerRestoredApprovalDom, unregisterRestoredApprovalDom } from "./restored-approval-dom.js";
 
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ClientMessage, ServerMessage, SessionRecovery, SessionRecoveryLatest, SessionRecoveryPending } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -20,6 +20,7 @@ afterEach(() => {
   cleanup();
   for (const r of roots.splice(0)) r.dispose();
 });
+beforeAll(registerRestoredApprovalDom);
 afterAll(unregisterRestoredApprovalDom);
 
 const A = "odysseus-sirens";

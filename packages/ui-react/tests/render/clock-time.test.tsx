@@ -2,9 +2,9 @@
 // draft indicator print one timestamp the same way, 24-hour `HH:MM`, whatever
 // the runtime's default locale (Bun's is `en-US`, a 12-hour one). Queries
 // come from `render()`, never `screen` — see tests/render/dom.ts for why.
-import { unregisterClockTimeDom } from "./clock-time-dom.js";
+import { registerDom, unregisterDom } from "./dom.js";
 
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
 
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
@@ -13,7 +13,9 @@ import type { ChatMessage } from "../../src/stores/chat-state.js";
 import type { ComposerDraft } from "../../src/stores/draft-state.js";
 
 afterEach(cleanup);
-afterAll(unregisterClockTimeDom);
+// A repeated run of this file (`--rerun-each`) reuses the loaded modules, so it registers again.
+beforeAll(registerDom);
+afterAll(unregisterDom);
 
 const noop = () => {};
 // Built from local components, so the expected text does not depend on the
