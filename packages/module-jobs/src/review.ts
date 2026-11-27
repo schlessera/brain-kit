@@ -142,10 +142,13 @@ export function getStats(db: Database): {
   return { total, by_status, by_source, duplicates, score_distribution, recent_runs };
 }
 
+/** Delete a job with its search row and duplicate references, all or none (#4811). */
 export function deleteJob(db: Database, id: number): void {
-  db.query("DELETE FROM jobs_fts WHERE rowid = ?").run(id);
-  db.query("UPDATE jobs SET duplicate_of = NULL WHERE duplicate_of = ?").run(id);
-  db.query("DELETE FROM jobs WHERE id = ?").run(id);
+  db.transaction(() => {
+    db.query("DELETE FROM jobs_fts WHERE rowid = ?").run(id);
+    db.query("UPDATE jobs SET duplicate_of = NULL WHERE duplicate_of = ?").run(id);
+    db.query("DELETE FROM jobs WHERE id = ?").run(id);
+  })();
 }
 
 /**
