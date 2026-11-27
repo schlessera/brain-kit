@@ -4,16 +4,17 @@
  * what each write leaves on disk and in the index (#1349).
  */
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { existsSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
-import { join } from "path";
+import * as fs from "fs";
+import { existsSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "fs";
+import { isAbsolute, join, relative } from "path";
 
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { initContext, type BrainContext } from "../src/lib/context";
 import { openDatabase } from "../src/lib/db";
-import { getMarkdownFiles } from "../src/lib/indexer";
+import { getMarkdownFiles, indexAll } from "../src/lib/indexer";
 import { indexStaleness } from "../src/lib/ops/staleness";
 import { contextBriefing, listDocuments, readDocument, searchDocuments } from "../src/lib/ops/read";
 import { addDocument, archiveWithReindex, splitTags, updateDocumentFields } from "../src/lib/ops/write";
@@ -197,4 +198,121 @@ describe("write operations", () => {
     expect(existsSync(join(root, path))).toBe(false);
     expect(row(db, done.path)?.status).toBe("archived");
   });
+});
+
+/**
+ * A write indexes only the paths it changed (#4778): the indexer's parse phase
+ * reads those files and takes the rest of the brain from the index.
+ */
+describe("write operations index only the paths they change", () => {
+  let root: string;
+  let brain: BrainContext;
+  let db: Database;
+  const deps = () => ({ db, root, taxonomy: brain.taxonomy });
+
+  beforeAll(async () => {
+    root = makeTempBrain();
+    for (let n = 1; n <= 30; n++) {
+      const name = String(n).padStart(2, "0");
+      writeFileSync(join(root, `notes/log-${name}.md`), `---\ntitle: Ship's log ${name}\ntype: note\n---\n\nDay ${name} at sea.\n`);
+    }
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    brain = await initContext({ root });
+    expect(getMarkdownFiles(root, brain.taxonomy).length).toBeGreaterThanOrEqual(50);
+    db = openDatabase(brain.dbPath);
+  });
+
+  afterAll(() => {
+    db?.close();
+    cleanup(root);
+  });
+
+  /** The brain's markdown files read through `readFileSync` while `run` runs, repo-relative and once each. */
+  async function markdownReads<T>(run: () => Promise<T>): Promise<{ result: T; reads: string[] }> {
+    const bases = [realpathSync(root), root];
+    const reads = new Set<string>();
+    const original = fs.readFileSync;
+    const spy = spyOn(fs, "readFileSync").mockImplementation(((path: unknown, ...rest: unknown[]) => {
+      if (typeof path === "string" && path.endsWith(".md")) {
+        for (const base of bases) {
+          const rel = relative(base, path);
+          if (!rel.startsWith("..") && !isAbsolute(rel)) { reads.add(rel); break; }
+        }
+      }
+      return (original as (...a: unknown[]) => unknown)(path, ...rest);
+    }) as typeof fs.readFileSync);
+    try {
+      return { result: await run(), reads: [...reads].sort() };
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  /** The paths a keyword search finds for `query`. */
+  const found = async (query: string) => (await searchDocuments(
+    { db, brain },
+    { query, mode: "fts", includeArchived: true, assetsOnly: false, limit: 10, upcoming: false }
+  )).results.map((r) => r.path);
+
+  test("updateDocumentFields reads the updated note and no other", async () => {
+    const path = "notes/log-07.md";
+    const { reads } = await markdownReads(() => updateDocumentFields(deps(), { path, appendContent: "Nausicaa finds the raft on the shore." }));
+    expect(reads).toEqual([path]);
+    expect(await found("Nausicaa")).toEqual([path]);
+  });
+
+  test("addDocument reads the file it created and no other", async () => {
+    const { result, reads } = await markdownReads(() => addDocument(deps(), { content: "Aeolus ties the winds in an oxhide bag.", type: "note", title: "The bag of winds" }));
+    expect(result.indexed).toBe(true);
+    expect(reads).toEqual([result.path]);
+    expect(await found("oxhide")).toEqual([result.path]);
+  });
+
+  test("archiveWithReindex reads the archived note, and moves its row when it moves the file", async () => {
+    const inPlace = "notes/log-08.md";
+    const kept = await markdownReads(() => archiveWithReindex(deps(), { path: inPlace, dryRun: false }));
+    expect(kept.result.moved).toBe(false);
+    expect(kept.reads).toEqual([inPlace]);
+    expect(row(db, inPlace)?.status).toBe("archived");
+
+    const from = "projects/active/sail-repairs/materials.md";
+    const moved = await markdownReads(() => archiveWithReindex(deps(), { path: from, dryRun: false }));
+    expect(moved.result.moved).toBe(true);
+    // The document is read once to rewrite it; the indexer reads the new path only.
+    expect(moved.reads).toEqual([moved.result.path, from].sort());
+    expect(row(db, from)).toBeNull();
+    expect(row(db, moved.result.path)?.status).toBe("archived");
+  });
+
+  test("a note edited elsewhere stays counted stale after a write and is indexed by the next complete run", async () => {
+    const elsewhere = "notes/log-09.md";
+    writeFileSync(join(root, elsewhere), "---\ntitle: Ship's log 09\ntype: note\n---\n\nScylla takes six of the crew.\n");
+    const future = new Date(Date.now() + 60 * 60 * 1000);
+    utimesSync(join(root, elsewhere), future, future);
+    await updateDocumentFields(deps(), { path: "notes/log-10.md", summary: "Charybdis swallows the sea" });
+    expect(indexStaleness(db, root, brain.taxonomy).stale).toBe(1);
+    expect(await found("Scylla")).toEqual([]);
+
+    await indexAll(db, { root, taxonomy: brain.taxonomy, force: false, quiet: true });
+    expect(await found("Scylla")).toEqual([elsewhere]);
+  });
+});
+
+test("addDocument on an index with no markdown rows builds the whole index", async () => {
+  const root = makeTempBrain();
+  try {
+    const brain = await initContext({ root });
+    const db = openDatabase(brain.dbPath);
+    try {
+      expect((db.prepare("SELECT COUNT(*) AS n FROM documents WHERE asset_type = 'markdown'").get() as { n: number }).n).toBe(0);
+      const outcome = await addDocument({ db, root, taxonomy: brain.taxonomy }, { content: "Hermes brings moly against the witch.", type: "note", title: "Moly" });
+      expect(outcome.indexed).toBe(true);
+      const indexed = (db.prepare("SELECT COUNT(*) AS n FROM documents WHERE asset_type = 'markdown'").get() as { n: number }).n;
+      expect(indexed).toBe(getMarkdownFiles(root, brain.taxonomy).length);
+    } finally {
+      db.close();
+    }
+  } finally {
+    cleanup(root);
+  }
 });
