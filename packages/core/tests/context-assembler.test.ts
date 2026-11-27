@@ -1046,6 +1046,25 @@ describe("sections from chunks", () => {
     }
   });
 
+  test("a section whose line is the match line decides over one that only contains it", async () => {
+    const body = `## Signal\n\nBeacon\n\n## Tides\n\n${para("Tide", 8)}\n\nThe Beacon keeps burning.\n`;
+    const { ctx, db } = await brainWith({ "studies/folded.md": study("Folded", body) });
+    try {
+      // The premise: Signal is folded into Tides' chunk.
+      const chunks = db
+        .prepare("SELECT c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ?")
+        .all("studies/folded.md") as { content: string }[];
+      expect(chunks.map((c) => c.content.startsWith("## Signal\n\nBeacon\n\n"))).toEqual([true]);
+      const out = await assembleContext(db, ctx, { query: "Beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
+      const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+      expect(hit).toContain("#### Signal\nBeacon");
+      expect(hit).not.toContain("Tide paragraph 1");
+      expect(hit).not.toContain("The Beacon keeps burning.");
+    } finally {
+      db.close();
+    }
+  });
+
   test("when chunk matching fails, the context still assembles, from snippets", async () => {
     const { ctx, db } = await brainWith({ "studies/survey.md": study("Survey", `## Log\n\nThe beacon survey log.\n`) });
     const real = db.prepare.bind(db);

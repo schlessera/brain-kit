@@ -858,7 +858,12 @@ function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null): 
   const span = chunkSpan(body, chunk);
   if (span) {
     if (matchLine !== null) {
-      const holding = span.components.filter((c) => holds({ name: c.part.name, text: c.text }));
+      // A component with the match line as one of its lines decides; one that
+      // only contains it inside a longer line counts when none does.
+      const exact = span.components.filter(
+        (c) => c.text.split("\n").some((line) => line.trim() === matchLine) || (asHeading !== null && c.part.name === asHeading)
+      );
+      const holding = exact.length > 0 ? exact : span.components.filter((c) => holds({ name: c.part.name, text: c.text }));
       if (holding.length === 0) return null;
       if (holding.length === 1) return { parts: [{ name: holding[0]!.part.name, text: holding[0]!.whole }] };
     }
