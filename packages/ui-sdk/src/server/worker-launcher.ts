@@ -93,9 +93,10 @@ export const WORKER_HOST_ROUTE = "Use a verified Linux or qualifying WSL2 host w
 export interface WorkerLaunch {
   brainPath: string;
   /**
-   * A read-only consumer of the turn's view (#4325): the brain is mounted
-   * read-only and no writable area, workspace or worktree is bound, whatever
-   * the sandbox profile would otherwise make writable.
+   * A read-only consumer of the turn's view (#4325): no writable area,
+   * workspace or worktree is bound, and every bind that targets the brain or
+   * the turn's data tree, including protection pins and indexes, is
+   * read-only, whatever the sandbox profile would otherwise make writable.
    */
   readOnlyBrain?: boolean;
   /** Host-owned immutable execution view for snapshot consumers. */
@@ -767,6 +768,18 @@ export function workerCommand(input: WorkerLaunch): string[] {
       at += count;
     }
     argv.push(...hostFiles, clear!);
+  }
+  // A read-only consumer (#4325): whatever the mounts above made writable
+  // inside the brain or the turn's data tree (governed ancestor and
+  // retained-folder pins, writable indexes, any later helper) is read-only.
+  // This one pass over the finished mount section is the invariant.
+  if (input.readOnlyBrain) {
+    for (let at = 0; at < argv.length - 2; at++) {
+      if (argv[at] !== "--bind") continue;
+      const target = argv[at + 2]!;
+      if (target === brain || isWithin(brain, target) || target === WORKER_DATA_ROOT || isWithin(WORKER_DATA_ROOT, target)) argv[at] = "--ro-bind";
+      at += 2;
+    }
   }
 
   // A private tmpfs of exactly the allowance. Nothing on the host backs it,

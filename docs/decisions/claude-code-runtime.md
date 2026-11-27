@@ -1591,6 +1591,12 @@ still offers it only when the selected upstream is the first-party origin and
 no cloud provider is selected; anything else is refused with
 `fast_output_unavailable` before anything persists. The prompt gate then
 requires the runtime to report `fast_mode_state: "on"` before releasing input.
+Per the maintainer ruling of 2026-11-27 on #4310, the EFFECTIVE route is
+qualified on direct turns too: there the gate reads the settings the runtime
+resolved (project, managed and flag tiers) and refuses `fast_output_unavailable`
+(`not_first_party: …`) when any tier selects a base URL other than the
+first-party origin, selects a cloud provider, or cannot be read. A relayed
+turn's route is already qualified by the relay.
 Any other state (`off` with its reason, `cooldown`, or no report) refuses the
 turn by name instead of running it at standard speed. A standard session that
 native settings turn fast is a `settings_conflict`. The pinned

@@ -186,8 +186,9 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
       // Validate the wrapper before retaining the view: a throw here leaves
       // nothing that no launcher owns (#4325 F25).
       const launch = ordinaryWorkerLaunch(input.brainPath, [...command], input.env, input.exec);
-      // Read-only on every profile: a governed worker would otherwise bind the
-      // live brain and its workspaces writable (#4325 F10).
+      // Read-only on every profile: the launcher makes every bind into the
+      // brain or the data tree read-only, including a governed worker's live
+      // brain, protection pins and indexes (#4325 F10, round 2 F1/F2).
       worker = await launchAgentWorkerAsync({ brainPath: input.brainPath, sandbox, limits: input.limits, readOnlyBrain: true,
         ...(input.startupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(input.startupView) } : {}),
         ...launch, credentialEnv: input.credentialEnv, ...(input.egress ? { egress: input.egress } : {}), turnTempBytes: reservation.turnTempBytes });
@@ -252,14 +253,30 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
   const ownedSignal = AbortSignal.any([signal, controller.signal]);
   let resource: Awaited<ReturnType<ReturnType<typeof startBrainToolWorker>>> | undefined;
   const timer = setTimeout(() => controller.abort(), BRAIN_TOOL_TIMEOUT_MS);
+  // Every wait races one deadline: the product timeout or the caller's abort.
+  // A supervisor that refuses the kill and a stdout that never ends can then
+  // only cost the bound, never hold a new chat (#4325 round 2 F3).
+  const deadline = new Promise<"deadline">(resolve => {
+    if (ownedSignal.aborted) resolve("deadline");
+    else ownedSignal.addEventListener("abort", () => resolve("deadline"), { once: true });
+  });
   try {
-    resource = await startBrainToolWorker(input, [process.execPath, BRAIN_INVENTORY_ENTRY, BRIDGE_BRAIN_VERSION])(ownedSignal);
-    let text = "";
-    for await (const chunk of resource.worker.stdout) {
-      text += String(chunk);
-      if (Buffer.byteLength(text) > 1024 * 1024) throw new Error("brain_bridge_inventory_oversized");
-    }
-    const code = await resource.worker.exited;
+    const starting = startBrainToolWorker(input, [process.execPath, BRAIN_INVENTORY_ENTRY, BRIDGE_BRAIN_VERSION])(ownedSignal);
+    const started = await Promise.race([starting, deadline]);
+    if (started === "deadline") { void starting.then(late => late.close()).catch(() => {}); return "unavailable"; }
+    resource = started;
+    const worker = started.worker;
+    const reading = (async () => {
+      let text = "";
+      for await (const chunk of worker.stdout) {
+        text += String(chunk);
+        if (Buffer.byteLength(text) > 1024 * 1024) throw new Error("brain_bridge_inventory_oversized");
+      }
+      return { text, code: await worker.exited };
+    })();
+    const read = await Promise.race([reading, deadline]);
+    if (read === "deadline") { void reading.catch(() => {}); return "unavailable"; }
+    const { text, code } = read;
     if (code !== 0 || ownedSignal.aborted) return "unavailable";
     const result = JSON.parse(text);
     if (!Array.isArray(result.enabled) || !Array.isArray(result.available)) return "unavailable";

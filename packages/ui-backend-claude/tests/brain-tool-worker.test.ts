@@ -339,3 +339,23 @@ test("a refused kill still stops the server through end of input, and an unconfi
     stuck.exit.resolve(0); timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true });
   }
 });
+
+// #4325 round 2 F3: an inventory worker whose kill is refused and whose stdout
+// never ends costs only the deadline; the new chat falls back to stdio.
+for (const cause of ["deadline", "caller abort"] as const) test(`a hung inventory helper yields an unavailable verdict at its ${cause}`, async () => {
+  const f = fixture(), child = worker(f.state), ledger = internal.createStateLedger(), controller = new AbortController();
+  (child.launched as { kill: unknown }).kill = () => { throw new Error("Ithaca supervisor refused the signal."); };
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockResolvedValue(child.launched);
+  const nativeTimer = globalThis.setTimeout;
+  // The product deadline (cause "deadline") and the exit wait fire at once; the caller variant keeps the deadline.
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) =>
+    nativeTimer(callback, ms === 5_000 || (cause === "deadline" && ms === 30_000) ? 0 : ms, ...args)) as typeof setTimeout);
+  try {
+    const probe = probeBrainBridgeInventory({ ...f.input, reservation: () => ledger.reserve(undefined, f.input.turnTempLimits) }, controller.signal);
+    if (cause === "caller abort") { await Bun.sleep(10); controller.abort(); }
+    const verdict = await Promise.race([probe, Bun.sleep(3_000).then(() => "STILL_WAITING")]);
+    expect(verdict, `HUNG_INVENTORY_${cause}_IS_UNAVAILABLE`).toBe("unavailable");
+    expect([child.stdout.destroyed, child.stderr.destroyed], "HUNG_INVENTORY_PIPES_DISPOSED").toEqual([true, true]);
+    expect(ledger.turnTempHeld, "HUNG_INVENTORY_ALLOWANCE_HELD").toBe(f.input.turnTempLimits.allowanceBytes);
+  } finally { child.exit.resolve(0); timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});

@@ -43,7 +43,7 @@ import { createTurnTempPressureHook, createTurnTempTool, TURN_TEMP_TOOL_NAME } f
 import { workerStateLimit } from "./worker-state.js";
 import { claudeAutonomousEnvelope } from "./autonomous-envelope.js";
 import { claudeEffort } from "./effort.js";
-import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS } from "./subscription.js";
+import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS, type CliSettingsReport } from "./subscription.js";
 import { RELAYED_TURN_SETTINGS, RELAYED_TURN_TRAFFIC_ENV, telemetryConfigured } from "./relayed-turn-traffic.js";
 import type { TurnLockBinding } from "./turn-lock.js";
 
@@ -143,6 +143,29 @@ export function fastOutputRouteRefusal(inheritedEnv: Readonly<Record<string, str
   const cloud = CLOUD_PROVIDER_ENV.find(name => { const value = inheritedEnv[name]; return value !== undefined && value !== "" && value !== "0" && value.toLowerCase() !== "false"; });
   if (cloud) return `not_first_party: ${cloud} routes this profile to a cloud provider`;
   if (!firstPartyInferenceUpstream(inheritedEnv)) return "not_first_party: this profile's upstream is not the provider's first-party origin";
+  return undefined;
+}
+
+/**
+ * Why a direct (unrelayed) fast turn's EFFECTIVE route is not provably the
+ * first-party origin (maintainer ruling 2026-11-27 on #4310), from the
+ * settings the runtime itself resolved (project, managed and flag tiers);
+ * undefined when it is. The inherited environment was qualified at assembly;
+ * native settings can still select a gateway or a cloud provider after that.
+ */
+export function directFastRouteRefusal(settings: CliSettingsReport | undefined): string | undefined {
+  if (!settings || typeof settings !== "object") return "not_first_party: the runtime's resolved settings could not be read";
+  const layers = [settings.effective?.env, ...(Array.isArray(settings.sources) ? settings.sources.map(source => source?.settings?.env) : [])];
+  for (const env of layers) {
+    if (env === undefined) continue;
+    if (!env || typeof env !== "object") return "not_first_party: the runtime's resolved settings could not be read";
+    const values = env as Record<string, unknown>;
+    const cloud = CLOUD_PROVIDER_ENV.find(name => { const value = values[name]; return value !== undefined && value !== "" && value !== "0" && String(value).toLowerCase() !== "false"; });
+    if (cloud) return `not_first_party: native settings set ${cloud}, routing this profile to a cloud provider`;
+    const base = values.ANTHROPIC_BASE_URL;
+    if (base !== undefined && base !== "" && (typeof base !== "string" || !firstPartyInferenceUpstream({ ANTHROPIC_BASE_URL: base })))
+      return "not_first_party: native settings select an inference upstream that is not the provider's first-party origin";
+  }
   return undefined;
 }
 

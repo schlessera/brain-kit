@@ -48,8 +48,9 @@ output speed. The host stores it with the session, and every turn of that
 session runs at it, resumes included. A resumed session ignores the field.
 `fast` is priced as real spend at the fast rate on every billing mode and is
 never priced from standard rates. A route, profile or backend that cannot
-serve it refuses the turn with failure class `fast_output_unavailable`; it
-never falls back to standard, and a turn the runtime dropped to standard
+serve it refuses the turn with failure class `fast_output_unavailable`; the
+route is the effective one the runtime resolves, from every settings tier, on
+direct and relayed turns alike. It never falls back to standard, and a turn the runtime dropped to standard
 speed mid-turn ends with that class instead of a plain success. The SDK gains `OutputSpeed`, `OUTPUT_SPEEDS`,
 `isOutputSpeed`, `StartTurnRequest.outputSpeed`,
 `BackendCapabilities.fastOutput` and `FastOutputUnavailableError`. See

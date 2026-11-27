@@ -63,12 +63,16 @@ test("a fast session on an unqualified route is refused before anything persists
   expect((standard.options.settings as { fastMode?: boolean }).fastMode, "GATEWAY_SERVES_STANDARD").toBe(false);
 });
 
-function gate(outputSpeed: OutputSpeed | undefined, initialized: Record<string, unknown>) {
+/** Resolved native settings of a direct turn on the first-party API: no tier selects another route. */
+const FIRST_PARTY_SETTINGS = { effective: { env: {} }, sources: [{ source: "projectSettings", settings: { env: {} } }] };
+
+function gate(outputSpeed: OutputSpeed | undefined, initialized: Record<string, unknown>, settings: unknown = FIRST_PARTY_SETTINGS) {
   const frames: ServerMessage[] = [], activity: unknown[] = [];
   const abortController = new AbortController();
   const terminal = new TurnTerminal({ frames: new TurnFrames({ emit: (msg: ServerMessage) => frames.push(msg), activity: (event: unknown) => activity.push(event) } as never, "s1"),
     hostSignal: new AbortController().signal, abortController, startedAt: Date.now(), pendingFailure: () => null });
-  const check = promptGateCheck({ queryHandle: Promise.resolve({} as Query), initialize: async () => initialized as never,
+  const query = { async getSettings() { if (settings instanceof Error) throw settings; return settings; } } as unknown as Query;
+  const check = promptGateCheck({ queryHandle: Promise.resolve(query), initialize: async () => initialized as never,
     sdkTurn: { subscriptionOnly: false, ...(outputSpeed ? { outputSpeed } : {}) }, relay: undefined, terminal, runtimeRequirements: [],
     phase: "start", abortController, profileId: "fixture", log() {}, reportActivity: event => activity.push(event), reportRuntime() {} });
   return { check, terminal, activity };
@@ -113,4 +117,30 @@ test("no brain process starts before the prompt gate while the host login is ins
   expect(brainProcessesMayStart({ inBrain: true }), "LOGIN_IN_BRAIN_STARTS_NO_BRAIN_PROCESS").toBe(false);
   const resumed = { sessionId: "ithaca", workerSandbox: { brain: "/ithaca", profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] } } as never;
   expect(checksBrainInventory(resumed, undefined, true), "RESUME_SKIPS_INVENTORY").toBe(false);
+});
+
+// Ruling 2026-11-27 on #4310: a direct fast turn's EFFECTIVE route, as the
+// runtime resolved it from project, managed and flag settings, must be the
+// first-party origin before any input is released.
+test("a direct fast turn is released only when the runtime's resolved route is first-party", async () => {
+  const on = { fast_mode_state: "on" };
+  expect(await gate("fast", on).check(), "FAST_ALLOWED_direct_first_party").toBe(true);
+  expect(await gate("fast", on, { effective: { env: { ANTHROPIC_BASE_URL: "https://api.anthropic.com/" } }, sources: [] }).check(), "FAST_ALLOWED_explicit_first_party").toBe(true);
+  for (const [label, settings, reason] of [
+    ["direct_gateway", { effective: { env: { ANTHROPIC_BASE_URL: "https://gateway.example.com" } },
+      sources: [{ source: "projectSettings", settings: { env: { ANTHROPIC_BASE_URL: "https://gateway.example.com" } } }] }, "not the provider's first-party origin"],
+    ["direct_managed_gateway", { effective: { env: {} },
+      sources: [{ source: "policySettings", settings: { env: { ANTHROPIC_BASE_URL: "https://gateway.example.com" } } }] }, "not the provider's first-party origin"],
+    ["direct_cloud_provider", { effective: { env: { CLAUDE_CODE_USE_VERTEX: "1" } }, sources: [] }, "CLAUDE_CODE_USE_VERTEX"],
+    ["direct_unreported_settings", null, "could not be read"],
+    ["direct_unreadable_settings", new Error("Ithaca settings are sealed."), "could not be read"],
+  ] as const) {
+    const refused = gate("fast", on, settings);
+    expect(await refused.check(), `FAST_REFUSED_${label}`).toBe(false);
+    const failure = { ...(refused.terminal.refused as { failure: { errorClass: string; message: string } }).failure };
+    expect(failure.errorClass, `FAST_REFUSED_${label}_NAMED`).toBe("fast_output_unavailable");
+    expect(failure.message.includes("not_first_party: ") && failure.message.includes(reason), `FAST_REFUSED_${label}_REASON ${failure.message}`).toBe(true);
+  }
+  // A standard session is not route-qualified for fast output.
+  expect(await gate("standard", { fast_mode_state: "off" }, { effective: { env: { ANTHROPIC_BASE_URL: "https://gateway.example.com" } }, sources: [] }).check(), "STANDARD_GATEWAY_UNCHANGED").toBe(true);
 });

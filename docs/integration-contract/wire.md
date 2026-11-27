@@ -1213,7 +1213,10 @@ cap holds; an independent relayed provider completion keeps its own rate. A
 fast session that its backend, profile, account or upstream cannot serve is
 refused before any model request with `failure.errorClass:
 "fast_output_unavailable"`, whose message names the reason; it is never run at
-standard speed. A fast turn during which the runtime served any response at
+standard speed. The upstream is qualified as the runtime will actually use it:
+an inherited, project, managed or flag setting that selects another base URL
+or a cloud provider, on a direct or a relayed turn, refuses the session
+(`not_first_party`). A fast turn during which the runtime served any response at
 standard speed (a usage report of `standard`, or a final fast-mode state other
 than `on`, such as `cooldown` after a rate limit) ends with an error result
 carrying that class instead of a plain success; its output and usage are
