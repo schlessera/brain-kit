@@ -6,8 +6,12 @@ interface SocketLeaseOptions {
   disposed: () => boolean;
   /** The account is unlocked: only then may a frame reach the page. */
   active: () => boolean;
-  /** Counted before each new socket is opened. */
-  noteSocketOpen: () => void;
+  /**
+   * Called for each new socket before it connects, to reset what belonged to
+   * the previous one. Creating a socket is not an open: the open is counted
+   * when the socket reports `connected` (#4755).
+   */
+  noteSocketCreated: () => void;
   onMessage: (message: ServerMessage) => void;
   onStatusChange: (status: ConnectionStatus) => void;
   onClose: (close: WebSocketClose) => void;
@@ -32,7 +36,7 @@ export function createSocketLease(options: SocketLeaseOptions) {
   function open(): void {
     const connectedGeneration = ++generation;
     const current = () => !options.disposed() && connectedGeneration === generation;
-    options.noteSocketOpen();
+    options.noteSocketCreated();
     const client = createClient({
       url: options.url(),
       handlers: { onAny: (message) => { if (current() && options.active()) options.onMessage(message); } },
