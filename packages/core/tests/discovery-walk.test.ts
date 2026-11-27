@@ -8,6 +8,7 @@ import { buildTaxonomy } from "../src/lib/taxonomy.js";
 import { discoveryFiles } from "../src/lib/discovery-walk.js";
 import { getMarkdownFiles, getAssetFiles } from "../src/lib/indexer/scan.js";
 import { ASSET_EXTENSIONS } from "../src/lib/types.js";
+import { git } from "./git-fixture";
 // Frozen old Git oracle, independent of the production matcher.
 function previousIgnored(root: string) {
   const result = Bun.spawnSync(["git", "-C", root, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], {stdout:"pipe",stderr:"pipe"});
@@ -85,10 +86,9 @@ test("extensionless asset names keep the former literal-dot requirement",()=>{
 
 test("ignore pruning preserves force-tracked assets below an ignored directory",()=>{
  const root=mkdtempSync(join(tmpdir(),"odysseus-tracked-assets-"));
- const git=(...args:string[])=>{const result=Bun.spawnSync(["git","-C",root,...args],{stdout:"pipe",stderr:"pipe"});expect(result.exitCode,result.stderr.toString()).toBe(0);};
  try{
- git("init","-q");mkdirSync(join(root,"assets"));writeFileSync(join(root,"assets/ithaca.jpg"),"Ithaca");writeFileSync(join(root,"assets/untracked.jpg"),"Athena");
- writeFileSync(join(root,".gitignore"),"assets/\n");git("add","-f","assets/ithaca.jpg");
+ git(root,"init","-q");mkdirSync(join(root,"assets"));writeFileSync(join(root,"assets/ithaca.jpg"),"Ithaca");writeFileSync(join(root,"assets/untracked.jpg"),"Athena");
+ writeFileSync(join(root,".gitignore"),"assets/\n");git(root,"add","-f","assets/ithaca.jpg");
  expect(getAssetFiles(root,buildTaxonomy({})).map(asset=>asset.path),"IGNORE_PRUNING_RETAINS_TRACKED_DESCENDANTS").toEqual(["assets/ithaca.jpg"]);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
@@ -145,9 +145,8 @@ test("Git directory pruning also holds when discovery starts below its worktree 
 
 test("Git ignorecase does not case-fold taxonomy directory exclusions",()=>{
  const root=mkdtempSync(join(tmpdir(),"odysseus-ignorecase-taxonomy-"));
- const git=(...args:string[])=>{const result=Bun.spawnSync(["git","-C",root,...args],{stdout:"pipe",stderr:"pipe"});expect(result.exitCode,result.stderr.toString()).toBe(0);};
  try {
-  git("init","-q");git("config","core.ignorecase","true");
+  git(root,"init","-q");git(root,"config","core.ignorecase","true");
   for(const path of ["Drafts/chart.jpg","drafts/hidden.jpg","athena.png"]){mkdirSync(join(root,path,".."),{recursive:true});writeFileSync(join(root,path),"");}
   writeFileSync(join(root,".gitignore"),"*.PNG\n");const taxonomy=buildTaxonomy({user:{exclude:{dirs:["drafts"]}}} as never);
   expect(taxonomy.isExcludedPath("Drafts/chart.jpg")).toBe(false);

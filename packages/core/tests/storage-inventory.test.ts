@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { git } from "./git-fixture";
 
 const roots: string[] = [];
 const fixture = () => { const root = mkdtempSync(join(tmpdir(), "odysseus-storage-")); roots.push(root); return root; };
@@ -43,11 +44,6 @@ test("inventory counts hidden attachments and hard-link entries separately from 
 const publishPid = (pidPath: string) => `const fs=require("node:fs");fs.writeFileSync(${JSON.stringify(pidPath + ".tmp")},String(process.pid));fs.renameSync(${JSON.stringify(pidPath + ".tmp")},${JSON.stringify(pidPath)});`;
 const collectorPath = resolve(import.meta.dir, "../src/lib/storage-inventory.ts");
 const { collectStorageInventory } = await import(collectorPath);
-function git(root: string, ...args: string[]) {
-  const child = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
-  expect(child.exitCode, child.stderr.toString()).toBe(0);
-  return child.stdout.toString().trim();
-}
 test("resolves real linked worktrees and approved alternates without counting shared stores twice", async () => {
   const root = fixture(), worktree = join(root, "worktree"), repo = join(root, "repo"), alternate = join(root, "alternate");
   mkdirSync(repo); mkdirSync(alternate);
