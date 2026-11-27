@@ -8,7 +8,7 @@ import {
 } from "../src/components/chat/renderers/index.js";
 
 // Rendering the bound component needs a DOM, and this repo keeps every render
-// test in tests/render/render-smoke.test.tsx (see tests/render/dom.ts for why).
+// test under tests/render/, here tests/render/smoke-chat-renderers.test.tsx (see tests/render/dom.ts for why).
 // What is asserted here is resolution and the payload-reading accessors, which
 // are pure.
 

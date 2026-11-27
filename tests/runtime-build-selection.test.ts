@@ -8,13 +8,14 @@ const root = resolve(import.meta.dir, "..");
 
 test("every runtime package hook has one inventoried actual forward closure and no boolean bypass", async () => {
   const directory = join(root, "packages/ui-react/tests");
-  const hooks = readdirSync(directory).filter(name => name.endsWith(".test.ts") && readFileSync(join(directory, name), "utf8").includes("runtimePackageBuild("));
+  // A hook builds directly, or through the shared runtime host, which passes its `packages` to runtimePackageBuild (#4841).
+  const hooks = readdirSync(directory).filter(name => name.endsWith(".test.ts") && /runtimePackageBuild\(|startRuntimeHost\(/.test(readFileSync(join(directory, name), "utf8")));
   expect(hooks).toHaveLength(25);
   expect(hooks.map(name => `packages/ui-react/tests/${name}`).sort()).toEqual(Object.keys(runtimeBuildInventory).sort());
   for (const file of hooks) {
     const text = readFileSync(join(directory, file), "utf8");
     expect(text).not.toMatch(/BRAIN_(?:JOURNAL|ARTIFACT)_DEPENDENCIES_BUILT|BRAIN_AUTH_FIXTURE_BUILT|scripts\/build\.ts/);
-    const match = /runtimePackageBuild\([^\n]*?, (\[[^\]]+\])/.exec(text);
+    const match = /runtimePackageBuild\([^\n]*?, (\[[^\]]+\])/.exec(text) ?? /startRuntimeHost\(\{[^\n]*?\bpackages: (\[[^\]]+\])/.exec(text);
     expect(match, file).not.toBeNull();
     const packages = JSON.parse(match![1]!);
     expect(packages, file).toEqual(runtimeBuildInventory[`packages/ui-react/tests/${file}`]);
