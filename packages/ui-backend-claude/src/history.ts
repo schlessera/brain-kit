@@ -1,4 +1,5 @@
 import { claudePromptContext } from "./prompt-context.js";
+import { textOfParts } from "@schlessera/brain-ui-sdk/server";
 import { sessionReplay, stripHostContextFromTitle } from "@schlessera/brain-ui-sdk/internal";
 import { dirname } from "node:path";
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
@@ -128,11 +129,9 @@ export async function buildSessionHistory(
     if (!Array.isArray(content)) continue;
     for (const block of content as any[]) {
       if (block.type === "tool_result" && block.tool_use_id) {
+        // Replay joins the blocks as the live stream did (stream-adapter.ts).
         const output = Array.isArray(block.content)
-          ? block.content
-              .filter((c: any) => c.type === "text")
-              .map((c: any) => c.text)
-              .join("")
+          ? textOfParts(block.content, "\n")
           : typeof block.content === "string"
             ? block.content
             : "";
@@ -157,10 +156,7 @@ export async function buildSessionHistory(
       // appear prepended to a prompt after consecutive-user folding below.
       if (taskNotices.get(entry.uuid) === JSON.stringify(entry.message)) continue;
       const wire = Array.isArray(content)
-        ? content
-            .filter((b: any) => b.type === "text")
-            .map((b: any) => b.text)
-            .join("")
+        ? textOfParts(content, "")
         : typeof content === "string"
           ? content
           : "";

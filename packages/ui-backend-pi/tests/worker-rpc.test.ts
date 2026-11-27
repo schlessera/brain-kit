@@ -17,6 +17,8 @@ import { createPiWorkerRpcDispatcher, PI_WORKER_RPC_HANDLERS, type PiWorkerRpc, 
 import type { CallExecution } from "../src/worker-session";
 import type { PiApplicationReceipt } from "../src/worker-receipts";
 import { makeMockBridge } from "./mock-bridge";
+import { staleAfterTicket } from "./stale-admission";
+import { rememberPiAdmission } from "../src/tool-admission";
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "pi-worker-rpc-")); });
@@ -248,6 +250,26 @@ test("an allow the collector's last check refuses is denied, and its grant never
   expect(answer, "PI_UNCHECKED_ALLOW_IS_DENIED").toMatchObject({ behavior: "deny", message: expect.stringContaining("does not run") });
   expect(context.grants.has("call-refused"), "PI_UNCHECKED_ALLOW_LEAVES_NO_GRANT").toBe(false);
   expect(refused, "PI_UNCHECKED_ALLOW_IS_REFUSED").toEqual([["call-refused", true]]);
+});
+
+test("a permission whose safety goes stale during the wait after its dispatch ticket is denied and leaves no grant", async () => {
+  // The final admission validates again after the last pending wait (#4767).
+  const { admissionSafety, inputSafety, log } = staleAfterTicket();
+  const { context, dispatch } = harness({}, { admissionSafety, inputSafety });
+  const answer = await dispatch(rpc("permission", "read_file", { path: "notes/ithaca.md" }, "call-stale"));
+  expect(answer, "PI_PERMIT_STALE_AFTER_WAIT_IS_DENIED").toMatchObject({ behavior: "deny", message: expect.stringContaining("Safety or authority changed") });
+  expect(context.grants.has("call-stale"), "PI_PERMIT_STALE_AFTER_WAIT_LEAVES_NO_GRANT").toBe(false);
+  expect(log, "PI_PERMIT_STALE_AFTER_WAIT_IS_REFUSED").toEqual(["prepare call-stale", "stale", "cancel", "refused call-stale true"]);
+});
+
+test("a final bash admission whose safety goes stale during the wait after its dispatch ticket is refused", async () => {
+  const { admissionSafety, inputSafety, log } = staleAfterTicket();
+  const { context, dispatch } = harness({}, { admissionSafety, inputSafety });
+  const input = { command: "ls notes" };
+  context.grants.set("call-stale", { name: "bash", input: JSON.stringify(input) });
+  rememberPiAdmission(context.turn, "bash", "call-stale", input, admissionSafety.read(), false, admissionSafety);
+  await expect(dispatch(rpc("admission", "bash", input, "call-stale")), "PI_ADMISSION_STALE_AFTER_WAIT_REJECTS").rejects.toThrow("Safety or authority changed");
+  expect(log, "PI_ADMISSION_STALE_AFTER_WAIT_IS_REFUSED").toEqual(["prepare call-stale", "stale", "cancel", "refused call-stale true"]);
 });
 
 test.each([true,false])("post-failure remedies use the resolved Pi sandbox (host supplied=%s)", async supplied => {

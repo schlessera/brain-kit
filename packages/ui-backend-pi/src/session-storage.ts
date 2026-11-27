@@ -2,7 +2,7 @@ import { constants, closeSync, existsSync, fstatSync, ftruncateSync, mkdirSync, 
 import { homedir } from "node:os";
 import { join, resolve, relative, sep } from "node:path";
 import { createHash } from "node:crypto";
-import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { BackendRequestError, isSessionUuid } from "@schlessera/brain-ui-sdk/server";
 import type { SessionHistoryRemovalOutcome } from "@schlessera/brain-ui-sdk/server";
 import { combineRemovalOutcomes, nativeObservationIdentity, ownedNames, removeMetadataFile, removeOwnedArtifact, sessionPromptContextLocation, sessionReplayLocation } from "@schlessera/brain-ui-sdk/internal";
 
@@ -32,7 +32,7 @@ function inside(root: string, path: string): boolean { return path === root || p
 
 /** Fixed server-minted UUID paths, O_NOFOLLOW, and no shared-inode writes. Returns the bytes written. */
 export function savePiSession(dir: string, sessionId: string, entries: unknown[]): number {
-  if (!/^[a-f0-9-]{36}$/.test(sessionId)) throw new Error("Invalid server session identity");
+  if (!isSessionUuid(sessionId)) throw new Error("Invalid server session identity");
   const path = join(dir, `${sessionId}.jsonl`);
   const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
   try {
@@ -55,7 +55,7 @@ export function savePiSession(dir: string, sessionId: string, entries: unknown[]
  * append is truncated back, so no partial line is left for a resume to refuse.
  */
 export function appendPiSession(dir: string, sessionId: string, savedBytes: number, entries: readonly unknown[]): number | undefined {
-  if (!/^[a-f0-9-]{36}$/.test(sessionId)) throw new Error("Invalid server session identity");
+  if (!isSessionUuid(sessionId)) throw new Error("Invalid server session identity");
   const fd = openSync(join(dir, `${sessionId}.jsonl`), constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
   try {
     const stat = fstatSync(fd);
@@ -100,7 +100,7 @@ export function syncPiAuth(dir: string, original: string | undefined, content: s
 }
 
 /** Server-minted Pi session identities, the only ones a removal or tombstone names. */
-export const isPiSessionId = (id: string) => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id);
+export const isPiSessionId: (id: string) => boolean = isSessionUuid;
 /** Content-free tombstones of explicitly retired sessions (#3229); permanent. */
 export const piRetiredDirectory = (sessionDir: string) => join(sessionDir, "retired");
 

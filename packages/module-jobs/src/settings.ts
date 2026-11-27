@@ -1,11 +1,19 @@
 import { readFileSync } from "fs";
 import { z } from "zod";
-import { isMap, isNode, isScalar, parseDocument, type YAMLMap } from "yaml";
+import { createRequire } from "node:module";
+import type { YAMLMap } from "yaml";
 import { type ModuleSettings, type ModuleSettingsField, type ModuleSettingsMigrationPlan } from "@schlessera/brain";
 import { safeResolve } from "@schlessera/brain/module";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { parseScoringConfig, scoreMaxes } from "./score.js";
-import { getAdapterOptions } from "./scrape.js";
+import { getAdapterOptions } from "./boards.js";
+
+// The source-span parser serves only the one-time scoring migration. The
+// manifest builds these settings in every brain process, and
+// `ModuleSettings.migration.plan` is synchronous, so `yaml` loads on the
+// migration's first call through `require` rather than at import.
+let yamlModule: typeof import("yaml") | undefined;
+const loadYaml = (): typeof import("yaml") => yamlModule ??= createRequire(import.meta.url)("yaml") as typeof import("yaml");
 
 // Preserve parser input, including numeric coercion, odd match values, both
 // forms and unknown keys. The engine remains the final validator; no defaults
@@ -84,6 +92,7 @@ export function jobsSettings<C extends { criteria: string; scoring?: unknown }>(
 const MOVED_KEYS = new Set(["groups", "location", "excludeTitles", "compensationBenchmark", "compensationWeight", "queueThreshold", "dismissThreshold"]);
 
 function removalRanges(map: YAMLMap, keys: Set<string>, yaml: string): Array<[number, number]> {
+  const { isNode, isScalar } = loadYaml();
   const ranges: Array<[number, number]> = [];
   let kept = false;
   for (let i = 0; i < map.items.length; i++) {
@@ -136,6 +145,7 @@ export function planScoringMigration(root: string, config: { criteria: string; s
   if (!yaml || offset < 0) throw new Error("Cannot locate frontmatter source; no changes made");
   // gray-matter leaves the closing line's CR in its block. Complete that
   // newline for the source-span parser without changing existing offsets.
+  const { isMap, isScalar, parseDocument } = loadYaml();
   const document = parseDocument(yaml.endsWith("\r") ? yaml + "\n" : yaml, { version: "1.1", keepSourceTokens: true });
   if (document.errors.length || !isMap(document.contents)) throw new Error("Cannot identify scoring source ranges; no changes made");
   const pair = document.contents.items.find((p) => isScalar(p.key) && p.key.value === "scoring");
