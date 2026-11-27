@@ -2,8 +2,9 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import type { InboxActionItem, InboxOperation, InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
-import { hygieneReviewStateSchema, inboxOptionSchema, validateResolutionEffect } from "@schlessera/brain-ui-sdk/schemas";
+import { hygieneReviewStateSchema, inboxItemSchema, inboxOptionSchema, validateResolutionEffect } from "@schlessera/brain-ui-sdk/schemas";
 import { createInboxStore } from "./store.js";
+import { inboxPriority } from "./state.js";
 import { inboxThreadAwaitingSettlement } from "./lifetime.js";
 import { recordInboxProvenance, type InboxProvenance } from "./provenance.js";
 
@@ -116,12 +117,17 @@ export function retireInboxAction(db: Database, action: InboxActionItem, status:
  * and no orphan: the loser, its blocks and compensation commit together. */
 export function enforceInboxActionCap(db: Database, cap = INBOX_ACTION_CAP, now = Date.now()): void {
   if (!Number.isSafeInteger(cap) || cap < 1) throw new Error("Invalid Actions cap");
-  const store = createInboxStore(db, { now: () => now });
-  for (const { item } of store.orderedItems()) {
-    if (item.queue === "actions" && item.type !== "fyi" && ["pending", "snoozed"].includes(item.status) && item.expiresAt <= now)
-      retireInboxAction(db, item, "expired", now);
+  // Only open decisions count, with their threads' priority, in `orderedItems()` order.
+  const open = () => (db.query(`SELECT i.data_json, t.stakes, t.deadline FROM inbox_items i JOIN inbox_threads t ON t.id = i.thread_id
+    WHERE i.deleted_at IS NULL AND i.queue = 'actions' AND i.type != 'fyi' AND i.status IN ('pending', 'snoozed')`)
+    .all() as { data_json: string; stakes: number; deadline: number | null }[]).map(row => {
+    const item = inboxItemSchema.parse(JSON.parse(row.data_json)) as InboxActionItem;
+    return { item, priority: inboxPriority(row.stakes, row.deadline ?? undefined, item.createdAt, 0, now) };
+  }).sort((a, b) => b.priority - a.priority || a.item.createdAt - b.item.createdAt || (a.item.id < b.item.id ? -1 : a.item.id > b.item.id ? 1 : 0));
+  for (const { item } of open()) {
+    if (item.expiresAt <= now) retireInboxAction(db, item, "expired", now);
   }
-  const candidates = store.orderedItems().filter(({ item }) => item.queue === "actions" && item.type !== "fyi" && ["pending", "snoozed"].includes(item.status))
+  const candidates = open()
     .sort((a, b) => a.priority - b.priority || a.item.createdAt - b.item.createdAt || (a.item.id < b.item.id ? -1 : a.item.id > b.item.id ? 1 : 0));
   for (const { item } of candidates.slice(0, Math.max(0, candidates.length - cap)))
     retireInboxAction(db, item as InboxActionItem, "dropped", now);
@@ -168,12 +174,33 @@ export function failInboxWork(db: Database, itemId: string, expectedVersion: num
   }).immediate();
 }
 
+const LIVE_WORK = "deleted_at IS NULL AND queue = 'queue' AND type != 'cleanup_pending'";
+/**
+ * The live items a sweep can act on (#4804), in id order, each through
+ * `inbox_items_ready`: open Actions past their expiry or snooze, work past
+ * its retention or schedule, failed work out of attempts, and finished work
+ * in a thread with a triage item that has no cleanup item yet. A cleanup is
+ * matched by staging id in its own thread; one held elsewhere only makes the
+ * thread a candidate, and `enqueueInboxCleanup` still skips it.
+ */
+const SWEEP_CANDIDATES = `SELECT id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'actions' AND status IN ('pending', 'snoozed') AND expires_at <= ?1
+  UNION SELECT id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'actions' AND status = 'snoozed' AND wait_until <= ?1
+  UNION SELECT id FROM inbox_items WHERE ${LIVE_WORK} AND status IN ('blocked', 'ready', 'scheduled', 'failed') AND expires_at <= ?1
+  UNION SELECT id FROM inbox_items WHERE ${LIVE_WORK} AND status = 'scheduled' AND (wait_until IS NULL OR wait_until <= ?1)
+  UNION SELECT id FROM inbox_items WHERE ${LIVE_WORK} AND status = 'failed' AND attempts >= max_attempts
+  UNION SELECT id FROM inbox_items i WHERE ${LIVE_WORK} AND status IN ('done', 'superseded', 'expired', 'dropped') AND EXISTS (
+    SELECT 1 FROM inbox_items t WHERE t.thread_id = i.thread_id AND t.queue = 'queue' AND t.type = 'triage' AND NOT EXISTS (
+      SELECT 1 FROM inbox_items c WHERE c.thread_id = t.thread_id AND c.type = 'cleanup_pending'
+        AND json_extract(c.data_json, '$.payload.stagingId') = json_extract(t.data_json, '$.payload.stagingId')))
+  ORDER BY 1`;
+
 /** Deterministic maintenance, callable at boot/tick without any backend. */
 export function sweepInboxLifecycle(db: Database, now = Date.now(), cap?: number): void {
   db.transaction(() => {
-    const store = createInboxStore(db, { now: () => now });
-    for (const entry of store.snapshot().items) {
-      const item = store.getItem(entry.id)!;
+    const store = createInboxStore(db, { now: () => now }), cleaned = new Set<string>();
+    // Taken once, like the snapshot it replaces: items this sweep creates are not visited.
+    for (const { id } of db.query(SWEEP_CANDIDATES).all(now) as { id: string }[]) {
+      const item = store.getItem(id)!;
       if (item.queue === "actions" && ["pending", "snoozed"].includes(item.status)) {
         if (item.expiresAt <= now) retireInboxAction(db, item, "expired", now);
         else if (!item.hygiene && item.status === "snoozed" && item.waitUntil !== undefined && item.waitUntil <= now)
@@ -196,7 +223,11 @@ export function sweepInboxLifecycle(db: Database, now = Date.now(), cap?: number
         } else if (item.status === "scheduled" && (item.waitUntil ?? 0) <= now)
           store.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "ready", waitUntil: null }]);
         else if (item.status === "failed" && item.attempts >= item.maxAttempts) deadLetter(db, item, now, cap);
-        else if (["done", "superseded", "expired", "dropped"].includes(item.status)) enqueueInboxCleanup(db, item.threadId, now);
+        else if (["done", "superseded", "expired", "dropped"].includes(item.status) && !cleaned.has(item.threadId)) {
+          // Once per thread: a later transition that settles the thread enqueues its own cleanup.
+          cleaned.add(item.threadId);
+          enqueueInboxCleanup(db, item.threadId, now);
+        }
       }
     }
     enforceInboxActionCap(db, cap, now);

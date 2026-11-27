@@ -297,6 +297,10 @@ export function createDraftStore(
   const selectAttachments = db.prepare(
     "SELECT attachment_id, mime, name, bytes, size_bytes, attached FROM session_draft_attachments WHERE draft_id = ?"
   );
+  /** What a save needs, from the covering index: never the image BLOBs. */
+  const selectAttachmentSizes = db.prepare(
+    "SELECT attachment_id, size_bytes, attached FROM session_draft_attachments WHERE draft_id = ?"
+  );
 
   /** A draft bound to a deleted chat (#3230) is never read, extended or rebound. */
   const retired = (sessionId: string | null | undefined) => !!sessionId && isRetired(db, "session", sessionId);
@@ -614,7 +618,7 @@ export function createDraftStore(
           throw new DraftError(413, { error: "DRAFT_TOO_LARGE", message: "Too many images.", limit: MAX_IMAGES_PER_MESSAGE, bound: "imageCount" });
         }
         const stored = new Map(
-          (selectAttachments.all(draftId) as AttachmentRow[]).map((a) => [a.attachment_id, a])
+          (selectAttachmentSizes.all(draftId) as Pick<AttachmentRow, "attachment_id" | "size_bytes" | "attached">[]).map((a) => [a.attachment_id, a])
         );
         let imageBytes = 0;
         for (const id of input.attachmentIds) {
