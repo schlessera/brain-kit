@@ -1,7 +1,8 @@
 /** Composer mutations share one FIFO channel; reads stay on the app connection. */
 import type { Database } from "bun:sqlite";
 import { procedureCaller, type SqliteWriter, type WireError } from "../db/write-worker.js";
-import { createDraftStore, DraftAuthError, DraftError, type AwaitableDraftStore, type DraftStore, type DraftStoreOptions, type DraftWrite } from "./store.js";
+import { DraftAuthError, DraftError } from "./errors.js";
+import { createDraftStore, type AwaitableDraftStore, type DraftStore, type DraftStoreOptions, type DraftWrite } from "./store.js";
 
 export const url = import.meta.url;
 export function setup(db: Database, options: { limits?: DraftStoreOptions["limits"]; attachmentPoolBytes?: number }) {

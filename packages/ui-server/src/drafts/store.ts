@@ -25,14 +25,12 @@ import {
   type SessionDraftLimits,
 } from "@schlessera/brain-ui-sdk/protocol";
 
-import { createDraftWrites } from "./writes.js";
 import { DraftAuthError, DraftError, invalid } from "./errors.js";
 import { legacyOutgoing, nextSnapshots, snapshotFiles } from "./snapshot-list.js";
 import {
   addRef, draftEnvelope, draftReferencedBytes, FILE_ID, forgetDeleted, hasAnyRef, insertAttachment, insertAttachmentRead, listAttachmentReads, markForDeletion,
   poolCharged, readAttachment, readAttachments, setRefs, toAttachmentFile, type NewAttachment,
 } from "../attachments/store.js";
-import type { SqliteWriter } from "../db/write-worker.js";
 
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { isRetired } from "../ws/chat-lifecycle.js";
@@ -255,14 +253,7 @@ export interface DraftStoreOptions {
   attachmentPoolBytes?: number;
 }
 
-export function createDraftStore(db: Database, options?: DraftStoreOptions): DraftStore;
-export function createDraftStore(db: Database, options: DraftStoreOptions, writer: SqliteWriter): AwaitableDraftStore;
-export function createDraftStore(
-  db: Database,
-  options: DraftStoreOptions = {},
-  writer?: SqliteWriter
-): AwaitableDraftStore {
-  if (writer) return createDraftWrites(db, options, writer);
+export function createDraftStore(db: Database, options: DraftStoreOptions = {}): DraftStore {
   const now = options.now ?? Date.now;
   const limits: Readonly<SessionDraftLimits> = Object.freeze({ ...SESSION_DRAFT_LIMITS, ...options.limits });
   const poolBytes = options.attachmentPoolBytes ?? ATTACHMENT_POOL_DEFAULT_BYTES;
