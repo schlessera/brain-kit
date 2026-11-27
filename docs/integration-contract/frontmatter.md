@@ -145,7 +145,7 @@ Prefer the CLI/MCP. If reading directly:
   regenerates all of it. A root-level `brain.db` is a stale copy from an
   earlier release that nothing updates.
 
-- Check `index_metadata` first: `schema_version` (currently **15**),
+- Check `index_metadata` first: `schema_version` (currently **16**),
   `embedding_model`, `embedding_dimensions`, `vec_schema`, and `fts_tokenizer`
   (additive in 0.38.0): the FTS5 tokenizer `documents_fts` was built with,
   `porter unicode61` for `search.language: english` (the default) or
@@ -189,6 +189,10 @@ Prefer the CLI/MCP. If reading directly:
   frontmatter as written when it is a non-empty string, else `NULL`. A reader
   that accepts 14 reads 15 unchanged. Its migration clears the markdown rows'
   `content_hash`, as schema 11's did, so the next index run fills it.
+  Schema 16 (0.45.0) adds only an index on `documents(indexed_at)`, built
+  from the rows already there; no table or column changed from 15, so a
+  reader that accepts 15 reads 16 unchanged and an upgraded brain needs no
+  reindex.
 - Semi-stable tables: `documents` (path, title, type, status, relevance,
   content, deadline, next_review, …), `chunks`, `tags`/`document_tags`,
   `links`, and the derived graph tables `graph_metrics` (document_id,
