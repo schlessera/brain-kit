@@ -760,7 +760,9 @@ and handoff selection. The proof rests on the backend's denial of the sole,
 never-allowed admission, not on the host's result obligation: a fetch whose
 input committed while its obligation insert failed is settled the same way
 when that denial follows. A reused ID, a refusal that is not the backend's own
-denial, or output arriving after the denial keeps the chat restricted.
+denial, or a result under the ID keeps the chat restricted. A result recorded
+or lost under that ID, even after the turn ended, makes the attempt's inputs
+`interrupted_unknown` again.
 Delivery uncertainty and earlier records without proof
 remain restricted. On the session safety history route, `nonDelivery=1`
 requests the terminal exposure state `not_delivered`. Without this option

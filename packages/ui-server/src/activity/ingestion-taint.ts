@@ -201,30 +201,39 @@ const grepOutput = z.object({ mode: z.enum(['content','files_with_matches','coun
 /** Host-owned evidence whether a search candidate names an existing file:
  * `undefined` whenever the host cannot tell. */
 export type ExistingFileLookup = (path: string) => boolean | undefined;
-/** Resolves candidates as the brain-relative paths the worker reports, in
- * the view the worker searched: a strict worker's read-only checkpoint
- * mounted at the brain path (`view`), else the brain itself. A path outside
- * the brain (a worker view the host cannot name), below a mask, or through
- * a symlink is unknown: its target is not proven to be what the worker saw. */
-export function brainFileLookup(brainPath: string | undefined, view?: { root: string; masked: readonly string[] }): ExistingFileLookup {
+/** The search view the host built for a worker: its root (a strict
+ * worker's checkpoint, else the brain) and the paths masked from it. */
+export interface SearchView { root: string; masked: readonly string[] }
+/** What a worker-reported path names in `view`: `undefined` whenever the
+ * host cannot tell. Only a normal-form brain-relative path is resolved, one
+ * component at a time, and any symlink, mask or path outside the brain is
+ * unknown: its target is not proven to be what the worker saw. */
+export function searchViewEntry(brainPath: string | undefined, view: SearchView | undefined, path: string): "file" | "directory" | "absent" | undefined {
+  if (!brainPath || !view || !path || path.includes("\0") || Buffer.byteLength(path) > 1024) return undefined;
+  if (posix.normalize(path) !== path || path.split("/").some(part => part === "." || part === "..")) return undefined;
+  const relative = brainRelative(path, brainPath);
+  if (relative === null) return undefined;
+  if (view.masked.some(mask => isWithin(posix.resolve(brainPath, mask), posix.join(brainPath, relative), { includeRoot: true }))) return undefined;
+  let current: string;
+  try { current = realpathSync(view.root); } catch { return undefined; }
+  const parts = relative.split("/");
+  for (const [index, part] of parts.entries()) {
+    current = posix.join(current, part);
+    let entry: ReturnType<typeof lstatSync>;
+    try { entry = lstatSync(current); }
+    catch (error) { const code = (error as { code?: string }).code; return code === "ENOENT" || code === "ENOTDIR" ? "absent" : undefined; }
+    if (entry.isSymbolicLink()) return undefined;
+    if (index === parts.length - 1) return entry.isFile() ? "file" : entry.isDirectory() ? "directory" : undefined;
+    if (!entry.isDirectory()) return "absent";
+  }
+  return undefined;
+}
+/** Search candidates against the worker's view: an existing file, provably
+ * not one, or unknown. */
+export function brainFileLookup(brainPath: string | undefined, view: SearchView | undefined): ExistingFileLookup {
   return path => {
-    if (!brainPath || !path || path.includes("\0") || Buffer.byteLength(path) > 1024) return undefined;
-    const relative = brainRelative(posix.normalize(path), brainPath);
-    if (relative === null) return undefined;
-    if (view?.masked.some(mask => isWithin(posix.resolve(brainPath, mask), posix.join(brainPath, relative), { includeRoot: true }))) return undefined;
-    let current: string;
-    try { current = realpathSync(view?.root ?? brainPath); } catch { return undefined; }
-    const parts = relative.split("/");
-    for (const [index, part] of parts.entries()) {
-      current = posix.join(current, part);
-      let entry: ReturnType<typeof lstatSync>;
-      try { entry = lstatSync(current); }
-      catch (error) { const code = (error as { code?: string }).code; return code === "ENOENT" || code === "ENOTDIR" ? false : undefined; }
-      if (entry.isSymbolicLink()) return undefined;
-      if (index === parts.length - 1) return entry.isFile();
-      if (!entry.isDirectory()) return false;
-    }
-    return undefined;
+    const entry = searchViewEntry(brainPath, view, path);
+    return entry === undefined ? undefined : entry === "file";
   };
 }
 function soleExisting(candidates: readonly string[], existing: ExistingFileLookup | undefined): boolean {

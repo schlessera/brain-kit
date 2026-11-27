@@ -141,8 +141,10 @@ running under the tainted policy, not refusing.
   in one transaction. When the fetch input committed but its obligation
   insert failed, the same denial still proves non-delivery and appends that
   fact with no obligation to discharge (#4514). The attempts remain in history, contribute zero
-  unresolved inputs, and receive no owner verdict. A later result supersedes
-  that fact. A proxy refusal, interrupted connection, timeout, error message
+  unresolved inputs, and receive no owner verdict. Any result under the ID,
+  recorded or lost, supersedes that fact durably: the store marks those inputs
+  `interrupted_unknown`, also when it arrives during the denial's own write or
+  after the turn ended, and a non-delivery fact that would follow it is refused. A proxy refusal, interrupted connection, timeout, error message
   or missing result alone cannot prove whether the fetch delivered input.
   Independent proxy observations retain their own disposition.
 - **Evidence store unwritable** (the chat fact cannot commit): the brain

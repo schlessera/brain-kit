@@ -8,7 +8,7 @@
  */
 import { retainSafetyLoss, safetyQueue, notifySafetyChanged } from "./safety-queue.js";
 import { prepareSafetyReview, commitSafetyReview, type SafetyReviewBody, type SafetyReviewer, type SafetyReviewReceipt } from "./safety-reviews.js";
-import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite, openSafetyObligation, dischargeSafetyObligation,
+import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite, openSafetyObligation, dischargeSafetyObligation, contradictSafetyNonDelivery,
   ensureSafetyEventCollection, recordSafetyFailure, recoverSafetyRecording, migrateSafetyHistory, logSafetyRecording, safetyRecordingStatus,
   SafetyCapacityExhausted, SafetyRecordingUnavailable, SafetyUnavailable, safetyScopeTurns, type SafetyCollectionInput, type SafetyProjection,
   type SafetyFailureSite, type SafetyRecovery, type SafetyRecordingStatus } from "./safety-store.js";
@@ -45,6 +45,7 @@ export function setup(db: Database): WriteProcedures {
     safetyReady: (turnId:string,backendId:string,version:number) => acknowledgeSafety(db,turnId,backendId,version),
     safetyOblige: (turnId:string,id:string,toolUseId:string,tool:string) => openSafetyObligation(db,turnId,id,toolUseId,tool),
     safetyDischarge: (turnId:string,id:string,neverDelivered?:readonly string[]) => dischargeSafetyObligation(db,turnId,id,neverDelivered),
+    safetyContradict: (turnId:string,id:string) => contradictSafetyNonDelivery(db,turnId,id),
     safetyEnd: (turnId:string,loss=false) => {
       // Never seal an apparently complete epoch if its loss notice rolled
       // back. A failed retry leaves it open for restart classification.
@@ -98,6 +99,10 @@ export interface GovernanceWrites {
    * the only admission under its id, never allowed, proves it never ran. A
    * failure leaves the obligation, and so the gap. */
   safetyDischarge(turnId:string,obligationId:string,neverDelivered?:readonly string[]):Promise<void>;
+  /** A result under the operation's ID arrived or was lost: its fetch
+   * inputs still open or proved never delivered become unknown, even after
+   * the collection ended (#4514). */
+  safetyContradict(turnId:string,operationId:string):Promise<void>;
   /** Ends the turn's collection once its result records under way settle. */
   safetyEnd(turnId:string):Promise<void>;
   /** Marks the turn's chat failed (`cause` is error text only); the brain only when that cannot commit. */
@@ -281,6 +286,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       }
     },
     safetyDischarge: (turnId,obligationId,neverDelivered)=>call("safetyDischarge",turnId,obligationId,neverDelivered),
+    safetyContradict: (turnId,operationId)=>call("safetyContradict",turnId,operationId),
     async safetyEnd(turnId){
       // A tool result's record already under way finishes first: stopping a
       // turn refuses new tools, never the record of one that ran (#3812).

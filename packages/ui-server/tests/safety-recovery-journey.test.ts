@@ -364,8 +364,8 @@ test("pre-execution fetch denial retains the audited attempt without a verdict o
 /** The fetch occurrence commits, the obligation insert then fails at the
  * storage layer, storage recovers, and the backend denies the sole admission
  * (#4514). The refusal still proves the fetch never ran. */
-async function partialFetchWrite(f: Fixture, id: string) {
-  const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+async function partialFetchWrite(f: Fixture, id: string, writes: Fixture["writes"] = f.writes) {
+  const collector = createSafetyCollector(f.db, writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
     sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
   f.db.run("CREATE TRIGGER sirens_jam_the_ledger BEFORE INSERT ON safety_obligations BEGIN SELECT RAISE(ABORT,'disk I/O error'); END");
   collector.admitting?.(id, "WebFetch");
@@ -425,6 +425,42 @@ test("a partial fetch write stays unresolved when its refusal cannot prove non-d
   }
 });
 
+/** A lost result contradicts any denial that proved the fetch never ran,
+ * whenever it arrives: during the denial's own discharge, after it, or after
+ * the turn ended (#4514). Fetch whose obligation failed, and one whose
+ * obligation is durable. */
+for (const write of ["partial", "durable"] as const) for (const timing of ["during the discharge", "after the denial", "after the turn ended"] as const)
+  test(`a lost result ${timing} keeps a ${write} denied fetch unresolved after restart`, async () => {
+    const f = await safetyHistoryFixture();
+    try {
+      let enter!: () => void, release!: () => void;
+      const entered = new Promise<void>(resolve => { enter = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });
+      const writes = { ...f.writes, safetyDischarge: async (...args: Parameters<Fixture["writes"]["safetyDischarge"]>) => {
+        if (timing === "during the discharge") { enter(); await gate; }
+        return f.writes.safetyDischarge(...args);
+      } };
+      let collector: Awaited<ReturnType<typeof partialFetchWrite>>;
+      if (write === "partial") collector = await partialFetchWrite(f, "fetch", writes);
+      else {
+        collector = createSafetyCollector(f.db, writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+          sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+        collector.admitting?.("fetch", "WebFetch");
+        await collector.begin("fetch", "WebFetch", { url: "https://ithaca.example/harbour" });
+      }
+      const lose = () => collector.lost?.("fetch", "WebFetch", new Error("The harbour report was malformed"));
+      const denial = collector.refused?.("fetch", true);
+      if (timing === "during the discharge") { await entered; await lose(); release(); await denial; }
+      else { await denial; if (timing === "after the turn ended") await f.writes.safetyEnd("voyage"); await lose(); }
+      await f.writes.safetyEnd("voyage");
+      const restarted = createUiDb(f.path);
+      try {
+        const page = await new SafetyHistory(restarted, () => true, async () => {}).read(f.principal, { sessionId: "ithaca" }, null, 50, true, true, true);
+        expect(page.projection.unresolvedCount, "LOST_RESULT_KEEPS_THE_FETCH_UNRESOLVED").toBe(1);
+        expect(page.records.filter(record => record.kind === "exposure").map(record => record.state).at(-1), "LOST_RESULT_IS_NEVER_NEVER_RAN").toBe("interrupted_unknown");
+      } finally { restarted.close(); }
+    } finally { await f.close(); }
+  });
+
 /** Production order (#4514): the obligation failure stops the turn before
  * begin() rejects, so teardown can start before the backend's hook returns
  * its denial. The real permission hooks run here, and teardown starts at once. */
@@ -464,7 +500,7 @@ test("a content search row with a clock time resolves against the one existing f
     mkdirSync(join(f.root, "notes"), { recursive: true });
     writeFileSync(join(f.root, "notes/loom.md"), "Penelope sails at 10:30:00.\n");
     const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude", brainPath: f.root,
-      sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+      searchView: { root: f.root, masked: [] }, sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
     const input = { pattern: "sails", output_mode: "content" };
     for (const [id, file] of [["loom", "notes/loom.md"], ["raft", "notes/raft.md"]] as const) {
       collector.admitting?.(id, "Grep");
@@ -483,12 +519,32 @@ test("a strict worker's content search resolves candidates in the checkpoint it 
     for (const [root, files] of [[f.root, ["notes/sail"]], [checkpoint, ["notes/sail", "notes/sail:2"]]] as const)
       for (const file of files) { mkdirSync(join(root, file, ".."), { recursive: true }); writeFileSync(join(root, file), "Odysseus sails.\n"); }
     const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude", brainPath: f.root,
-      grepCheckpoint: { root: checkpoint, masked: [] }, sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+      grepCheckpoint: { root: checkpoint, masked: [] }, searchView: { root: checkpoint, masked: [] }, sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
     collector.admitting?.("sail", "Grep");
     await collector.begin("sail", "Grep", { pattern: "sirens", output_mode: "content" });
     await collector.allowed?.("sail");
     await collector.result("sail", "Grep", JSON.stringify({ mode: "content", numFiles: 0, filenames: [], content: "notes/sail:2:7:sirens", numLines: 1, totalLines: 1 }), true);
     expect(f.writes.safety(null, "ithaca").unresolvedCount, "CHECKPOINT_AMBIGUITY_STAYS_UNKNOWN").toBe(1);
+  } finally { await f.close(); }
+});
+
+/** A candidate is certified only from the view the host built for the
+ * worker, for rows known to carry filenames (#4347). */
+for (const [name, files, view, path, content] of [
+  ["a single-file search prints bare numbered lines", ["notes/loom.md", "1"], { masked: [] as string[] }, "notes/loom.md", "1:2:30:sirens"],
+  ["a host-only file masked from the worker", ["notes/log:4"], { masked: ["notes/log:4"] }, undefined, "notes/log:4:7:sirens"],
+  ["a turn without a governed view", ["notes/loom.md"], undefined, undefined, "notes/loom.md:3:sails at 10:30:00"],
+] as const) test(`a content search row stays unknown: ${name}`, async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    for (const file of files) { mkdirSync(join(f.root, file, ".."), { recursive: true }); writeFileSync(join(f.root, file), "Odysseus sails.\n"); }
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude", brainPath: f.root,
+      ...(view ? { searchView: { root: f.root, masked: [...view.masked] } } : {}), sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+    collector.admitting?.("grep", "Grep");
+    await collector.begin("grep", "Grep", { pattern: "sirens", output_mode: "content", ...(path ? { path } : {}) });
+    await collector.allowed?.("grep");
+    await collector.result("grep", "Grep", JSON.stringify({ mode: "content", numFiles: 0, filenames: [], content, numLines: 1, totalLines: 1 }), true);
+    expect(f.writes.safety(null, "ithaca").unresolvedCount, "UNCERTIFIED_ROW_STAYS_UNKNOWN").toBe(1);
   } finally { await f.close(); }
 });
 

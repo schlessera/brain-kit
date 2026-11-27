@@ -1,7 +1,7 @@
 /** Concrete turn-bound pre-delivery collector. All decisions remain restrictive. */
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
-import { brainFileLookup, ingestionSignalIdentity, inputTaintSignals, outputTaintSignals, searchOutputComplete, searchOutputContext, type IngestionSignal } from "../activity/ingestion-taint.js";
+import { brainFileLookup, ingestionSignalIdentity, searchViewEntry, type SearchView, inputTaintSignals, outputTaintSignals, searchOutputComplete, searchOutputContext, type IngestionSignal } from "../activity/ingestion-taint.js";
 import { checkpointGrepMatches, grepCheckpointDirectory, grepNotePath, type GrepCheckpoint } from "../activity/checkpoint-grep.js";
 
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
@@ -18,13 +18,13 @@ const DENIAL_WAIT_MS = 1_000;
 
 export function createSafetyCollector(db:Database,writes:GovernanceWrites,options:{turnId:string;bindingId:string;backendId:string;
  sessionId:()=>string|null;actor?:"interactive"|"voice";brainPath?:string;shellProxied:()=>boolean;signal:AbortSignal;onReady?:()=>void;stop?:(error:Error)=>void;policyHash?:string|null;
- grepCheckpoint?:GrepCheckpoint;referenceReads?:Pick<ReferenceTools,"observeResult">}):NonNullable<BackendBridge["inputSafety"]> {
+ grepCheckpoint?:GrepCheckpoint;searchView?:SearchView;referenceReads?:Pick<ReferenceTools,"observeResult">}):NonNullable<BackendBridge["inputSafety"]> {
  // `admitted`: every input signal of its latest begin() is recorded, and the
  // call owes its result. A result for a call whose begin() failed partway
  // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
  // `refused`: the backend refused a call with this id, so nothing more for
  // that id is admitted or let run.
- type Operation={generation:symbol;tool:string;inputHashes:Set<string>;id:string;occurrences:string[];inputOccurrences:string[];resultStarted:boolean;done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;grepNote?:string;unqualifiedGrepContent?:boolean;owed:boolean;refused:boolean;uncertain:boolean;searchContext?:ReturnType<typeof searchOutputContext>;notDelivered?:boolean;denial?:()=>void};
+ type Operation={generation:symbol;tool:string;inputHashes:Set<string>;id:string;occurrences:string[];inputOccurrences:string[];resultStarted:boolean;done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;grepNote?:string;unqualifiedGrepContent?:boolean;rowsNameFiles?:boolean;owed:boolean;refused:boolean;uncertain:boolean;searchContext?:ReturnType<typeof searchOutputContext>;denial?:()=>void};
 
  const operations=new Map<string,Operation>();
  // What the backend reported about each id: how many times the runtime asked
@@ -101,14 +101,12 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // Invalidating first also covers reports lost before result() and ensures
   // failure containment cannot stop the record's owner before this commits.
   const op=operations.get(toolUseId);if(op)op.uncertain=true;
-  // Any result under the ID, recorded or lost, contradicts the denial that
-  // settled its fetch as never delivered: those inputs are unknown again
-  // (#4514). One that cannot commit leaves the chat's gap below.
-  if(op?.notDelivered){
-   op.notDelivered=false;
-   try{for(const id of op.occurrences)await writes.record({...base(),kind:"taint_exposure",dedupeKey:id,payload:{occurrenceId:id,state:"interrupted_unknown"}});}
-   catch{/* The failure notice below still gaps the chat. */}
-  }
+  // Any result under the ID, recorded or lost, contradicts any denial that
+  // proved its fetch never ran: the store makes those inputs unknown, before
+  // or after a racing denial and after the turn ended (#4514). A later
+  // not_delivered then finds an exposure and is refused. One that cannot
+  // commit leaves the chat's gap below.
+  if(op)try{await writes.safetyContradict(options.turnId,op.id);}catch{/* The failure notice below still gaps the chat. */}
   try{
    for(const name of new Set([tool,operations.get(toolUseId)?.tool]))if(name)
     await options.referenceReads?.observeResult(options.turnId,toolUseId,name,"",false);
@@ -154,6 +152,14 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     if(!op.inputHashes.has(inputHash)&&op.inputHashes.size>=16)throw new Error("Safety input revision capacity exceeded");
     op.inputHashes.add(inputHash);op.admitted=false;operations.set(toolUseId,op);
     op.searchContext=searchOutputContext(tool,input,options.backendId);
+    // Content rows carry a filename only when the search did not name one
+    // file: a single-file search prints bare numbered lines, whose text
+    // must never be read as a path (#4347). Every revision must qualify.
+    if(tool==="Grep"){
+     const path=input.path;
+     const rows=path===undefined||path===null||path===""||typeof path==="string"&&searchViewEntry(options.brainPath,options.searchView,path)==="directory";
+     op.rowsNameFiles=(op.inputHashes.size===1||op.rowsNameFiles===true)&&rows;
+    }
     if(tool==="Grep"&&options.backendId==="claude"){
       if(options.brainPath&&options.grepCheckpoint) op.grepNote=grepNotePath(input,options.brainPath,options.grepCheckpoint);
       if(input.output_mode==="content"&&input["-n"]===false&&typeof input.path==="string"&&input.path)
@@ -217,7 +223,10 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
       &&checkpointGrepMatches(options.grepCheckpoint,op.grepNote,output);
     // The checkpoint proves these are lines of note content, including any
     // path-like text in a numbered context line.
-    const signals=verified ? [] : outputTaintSignals(tool,output,options.brainPath,marked,{...op.searchContext,outputComplete,unverifiedNote:Boolean(op.grepNote||op.unqualifiedGrepContent),existingFile:brainFileLookup(options.brainPath,options.grepCheckpoint)});
+    const signals=verified ? [] : outputTaintSignals(tool,output,options.brainPath,marked,{...op.searchContext,outputComplete,unverifiedNote:Boolean(op.grepNote||op.unqualifiedGrepContent),
+      // Certified only against the view the host built for this worker,
+      // for rows known to carry filenames (#4347).
+      ...(options.searchView&&op.rowsNameFiles?{existingFile:brainFileLookup(options.brainPath,options.searchView)}:{})});
     for(const signal of signals){
 
       const item=observed(toolUseId,signal.detector,op.id);
@@ -279,7 +288,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
      // proves the call never ran, settles them (#4514). Only inputs whose
      // write is known to have committed are settled.
      else if(sameFetch&&!op.admitted)
-      try{await writes.safetyDischarge(options.turnId,op.id,op.occurrences);op.notDelivered=true;}catch{/* Still open: the chat stays restricted. */}
+      try{await writes.safetyDischarge(options.turnId,op.id,op.occurrences);}catch{/* Still open: the chat stays restricted. */}
     }
    }finally{op.denial?.();}
   },true).catch(()=>{}));},

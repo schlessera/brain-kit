@@ -246,11 +246,12 @@ for(const [name,content,marks,lookup,expected] of [
  ['a failing lookup','notes/loom.md:3:sails at 10:30:00',[],'throws',['legacy_unknown']],
  ['each identifiable marked candidate','notes/loom.md:3:sails at 10:30:00',['notes/loom.md','notes/loom.md:3:sails at 10'],'brain',['user_marked','user_marked']],
  ['a candidate through a symlink that leaves the brain','notes/bag/winds.md:3:sails at 10:30:00',[],'brain',['legacy_unknown']],
+ ['a symlink followed by a parent component','notes/bag/../loom.md:3:sails at 10:30:00',[],'brain',['legacy_unknown']],
  ['the checkpoint holds both candidates where the live brain has one','notes/sail:2:7:sirens',[],'checkpoint',['legacy_unknown']],
  ['the live brain alone would resolve that row','notes/sail:2:7:sirens',[],'brain',[]],
  ['the checkpoint holds the one source the live brain lacks','notes/raft.md:3:sails at 10:30:00',[],'checkpoint',[]],
 ] as const)test(`Grep colon candidates against existing files: ${name}`,()=>{
- const brain=brainFileLookup(odysseusBrain);
+ const brain=brainFileLookup(odysseusBrain,{root:odysseusBrain,masked:[]});
  const existingFile=lookup==='brain'?brain:lookup==='checkpoint'?brainFileLookup(odysseusBrain,{root:odysseusCheckpoint,masked:[]}):lookup==='partial'?(path:string)=>path==='notes/loom.md'?true:undefined
   :lookup==='throws'?()=>{throw new Error('The loom is unravelled');}:undefined;
  const output=grep([],{content,numLines:1,totalLines:1});
@@ -259,10 +260,12 @@ for(const [name,content,marks,lookup,expected] of [
 });
 
 test('brain file evidence is unknown outside the brain and false only for proven absence',()=>{
- const exists=brainFileLookup(odysseusBrain);
+ const exists=brainFileLookup(odysseusBrain,{root:odysseusBrain,masked:[]});
  expect(['notes/loom.md',`${odysseusBrain}/notes/loom.md`,'notes/raft.md','notes/loom.md/inner','notes/harbour:4','/srv/elsewhere/loom.md','../loom.md','']
   .map(exists),'HOST_FILE_EVIDENCE_NEVER_GUESSES').toEqual([true,true,false,false,false,undefined,undefined,undefined]);
- expect(brainFileLookup(undefined)('notes/loom.md')).toBeUndefined();
+ expect(brainFileLookup(undefined,{root:odysseusBrain,masked:[]})('notes/loom.md')).toBeUndefined();
+ expect(brainFileLookup(odysseusBrain,undefined)('notes/loom.md'),'NO_VIEW_NO_EVIDENCE').toBeUndefined();
+ expect(['notes/bag/../loom.md','./notes/loom.md','notes//loom.md','notes/./loom.md'].map(exists),'ONLY_NORMAL_FORM_PATHS').toEqual([undefined,undefined,undefined,undefined]);
  expect(exists('notes/bag/winds.md'),'SYMLINKED_CANDIDATE_IS_UNKNOWN').toBeUndefined();
  const checkpoint=brainFileLookup(odysseusBrain,{root:odysseusCheckpoint,masked:['private']});
  expect(['notes/raft.md','notes/loom.md','private/suitors.md'].map(checkpoint),'CHECKPOINT_VIEW_AND_MASKS').toEqual([true,false,undefined]);
