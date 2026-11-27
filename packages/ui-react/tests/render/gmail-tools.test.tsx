@@ -13,7 +13,7 @@ registerGmailToolsDom();
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render as mount, type RenderResult } from "@testing-library/react";
-import { MotionConfig } from "framer-motion";
+import * as framerMotion from "framer-motion";
 import type { ReactElement, ReactNode } from "react";
 import { visibleToolName, type ToolCallView, type ToolRenderer } from "@schlessera/brain-ui-sdk/client";
 import { revealInvisibles } from "@schlessera/brain-ui-kit";
@@ -71,9 +71,15 @@ function makeRoot(): BrainUiRoot {
  * The root's provider, with animations skipped: a row that opens animates its
  * height, and happy-dom rejects a cancelled animation's `finished` promise,
  * which unmounting mid-animation would leave unhandled.
+ *
+ * Read through the namespace: `mock.module` is process-wide, so a render test
+ * that ran earlier in the same worker may have replaced framer-motion with
+ * plain elements and no `MotionConfig`, and a named import would then fail to
+ * link. Those elements never animate, so there is nothing to skip.
  */
+const MotionConfig = (framerMotion as Partial<typeof framerMotion>).MotionConfig;
 const Provided = ({ root, children }: { root: BrainUiRoot; children: ReactNode }) => (
-  <BrainUiProvider root={root}><MotionConfig skipAnimations>{children}</MotionConfig></BrainUiProvider>
+  <BrainUiProvider root={root}>{MotionConfig ? <MotionConfig skipAnimations>{children}</MotionConfig> : children}</BrainUiProvider>
 );
 
 function render(ui: ReactElement, session: string | null = SESSION) {
