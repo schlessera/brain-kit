@@ -1,8 +1,8 @@
 /**
  * A clock time, `HH:MM` on a 24-hour clock in the reader's time zone (#4736):
  * the design's form ("ended 09:41"). Built by padding the hour and the minute,
- * never with `toLocaleTimeString`, whose separator and digits still follow the
- * device locale.
+ * never with the locale's time formatter, whose separator and digits still
+ * follow the device locale.
  */
 export function clockTime(ms: number): string {
   const date = new Date(ms);
