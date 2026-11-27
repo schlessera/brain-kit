@@ -28,7 +28,8 @@ import { StatsAnswer } from "./stats/stats-answer.js";
 import { LocalExchangeNote } from "./local-exchange-note.js";
 import { BlockCard } from "./tool-cards/block-card.js";
 import { AnswerSuggestions } from "./answer-suggestions.js";
-import { SHOW_BLOCK_CONTRACT, parseToolPayload, type ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
+import { SHOW_BLOCK_CONTRACT, type ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
+import { cachedToolPayload } from "./renderers/payload-cache.js";
 import { motion, useReducedMotion } from "framer-motion";
 import { buildMessageShareOptions } from "./message-share.js";
 import { ShareMenu } from "../share/share-menu.js";
@@ -310,7 +311,9 @@ function groupParts(
         // renders inline where it was called. Until the echo arrives, and
         // when it does not parse (a rejected call, an older server), the
         // call stays in the timeline, where its bound fallback states why.
-        const payload = parseToolPayload(SHOW_BLOCK_CONTRACT, tool.output);
+        // Cached per tool-call object (#4749), so an unchanged call is the
+        // same payload on every render and its memoized card bails out.
+        const payload = cachedToolPayload(SHOW_BLOCK_CONTRACT, tool);
         // Suggestions are the one exception (D50): not part of the answer
         // but an offer after it, drawn in the closing row, so their call
         // position draws nothing — neither a block nor a trace step.

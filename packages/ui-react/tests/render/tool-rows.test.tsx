@@ -17,6 +17,7 @@ import { bind } from "../../src/components/chat/renderers/bind.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import type { ChatMessage, ToolCall } from "../../src/stores/chat-store.js";
+import { countSafeParse } from "../safe-parse-counter.js";
 
 const roots: BrainUiRoot[] = [];
 afterEach(() => {
@@ -73,24 +74,6 @@ function mount(r: BrainUiRoot, message: ChatMessage) {
   );
   const view = render(ui(message));
   return { view, update: (m: ChatMessage) => view.rerender(ui(m)) };
-}
-
-/**
- * Counts a schema's `safeParse` calls. Zod defines `safeParse` as an
- * accessor on the prototype, which `spyOn` cannot wrap, so the counter is an
- * own property that shadows it until `restore()` deletes it again.
- */
-function countSafeParse(schema: z.ZodType) {
-  const original = schema.safeParse.bind(schema);
-  const counter = { calls: 0, restore: () => { delete (schema as { safeParse?: unknown }).safeParse; } };
-  Object.defineProperty(schema, "safeParse", {
-    configurable: true,
-    value: (...args: Parameters<typeof original>) => {
-      counter.calls++;
-      return original(...args);
-    },
-  });
-  return counter;
 }
 
 /** The activity stream's span for one tool call, server-stamped. */
