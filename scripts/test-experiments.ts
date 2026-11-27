@@ -22,6 +22,9 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSyn
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { discoverTests } from "./test-shards";
+import { git } from "./lib/git";
+
+const EXPERIMENT_GIT = { trim: true, error: (args: readonly string[], _code: number | null, stderr: string) => `git ${args.join(" ")} failed: ${stderr.trim()}` } as const;
 
 /** The experiment tier's only root. Outside `DEFAULT_ROOTS` by construction. */
 export const EXPERIMENT_ROOT = "experiments";
@@ -63,13 +66,6 @@ export interface Receipt {
 
 const sha256 = (data: string | Uint8Array) => createHash("sha256").update(data).digest("hex");
 
-function git(root: string, args: string[], env?: Record<string, string>): string {
-  const proc = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe",
-    env: env ? { ...process.env, ...env } : undefined });
-  if (proc.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${proc.stderr.toString().trim()}`);
-  return proc.stdout.toString().trim();
-}
-
 /**
  * The tree `git add -A && git write-tree` would produce, without touching the
  * real index: tracked edits, staged or not, and untracked files that are not
@@ -80,12 +76,12 @@ export function workingTree(root: string): string {
   const scratch = mkdtempSync(join(tmpdir(), "experiment-tier-index-"));
   try {
     const index = join(scratch, "index");
-    const real = git(root, ["rev-parse", "--git-path", "index"]);
+    const real = git(root, ["rev-parse", "--git-path", "index"], { ...EXPERIMENT_GIT });
     const realPath = isAbsolute(real) ? real : join(root, real);
     if (existsSync(realPath)) copyFileSync(realPath, index);
     const env = { GIT_INDEX_FILE: index };
-    git(root, ["add", "-A", "--", "."], env);
-    return git(root, ["write-tree"], env);
+    git(root, ["add", "-A", "--", "."], { ...EXPERIMENT_GIT, env: env });
+    return git(root, ["write-tree"], { ...EXPERIMENT_GIT, env: env });
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -100,7 +96,7 @@ export function inventory(root: string): Candidate["inventory"] {
 export function candidate(root: string): Candidate {
   return {
     tree: workingTree(root),
-    head: git(root, ["rev-parse", "HEAD"]),
+    head: git(root, ["rev-parse", "HEAD"], { ...EXPERIMENT_GIT }),
     lock: { path: "bun.lock", sha256: sha256(readFileSync(join(root, "bun.lock"))) },
     inventory: inventory(root),
     bun: Bun.version,

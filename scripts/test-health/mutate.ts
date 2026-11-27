@@ -18,6 +18,9 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunOutput, TestRunner } from "./runner";
+import { git } from "../lib/git";
+
+const MUTATE_GIT = { error: (args: readonly string[], _code: number | null, stderr: string) => `git ${args.slice(0, 2).join(" ")}: ${stderr.trim()}` } as const;
 
 export type MutationVerdict = "killed" | "survived" | "wrong-reason" | "load-error" | "unstable-baseline";
 
@@ -49,16 +52,9 @@ export interface MutateOptions {
 
 const LOAD_ERROR = /SyntaxError|Cannot find module|Cannot find package|Module not found|Could not resolve|Export named .* not found|is not exported|Unhandled error between tests/;
 
-function git(root: string, args: string[], input?: string): string {
-  const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe",
-    stdin: input === undefined ? "ignore" : new TextEncoder().encode(input) });
-  if (result.exitCode !== 0) throw new Error(`git ${args.slice(0, 2).join(" ")}: ${result.stderr.toString().trim()}`);
-  return result.stdout.toString();
-}
-
 /** The unstaged changes of `paths` as a patch. The paths stay modified; `mutate` reverts them. */
 export function worktreePatch(root: string, paths: readonly string[]): string {
-  const patch = git(root, ["diff", "--no-color", "--binary", "--", ...paths]);
+  const patch = git(root, ["diff", "--no-color", "--binary", "--", ...paths], { ...MUTATE_GIT });
   if (!patch.trim()) throw new Error(`No unstaged change in ${paths.join(", ")}: make the mutation in the working tree first`);
   return patch;
 }
@@ -87,8 +83,8 @@ export async function mutate(options: MutateOptions, applied = false): Promise<M
   if (!options.expect.trim()) throw new Error("--expect is required: name the assertion or case that must fail");
   const files = patchFiles(patch);
   if (!files.length) throw new Error("The mutation patch changes no file");
-  if (applied) git(root, ["apply", "-R", "--whitespace=nowarn"], patch);
-  else git(root, ["apply", "--check", "--whitespace=nowarn"], patch);
+  if (applied) git(root, ["apply", "-R", "--whitespace=nowarn"], { ...MUTATE_GIT, input: patch });
+  else git(root, ["apply", "--check", "--whitespace=nowarn"], { ...MUTATE_GIT, input: patch });
   const clean = digest(root, files);
   const request = { files: [test], name: options.name, projects: options.projects };
   const receipt = (verdict: MutationVerdict, detail: string, runs: MutationReceipt["runs"]): MutationReceipt => ({
@@ -103,9 +99,9 @@ export async function mutate(options: MutateOptions, applied = false): Promise<M
   if (!passed(baseline)) return receipt("unstable-baseline", "the test fails before the mutation", { baseline: summary(baseline), mutated: null, restored: null });
 
   let mutated: RunOutput;
-  git(root, ["apply", "--whitespace=nowarn"], patch);
+  git(root, ["apply", "--whitespace=nowarn"], { ...MUTATE_GIT, input: patch });
   try { mutated = await options.runner(request); }
-  finally { git(root, ["apply", "-R", "--whitespace=nowarn"], patch); }
+  finally { git(root, ["apply", "-R", "--whitespace=nowarn"], { ...MUTATE_GIT, input: patch }); }
   if (digest(root, files) !== clean) throw new Error(`The mutation was not fully reverted in ${files.join(", ")}; restore them before continuing`);
   const restored = await options.runner(request);
   const runs = { baseline: summary(baseline), mutated: summary(mutated), restored: summary(restored) };

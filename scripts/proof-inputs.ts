@@ -4,16 +4,12 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { availableParallelism, loadavg } from "node:os";
 import { dirname, join, relative } from "node:path";
+import { git } from "./lib/git";
 
 export interface Spec { project: string; file: string; }
 export interface Checkout { sha: string; tree: string; parents: string[]; }
-export function git(root: string, ...args: string[]): string {
-  const p = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  if (p.exitCode) throw new Error(`Cannot inspect proof Git inputs: ${new TextDecoder().decode(p.stderr).trim()}`);
-  return new TextDecoder().decode(p.stdout);
-}
 export function checkout(root: string, ref = "HEAD"): Checkout {
-  const [sha, tree, ...parents] = git(root, "show", "-s", "--format=%H %T %P", ref).trim().split(" ");
+  const [sha, tree, ...parents] = git(root, ["show", "-s", "--format=%H %T %P", ref], { error: "Cannot inspect proof Git inputs: " }).trim().split(" ");
   if (!sha || !tree) throw new Error("Missing immutable checkout identity");
   return { sha, tree, parents };
 }

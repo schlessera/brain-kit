@@ -9,6 +9,10 @@ import { includeRedSet, isPostMerge, type Category, type IncludedRedSet, type Re
 import { unitPartitions } from "./proof-shards";
 import { planPartitions } from "./determinism-plan";
 import { expandSpecs, isRepeatedSpec, planBrowserPartitions, type SpecPair } from "./browser-determinism-plan";
+import { git } from "./lib/git";
+
+/** The planner's git reads; a failure names what could not be determined. */
+const PLAN_GIT = { error: "Cannot determine changed files: " } as const;
 
 export interface Workspace {
   dir: string;
@@ -218,7 +222,7 @@ export class TreeView {
   #tracked?: string[]; #listed?: string[];
   readonly #contents = new Map<string, string | Buffer>();
   constructor(readonly root: string, readonly reader: TreeReader = fileReader) {}
-  tracked(): readonly string[] { return this.#tracked ??= git(this.root, ["ls-files", "-z"]).split("\0").filter(Boolean); }
+  tracked(): readonly string[] { return this.#tracked ??= git(this.root, ["ls-files", "-z"], PLAN_GIT).split("\0").filter(Boolean); }
   /** Tracked files, then untracked files that are not ignored, once each. */
   listed(): readonly string[] {
     // Include local, not-yet-added inputs in local preflight as well.
@@ -565,19 +569,13 @@ export function proofSelections(plan: CheckPlan, draft = false): Record<string, 
   }).map(([name, selected]) => [name, !draft && !(confirmation && isPostMerge(name as Category)) && selected])), determinism, browser_determinism };
 }
 
-function git(root: string, args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) throw new Error(`Cannot determine changed files: ${new TextDecoder().decode(result.stderr).trim()}`);
-  return new TextDecoder().decode(result.stdout);
-}
-
 /** --no-renames includes BOTH sides of a rename; NUL delimiters retain spaces. */
 export function changedFiles(root: string, base: string, head = "HEAD", mergeBase = true, working = false): string[] {
   if (!base || /^0+$/.test(base)) throw new Error("A reachable, nonzero diff base is required");
-  const from = git(root, ["rev-parse", "--verify", `${base}^{commit}`]).trim();
-  const to = git(root, ["rev-parse", "--verify", `${head}^{commit}`]).trim();
-  const start = mergeBase ? git(root, ["merge-base", from, to]).trim() : from;
-  const paths = git(root, ["diff", "--name-only", "--no-renames", "-z", start, to, "--"]).split("\0").filter(Boolean);
+  const from = git(root, ["rev-parse", "--verify", `${base}^{commit}`], PLAN_GIT).trim();
+  const to = git(root, ["rev-parse", "--verify", `${head}^{commit}`], PLAN_GIT).trim();
+  const start = mergeBase ? git(root, ["merge-base", from, to], PLAN_GIT).trim() : from;
+  const paths = git(root, ["diff", "--name-only", "--no-renames", "-z", start, to, "--"], PLAN_GIT).split("\0").filter(Boolean);
   if (working) {
     paths.push(...git(root, ["diff", "--name-only", "--no-renames", "-z", to, "--"]).split("\0").filter(Boolean));
     paths.push(...git(root, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean));
@@ -603,7 +601,7 @@ export function planFromEnvironment(root: string, env: NodeJS.ProcessEnv, redMai
 export function redMainSnapshot(root: string, requested: string | undefined): { oid: string; record: RedMainRecord | null } {
   const attempt = (args: string[]) => {
     for (let index = 0; ; index++) {
-      try { return git(root, args).trim(); } catch (error) { if (index === 2) throw error; Bun.sleepSync(1000 * 2 ** index); }
+      try { return git(root, args, PLAN_GIT).trim(); } catch (error) { if (index === 2) throw error; Bun.sleepSync(1000 * 2 ** index); }
     }
   };
   let oid = requested;
@@ -611,7 +609,7 @@ export function redMainSnapshot(root: string, requested: string | undefined): { 
   if (oid === "none") return { oid, record: null };
   if (!/^[a-f0-9]{40}$/.test(oid)) throw new Error("Invalid red-main coordination snapshot");
   attempt(["fetch", "--no-tags", "origin", oid]);
-  return { oid, record: coordinationFiles(git(root, ["ls-tree", oid]), name => git(root, ["show", `${oid}:${name}`])).redMain };
+  return { oid, record: coordinationFiles(git(root, ["ls-tree", oid], PLAN_GIT), name => git(root, ["show", `${oid}:${name}`], PLAN_GIT)).redMain };
 }
 
 if (import.meta.main) {
