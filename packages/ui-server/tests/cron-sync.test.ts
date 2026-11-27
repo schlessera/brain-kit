@@ -10,6 +10,17 @@ import { createUiDb } from "../src/db/client";
 
 const { createFixtureBrainClient: createBrainClient } = installNativeBrainClientFixtures();
 
+/** Run the crontab's sync job through its runner (#4681), then read its cron status row. */
+async function scheduledSync(root: string) {
+  const dbPath = join(root, "brain-ui.db");
+  const discard = { write: () => {} };
+  const code = await runJob({ jobName: "sync", command: [...SYNC_JOB_COMMAND], dbPath, exec: {},
+    childEnv: { PATH: `${join(root, "node_modules", ".bin")}:${process.env.PATH}` }, stdout: discard, stderr: discard });
+  const db = createUiDb(dbPath);
+  try { return { code, sync: createCronScheduler({ db }).getCronStatus().find((s) => s.name === "sync")! }; }
+  finally { db.close(); }
+}
+
 const temporaryRoots: string[] = [];
 
 afterEach(() => {
@@ -30,18 +41,6 @@ function brainWithCli(source: string): string {
   return root;
 }
 
-/** Run the crontab's sync job through its runner, then read its cron status row. */
-async function scheduledSync(root: string) {
-  const dbPath = join(root, "brain-ui.db");
-  const discard = { write: () => {} };
-  const code = await runJob({ jobName: "sync", command: [...SYNC_JOB_COMMAND], dbPath, exec: {},
-    childEnv: { PATH: `${join(root, "node_modules", ".bin")}:${process.env.PATH}` }, stdout: discard, stderr: discard });
-  const db = createUiDb(dbPath);
-  try { return { code, sync: createCronScheduler({ db }).getCronStatus().find((s) => s.name === "sync")! }; }
-  finally { db.close(); }
-}
-
-// The scheduled sync runs through the crontab's job runner (#4681).
 describe("cron sync job", () => {
   test("a brain sync that exits non-zero is recorded as an error", async () => {
     const root = brainWithCli(
