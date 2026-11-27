@@ -16,8 +16,8 @@ import { constants, existsSync } from "node:fs";
 import { lstat, mkdir, open, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 
-export const ANCHORED = process.platform === "linux" && existsSync("/proc/self/fd");
-export const DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+const ANCHORED = process.platform === "linux" && existsSync("/proc/self/fd");
+const DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 
 export type ChainRefusal = "not-contained" | "changed";
 export type RefuseChain = (reason: ChainRefusal) => Error;
@@ -35,7 +35,7 @@ export interface Directory {
   at(name: string): string;
 }
 
-export async function openDirectory(path: string, display: string, refuse: RefuseChain): Promise<Directory> {
+async function openDirectory(path: string, display: string, refuse: RefuseChain): Promise<Directory> {
   let handle: FileHandle;
   try { handle = await open(path, DIRECTORY_FLAGS); }
   catch (error) {
