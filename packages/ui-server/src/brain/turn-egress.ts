@@ -439,8 +439,9 @@ export async function prepareTurnEgress(options: {
       if(destination.recipientAuthority.kind === "rule")standingRecipients.set(destination.connectionId,destination.recipientAuthority.admission);
       if (!destination.managedReference && (destination.recipientApproved || !trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId))) contacted.add(destination.host);
     }, ...(taint ? { taint } : {}),
+    // A call in progress that covers the host needs no card (#4351).
+    outwardCovered: destination => calls.covers(destination.host),
     approveOutward: async (destination, signal) => {
-      if (calls.covers(destination.host)) return !signal.aborted;
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network",
         kind: "command", input: destination,
         description: `${destination.method} to ${networkAuthority(destination)}`,

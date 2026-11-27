@@ -6443,10 +6443,11 @@ losses it tolerates (maintainer ruling on #4351, 2026-11-27). A connection
 that would need a Network card, an ordinary destination or a managed GitHub
 fetch, or an outward card is refused without one as `egress_connection`
 `reason: "recording_gap"`, with a 403 whose refusal `cause` is
-`recording_gap`. The proxy reads its `recordingGap()` option before invoking
-any approval callback, Network or outward, so no host callback can raise or
-answer a card there; an outward host on such a turn is refused even when a
-classified call would have covered it. A card pending when the gap appeared,
+`recording_gap`. The proxy reads its `recordingGap()` option whenever a card
+would be raised, Network or outward, before invoking that approval callback,
+so no host callback can raise or answer a card there. It asks the new
+synchronous `outwardCovered()` option first: an outward host that a call in
+progress already covers needs no card and still connects. A card pending when the gap appeared,
 or answered before it, is never used: its connection, of either kind, is
 refused as `recording_gap` before dispatch. Allow-listed and already-contacted
 destinations need no card and still connect, and a new turn restores

@@ -583,3 +583,17 @@ test("#4351: an outward card answered before the gap is not used at dispatch", a
     expect(op.reason(), "GAP_BEFORE_DISPATCH_REFUSES_AN_ANSWERED_OUTWARD_CARD").toBe("recording_gap");
   } finally { await f.close(); }
 });
+test("#4351: a gapped turn still connects an outward host a classified call covers, without a card", async () => {
+  const f = await fixture(false, OUTWARD, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    gappedTurn(f);
+    f.decide(async () => ({ behavior: "allow" }));
+    // A visible read in progress covers the outward host: it needs no card.
+    f.proxy.bridge.activity?.({ kind: "outward_classification", toolUseId: "toolu-odysseus-read", decision: "allow",
+      classification: { kind: "read", opaque: false, actions: [] } } as never);
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0), "GAPPED_TURN_KEEPS_COVERED_OUTWARD_TRAFFIC").toBe(200);
+    expect(f.asks()).toBe(0);
+    expect(troy.hits()).toBe(1);
+  } finally { troy.stop(); await f.close(); }
+});

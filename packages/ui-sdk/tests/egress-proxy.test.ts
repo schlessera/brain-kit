@@ -640,3 +640,15 @@ for (const kind of ["network", "outward"] as const) for (const when of ["before 
       expect(records.at(-1), when === "before the card" ? "GAP_REFUSAL_IS_NAMED" : "GAP_AFTER_THE_ANSWER_REFUSES_AT_DISPATCH").toMatchObject({ outcome: "denied", reason: "recording_gap", dispatched: false });
     } finally { proxy.stop(); origin.stop(true); }
   });
+test("a recording gap leaves an outward destination that needs no card connected", async () => {
+  const records: EgressRecord[] = [];
+  let asks = 0, hits = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => true, outwardHosts: ["127.0.0.1"],
+    outwardCovered: () => true, approveOutward: async () => { asks++; return true; } });
+  try {
+    expect((await get(proxy.socketPath, origin.url.href)).status, "COVERED_OUTWARD_NEEDS_NO_CARD_AND_CONNECTS").toBe(200);
+    expect(asks).toBe(0);
+    expect(hits).toBe(1);
+  } finally { proxy.stop(); origin.stop(true); }
+});
