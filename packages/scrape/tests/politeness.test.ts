@@ -432,3 +432,91 @@ describe("RobotsDisallowedError", () => {
     expect(err.message).toContain("allowDisallowed");
   });
 });
+
+describe("RobotsCache lifetime", () => {
+  const HOUR = 60 * 60 * 1000;
+  const DISALLOW_ALL = "User-agent: *\nDisallow: /\n";
+  function timed(answers: Array<{ status: number; body: string } | Error>, options: Record<string, number> = {}) {
+    const clock = { now: 0 };
+    const calls: string[] = [];
+    const robots = new RobotsCache({
+      ...options,
+      now: () => clock.now,
+      async fetcher(url) {
+        calls.push(url);
+        const answer = answers[Math.min(calls.length - 1, answers.length - 1)]!;
+        if (answer instanceof Error) throw answer;
+        return answer;
+      },
+    });
+    return { robots, clock, calls };
+  }
+
+  test("a successful load is served for 24 hours and fetched again after", async () => {
+    const { robots, clock, calls } = timed([{ status: 200, body: ROBOTS }, { status: 200, body: DISALLOW_ALL }]);
+    expect((await robots.forUrl("https://example.com/a")).isAllowed("https://example.com/a", "brain-scrape")).toBe(true);
+    clock.now = 24 * HOUR - 1;
+    await robots.forUrl("https://example.com/b");
+    expect(calls).toHaveLength(1);
+    clock.now = 24 * HOUR;
+    const reloaded = await robots.forUrl("https://example.com/c");
+    expect(calls).toHaveLength(2);
+    expect(reloaded.isAllowed("https://example.com/c", "brain-scrape")).toBe(false);
+  });
+
+  for (const [name, failure] of [["a thrown fetch", new Error("network down")], ["a 503", { status: 503, body: "" }]] as const) {
+    test(`${name} is fetched again after five minutes, and a Disallow it then serves is enforced`, async () => {
+      const { robots, clock, calls } = timed([failure, { status: 200, body: DISALLOW_ALL }]);
+      const first = await robots.forUrl("https://example.com/x");
+      expect(first).toMatchObject({ loaded: false });
+      clock.now = 5 * 60 * 1000 - 1;
+      await robots.forUrl("https://example.com/x");
+      expect(calls).toHaveLength(1);
+      clock.now = 5 * 60 * 1000;
+      const second = await robots.forUrl("https://example.com/x");
+      expect(calls).toHaveLength(2);
+      expect(second.isAllowed("https://example.com/x", "brain-scrape")).toBe(false);
+    });
+  }
+
+  test("a 404 is a definite answer and is not fetched again before 24 hours", async () => {
+    const { robots, clock, calls } = timed([{ status: 404, body: "" }, { status: 200, body: DISALLOW_ALL }]);
+    await robots.forUrl("https://example.com/x");
+    clock.now = 24 * HOUR - 1;
+    expect((await robots.forUrl("https://example.com/x")).isAllowed("https://example.com/x", "brain-scrape")).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("concurrent callers share one fetch, for a new origin and for a reload after expiry", async () => {
+    const { robots, clock, calls } = timed([{ status: 200, body: ROBOTS }]);
+    await Promise.all(Array.from({ length: 10 }, (_, i) => robots.forUrl(`https://example.com/${i}`)));
+    expect(calls).toHaveLength(1);
+    clock.now = 24 * HOUR;
+    await Promise.all(Array.from({ length: 10 }, (_, i) => robots.forUrl(`https://example.com/${i}`)));
+    expect(calls).toHaveLength(2);
+  });
+
+  test("past maxEntries the least recently used origin is dropped", async () => {
+    const { robots, calls } = timed([{ status: 200, body: ROBOTS }], { maxEntries: 2 });
+    const held = () => (robots as unknown as { rules: Map<string, unknown> }).rules.size;
+    for (const origin of ["https://a.example", "https://b.example", "https://c.example"]) {
+      await robots.forUrl(`${origin}/x`);
+      expect(held()).toBeLessThanOrEqual(2);
+    }
+    await robots.forUrl("https://a.example/x");
+    expect(held()).toBeLessThanOrEqual(2);
+    expect(calls).toEqual([
+      "https://a.example/robots.txt", "https://b.example/robots.txt", "https://c.example/robots.txt", "https://a.example/robots.txt",
+    ]);
+  });
+
+  test("a hit keeps its origin from being the least recently used", async () => {
+    const { robots, calls } = timed([{ status: 200, body: ROBOTS }], { maxEntries: 2 });
+    await robots.forUrl("https://a.example/x");
+    await robots.forUrl("https://b.example/x");
+    await robots.forUrl("https://a.example/y");
+    await robots.forUrl("https://c.example/x");
+    await robots.forUrl("https://a.example/z");
+    expect(calls).toEqual(["https://a.example/robots.txt", "https://b.example/robots.txt", "https://c.example/robots.txt"]);
+  });
+});

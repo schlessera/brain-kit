@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -43,6 +43,36 @@ async function untilAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<
   finally { signal.removeEventListener("abort",onAbort); }
 }
 
+/**
+ * The largest `cacheTtlMs` the configuration accepts (`geoConfigSchema`). The
+ * default directory is shared by every process on the machine, so expiry
+ * goes by the longest lifetime any of them may use, never this process's.
+ */
+export const CACHE_PRUNE_AGE_MS=30*24*60*60*1_000;
+const PRUNE_INTERVAL_MS=60*60*1_000;
+const ENTRY_FILE=/^[0-9a-f]{64}\.json(?:\.[0-9a-f-]+\.tmp)?$/;
+const lastPruneAt=new Map<string,number>();
+
+/**
+ * Delete response entries, and temporaries orphaned by a crashed atomic
+ * write, older than `CACHE_PRUNE_AGE_MS`; at most once an hour per directory
+ * and process. Best-effort and lock-free: entries are replaced by atomic
+ * rename, and removing an expired one another process is rewriting is harmless.
+ */
+async function pruneResponses(directory: string): Promise<void> {
+  const now=Date.now(), last=lastPruneAt.get(directory);
+  if (last!==undefined && now-last<PRUNE_INTERVAL_MS) return;
+  lastPruneAt.set(directory,now);
+  try {
+    for (const name of await readdir(directory)) {
+      if (!ENTRY_FILE.test(name)) continue;
+      const path=join(directory,name);
+      try { if (now-(await stat(path)).mtimeMs>CACHE_PRUNE_AGE_MS) await unlink(path); }
+      catch { /* Already gone or not removable: the next prune tries again. */ }
+    }
+  } catch { /* Pruning never changes the result of the request that triggered it. */ }
+}
+
 /** Public operators share a single admission group even across endpoint aliases. */
 function group(endpoint: string): {key: string; floorMs: number} {
   const host=new URL(endpoint).hostname.toLowerCase();
@@ -59,12 +89,22 @@ export class GeoTransport {
 
   async request<T>(service: ServiceSource["service"], endpoint: string, url: string, init: RequestInit,
     decode: (data: unknown) => T, acceptedStatuses: number[] = [], cacheContext = ""): Promise<GeoIoResult<T>> {
+    const result=await this.exchange(service,endpoint,url,init,decode,acceptedStatuses,cacheContext);
+    // Only a reply that was just written to the cache prunes, after the admission lock is released.
+    if (result.error===null && !result.source.fromCache) await pruneResponses(this.responsesDirectory());
+    return result;
+  }
+
+  private responsesDirectory(): string { return join(this.config.cacheDir ?? globalDirectory(),"responses"); }
+
+  private async exchange<T>(service: ServiceSource["service"], endpoint: string, url: string, init: RequestInit,
+    decode: (data: unknown) => T, acceptedStatuses: number[], cacheContext: string): Promise<GeoIoResult<T>> {
     const source: ServiceSource={kind:"service",service,endpoint,fromCache:false,fetchedAt:null,cacheAgeMs:null,requestSent:false};
     const failed=(error: GeoError): GeoIoResult<T>=>({value:null,source,error});
     if (!this.config.userAgent.trim() || /^(?:node|bun|undici|fetch|python-requests)(?:\/|$)/i.test(this.config.userAgent.trim())) {
       return failed({code:"configuration",message:"Configure a User-Agent identifying the application before geo requests."});
     }
-    const cacheDirectory=join(this.config.cacheDir ?? globalDirectory(),"responses"), stateDirectory=this.runtime.admissionDir ?? join(globalDirectory(),"admission");
+    const cacheDirectory=this.responsesDirectory(), stateDirectory=this.runtime.admissionDir ?? join(globalDirectory(),"admission");
     const key=hash(JSON.stringify([service,endpoint,url,init.method ?? "GET",String(init.body ?? ""),this.config.userAgent,cacheContext]));
     const cachePath=join(cacheDirectory,key+".json");
     try {
