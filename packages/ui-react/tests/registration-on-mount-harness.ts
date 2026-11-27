@@ -4,6 +4,7 @@ export { ToolCallTimeline } from "../src/components/chat/tool-call-timeline.js";
 export { registerBuiltinRenderers } from "../src/components/chat/renderers/index.js";
 export { brainUiToolPack } from "../src/components/chat/renderers/brain-ui-tools.js";
 export { githubToolPack } from "../src/components/chat/renderers/github-tools.js";
+export { gmailToolPack } from "../src/components/chat/renderers/gmail-tools.js";
 export { apifyToolPack } from "../src/components/chat/renderers/apify-tools.js";
 export { claudeToolPack } from "../src/components/chat/renderers/claude-tools.js";
 export { piToolPack } from "../src/components/chat/renderers/pi-tools.js";

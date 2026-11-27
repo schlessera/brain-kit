@@ -80,6 +80,40 @@ export const GENERIC_RENDERER: ToolRenderer = {
   Output: GenericOutput,
 };
 
+/** The fallback text view of a renderer that failed: the text it would copy, never a link. */
+function ShownText({ tool, renderer }: { tool: ToolCallView; renderer: ToolRenderer }) {
+  if (!tool.output) return null;
+  let text: string | null;
+  try { text = renderer.copyText!(tool); } catch { text = null; }
+  if (text === null) return <p className="text-xs text-muted-foreground">This output can't be shown.</p>;
+  return <ClampedPre text={text} isError={tool.isError} linkify={false} />;
+}
+
+const shownTextRenderers = new WeakMap<ToolRenderer, ToolRenderer>();
+
+/**
+ * What the timeline shows when a renderer throws. A renderer with `copyText`
+ * has said how its output may be shown and copied (a Gmail result: hidden
+ * characters as markers), so its fallback keeps that text, unlinked, for both,
+ * and shows no input. Any other renderer falls back to the generic one.
+ * One object per failed renderer, so its Output keeps its identity across
+ * renders.
+ */
+export function fallbackRenderer(failed: ToolRenderer | null): ToolRenderer {
+  if (!failed?.copyText) return GENERIC_RENDERER;
+  let shown = shownTextRenderers.get(failed);
+  if (!shown) {
+    shown = {
+      match: GENERIC_RENDERER.match,
+      icon: GENERIC_RENDERER.icon,
+      Output: ({ tool }) => <ShownText tool={tool} renderer={failed} />,
+      copyText: (tool) => failed.copyText!(tool),
+    };
+    shownTextRenderers.set(failed, shown);
+  }
+  return shown;
+}
+
 export const genericToolPack: RendererPack = {
   renderers: [GENERIC_RENDERER],
 };

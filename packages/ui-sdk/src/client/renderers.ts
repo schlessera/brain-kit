@@ -68,6 +68,16 @@ export interface ToolRenderer {
   semantics?: ToolSemantics;
   Input?: ComponentType<{ tool: ToolCallView }>;
   Output?: ComponentType<{ tool: ToolCallView }>;
+  /**
+   * What the timeline's Copy output control copies; absent = the output as
+   * stored. A renderer that shows output with its hidden characters as
+   * markers copies it the same way, so a paste never carries what the reader
+   * was not shown. If the renderer throws, the timeline's fallback shows this
+   * text as the output, with no links, and no input view, instead of the
+   * generic view. A call still awaiting approval keeps its approval card,
+   * which shows the input the owner is asked about.
+   */
+  copyText?(tool: ToolCallView): string;
 }
 
 /** @experimental Part of the `ToolRenderer` seam. */

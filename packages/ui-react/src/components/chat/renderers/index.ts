@@ -6,10 +6,11 @@ import { type ToolRendererRegistry } from "@schlessera/brain-ui-sdk/client";
 import { defaultToolRendererRegistry } from "@schlessera/brain-ui-sdk/internal/client";
 import { claudeToolPack } from "./claude-tools.js";
 import { piToolPack } from "./pi-tools.js";
-import { genericToolPack, GENERIC_RENDERER } from "./generic.js";
+import { fallbackRenderer, genericToolPack, GENERIC_RENDERER } from "./generic.js";
 import { brainUiToolPack } from "./brain-ui-tools.js";
 import { apifyToolPack } from "./apify-tools.js";
 import { githubToolPack } from "./github-tools.js";
+import { gmailToolPack } from "./gmail-tools.js";
 
 /**
  * Register the built-in packs (idempotent).
@@ -23,9 +24,10 @@ export function registerBuiltinRenderers(registry: ToolRendererRegistry = defaul
   registry.register(brainUiToolPack);
   registry.register(apifyToolPack);
   registry.register(githubToolPack);
+  registry.register(gmailToolPack);
   registry.register(claudeToolPack);
   registry.register(piToolPack);
   registry.register(genericToolPack);
 }
 
-export { GENERIC_RENDERER };
+export { fallbackRenderer, GENERIC_RENDERER };
