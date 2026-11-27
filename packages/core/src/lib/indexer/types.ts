@@ -116,6 +116,8 @@ export interface ParsedFile {
 /** The document rows already in the index, keyed by path, as the run found them. */
 export interface ExistingDoc {
   id: number;
+  /** `markdown`, or the asset kind; decides which scan the row is swept against. */
+  asset_type: string;
   content_hash: string | null;
   /** The chunker version the document's chunks came from; null before versions were recorded. */
   chunker_version: number | null;
