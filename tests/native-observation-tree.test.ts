@@ -149,3 +149,25 @@ test("the cold-cache row drops the page cache only when an isolated runner opted
   expect(failed, "FAILED_DROP_RUNS_NO_COLD_ADMISSION").toEqual({ available: false, reason: "Page cache drop failed (EACCES: permission denied, open '/proc/sys/vm/drop_caches'); no cold admission ran" });
   expect(admissions).toBe(1);
 });
+
+test("the host answers the container's one cache-drop request, and only that one (#4284)", async () => {
+  const { requestHostCacheDrop, serveHostCacheDrop, COLD_CACHE_RESPONSE } = await import("../scripts/native-proof/observation-tree");
+  const dir = mkdtempSync(join(tmpdir(), "ithaca-cold-"));
+  try {
+    let drops = 0;
+    const host = serveHostCacheDrop(dir, () => { drops++; }, 5);
+    try {
+      await Bun.sleep(30);
+      expect(drops, "NO_REQUEST_NO_DROP").toBe(0);
+      await requestHostCacheDrop(dir, 5000, 5);
+      expect(drops, "ONE_REQUEST_ONE_DROP").toBe(1);
+      rmSync(join(dir, COLD_CACHE_RESPONSE));
+      await expect(requestHostCacheDrop(dir, 100, 5), "A_SECOND_REQUEST_IS_NEVER_ANSWERED").rejects.toThrow("did not answer");
+      expect(drops).toBe(1);
+    } finally { host.stop(); }
+    const refused = mkdtempSync(join(dir, "refused-"));
+    const failing = serveHostCacheDrop(refused, () => { throw Error("sudo -n drop exited 1: a password is required"); }, 5);
+    try { await expect(requestHostCacheDrop(refused, 5000, 5), "HOST_REFUSAL_REACHES_THE_ROW").rejects.toThrow("a password is required"); }
+    finally { failing.stop(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

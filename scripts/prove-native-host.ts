@@ -1,4 +1,4 @@
-import { nativeRunnerOptions, observationTreeOptions, type NativeRunnerOptions, type ObservationTree } from "./native-proof/observation-tree.js";
+import { nativeRunnerOptions, observationTreeOptions, serveHostCacheDrop, type NativeRunnerOptions, type ObservationTree } from "./native-proof/observation-tree.js";
 /** Required offline Btrfs/Unix-manager hosted proof; missing prerequisites fail. */
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -74,6 +74,8 @@ if (import.meta.main) {
       const args = nativeHostDockerArgs(root, artifact, uid, backend, apparmor, retainIndexNamespace, realpathSync(process.execPath), applyTiming, observationTiming, tree, runner);
       console.log(`Native ${backend} uid ${uid} hosted proof artifacts: ${artifact}`);
       const runnerQuota = readFileSync("/proc/sys/user/max_user_namespaces", "utf8");
+      // #4284: the one host cache drop an isolated runner's --cold-cache admission asks for.
+      const drops = runner.coldCache === "isolated" ? serveHostCacheDrop(artifact) : undefined;
       const child = Bun.spawn(args, { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
       const signals = ["SIGINT", "SIGTERM"] as const;
       const forward = (signal: NodeJS.Signals) => child.kill(signal);
@@ -81,6 +83,7 @@ if (import.meta.main) {
       let code: number, runnerQuotaChanged = false;
       try { code = await child.exited; }
       finally {
+        drops?.stop();
         for (const signal of signals) process.off(signal, forward);
         const after = readFileSync("/proc/sys/user/max_user_namespaces", "utf8");
         writeFileSync(join(artifact, "runner-quota.json"), JSON.stringify({ before: runnerQuota, after, unchanged: runnerQuota === after }));

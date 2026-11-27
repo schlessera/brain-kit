@@ -76,9 +76,14 @@ empties the page, dentry and inode caches of the whole host. It runs only when
 the runner also declares itself isolated with
 `BRAIN_NATIVE_PROOF_ISOLATED_RUNNER=1` in the environment of
 `prove-native-host.ts`: a throwaway VM or a dedicated host that nothing else
-uses. Without that declaration, or when the drop fails, the row stays
-`{ available: false, reason }` and no cold admission runs. A present row is
-`{ available: true, dropMs, sample }`, where `sample` has the same shape as a
+uses. The proof's AppArmor profile denies writes under `/proc/sys/vm` and is
+not widened for this: the proof writes `cold-cache-request.json` into its run
+directory, and `prove-native-host.ts` drops the cache on the host (directly as
+root, otherwise through `sudo -n`) and answers in `cold-cache-response.json`.
+It answers one request per run. Without the declaration, or when the drop
+fails, the row stays `{ available: false, reason }` and no cold admission
+runs. A present row is `{ available: true, dropMs, sample }`: `dropMs` spans
+the request to the host's confirmation, and `sample` has the same shape as a
 warm sample. Default runs omit the `tree` section. Admission scenarios and warm samples
 retain the integration base's backend milestones, backend steps and missing
 evidence; closing steps remain in their sibling artifact. Parameter values

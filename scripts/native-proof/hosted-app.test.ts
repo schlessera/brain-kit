@@ -1,5 +1,5 @@
 import { admissionTimingSample } from "./admission-timing.js";
-import { seedObservationTree, observationTreeWatchdog, observationRunTimeout, coldCacheRow, dropPageCache, type ColdCacheRequest, type ObservationTree } from "./observation-tree.js";
+import { seedObservationTree, observationTreeWatchdog, observationRunTimeout, coldCacheRow, requestHostCacheDrop, type ColdCacheRequest, type ObservationTree } from "./observation-tree.js";
 import { backendStartupSamples, requireAdmissionSteps } from "./lifecycle-timing.js";
 import { observationWindowTrace, type RecordedTrace } from "./observation-recording.js";
 import { observationMatrixRequest } from "./observation-hold.js";
@@ -438,7 +438,7 @@ print(json.dumps(result))`;
         startupSample(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null)),
         harbour.slice(-5).map(turnId => startupSample(lifecycles().find(record => record.turnId === turnId))));
       // #4284: the same conversation's next admission, once, after the page cache is dropped.
-      const coldCache = tree ? await coldCacheRow(COLD_CACHE, dropPageCache, async () => lifecycleOf((await turn("Odysseus requests the Ithaca harbour record after the cache drop on 2026-07-12.", "odysseus-ithaca-cold-cache", harbourSession, 60000)).turnId)) : undefined;
+      const coldCache = tree ? await coldCacheRow(COLD_CACHE, () => requestHostCacheDrop("/proof"), async () => lifecycleOf((await turn("Odysseus requests the Ithaca harbour record after the cache drop on 2026-07-12.", "odysseus-ithaca-cold-cache", harbourSession, 60000)).turnId)) : undefined;
       // Past the hosted app's one-minute idle observation interval.
       const IDLE_WAIT_MS = 65_000;
       // (b) A few hundred notes change while no turn runs, as a sync or maintenance pass would.
