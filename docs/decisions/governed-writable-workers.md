@@ -2155,8 +2155,9 @@ refused (`const WAL_INDEX`,
 changed stage file before or during its copy now names the inspected and the
 found stamp, so a recurrence identifies what changed.
 
-**Not covered.** Copy-staged publication (`worker-output.ts`), used without
-native storage, has the same comparison (#4009). Which stage writer
+**Not covered.** Copy-staged publication has the same comparison (#4009); since
+#4707 it is a test fixture only (`packages/ui-sdk/tests/helpers/worker-copy-output.ts`)
+and no host runs it. Which stage writer
 changed `brain.db` before its copy in the earlier timing runs is #4010.
 Publishing the family is still a sequence of renames, not one atomic step.
 

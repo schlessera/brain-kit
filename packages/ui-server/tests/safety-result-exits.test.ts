@@ -733,7 +733,7 @@ test('ready Claude collection records structured hook searches instead of ambigu
   const {createTurnRecorder}=await import('../src/activity/recorder');
   const {createActivityStore}=await import('../src/activity/store');
   const {recordGovernanceEvent}=await import('../src/governance/events');
-  const {adaptStreamEvent}=await import('../../ui-backend-claude/src/stream-adapter');
+  const {StreamAdapter}=await import('../../ui-backend-claude/src/stream-adapter');
   const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
   untrustedMarkOperations(f.db).mark('123',null,Date.UTC(2026,6,12));
   let ready=false;
@@ -751,7 +751,7 @@ test('ready Claude collection records structured hook searches instead of ambigu
   // sdk.d.ts:6280-6293 separately exposes tool_use_result on user messages.
   const post=wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!.hooks[0]!;
   await post({hook_event_name:'PostToolUse',tool_name:'Glob',tool_use_id:id,tool_input:input,tool_response:response} as never,id,{signal:f.controller.signal});
-  for(const frame of adaptStreamEvent({type:'user',tool_use_result:response,message:{content:[{type:'tool_result',tool_use_id:id,content:[{type:'text',text:'123\nworkspaces/voyage/raft.md'}]}]}} as never))if(frame.type==='tool_result')recorder.observeFrame({...frame,sessionId:'ithaca'});
+  for(const frame of new StreamAdapter().adapt({type:'user',tool_use_result:response,message:{content:[{type:'tool_result',tool_use_id:id,content:[{type:'text',text:'123\nworkspaces/voyage/raft.md'}]}]}} as never))if(frame.type==='tool_result')recorder.observeFrame({...frame,sessionId:'ithaca'});
   await f.idle();
   expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY source").all(),'STRUCTURED_HOOK_PRESERVES_EXACT_FILENAMES_WITHOUT_DISPLAY_UNKNOWN').toEqual([{source:'user_marked',detector:'explicit_untrusted_input'},{source:'workspace_read',detector:'tool_search_output'}]);
   expect(f.chat().coverage.state).toBe('complete');

@@ -18,8 +18,6 @@ import { createPiWorkerReceipts } from "./worker-receipts.js";
 import { createPiWorkerRpcDispatcher, type PiWorkerRpc } from "./worker-rpc.js";
 import { discoversPiExtensions } from "./extension-inspection.js";
 
-export { savedModel } from "./worker-launch.js";
-
 /** What the host saw one call do: the RPCs it made, under the name it ran as (#2834). */
 export type CallExecution = { name: string; host: boolean; lock: boolean; phases: Set<string>; input?: Record<string, unknown> };
 /**
