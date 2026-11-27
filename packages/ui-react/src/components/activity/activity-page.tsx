@@ -3,6 +3,7 @@ import { HygieneFinding, HygieneReviewStrip, useHygieneReview } from "./hygiene-
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Activity as ActivityIcon, RefreshCw } from "../icons.js";
 import type { ActivitySpan, InboxActionItem, InboxQueueItem, SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { useInboxStore, pendingDecisionCount } from "../../stores/inbox-store.js";
@@ -92,11 +93,12 @@ export function ActivityPage() {
   const [report, setReport] = useState<ActivityReportRequest | null>(null);
 
   const inbox = useActivityStore((s) => s.inbox);
-  // Derived from the buffer references, not selected as a fresh array: a
-  // selector returning a new array every call re-renders without end.
-  const buffers = useChatStore((s) => s.buffers);
-  const draft = useChatStore((s) => s.draft);
-  const approvals = useMemo(() => pendingApprovals({ buffers, draft }), [buffers, draft]);
+  // Its wrappers are new on every call, so a shallow selection of them
+  // re-renders without end. Their keys and tool objects are selected flat,
+  // equal on every frame that changes no approval, and paired again here (#4750).
+  const approvalKeys = useChatStore(useShallow((s) => pendingApprovals(s).map((a) => a.key)));
+  const approvalTools = useChatStore(useShallow((s) => pendingApprovals(s).map((a) => a.tool)));
+  const approvals = useMemo(() => approvalTools.map((tool, i) => ({ key: approvalKeys[i]!, tool })), [approvalKeys, approvalTools]);
   const resolveToolApproval = useChatStore((s) => s.resolveToolApproval);
   /**
    * The lens the reader picked, or — until they pick one — the one that has

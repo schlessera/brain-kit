@@ -516,9 +516,12 @@ test("local sheet renders the store's warning, limit and storage outcomes", asyn
   await expect(next.chunk({ index: 1, startMs: 10000, endMs: 20000, data: audio })).rejects.toThrow();
   fault.restore(); await next.end!("storage");
   await expect.poll(() => c.host.querySelector("[role=status]")?.textContent, { message: "write failure reports only the committed prefix" }).toBe("Stopped: this device couldn't save more audio. Saved up to 0:10; the end may be missing.");
+  // The budget is read at begin and again only close to running out (#4745):
+  // begin with room for 30 s of audio and one chunk, so each chunk reads it.
+  const estimate = vi.spyOn(navigator.storage, "estimate").mockResolvedValue({ quota: 1024 * 1024 + 30 * 16_000 + audio.size, usage: 0 });
   const full = c.root.recordings!.sink(); await full.begin!({ mimeType: "audio/webm;codecs=opus" });
   await full.chunk({ index: 0, startMs: 0, endMs: 10000, data: audio });
-  vi.spyOn(navigator.storage, "estimate").mockResolvedValue({ quota: 1, usage: 1 });
+  estimate.mockResolvedValue({ quota: 1, usage: 1 });
   await expect(full.chunk({ index: 1, startMs: 10000, endMs: 20000, data: audio })).rejects.toThrow("storage is full");
   await full.end!("storage");
   await expect.poll(() => c.host.querySelector("[role=status]")?.textContent, { message: "budget outcome reports committed audio" }).toBe("Stopped: storage for recordings is full. Saved up to 0:10.");

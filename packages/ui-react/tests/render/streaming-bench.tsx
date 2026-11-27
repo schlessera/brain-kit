@@ -140,7 +140,8 @@ function measure(messageCount: number, deltas: number, deltasPerFrame: number) {
     // One act() per frame: socket frames do not share a macrotask, so React
     // gets no chance to batch them on its own.
     act(() => {
-      handleServerMessage({ type: "text_delta", text: CHUNKS[i % CHUNKS.length] } as ServerMessage);
+      // Turn-scoped, as a host sends every delta (#4739).
+      handleServerMessage({ type: "text_delta", text: CHUNKS[i % CHUNKS.length], turnId: "turn-bench" } as ServerMessage);
     });
     if ((i + 1) % deltasPerFrame === 0) act(paint);
   }

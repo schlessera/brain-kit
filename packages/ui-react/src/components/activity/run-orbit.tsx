@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { AgentOrbit, type OrbitAgent } from "@schlessera/brain-ui-kit";
 import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
@@ -24,15 +25,18 @@ export function openRecordedAgent(root: ReturnType<typeof useBrainUiRoot>, span:
 }
 /** Approvals must belong to this run and its recorded chat, not the foreground chat. */
 export function useOrbitAgents(spans: ActivitySpan[]) {
-  const buffers = useRootStore("chat", s => s.buffers);
+  const runSession = spans.find(span => !span.parentSpanId)?.sessionId;
+  // The pending tool ids of each run session, as flat `session\0toolId`
+  // strings: equal on every frame that changes no approval (#4750).
+  const waitingIds = useRootStore("chat", useShallow(s => [...new Set(spans.map(span => span.sessionId ?? runSession))].flatMap(session =>
+    !session ? [] : (s.buffers[session]?.messages ?? []).flatMap(message => message.toolCalls.filter(awaitsDecision).map(tool => `${session}\0${tool.id}`)))));
   return useMemo(() => {
     const parent = new Map(spans.map(span => [span.spanId, span]));
-    const runSession = spans.find(span => !span.parentSpanId)?.sessionId;
     const pending = new Map<string, Set<string>>();
-    for (const span of spans) {
-      const session = span.sessionId ?? runSession;
-      if (!session || pending.has(session)) continue;
-      pending.set(session, new Set((buffers[session]?.messages ?? []).flatMap(message => message.toolCalls.filter(awaitsDecision).map(tool => tool.id))));
+    for (const entry of waitingIds) {
+      const cut = entry.indexOf("\0");
+      const session = entry.slice(0, cut);
+      pending.set(session, (pending.get(session) ?? new Set()).add(entry.slice(cut + 1)));
     }
     return spans.filter(span => span.kind === "subagent" && span.parentSpanId).sort((a,b) => a.startedAt - b.startedAt || (a.spanId < b.spanId ? -1 : a.spanId > b.spanId ? 1 : 0)).map(span => {
       const session = span.sessionId ?? runSession;
@@ -47,7 +51,7 @@ export function useOrbitAgents(spans: ActivitySpan[]) {
       });
       return orbitAgent(span, waiting);
     });
-  }, [spans, buffers]);
+  }, [spans, runSession, waitingIds]);
 }
 export function RunOrbit({ agents, onOpen, onOverflow }: { agents: OrbitAgent[]; onOpen: (id: string) => void; onOverflow: () => void }) {
   const container = useRef<HTMLDivElement>(null);
