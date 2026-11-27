@@ -10,9 +10,9 @@
  * - Chat header active network grants + revoke;
  * - Activity approval card scope labels + revision echo + unadvertised refusal.
  */
-import { unregisterNetworkApprovalStackDom } from "./network-approval-stack-dom.js";
+import { registerNetworkApprovalStackDom, unregisterNetworkApprovalStackDom } from "./network-approval-stack-dom.js";
 
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ClientMessage, NetworkApprovalOffer } from "@schlessera/brain-ui-sdk/protocol";
 import { BrainUiProvider } from "../../src/root-context.js";
@@ -23,6 +23,7 @@ import { NetworkApprovalReceipts } from "../../src/components/chat/network-recei
 import { NetworkGrantsBar } from "../../src/components/chat/network-grants-bar.js";
 import { ApprovalCard, approvalOutcome } from "../../src/components/activity/approval-card.js";
 
+beforeAll(registerNetworkApprovalStackDom);
 afterEach(() => {
   cleanup();
 });

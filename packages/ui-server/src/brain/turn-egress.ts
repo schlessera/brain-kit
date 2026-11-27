@@ -323,7 +323,7 @@ export async function prepareTurnEgress(options: {
         projection.restriction === "restricted",
         classes,
         projection.coverage.state,
-        nonPendingReasons, projection.revision,
+        nonPendingReasons,
       ]))
       .digest("hex")
       .slice(0, 16);
