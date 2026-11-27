@@ -904,9 +904,10 @@ async function runChecks(cli: CliContext, after?: { previous: Check[]; attempted
     ["legacy-caches", () => checkLegacyCaches(root)],
     ["embeddings", () => checkEmbeddings(cli)],
     ["reranker", () => checkReranker(cli)],
-    // `claude mcp add` writes the registration; `bun install` can create the
-    // file a registration names.
-    ["mcp", () => checkMcp(root), ["mcp", "deps"]],
+    // `claude mcp add` writes the registration; `bun install`, and the skill
+    // and bin links `symlinks` restores, can create the file a registration
+    // names.
+    ["mcp", () => checkMcp(root), ["mcp", "deps", "symlinks"]],
     ["deps", () => checkDeps(root)],
     // The running package's own manifest. `deps` installs only into a brain
     // with no node_modules, which therefore does not hold the running package.
@@ -914,11 +915,13 @@ async function runChecks(cli: CliContext, after?: { previous: Check[]; attempted
     // The remote's visibility on GitHub; no fix touches a remote.
     ["privacy", () => checkPrivacy(root), []],
     ["eval-baseline", () => checkEvalBaseline(root)],
-    // Loose objects and refs/original; no fix writes a git object or a ref.
-    ["git-storage", () => checkGitStorage(root), []],
-    // Both read git's index, which no fix stages into or out of.
-    ["tracked-leftovers", () => checkTrackedLeftovers(root), []],
-    ["tracked-media", () => checkTrackedMedia(cli), []],
+    // Loose objects and refs/original. Only `deps` can write a git object or
+    // a ref: `bun install` runs the brain's own lifecycle scripts.
+    ["git-storage", () => checkGitStorage(root), ["deps"]],
+    // Both read git's index; only those lifecycle scripts can stage into or
+    // out of it.
+    ["tracked-leftovers", () => checkTrackedLeftovers(root), ["deps"]],
+    ["tracked-media", () => checkTrackedMedia(cli), ["deps"]],
     ["scratch", () => checkScratch(root)],
     ["search-language", () => checkSearchLanguage(cli)],
     ["cache-merge", () => checkCacheMerge(root)],

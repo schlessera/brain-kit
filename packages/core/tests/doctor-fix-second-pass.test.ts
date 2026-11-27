@@ -5,7 +5,7 @@
  * the checks it prints equal a plain `brain doctor` run straight afterwards.
  */
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
@@ -120,3 +120,60 @@ for (const [name, fix, prepare] of states) {
     expect(fixed.checks).toEqual(fresh.checks);
   }, 60_000);
 }
+
+const check = (checks: Check[], id: string) => checks.find((c) => c.id === id);
+
+test("doctor --fix re-runs the mcp check after the symlinks fix restores the file a registration names (#4885)", async () => {
+  const root = makeTempBrain();
+  temps.push(root);
+  git(root, "init", "-q", "-b", "main");
+  // A local skill whose `.claude/skills` link dangles, and a project
+  // registration naming a script reached through that link.
+  mkdirSync(join(root, ".agents", "skills", "harbour", "scripts"), { recursive: true });
+  writeFileSync(join(root, ".agents", "skills", "harbour", "SKILL.md"), "---\nname: harbour\ndescription: Moor the ship in Ithaca's harbour.\n---\n\nMoor the ship.\n");
+  writeFileSync(join(root, ".agents", "skills", "harbour", "scripts", "serve.ts"), "// The harbour master's MCP server.\n");
+  mkdirSync(join(root, ".claude", "skills"), { recursive: true });
+  symlinkSync("../../.agents/skills/scheria", join(root, ".claude", "skills", "harbour"));
+  writeFileSync(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { brain: { command: "bun", args: [".claude/skills/harbour/scripts/serve.ts"] } } }));
+  const before = await doctor(root, []);
+  expect(check(before.checks, "symlinks")?.status).toBe("warn");
+  expect(check(before.checks, "mcp")?.status).toBe("fail");
+
+  const fixed = await doctor(root, ["--fix"]);
+  expect(fixed.fixesApplied).toContain("symlinks");
+  expect(fixed.fixesApplied).not.toContain("mcp");
+  const fresh = await doctor(root, []);
+  expect(check(fresh.checks, "mcp")?.status).toBe("pass");
+  expect(fixed.checks).toEqual(fresh.checks);
+}, 60_000);
+
+test("doctor --fix re-runs the git checks after the deps fix runs the brain's install scripts (#4885)", async () => {
+  const root = makeTempBrain();
+  temps.push(root);
+  // No node_modules, so the deps fix runs `bun install`. The test network
+  // guard keeps a real install out of tests, so a `bun` stub stands in for
+  // one whose postinstall stages a tool leftover and a chart (new loose
+  // objects and index entries); every other `bun` call runs the real one.
+  rmSync(join(root, "node_modules"));
+  git(root, "init", "-q", "-b", "main");
+  const bin = tempDir("brain-doctor-install-");
+  writeFileSync(join(bin, "bun"), [
+    "#!/bin/sh",
+    `for last; do :; done`,
+    `if [ "$last" = install ]; then '${Bun.which("mkdir")}' node_modules && printf 'Finder' > .DS_Store && printf 'chart' > aegean.png && exec git add .DS_Store aegean.png; fi`,
+    `exec '${process.execPath}' "$@"`,
+    "",
+  ].join("\n"));
+  chmodSync(join(bin, "bun"), 0o755);
+  const env = { PATH: `${bin}:${keylessEnv(root).PATH}` };
+  const before = await doctor(root, [], env);
+  expect(check(before.checks, "deps")?.status).toBe("warn");
+  expect(check(before.checks, "tracked-leftovers")?.status).toBe("pass");
+
+  const fixed = await doctor(root, ["--fix"], env);
+  expect(fixed.fixesApplied).toContain("deps");
+  const fresh = await doctor(root, [], env);
+  expect(check(fresh.checks, "tracked-leftovers")?.detail).toBe("1 committed tool leftover(s): .DS_Store");
+  expect(check(fresh.checks, "tracked-media")?.detail).toContain("aegean.png");
+  expect(fixed.checks).toEqual(fresh.checks);
+}, 60_000);
