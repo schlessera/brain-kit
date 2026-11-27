@@ -675,11 +675,13 @@ export function createActivityStore(
     if (root.endedAt !== null) settleInboxBudgetRun(db, runId, "settled", Date.now(), getPricing());
   }
 
-  const joinClient = (record: ActivityTurnLifecycle): ActivityTurnLifecycle => {
-    const row = db.query("SELECT CAST(substr(CAST(receipt AS BLOB), 1, ?) AS TEXT) AS receipt, length(CAST(receipt AS BLOB)) AS receiptBytes FROM activity_turn_clients WHERE turn_id = ?").get(MAX_CLIENT_TURN_RECEIPT_BYTES + 1, record.turnId) as { receipt: string | null; receiptBytes: number | null } | null;
+  /** The client receipt, read in the lifecycle's own statement and capped in SQL; its one placeholder binds the cap. */
+  const CLIENT_RECEIPT = `CAST(substr(CAST(k.receipt AS BLOB), 1, ?) AS TEXT) AS receipt, length(CAST(k.receipt AS BLOB)) AS receiptBytes`;
+  const RECEIPT_CAP = MAX_CLIENT_TURN_RECEIPT_BYTES + 1;
+  const withClient = (record: ActivityTurnLifecycle, row: { receipt: string | null; receiptBytes: number | null }): ActivityTurnLifecycle => {
     const { clientTiming: _timing, clientTimingUnavailable: _unavailable, ...hostRecord } = record;
     const host = lifecycleTiming(hostRecord);
-    if (!row || row.receipt === null) return host;
+    if (row.receipt === null) return host;
     if (row.receiptBytes === null || row.receiptBytes > MAX_CLIENT_TURN_RECEIPT_BYTES) return { ...host, clientTimingUnavailable: "invalid_receipt" };
     try {
       const timing = clientTurnTimingSchema.safeParse(JSON.parse(row.receipt));
@@ -687,28 +689,39 @@ export function createActivityStore(
     } catch { /* Retain the corrupt row; only its optional measurement is unavailable. */ }
     return { ...host, clientTimingUnavailable: "invalid_receipt" };
   };
+  type JoinedRow = { record: string; receipt: string | null; receiptBytes: number | null };
   const lifecycle = (id: string): ActivityTurnLifecycle | null => {
     const read = () => {
-      const row = db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id = ?").get(id) as { record: string } | null;
-      return row ? joinClient(JSON.parse(row.record)) : null;
+      const row = db.query(`SELECT l.record, ${CLIENT_RECEIPT} FROM activity_turn_lifecycles l LEFT JOIN activity_turn_clients k ON k.turn_id = l.turn_id
+        WHERE l.turn_id = ?`).get(RECEIPT_CAP, id) as JoinedRow | null;
+      return row ? withClient(JSON.parse(row.record), row) : null;
     };
     return readSnapshot(read);
   };
   const lifecycles = (sessionId?: string, limit = 100): ActivityTurnLifecycle[] => {
     const read = () => {
       const rows = sessionId === undefined
-        ? db.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at DESC LIMIT ?").all(limit)
-        : db.query("SELECT record FROM activity_turn_lifecycles WHERE session_id = ? ORDER BY accepted_at DESC LIMIT ?").all(sessionId, limit);
-      return (rows as { record: string }[]).map(row => joinClient(JSON.parse(row.record)));
+        ? db.query(`SELECT l.record, ${CLIENT_RECEIPT} FROM activity_turn_lifecycles l LEFT JOIN activity_turn_clients k ON k.turn_id = l.turn_id
+          ORDER BY l.accepted_at DESC LIMIT ?`).all(RECEIPT_CAP, limit)
+        : db.query(`SELECT l.record, ${CLIENT_RECEIPT} FROM activity_turn_lifecycles l LEFT JOIN activity_turn_clients k ON k.turn_id = l.turn_id
+          WHERE l.session_id = ? ORDER BY l.accepted_at DESC LIMIT ?`).all(RECEIPT_CAP, sessionId, limit);
+      return (rows as JoinedRow[]).map(row => withClient(JSON.parse(row.record), row));
     };
     return readSnapshot(read);
   };
   return {
     writer,
     previousSessionRoot(spanId, sessionId) {
-      const row = db.query(`SELECT * FROM activity_spans WHERE parent_span_id IS NULL AND COALESCE(session_id, json_extract(attrs, '$."session.id"')) = ?
-        AND origin = 'session' AND name = 'invoke_agent' AND rowid < (SELECT rowid FROM activity_spans WHERE span_id = ?)
-        ORDER BY rowid DESC LIMIT 1`).get(sessionId, spanId);
+      // The session is the root's column or, while that is NULL, its attribute: one indexed lookup each, newest wins.
+      const row = db.query(`SELECT * FROM activity_spans WHERE rowid IN (
+          SELECT rowid FROM (SELECT rowid FROM activity_spans WHERE parent_span_id IS NULL AND session_id = ?
+            AND origin = 'session' AND name = 'invoke_agent' AND rowid < (SELECT rowid FROM activity_spans WHERE span_id = ?)
+            ORDER BY rowid DESC LIMIT 1)
+          UNION ALL
+          SELECT rowid FROM (SELECT rowid FROM activity_spans WHERE parent_span_id IS NULL AND session_id IS NULL AND json_valid(attrs) AND json_extract(attrs, '$."session.id"') = ?
+            AND origin = 'session' AND name = 'invoke_agent' AND rowid < (SELECT rowid FROM activity_spans WHERE span_id = ?)
+            ORDER BY rowid DESC LIMIT 1))
+        ORDER BY rowid DESC LIMIT 1`).get(sessionId, spanId, sessionId, spanId);
       if (!row) return null;
       const prior = rowToSpan(row);
       // A pruned newer turn is a gap, never permission to compare an older
@@ -730,15 +743,19 @@ export function createActivityStore(
       return readSnapshot(() => {
         const records = scope.turnId ? [lifecycle(scope.turnId)].filter((record): record is ActivityTurnLifecycle => record !== null)
           : lifecycles(scope.sessionId, scope.limit);
-        return { lifecycles: records, highWaterSeq: Object.fromEntries(records.map(record => [record.lifecycleId, runHighWaterSeqRaw(record.lifecycleId)])) };
+        // Every returned run's high water in one grouped read; a run with no change row stays 0, as `nextSeq` reads it.
+        const highWater = new Map((db.query("SELECT run_id, MAX(seq) AS hi FROM activity_changes WHERE run_id IN (SELECT value FROM json_each(?)) GROUP BY run_id")
+          .all(JSON.stringify(records.map(record => record.lifecycleId))) as Array<{ run_id: string; hi: number }>).map(row => [row.run_id, row.hi]));
+        return { lifecycles: records, highWaterSeq: Object.fromEntries(records.map(record => [record.lifecycleId, highWater.get(record.lifecycleId) ?? 0])) };
       });
     },
     lifecycleChangesSince(cursor, limit = 500) {
       return readSnapshot(() => {
-        const rows = db.query(`SELECT c.change_id,c.run_id,c.seq,l.record FROM activity_changes c
+        const rows = db.query(`SELECT c.change_id,c.run_id,c.seq,l.record,${CLIENT_RECEIPT} FROM activity_changes c
           JOIN activity_turn_lifecycles l ON l.turn_id = substr(c.run_id, 11) AND c.span_id = c.run_id
-          WHERE c.change_id > ? ORDER BY c.change_id LIMIT ?`).all(cursor, limit) as any[];
-        return rows.map(r => ({changeId:r.change_id,runId:r.run_id,seq:r.seq,kind:"lifecycle" as const,lifecycle:joinClient(JSON.parse(r.record))}));
+          LEFT JOIN activity_turn_clients k ON k.turn_id = l.turn_id
+          WHERE c.change_id > ? ORDER BY c.change_id LIMIT ?`).all(RECEIPT_CAP, cursor, limit) as any[];
+        return rows.map(r => ({changeId:r.change_id,runId:r.run_id,seq:r.seq,kind:"lifecycle" as const,lifecycle:withClient(JSON.parse(r.record), r)}));
       });
     },
     writeClientReceipt(turnId, principalId, timing) {
