@@ -42,3 +42,8 @@ export function indexStaleness(db: Database, root: string, taxonomy: Taxonomy): 
   for (const path of indexed.keys()) if (!seen.has(path)) stale++;
   return { stale, indexed: rows.length };
 }
+
+/** The read tools' warning for `stale` stale files: one sentence for MCP and the CLI. */
+export function staleWarning(stale: number): string {
+  return `index is stale (${stale} file(s) newer than index); run \`brain index\``;
+}

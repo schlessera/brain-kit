@@ -31,7 +31,7 @@ import { packageVersion } from "./package-version.js";
 import { registerModuleTools } from "./lib/module-mcp-tools.js";
 import { APIFY_DESCRIPTIONS, APIFY_INPUT_SCHEMAS, APIFY_OPERATIONS, APIFY_TOOL_NAMES } from "@schlessera/brain-common/internal/apify-operations";
 import { createStandaloneApify, type StandaloneApify } from "./lib/apify/standalone.js";
-import { indexStaleness } from "./lib/ops/staleness.js";
+import { indexStaleness, staleWarning } from "./lib/ops/staleness.js";
 import { DOCUMENT_PAGE_MAX_BYTES } from "./lib/document-page.js";
 import { coverageNote } from "./lib/context-assembler.js";
 import {
@@ -127,7 +127,7 @@ function stalenessWarning(db: Database, brain: BrainContext): () => string | nul
     let warning: string | null = null;
     try {
       const { stale } = indexStaleness(db, brain.root, brain.taxonomy);
-      if (stale > 0) warning = `index is stale (${stale} file(s) newer than index); run \`brain index\``;
+      if (stale > 0) warning = staleWarning(stale);
     } catch {
       // Never let the staleness probe break a read.
     }

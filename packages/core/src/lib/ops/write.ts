@@ -28,7 +28,7 @@ export function splitTags(tags: string): string[] {
   return tags.split(",").map((t) => t.trim()).filter(Boolean);
 }
 
-const reindex = (deps: WriteDeps) => (db: Database) =>
+const reindex = (deps: Pick<WriteDeps, "root" | "taxonomy">) => (db: Database) =>
   indexAll(db, { root: deps.root, taxonomy: deps.taxonomy, force: false, quiet: true });
 
 export interface AddInput {
@@ -121,11 +121,19 @@ export async function updateDocumentFields(deps: WriteDeps, input: UpdateInput):
   return { path: input.path, updated, changes };
 }
 
-/** Archive a document and reindex; a dry run previews without writing. */
-export function archiveWithReindex(deps: WriteDeps, input: { path: string; dryRun: boolean }): Promise<ArchiveResult> {
+/**
+ * Archive a document and reindex; a dry run previews without writing. Without
+ * a `db` the archiver opens its own handle with `embeddingDimensions` and
+ * migrates the vector schema before the reindex, as `brain archive` does.
+ */
+export function archiveWithReindex(
+  deps: Omit<WriteDeps, "db"> & { db?: Database; embeddingDimensions?: number },
+  input: { path: string; dryRun: boolean }
+): Promise<ArchiveResult> {
   return archiveDocument(deps.root, input.path, {
     dryRun: input.dryRun,
     db: deps.db,
+    embeddingDimensions: deps.embeddingDimensions,
     reindex: input.dryRun ? undefined : reindex(deps),
   });
 }
