@@ -159,6 +159,29 @@ describe("bodies on stdin", () => {
   }
 });
 
+describe("approved draft bodies reach stdin unchanged", () => {
+  const bodies: [string, string][] = [
+    ["ASCII", "Home to Ithaca."],
+    ["astral emoji", "Home \u{1F600}"],
+    ["combining marks", "Pe\u0301nelope"],
+    ["CRLF", "Home\r\nto Ithaca.\r\n"],
+    ["32,768 characters", "a".repeat(32_768)],
+  ];
+  for (const action of ["create", "update"] as const) {
+    for (const [name, body] of bodies) {
+      test(`${action}: ${name} round-trips through the real schema and invocation`, () => {
+        const input = action === "create"
+          ? { action, to: ["penelope@example.com"], subject: "Home", body }
+          : { action, draft_id: "r-1234567890123456789", body };
+        const { call } = build("gmail.draft.save", input);
+        expect(call.command).toBe(action === "create" ? "gmail.drafts.create" : "gmail.drafts.update");
+        expect(call.stdin).not.toBeNull();
+        expect(new TextDecoder().decode(call.stdin!)).toBe(body);
+      });
+    }
+  }
+});
+
 describe("hostile values are refused or built safely", () => {
   const refused = (operation: GoogleOperation, input: unknown) => GOG_OPERATION_INPUTS[operation].safeParse(input).success;
   const valueOf = (argv: string[], flag: string) => argv.filter(arg => arg.startsWith(`--${flag}=`));
