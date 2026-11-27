@@ -1,9 +1,10 @@
 import { createFixtureWorkerStartupView, launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { describe, expect, spyOn, test } from "bun:test";
-import { closeSync, existsSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statfsSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
 import { join, resolve } from "node:path";
 import { chmodSync } from "node:fs";
+import * as fs from "node:fs";
 import { launchAgentWorker as launchUnpreparedWorker, launchAgentWorkerAsync, prepareWorkerSandbox, probeWorkerHost, restrictedReadPaths, workerBootstrap, workerCommand, WorkerHostError, type WorkerLaunch } from "../src/server/worker-launcher";
 import { WORKER_INFERENCE_DIR } from "../src/server/inference-relay";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
@@ -351,41 +352,45 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
     const reap = (sandbox: Identity[]) => { for (const target of sandbox) if (alive(target)) try { process.kill(target.pid, "SIGKILL"); } catch { /* gone */ } };
 
     test("launchAgentWorkerAsync, with its sandbox held before its setup ends", async () => {
-      const f = fixture();
-      const ownNamespace = readlinkSync("/proc/self/ns/pid");
-      const view = keptView(f.brain);
-      let held: Identity | undefined, polling = true;
-      // The barrier: stop the sandbox as soon as bubblewrap has cloned it,
-      // which is before it can have armed its parent-death signal.
-      const hold = () => {
-        if (!polling) return;
-        for (const supervisor of procChildren(process.pid)) for (const child of procChildren(supervisor.pid)) {
-          try {
-            if (readlinkSync(`/proc/${child.pid}/ns/pid`) === ownNamespace) continue;
-            process.kill(child.pid, "SIGSTOP");
-            held = { pid: child.pid, start: child.start };
-            return;
-          } catch { /* gone or not yet readable */ }
-        }
-        setImmediate(hold);
-      };
-      try {
-        setImmediate(hold);
-        const worker = await launchAgentWorkerAsync({ brainPath: f.brain, env: {}, command, startupView: view.startupView });
-        // Read before the kill: a dead supervisor's children are reparented.
-        const sandbox = sandboxOf(worker.pid);
-        worker.kill("SIGKILL");
-        polling = false;
-        expect(held, "SANDBOX_HELD").toBeDefined();
-        expect(sandbox, "SANDBOX_HELD_IS_THE_REPORTED_ONE").toEqual([held!]);
-        // Stopped with no child yet: it has not forked the program's process,
-        // which comes after its setup, so it has not armed the signal.
-        expect(readProcStat(held!.pid)?.state, "SANDBOX_STOPPED").toBe("T");
-        expect(procChildren(held!.pid), "SANDBOX_HELD_BEFORE_ITS_FORK").toEqual([]);
-        await worker.exited;
-        process.kill(held!.pid, "SIGCONT");
-        await stopped(worker, [held!]);
-      } finally { polling = false; if (held) reap([held]); view.release(); f.cleanup(); }
+      const readlink = fs.readlinkSync;
+      // The barrier: the launcher reads the reported sandbox's PID namespace
+      // as soon as bubblewrap reports it, right after the clone. Stopping the
+      // sandbox there, synchronously, holds it before its setup ends. A hold
+      // that lands after its fork (a loaded host) is retried, never judged.
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const f = fixture(), view = keptView(f.brain);
+        let held: Identity | undefined;
+        const spy = spyOn(fs, "readlinkSync").mockImplementation(((path: fs.PathLike, options?: unknown) => {
+          const pid = Number(/^\/proc\/(\d+)\/ns\/pid$/.exec(String(path))?.[1]);
+          if (!held && pid) {
+            const start = readProcStat(pid)?.start;
+            if (start !== undefined) { process.kill(pid, "SIGSTOP"); held = { pid, start }; }
+          }
+          return readlink(path, options as never);
+        }) as typeof fs.readlinkSync);
+        let worker: Awaited<ReturnType<typeof launchAgentWorkerAsync>> | undefined;
+        try {
+          try { worker = await launchAgentWorkerAsync({ brainPath: f.brain, env: {}, command, startupView: view.startupView }); }
+          finally { spy.mockRestore(); }
+          // Read before the kill: a dead supervisor's children are reparented.
+          const sandbox = sandboxOf(worker.pid);
+          worker.kill("SIGKILL");
+          expect(held, "SANDBOX_HELD").toBeDefined();
+          expect(sandbox, "SANDBOX_HELD_IS_THE_REPORTED_ONE").toEqual([held!]);
+          let stoppedState = readProcStat(held!.pid)?.state;
+          const deadline = performance.now() + watchdogMs(10_000);
+          while (stoppedState !== "T" && performance.now() < deadline) { await Bun.sleep(1); stoppedState = readProcStat(held!.pid)?.state; }
+          expect(stoppedState, "SANDBOX_STOPPED").toBe("T");
+          // A child means it has forked the program's process, which comes
+          // after its setup, so it may have armed the signal: try again.
+          if (procChildren(held!.pid).length) { reap([held!]); await worker.exited; continue; }
+          await worker.exited;
+          process.kill(held!.pid, "SIGCONT");
+          await stopped(worker, [held!]);
+          return;
+        } finally { spy.mockRestore(); if (held) reap([held]); view.release(); f.cleanup(); }
+      }
+      throw new Error("SANDBOX_NEVER_HELD_BEFORE_ITS_FORK");
     });
 
     test.each([
