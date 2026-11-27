@@ -13,10 +13,11 @@
  * temporary file into place, which fails when the name is taken. Retirement
  * moves only the exact file identity whose bytes were verified.
  */
-import { constants, existsSync } from "node:fs";
-import { link, lstat, mkdir, open, readdir, rename, unlink, type FileHandle } from "node:fs/promises";
+import { constants } from "node:fs";
+import { link, lstat, open, readdir, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
+import { assertChain, closeChain, directoryChain, errno, type RefuseChain } from "../files/anchored-chain.js";
 import { DEFINITIONS_DIR, MAX_DEFINITION_FILE_BYTES, RETIRED_DIR } from "./definition.js";
 
 export class ScheduleFileConflictError extends Error {}
@@ -24,71 +25,9 @@ export class ScheduleContainmentError extends Error {}
 
 /** Interrupted temporaries older than this belong to a writer that stopped. */
 export const TEMPORARY_REAP_AGE_MS = 60 * 60_000;
-const ANCHORED = process.platform === "linux" && existsSync("/proc/self/fd");
-const DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
-
-function errno(error: unknown): string | undefined {
-  return (error as NodeJS.ErrnoException | undefined)?.code;
-}
-
-interface Directory {
-  handle: FileHandle;
-  path: string;
-  dev: number;
-  ino: number;
-  /** A path for `name` inside exactly this open directory. */
-  at(name: string): string;
-}
-
-async function openDirectory(path: string, display: string): Promise<Directory> {
-  let handle: FileHandle;
-  try { handle = await open(path, DIRECTORY_FLAGS); }
-  catch (error) {
-    if (errno(error) === "ELOOP" || errno(error) === "ENOTDIR") throw new ScheduleContainmentError("Schedule directory is not a contained directory");
-    throw error;
-  }
-  const info = await handle.stat();
-  return {
-    handle, path: display, dev: info.dev, ino: info.ino,
-    at: (name) => ANCHORED ? `/proc/self/fd/${handle.fd}/${name}` : join(display, name),
-  };
-}
-
-/** Open (and optionally create) a relative directory chain under the root. */
-async function directoryChain(root: string, relative: string, create: boolean): Promise<Directory[] | null> {
-  const chain: Directory[] = [];
-  try {
-    chain.push(await openDirectory(root, root));
-    for (const segment of relative.split("/")) {
-      const parent = chain.at(-1)!;
-      const target = parent.at(segment), display = join(parent.path, segment);
-      try { chain.push(await openDirectory(target, display)); continue; }
-      catch (error) { if (errno(error) !== "ENOENT") throw error; }
-      if (!create) { await closeChain(chain); return null; }
-      try { await mkdir(target, { mode: 0o755 }); }
-      catch (error) { if (errno(error) !== "EEXIST") throw error; }
-      chain.push(await openDirectory(target, display));
-    }
-    return chain;
-  } catch (error) {
-    await closeChain(chain);
-    throw error;
-  }
-}
-
-async function closeChain(chain: Directory[] | null): Promise<void> {
-  for (const entry of chain ?? []) await entry.handle.close().catch(() => {});
-}
-
-/** Path-mode fallback only: the paths must still name the opened directories. */
-async function assertChain(chain: Directory[]): Promise<void> {
-  if (ANCHORED) return;
-  for (const entry of chain) {
-    const info = await lstat(entry.path);
-    if (info.isSymbolicLink() || !info.isDirectory() || info.dev !== entry.dev || info.ino !== entry.ino)
-      throw new ScheduleContainmentError("Schedule directory changed during a file operation");
-  }
-}
+const refuse: RefuseChain = (reason) => new ScheduleContainmentError(reason === "changed"
+  ? "Schedule directory changed during a file operation"
+  : "Schedule directory is not a contained directory");
 
 /** Open a bounded regular file without following a symlink; null when absent. */
 async function openContained(path: string): Promise<{ bytes: Buffer; ino: number } | null> {
@@ -152,7 +91,7 @@ export function createScheduleFiles(root: string): ScheduleFiles {
   return {
     async publish(id, text) {
       const bytes = Buffer.from(text, "utf8");
-      const chain = (await directoryChain(root, DEFINITIONS_DIR, true))!;
+      const chain = (await directoryChain(root, DEFINITIONS_DIR, true, refuse))!;
       try {
         const dir = chain.at(-1)!, final = dir.at(name(id));
         const existing = await openContained(final);
@@ -160,10 +99,10 @@ export function createScheduleFiles(root: string): ScheduleFiles {
           if (!existing.bytes.equals(bytes)) throw new ScheduleFileConflictError("A different definition file already exists");
           // Another publisher may not have synced its entry yet.
           await dir.handle.sync();
-          await assertChain(chain);
+          await assertChain(chain, refuse);
           return;
         }
-        await assertChain(chain);
+        await assertChain(chain, refuse);
         const temporary = dir.at(`.${id}.md.${crypto.randomUUID()}.tmp`);
         const handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
         try {
@@ -181,7 +120,7 @@ export function createScheduleFiles(root: string): ScheduleFiles {
           await unlink(temporary).catch(() => {});
         }
         await dir.handle.sync();
-        await assertChain(chain);
+        await assertChain(chain, refuse);
         // Same inode or not, only the approved bytes count as published.
         const published = await openContained(final);
         if (!published?.bytes.equals(bytes)) throw new ScheduleFileConflictError("Published definition changed");
@@ -190,10 +129,10 @@ export function createScheduleFiles(root: string): ScheduleFiles {
 
     async retire(id, text) {
       const bytes = Buffer.from(text, "utf8");
-      const active = await directoryChain(root, DEFINITIONS_DIR, false);
+      const active = await directoryChain(root, DEFINITIONS_DIR, false, refuse);
       let archive: Directory[] | null = null;
       try {
-        archive = (await directoryChain(root, RETIRED_DIR, true))!;
+        archive = (await directoryChain(root, RETIRED_DIR, true, refuse))!;
         const source = active ? active.at(-1)!.at(name(id)) : null;
         // Finish a retirement interrupted after its claiming rename: archive a
         // claimed verified file, or put back anything else.
@@ -217,7 +156,7 @@ export function createScheduleFiles(root: string): ScheduleFiles {
         const current = source ? await openContained(source) : null;
         // Nothing active remains. Retirement is complete either way; matching
         // data cannot revive a cancelled ID.
-        if (!current) { await assertChain(archive); return true; }
+        if (!current) { await assertChain(archive, refuse); return true; }
         if (!current.bytes.equals(bytes)) return false;
         const activeDir = active!.at(-1)!, archiveDir = archive.at(-1)!;
         const destination = archiveDir.at(name(id));
@@ -245,24 +184,24 @@ export function createScheduleFiles(root: string): ScheduleFiles {
         await archiveDir.handle.sync();
         await unlink(claimed);
         await activeDir.handle.sync();
-        await assertChain(active!);
-        await assertChain(archive);
+        await assertChain(active!, refuse);
+        await assertChain(archive, refuse);
         return true;
       } finally { await closeChain(active); await closeChain(archive); }
     },
 
     async readActive(id) {
-      const chain = await directoryChain(root, DEFINITIONS_DIR, false);
+      const chain = await directoryChain(root, DEFINITIONS_DIR, false, refuse);
       if (!chain) return null;
       try {
         const file = await openContained(chain.at(-1)!.at(name(id)));
-        await assertChain(chain);
+        await assertChain(chain, refuse);
         return file?.bytes ?? null;
       } finally { await closeChain(chain); }
     },
 
     async reapTemporaries(id, olderThan) {
-      const chain = await directoryChain(root, DEFINITIONS_DIR, false);
+      const chain = await directoryChain(root, DEFINITIONS_DIR, false, refuse);
       if (!chain) return;
       try {
         const dir = chain.at(-1)!, prefix = `.${id}.md.`;

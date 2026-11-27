@@ -15,9 +15,8 @@
  * so an existing name is never overwritten.
  */
 import { createHash } from "node:crypto";
-import { constants, existsSync } from "node:fs";
-import { link, lstat, mkdir, open, readdir, rename, unlink, type FileHandle } from "node:fs/promises";
-import { join } from "node:path";
+import { constants } from "node:fs";
+import { link, open, readdir, rename, unlink, type FileHandle } from "node:fs/promises";
 import type { Database } from "bun:sqlite";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import {
@@ -33,6 +32,7 @@ import {
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { LiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
 import { getLivePersonaSelection } from "../db/settings.js";
+import { assertChain, closeChain, directoryChain, errno, type RefuseChain } from "../files/anchored-chain.js";
 import type { SettingsWrites } from "../db/settings-writes.js";
 
 const PERSONA_DIR = "_voice/personas";
@@ -40,8 +40,6 @@ export const PERSONA_ID = /^[a-z0-9-]{1,48}$/;
 const PROVIDER_KEY = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const VOICE_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const CONTROL = /\p{Cc}/u;
-const ANCHORED = process.platform === "linux" && existsSync("/proc/self/fd");
-const DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 
 /** A refusal the routes map to a fixed status and code; never carries persona text. */
 export class PersonaError extends Error {
@@ -144,54 +142,7 @@ function capped(personas: LivePersona[]): LivePersona[] {
 
 // --- anchored file access ---
 
-interface Directory { handle: FileHandle; path: string; dev: number; ino: number; at(name: string): string }
-
-function errno(error: unknown): string | undefined { return (error as NodeJS.ErrnoException | undefined)?.code; }
-
-async function openDirectory(path: string, display: string): Promise<Directory> {
-  let handle: FileHandle;
-  try { handle = await open(path, DIRECTORY_FLAGS); }
-  catch (error) {
-    if (errno(error) === "ELOOP" || errno(error) === "ENOTDIR") throw new PersonaError(503, "PERSONA_STORAGE");
-    throw error;
-  }
-  const info = await handle.stat();
-  return { handle, path: display, dev: info.dev, ino: info.ino, at: name => ANCHORED ? `/proc/self/fd/${handle.fd}/${name}` : join(display, name) };
-}
-
-async function closeChain(chain: Directory[] | null): Promise<void> {
-  for (const entry of chain ?? []) await entry.handle.close().catch(() => {});
-}
-
-async function directoryChain(root: string, create: boolean): Promise<Directory[] | null> {
-  const chain: Directory[] = [];
-  try {
-    chain.push(await openDirectory(root, root));
-    for (const segment of PERSONA_DIR.split("/")) {
-      const parent = chain.at(-1)!;
-      const target = parent.at(segment), display = join(parent.path, segment);
-      try { chain.push(await openDirectory(target, display)); continue; }
-      catch (error) { if (errno(error) !== "ENOENT") throw error; }
-      if (!create) { await closeChain(chain); return null; }
-      try { await mkdir(target, { mode: 0o755 }); }
-      catch (error) { if (errno(error) !== "EEXIST") throw error; }
-      chain.push(await openDirectory(target, display));
-    }
-    return chain;
-  } catch (error) {
-    await closeChain(chain);
-    throw error;
-  }
-}
-
-/** Path-mode fallback: the paths must still name the opened directories. */
-async function assertChain(chain: Directory[]): Promise<void> {
-  if (ANCHORED) return;
-  for (const entry of chain) {
-    const info = await lstat(entry.path);
-    if (info.isSymbolicLink() || !info.isDirectory() || info.dev !== entry.dev || info.ino !== entry.ino) throw new PersonaError(503, "PERSONA_STORAGE");
-  }
-}
+const refuse: RefuseChain = () => new PersonaError(503, "PERSONA_STORAGE");
 
 /** A bounded regular file without following a link; null when absent or not a plain file. */
 async function readContained(path: string): Promise<Uint8Array | null> {
@@ -268,7 +219,7 @@ export function createLivePersonaService(options: {
 
   const readAll = async (): Promise<LivePersona[]> => {
     if (!brainPath) return [];
-    const chain = await directoryChain(brainPath, false);
+    const chain = await directoryChain(brainPath, PERSONA_DIR, false, refuse);
     if (!chain) return [];
     try {
       const dir = chain.at(-1)!;
@@ -279,7 +230,7 @@ export function createLivePersonaService(options: {
         const data = await readContained(dir.at(name));
         if (data) out.push(parsePersona(name.slice(0, -3), data));
       }
-      await assertChain(chain);
+      await assertChain(chain, refuse);
       return capped(out);
     } finally { await closeChain(chain); }
   };
@@ -349,17 +300,17 @@ export function createLivePersonaService(options: {
         if (existing.some(persona => persona.id === id)) throw new PersonaError(409, "PERSONA_EXISTS");
         if (existing.filter(persona => !persona.invalid).length >= LIVE_PERSONA_LIMITS.maxPersonas) throw new PersonaError(409, "PERSONA_LIMIT");
         const text = serializePersona(fields);
-        const chain = (await directoryChain(root, true))!;
+        const chain = (await directoryChain(root, PERSONA_DIR, true, refuse))!;
         try {
           const dir = chain.at(-1)!;
-          await assertChain(chain);
+          await assertChain(chain, refuse);
           const temporary = await writeTemporary(dir, id, text);
           try {
             try { await link(temporary, dir.at(`${id}.md`)); }
             catch (error) { if (errno(error) === "EEXIST") throw new PersonaError(409, "PERSONA_EXISTS"); throw error; }
           } finally { await unlink(temporary).catch(() => {}); }
           await dir.handle.sync();
-          await assertChain(chain);
+          await assertChain(chain, refuse);
         } finally { await closeChain(chain); }
         await refresh(true);
         return parsePersona(id, Buffer.from(text, "utf8"));
@@ -372,7 +323,7 @@ export function createLivePersonaService(options: {
         if (id === STANDARD_PERSONA_ID) throw new PersonaError(409, "PERSONA_READ_ONLY");
         if (!PERSONA_ID.test(id)) throw new PersonaError(404, "PERSONA_NOT_FOUND");
         const fields = validated(input);
-        const chain = await directoryChain(root, false);
+        const chain = await directoryChain(root, PERSONA_DIR, false, refuse);
         if (!chain) throw new PersonaError(404, "PERSONA_NOT_FOUND");
         const text = serializePersona(fields);
         try {
@@ -380,12 +331,12 @@ export function createLivePersonaService(options: {
           const current = await readContained(final);
           if (!current) throw new PersonaError(404, "PERSONA_NOT_FOUND");
           if (revisionOf(current) !== baseRevision) throw new PersonaError(409, "PERSONA_CHANGED");
-          await assertChain(chain);
+          await assertChain(chain, refuse);
           const temporary = await writeTemporary(dir, id, text);
           try { await rename(temporary, final); }
           catch (error) { await unlink(temporary).catch(() => {}); throw error; }
           await dir.handle.sync();
-          await assertChain(chain);
+          await assertChain(chain, refuse);
         } finally { await closeChain(chain); }
         await refresh(true);
         return parsePersona(id, Buffer.from(text, "utf8"));
@@ -397,7 +348,7 @@ export function createLivePersonaService(options: {
         const root = requireRoot();
         if (id === STANDARD_PERSONA_ID) throw new PersonaError(409, "PERSONA_READ_ONLY");
         if (!PERSONA_ID.test(id)) throw new PersonaError(404, "PERSONA_NOT_FOUND");
-        const chain = await directoryChain(root, false);
+        const chain = await directoryChain(root, PERSONA_DIR, false, refuse);
         if (!chain) throw new PersonaError(404, "PERSONA_NOT_FOUND");
         try {
           const dir = chain.at(-1)!, final = dir.at(`${id}.md`);
@@ -411,7 +362,7 @@ export function createLivePersonaService(options: {
             if ((await settingsWrites.saveLivePersonaSelection(selection.revision, STANDARD_PERSONA_ID)).saved) break;
             if (attempt >= 3) throw new PersonaError(409, "LIVE_PERSONA_CHANGED");
           }
-          await assertChain(chain);
+          await assertChain(chain, refuse);
           await unlink(final);
           await dir.handle.sync();
         } finally { await closeChain(chain); }
