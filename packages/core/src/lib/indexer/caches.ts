@@ -361,8 +361,10 @@ export function forgetAssetEntries(root: string, contentHash: string): number {
  * false` whenever the index may not hold a current hash for every asset on
  * disk — a run that follows a rebuild, a plain run that finds a new or edited
  * image, a targeted run that scans no asset. Asset lines are then left alone
- * until a run can tell which ones are gone (#3242). Contexts need no such
- * guard: every run parses every markdown chunk it keeps.
+ * until a run can tell which ones are gone (#3242). Context lines are pruned
+ * against the indexed chunks, so the caller passes `contexts: false` for a
+ * targeted run: it reads only the files it was given, and a note on disk that
+ * the index does not hold yet would lose a line a complete run keeps.
  *
  * Writes only when something was actually removed, so a no-op index run leaves
  * no git diff.
@@ -371,7 +373,7 @@ export function pruneSidecarCaches(
   db: Database,
   root: string,
   warn: (message: string) => void,
-  options: { assets: boolean } = { assets: true }
+  options: { assets: boolean; contexts?: boolean } = { assets: true }
 ): { assets: number; contexts: number } {
   const removed = { assets: 0, contexts: 0 };
 
@@ -387,6 +389,7 @@ export function pruneSidecarCaches(
       removed.assets = removeSidecarLines(root, assetCachePath(root), (k) => !liveHashes.has(assetKeyHash(k)));
     }
 
+    if (options.contexts === false) return removed;
     const chunkRows = db
       .prepare(
         `SELECT c.heading, c.content, d.title
