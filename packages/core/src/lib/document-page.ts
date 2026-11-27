@@ -199,6 +199,7 @@ export function selectDocumentPage(db: Database, input: DocumentPageInput): Docu
     params.push(prefix, prefix.length + 1, `${prefix}/`);
   }
   const scoped = where.join(" AND ") || "1=1";
+  const filtered = input.type !== undefined || input.status !== undefined || input.relevance !== undefined || input.tag !== undefined;
 
   const overview = input.overview === true;
   const columns = overview
@@ -213,9 +214,19 @@ export function selectDocumentPage(db: Database, input: DocumentPageInput): Docu
     const total = db
       .query<{ total: number }, (string | number)[]>(`SELECT COUNT(*) AS total FROM documents d WHERE ${scoped}`)
       .get(...params)!.total;
-    const newest = db
-      .query<{ newest: string | null }, (string | number)[]>(`SELECT MAX(d.indexed_at) AS newest FROM documents d WHERE ${scoped}`)
-      .get(...params)!.newest;
+    // Unfiltered, the newest value searches idx_documents_indexed_at down to
+    // the first row in scope. A type, status, relevance or tag filter makes
+    // SQLite drive from that filter's index instead and read `indexed_at`
+    // behind the body of every match, so a filtered scope selects its ids
+    // first and searches idx_documents_indexed_at alone for the newest one;
+    // `+x.id` keeps the planner from looking each id up in the table. An index
+    // from before schema 16 has no idx_documents_indexed_at, and that form
+    // would scan every row there: it keeps the direct statement.
+    const newestSql =
+      filtered && db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_documents_indexed_at'").get() !== null
+        ? `SELECT MAX(x.indexed_at) AS newest FROM documents x WHERE +x.id IN (SELECT d.id FROM documents d WHERE ${scoped})`
+        : `SELECT MAX(d.indexed_at) AS newest FROM documents d WHERE ${scoped}`;
+    const newest = db.query<{ newest: string | null }, (string | number)[]>(newestSql).get(...params)!.newest;
     const fingerprint = hash16(`${total}|${newest ?? ""}`);
     // `updated <= ?` first, so SQLite searches idx_documents_updated for the
     // range and sorts only within one `updated` value; the equivalent

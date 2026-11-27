@@ -22,6 +22,17 @@ export class BodyTooLargeError extends Error {
   }
 }
 
+/**
+ * Refuses a byte bound that is not a whole number of bytes, zero or more
+ * (#4963). `bytes > maxBytes` is never true for `NaN` or `Infinity`, which
+ * would read the whole body, so each entry point checks its option once,
+ * before any request, and names it.
+ */
+export function checkMaxBytes(maxBytes: number, option: string): void {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
+    throw new RangeError(`${option} must be a whole number of bytes, 0 or more; got ${maxBytes}`);
+}
+
 /** Read at most `maxBytes` of `response`'s body, refusing a longer one. */
 export async function readBoundedBody(
   response: Response,
