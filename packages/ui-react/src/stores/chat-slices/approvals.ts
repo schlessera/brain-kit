@@ -11,7 +11,6 @@ type ApprovalsSliceSlice = Pick<ChatState,
   | "requestToolApproval"
   | "applyVoicePermission"
   | "resolveToolApproval"
-  | "noteNetworkScope"
   | "closeRestoredApprovals"
   | "reopenRestoredApprovals"
   | "revokeRestoredApprovals"
@@ -20,7 +19,7 @@ type ApprovalsSliceSlice = Pick<ChatState,
 export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice {
   const { set, get, nextId, mutateBuffer, mutateToolHolder } = ctx;
   return {
-    requestToolApproval: (key, toolUseId, toolName, input, description, kind, rememberable, turnId, display, network) =>
+    requestToolApproval: (key, toolUseId, toolName, input, description, kind, rememberable, turnId, display) =>
       mutateBuffer(key, (chat) => {
         const msgs = [...chat.messages];
         const request = (previous: ToolCall | undefined, restored: boolean): ToolCall => ({
@@ -35,8 +34,6 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
           ...(description ? { approvalDescription: description } : {}),
           // Display only (#4154): a re-delivery carries the host's facts again, so they are never older than the card.
           ...(display ? { approvalDisplay: display } : {}),
-          // The scopes the host offers (#3595); a re-delivery offers the same ones.
-          ...(network ? { approvalNetwork: network } : {}),
           // A card already pending keeps what it was; anything else is
           // restored when it lands on a message no live turn is streaming.
           ...((previous?.status === "pending_approval" ? previous.restored : restored)
@@ -135,21 +132,6 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
             : t
         ),
       })),
-
-    noteNetworkScope: (key, toolUseId, networkScope) => {
-      const chat = key === null ? get().draft : get().buffers[key];
-      // Only a Network card that offered scopes takes one, and only the
-      // host's settled outcome sets or clears it (#3595).
-      if (!chat?.messages.some(m => m.toolCalls.some(t => t.id === toolUseId && t.approvalNetwork && t.approvalNetworkScope !== networkScope))) return;
-      mutateToolHolder(key, toolUseId, (holder) => ({
-        ...holder,
-        toolCalls: holder.toolCalls.map(t => {
-          if (t.id !== toolUseId || !t.approvalNetwork) return t;
-          const { approvalNetworkScope: _previous, ...rest } = t;
-          return networkScope ? { ...rest, approvalNetworkScope: networkScope } : rest;
-        }),
-      }));
-    },
 
     closeRestoredApprovals: (key, closures) => {
       if (closures.length === 0) return;

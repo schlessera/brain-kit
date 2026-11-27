@@ -921,15 +921,6 @@ ID retain their expired outcome. A card that expires while the transport stays a
 `network_approval_unconfirmed`. An explicit owner denial still records
 `taint_not_approved`.
 
-**Network approval scopes (additive, #3595).** The tainted destination's
-request also carries `network` with its origin and offered scopes, and a reply
-may choose one ([the wire component](wire.md#network-approval-scopes-additive-0450-3595)).
-An `origin` or `session` answer commits a `network_grant` governance event for
-the chat session before its connection is admitted; when that write fails, the
-connection records `network_approval_unconfirmed` and nothing is granted. A
-connection admitted under a scope records it as `networkScope` on its
-`egress_connection`, and no such connection reads back as a contacted host.
-
 The `outward_action` kind's `action` gains `compute_run` and the `taint`
 kind's `source` gains `compute_output` (both additive, #3108): a hosted
 external compute run's approval decision, its target the instance id, and a

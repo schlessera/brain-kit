@@ -1,5 +1,3 @@
-import type { NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
-import { NETWORK_SCOPE_RECEIPTS } from "../../lib/tool-approval.js";
 import { PolicyChangeCard } from "./policy-change-card.js";
 import { ToolSafetyIndicator } from "./safety-indicator.js";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -51,7 +49,7 @@ export function ToolCallTimeline({
   turnId,
 }: {
   toolCalls: ToolCall[];
-  onApproval: (toolUseId: string, approved: boolean, always?: boolean, networkScope?: NetworkApprovalScope) => void;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
   /** Parent message still streaming — keep the timeline open while work runs. */
   live?: boolean;
   turnId?: string;
@@ -113,7 +111,7 @@ export function ToolCallTimelineCell({
 }: {
   toolCalls: ToolCall[];
   toolIndex: number;
-  onApproval: (toolUseId: string, approved: boolean, always?: boolean, networkScope?: NetworkApprovalScope) => void;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
   live: boolean;
   collapsed: boolean;
   onExpand: () => void;
@@ -203,7 +201,7 @@ function TimelineSummaryRow({
 type EntryProps = {
   toolCall: ToolCall;
   backendId: string;
-  onApproval: (toolUseId: string, approved: boolean, always?: boolean, networkScope?: NetworkApprovalScope) => void;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
   turnId?: string;
 };
 
@@ -380,13 +378,6 @@ function ToolCallEntryView({
           className="pb-1 pl-[30px] pr-2 font-[family-name:var(--font-mono)] text-[11px] text-muted-foreground"
         >
           {closedWord}
-        </p>
-      )}
-
-      {/* A Network card's granted scope (#3595): one connection, one origin, or the whole session. */}
-      {toolCall.approvalNetworkScope && (
-        <p data-network-scope-receipt={toolCall.approvalNetworkScope} className="pb-1 pl-[30px] pr-2 font-[family-name:var(--font-mono)] text-[11px] text-muted-foreground">
-          {NETWORK_SCOPE_RECEIPTS[toolCall.approvalNetworkScope]}
         </p>
       )}
 

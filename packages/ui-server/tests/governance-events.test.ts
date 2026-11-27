@@ -30,7 +30,6 @@ const SAMPLE_PAYLOADS: { [K in GovernanceEventKind]: GovernanceEventPayload<K> }
   safety_admission_expired: { toolUseId: "ithaca-card", evidenceRevision: "1", trustRevision: "0", authorityEpoch: "0", reason: "safety_changed" },
   taint_exposure: { occurrenceId: "ithaca-exposure", state: "interrupted_unknown" },
   egress_connection: { host: "ithaca.invalid", port: 443, method: "CONNECT", bytes: 100, accounting: "opaque_bytes", durationMs: 5, outcome: "completed" },
-  network_grant: { state: "settled", scope: "origin", toolUseId: "ithaca-card", transport: "connect", host: "ithaca.invalid", port: 443 },
   policy_change: { requestId: "policy-ithaca", baseHash: null, proposedHash: "a".repeat(64), sections: ["profiles.interactive"], outcome: "updated" },
   state_room_warning: { usedBytes: 51 * 1024 * 1024, allowanceBytes: 64 * 1024 * 1024, observedAt: Date.UTC(2026, 6, 12) },
   scratch_overage: { bytes: 1_200_000_000, pinnedFiles: 3, pinnedBytes: 1_200_000_000, overageBytes: 126_258_176 },

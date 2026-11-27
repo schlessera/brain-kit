@@ -137,7 +137,6 @@ import type {
   ClientMessage,
   ClientSessionResume,
   ApprovalChannel,
-  NetworkApprovalScope,
   ClientToolApproval,
   ClientToolDenial,
   ClientActivitySubscribe,
@@ -447,7 +446,6 @@ export const clientChatMessageSchema = z
   .refine(m => !(m.shareId && m.handoff), { message: "A share start cannot also create a handoff" }) satisfies z.ZodType<ClientChatMessage>;
 
 const approvalChannelSchema = z.enum(["card", "voice"]) satisfies z.ZodType<ApprovalChannel>;
-const networkApprovalScopeSchema = z.enum(["once", "origin", "session"]) satisfies z.ZodType<NetworkApprovalScope>;
 
 export const clientToolApprovalSchema = z.looseObject({
   type: z.literal("tool_approval"),
@@ -475,7 +473,6 @@ export const clientToolApprovalSchema = z.looseObject({
   always: z.boolean().optional(),
   channel: approvalChannelSchema.optional(),
   turnId: id.optional(),
-  networkScope: networkApprovalScopeSchema.optional(),
 }) satisfies z.ZodType<ClientToolApproval>;
 
 export const clientToolDenialSchema = z.looseObject({
@@ -1424,13 +1421,6 @@ export const serverToolApprovalRequestSchema = z.looseObject({
   kind: z.enum(["tool", "command", "policy", "actor"]).optional(),
   rememberable: z.boolean().optional(),
   display: approvalDisplaySchema.optional().catch(undefined),
-  // An unreadable offer drops to the single Allow, never the card (#3595).
-  network: z.looseObject({
-    transport: z.enum(["http", "connect"]),
-    host: z.string().min(1).max(255),
-    port: z.number().int().min(1).max(65535),
-    scopes: z.array(networkApprovalScopeSchema).min(1).max(3),
-  }).optional().catch(undefined),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolApprovalRequest>;
 
@@ -2163,7 +2153,6 @@ export const serverToolResolutionSchema = z.looseObject({
   outcome: z.enum(["granted", "denied", "expired", "unknown"]),
   channel: approvalChannelSchema.optional().catch(undefined),
   reason: z.string().max(500).optional(),
-  networkScope: networkApprovalScopeSchema.optional().catch(undefined),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolResolution>;
 

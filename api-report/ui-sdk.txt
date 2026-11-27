@@ -300,8 +300,6 @@ export "." (./src/index.ts)
   type ModuleSettingsMigrationPreview
   type ModuleSettingsOption
   type ModuleSettingsSnapshot
-  type NetworkApprovalOffer
-  type NetworkApprovalScope
   PILL_LABEL_MAX_CHARS
   PROFILE_UNAVAILABLE_REASONS
   PROTOCOL_REV
@@ -1044,8 +1042,6 @@ export "./client" (./src/client/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
-  type NetworkApprovalOffer
-  type NetworkApprovalScope
   PILL_LABEL_MAX_CHARS
   POLICY_CHANGE_REVIEW_SCHEMA
   PROFILE_UNAVAILABLE_REASONS
@@ -2016,8 +2012,6 @@ export "./protocol" (./src/protocol.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
-  type NetworkApprovalOffer
-  type NetworkApprovalScope
   PILL_LABEL_MAX_CHARS
   PROFILE_UNAVAILABLE_REASONS
   PROTOCOL_REV
@@ -3061,8 +3055,6 @@ export "./server" (./src/server/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
-  type NetworkApprovalOffer
-  type NetworkApprovalScope
   OSM_ATTRIBUTION
   PILL_LABEL_MAX_CHARS
   POLICY_CHANGE_REVIEW_SCHEMA
@@ -7742,7 +7734,6 @@ signatures (every public export and the types it is made of)
         always?: boolean;
         channel?: ApprovalChannel;
         turnId?: string;
-        networkScope?: NetworkApprovalScope;
     }
   ClientToolDenial (packages/ui-sdk/src/protocol.ts)
     export interface ClientToolDenial {
@@ -11553,15 +11544,6 @@ signatures (every public export and the types it is made of)
         changed?: boolean;
         commit?: string | null;
     }
-  NetworkApprovalOffer (packages/ui-sdk/src/protocol.ts)
-    export interface NetworkApprovalOffer {
-        transport: "http" | "connect";
-        host: string;
-        port: number;
-        scopes: NetworkApprovalScope[];
-    }
-  NetworkApprovalScope (packages/ui-sdk/src/protocol.ts)
-    export type NetworkApprovalScope = "once" | "origin" | "session";
   OSM_ATTRIBUTION (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   OutwardActionKind (packages/ui-sdk/src/server/outward-actions.ts)
     export type OutwardActionKind = "git_push" | "gh_write" | "mcp_tool" | "http_write";
@@ -11646,7 +11628,6 @@ signatures (every public export and the types it is made of)
         behavior: "allow";
         updatedInput?: Record<string, unknown>;
         always?: boolean;
-        networkScope?: import("../protocol.js").NetworkApprovalScope;
     } | {
         behavior: "deny";
         message: string;
@@ -11669,7 +11650,6 @@ signatures (every public export and the types it is made of)
         kind?: "tool" | "command" | "policy" | "actor";
         outsideEnforcedAllowlist?: boolean;
         display?: import("../protocol.js").ApprovalDisplay;
-        network?: import("../protocol.js").NetworkApprovalOffer;
     }
   PermissionScenario (packages/ui-sdk/src/testing/index.ts)
     export type PermissionScenario = "mutation" | "shortcut" | "command";
@@ -14186,7 +14166,6 @@ signatures (every public export and the types it is made of)
         kind?: "tool" | "command" | "policy" | "actor";
         rememberable?: boolean;
         display?: ApprovalDisplay;
-        network?: NetworkApprovalOffer;
     }
   ServerToolInputDelta (packages/ui-sdk/src/protocol.ts)
     export interface ServerToolInputDelta extends SessionScoped {
@@ -14201,7 +14180,6 @@ signatures (every public export and the types it is made of)
         outcome: ToolResolutionOutcome;
         channel?: ApprovalChannel;
         reason?: string;
-        networkScope?: NetworkApprovalScope;
     }
   ServerToolResult (packages/ui-sdk/src/protocol.ts)
     export interface ServerToolResult extends SessionScoped {
@@ -16605,11 +16583,6 @@ signatures (every public export and the types it is made of)
             card: "card";
             voice: "voice";
         }>>;
-        networkScope: z.ZodOptional<z.ZodEnum<{
-            once: "once";
-            origin: "origin";
-            session: "session";
-        }>>;
         toolUseId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_approval">;
@@ -17002,11 +16975,6 @@ signatures (every public export and the types it is made of)
         channel: z.ZodOptional<z.ZodEnum<{
             card: "card";
             voice: "voice";
-        }>>;
-        networkScope: z.ZodOptional<z.ZodEnum<{
-            once: "once";
-            origin: "origin";
-            session: "session";
         }>>;
         toolUseId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
@@ -25358,19 +25326,6 @@ signatures (every public export and the types it is made of)
             policy: "policy";
             tool: "tool";
         }>>;
-        network: z.ZodCatch<z.ZodOptional<z.ZodObject<{
-            host: z.ZodString;
-            port: z.ZodNumber;
-            scopes: z.ZodArray<z.ZodEnum<{
-                once: "once";
-                origin: "origin";
-                session: "session";
-            }>>;
-            transport: z.ZodEnum<{
-                connect: "connect";
-                http: "http";
-            }>;
-        }, z.core.$loose>>>;
         rememberable: z.ZodOptional<z.ZodBoolean>;
         sessionId: z.ZodOptional<z.ZodString>;
         toolName: z.ZodString;
@@ -28188,11 +28143,6 @@ signatures (every public export and the types it is made of)
             card: "card";
             voice: "voice";
         }>>>;
-        networkScope: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
-            once: "once";
-            origin: "origin";
-            session: "session";
-        }>>>;
         outcome: z.ZodEnum<{
             denied: "denied";
             expired: "expired";
@@ -30186,19 +30136,6 @@ signatures (every public export and the types it is made of)
             policy: "policy";
             tool: "tool";
         }>>;
-        network: z.ZodCatch<z.ZodOptional<z.ZodObject<{
-            host: z.ZodString;
-            port: z.ZodNumber;
-            scopes: z.ZodArray<z.ZodEnum<{
-                once: "once";
-                origin: "origin";
-                session: "session";
-            }>>;
-            transport: z.ZodEnum<{
-                connect: "connect";
-                http: "http";
-            }>;
-        }, z.core.$loose>>>;
         rememberable: z.ZodOptional<z.ZodBoolean>;
         sessionId: z.ZodOptional<z.ZodString>;
         toolName: z.ZodString;
@@ -30219,11 +30156,6 @@ signatures (every public export and the types it is made of)
         channel: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
             card: "card";
             voice: "voice";
-        }>>>;
-        networkScope: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
-            once: "once";
-            origin: "origin";
-            session: "session";
         }>>>;
         outcome: z.ZodEnum<{
             denied: "denied";

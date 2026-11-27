@@ -2,7 +2,7 @@ import { transcriptMessage, transcriptTimelineFor, transcriptRange } from "../..
 import { useStore } from "zustand";
 import { ConversationCoverageNotice, ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext, conversationEndLabel } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
-import type { AskUserFormAnswers, NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
+import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { memo, useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { TranscriptReadingScope } from "@schlessera/brain-ui-kit/internal";
@@ -444,8 +444,8 @@ export function ChatPage() {
   };
 
   const handleToolApproval = useCallback(
-    (toolUseId: string, approved: boolean, always?: boolean, networkScope?: NetworkApprovalScope) => {
-      return replyToToolApproval(root, sessionId, send, toolUseId, approved, always, networkScope);
+    (toolUseId: string, approved: boolean, always?: boolean) => {
+      return replyToToolApproval(root, sessionId, send, toolUseId, approved, always);
     },
     [send, sessionId, root]
   );

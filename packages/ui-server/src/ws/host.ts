@@ -463,7 +463,6 @@ export class WsHost {
           turnId: record.turnId,
           ...(record.channel ? { channel: record.channel } : {}),
           ...(record.reason ? { reason: record.reason } : {}),
-          ...(record.networkScope ? { networkScope: record.networkScope } : {}),
         });
       },
       // Every change to a session's pending follow-ups reaches the connections

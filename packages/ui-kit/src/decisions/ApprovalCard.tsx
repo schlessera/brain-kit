@@ -72,11 +72,6 @@ export interface ApprovalCardProps {
   onDeny?: () => void;
   /** Offered only when the host says this request can create a remembered grant. */
   onAlwaysAllow?: () => void;
-  /**
-   * Wider allows the host offers beside Allow, narrowest first, each on its
-   * own full-width row under the decision row; Allow stays the narrowest.
-   */
-  widerAllows?: ReadonlyArray<{ label: string; onAllow?: () => void }>;
   /** Real renderer input or other permission details, without demo content. */
   children?: ReactNode;
   /** Let full runtime tool names and targets occupy separate header lines. */
@@ -169,8 +164,6 @@ export function ApprovalCard(p: ApprovalCardProps) {
         />
         <Button label={`${p.denyLabel || "Deny"}${p.shortcuts ? ` ${p.shortcuts.deny}` : ""}`} ariaLabel={p.shortcuts ? p.denyLabel || "Deny" : undefined} tone="danger" size="md" center style={denyMount} onClick={p.onDeny} />
       </div>
-      {p.widerAllows?.map(wider => <Button key={wider.label} label={wider.label} tone="quiet" size="md" center
-        style={{ marginTop: 8, minHeight: 44 }} onClick={wider.onAllow} />)}
       {p.onAlwaysAllow ? <Button label="Always allow" effect="write_policy" tone="quiet" size="md" center
         style={{ marginTop: 8, minHeight: 44 }} onClick={p.onAlwaysAllow} /> : null}
     </div>

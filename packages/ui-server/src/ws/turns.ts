@@ -11,7 +11,6 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 import type {
   ApprovalChannel,
-  NetworkApprovalScope,
   AskUserListSpec,
   AskUserRankSpec,
   AskUserFormSpec,
@@ -324,8 +323,6 @@ interface ToolResolutionRecord {
   sessionId: string | null;
   channel?: ApprovalChannel;
   reason?: string;
-  /** The scope a granted tainted Network approval took (#3595). */
-  networkScope?: NetworkApprovalScope;
 }
 
 /** Settled outcomes retained for late replies; the oldest is evicted first. */
@@ -867,27 +864,12 @@ export class TurnCoordinator {
       this.expireApproval(toolUseId, refusal, "safety_changed", p => p === claimed);
       return;
     }
-    // A wider Network scope (#3595) settles here, synchronously: after the
-    // card revalidated and before anyone learns it was granted. The hook
-    // only reads and submits; a grant that does not settle expires the card,
-    // and nothing is allowed.
-    const scope = decision.behavior === "allow" ? decision.networkScope : undefined;
-    if (scope === "origin" || scope === "session") {
-      let committed = false;
-      try { committed = claimed.request.settleNetworkScope?.(scope) === true; } catch { committed = false; }
-      if (!committed) {
-        this.expireApproval(toolUseId, "The network grant could not be recorded. Nothing was allowed; request a fresh decision.",
-          "grant_storage_failed", p => p === claimed);
-        return;
-      }
-    }
     this.#claimedApprovals.delete(toolUseId);
     this.recordApprovalOutcome(toolUseId, {
       outcome: decision.behavior === "deny" ? "denied" : "granted",
       turnId: claimed.turnId,
       sessionId: claimed.turn.sessionId,
       ...(response.channel ? { channel: response.channel } : {}),
-      ...(decision.behavior === "allow" && decision.networkScope ? { networkScope: decision.networkScope } : {}),
     });
     claimed.resolve(decision, response);
   }

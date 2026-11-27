@@ -111,9 +111,7 @@ counter. It retains ordinary G6 recipient narrowing, final admission fences
 and byte accounting; it cannot grant a contacted-host allowance. No worker
 header selects it. Network approval destinations carry `protocol` and the
 host-owned `managedReference` identity; pending approvals never coalesce a
-managed HTTPS acquisition with an opaque CONNECT to the same authority, nor
-two managed acquisitions with each other: each managed fetch gets its own
-card, whose answer covers that fetch alone (#3595).
+managed HTTPS acquisition with an opaque CONNECT to the same authority.
 CONNECT accepts explicit bracketed IPv6 authorities as well as canonical DNS
 and IPv4 hosts. `canonicalEgressHost` supplies one lowercase DNS or canonical bare
 IP comparison identity for host checks, cards and receipts. Resolution/dialing

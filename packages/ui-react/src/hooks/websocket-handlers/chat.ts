@@ -353,8 +353,7 @@ export const chatFrameHandlers = {
       msg.kind,
       msg.rememberable,
       context.frameTurnId,
-      msg.display,
-      msg.network
+      msg.display
     );
   },
   tool_result: (msg, context) => {
