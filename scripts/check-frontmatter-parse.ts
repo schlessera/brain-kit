@@ -43,7 +43,7 @@
 import { readFileSync } from "fs";
 import { relative, resolve } from "path";
 import ts from "typescript";
-import { parse } from "./lib/source";
+import { parse, treeFiles } from "./lib/source";
 
 type Role = "helper" | "serializer" | "cache-probe" | "engine-probe";
 
@@ -97,6 +97,8 @@ const SCANNED = [
   "scripts/**/*.{ts,tsx,js,mjs,cjs}",
   "tests/**/*.{ts,tsx,js,mjs,cjs}",
   "experiments/**/*.{ts,tsx,js,mjs,cjs}",
+  "evals/**/*.{ts,tsx,js,mjs,cjs}",
+  "website/**/*.{ts,tsx,js,mjs,cjs}",
 ];
 
 export interface Finding {
@@ -248,14 +250,9 @@ function scanFences(source: ts.SourceFile, record: (node: ts.Node, rule: 3, mess
 }
 
 export function scanTree(root: string): Finding[] {
-  const files = new Set<string>();
-  for (const pattern of SCANNED) {
-    for (const file of new Bun.Glob(pattern).scanSync({ cwd: root })) {
-      if (!/(^|\/)(node_modules|dist)\//.test(file)) files.add(file);
-    }
-  }
+  const files = treeFiles(root, SCANNED).filter((file) => !/(^|\/)(node_modules|dist)\//.test(file));
   const findings: Finding[] = [];
-  for (const file of [...files].sort()) {
+  for (const file of files) {
     findings.push(...scanSource(file, readFileSync(resolve(root, file), "utf8")));
   }
   return findings;

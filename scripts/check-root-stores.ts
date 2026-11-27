@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import ts from "typescript";
-import { parse } from "./lib/source";
+import { parse, treeFiles } from "./lib/source";
 
 export function checkRootStores(source: string, file = "source.tsx"): string[] {
   const tree = parse(file, source, ts.ScriptKind.TSX);
@@ -47,7 +47,7 @@ export function checkRootStores(source: string, file = "source.tsx"): string[] {
 /** Findings for every ui-react source file under `root`. */
 export function scanRootStores(root: string): string[] {
   const findings: string[] = [];
-  for (const file of new Bun.Glob("packages/ui-react/src/**/*.{ts,tsx}").scanSync(root)) {
+  for (const file of treeFiles(root, "packages/ui-react/src/**/*.{ts,tsx}")) {
     findings.push(...checkRootStores(readFileSync(resolve(root, file), "utf8"), relative(root, resolve(root, file))));
   }
   return findings;

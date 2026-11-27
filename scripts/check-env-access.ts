@@ -29,7 +29,7 @@
 import { readFileSync } from "fs";
 import { relative, resolve } from "path";
 import ts from "typescript";
-import { parse } from "./lib/source";
+import { parse, treeFiles } from "./lib/source";
 
 // `env.ts` is the per-package chokepoint; `env-core.ts` is the shared core
 // they are built on (@schlessera/brain-common), whose `readEnvVar` defaults
@@ -169,8 +169,7 @@ export function scanSource(file: string, text: string): Finding[] {
 }
 
 export function scanPackages(root: string): Finding[] {
-  const glob = new Bun.Glob("packages/*/src/**/*.{ts,tsx}");
-  const files = [...glob.scanSync({ cwd: root })].sort();
+  const files = treeFiles(root, "packages/*/src/**/*.{ts,tsx}");
   const findings: Finding[] = [];
   for (const file of files) {
     findings.push(...scanSource(file, readFileSync(resolve(root, file), "utf8")));

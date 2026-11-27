@@ -25,7 +25,7 @@
 import { readFileSync } from "fs";
 import { relative, resolve } from "path";
 import ts from "typescript";
-import { parse } from "./lib/source";
+import { parse, treeFiles } from "./lib/source";
 
 const KIT_SOURCES = "packages/ui-kit/src/**/*.{ts,tsx}";
 
@@ -154,8 +154,7 @@ export function scanSource(file: string, text: string): Finding[] {
 }
 
 export function scanKit(root: string): Finding[] {
-  const glob = new Bun.Glob(KIT_SOURCES);
-  const files = [...glob.scanSync({ cwd: root })].sort();
+  const files = treeFiles(root, KIT_SOURCES);
   const findings: Finding[] = [];
   for (const file of files) {
     findings.push(...scanSource(file, readFileSync(resolve(root, file), "utf8")));

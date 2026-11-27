@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
-import { parse } from "./lib/source";
+import { parse, treeFiles } from "./lib/source";
 
 const SOURCES = "packages/ui-react/src/**/*.tsx";
 const CODES = ["row", "select", "surface", "canvas", "kit", "api", "dev"];
@@ -91,7 +91,7 @@ export function scanSource(file: string, text: string): Finding[] {
 }
 
 export function scanRoot(root: string): Finding[] {
-  const files = [...new Bun.Glob(SOURCES).scanSync({ cwd: root })].sort();
+  const files = treeFiles(root, SOURCES);
   if (files.length === 0) throw new Error(`raw-buttons: no files match ${SOURCES}; the gate checked nothing`);
   return files.flatMap(file => scanSource(file, readFileSync(resolve(root, file), "utf8")));
 }

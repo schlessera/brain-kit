@@ -3,7 +3,7 @@
  * one planted violation per gate fails the aggregate with the same text the
  * standalone gate prints, and a gate that throws does not stop the others.
  */
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -96,4 +96,68 @@ test("a gate that throws fails the run without stopping the gates after it", asy
   expect(result.err[0], "THROW_REPORTED").toStartWith("scripts/check-env-access.ts threw: Error: Odysseus lost the chart");
   expect(result.out, "NEXT_GATE_STILL_RUNS").toContain("\n== check-raw-buttons.ts");
   expect(result.err.join("\n"), "NEXT_GATE_STILL_REPORTS").toContain("packages/ui-react/src/raw.tsx:1:");
+});
+
+describe("one view of the tree for every gate but leakage (#4674)", () => {
+  // Built from pieces so this file itself holds neither a raw invisible character nor a leakage string.
+  const zeroWidth = String.fromCharCode(0x200b);
+  const deployHost = ["coo", "lify-1"].join("");
+  let tree = "";
+  beforeAll(() => {
+    tree = mkdtempSync(join(tmpdir(), "lint-tree-"));
+    const files: Record<string, string> = {
+      ".gitignore": "tmp/\n",
+      "packages/core/package.json": JSON.stringify({ name: "@fixture/core" }),
+      "packages/core/src/index.ts": "export const ithaca = 1;\n",
+      "packages/core/src/gone.ts": "export const gone = 1;\n",
+      "packages/ui-react/src/lib/gone.ts": "export const gone = 1;\n",
+      "evals/voyage/matter.ts": 'import matter from "gray-matter";\nexport const parse = matter;\n',
+    };
+    for (const [file, text] of Object.entries(files)) { mkdirSync(join(tree, dirname(file)), { recursive: true }); writeFileSync(join(tree, file), text); }
+    for (const args of [["init", "-q"], ["add", "."]]) {
+      const git = Bun.spawnSync(["git", ...args], { cwd: tree, stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
+      expect(git.exitCode, git.stderr.toString()).toBe(0);
+    }
+    // Untracked and not ignored; ignored under a package's src/; tracked but deleted in the working tree.
+    writeFileSync(join(tree, "packages/core/src/untracked.ts"), `export const sail = "w${zeroWidth}ind";\n`);
+    mkdirSync(join(tree, "packages/core/src/tmp"), { recursive: true });
+    writeFileSync(join(tree, "packages/core/src/tmp/scratch.ts"), `export const home = process.env.HOME;\nexport const host = "${deployHost}";\n`);
+    rmSync(join(tree, "packages/core/src/gone.ts")); rmSync(join(tree, "packages/ui-react/src/lib/gone.ts"));
+  });
+  afterAll(() => { if (tree) rmSync(tree, { recursive: true, force: true }); });
+
+  test("an untracked file is checked for invisible characters and an ignored file is scanned by no gate", async () => {
+    const { scanRepo } = await import("../scripts/check-invisibles");
+    expect(scanRepo(tree).map(f => f.file), "UNTRACKED_FILE_CHECKED_FOR_INVISIBLES").toEqual(["packages/core/src/untracked.ts"]);
+    const { scanPackages } = await import("../scripts/check-env-access");
+    expect(scanPackages(tree).map(f => f.file), "IGNORED_FILE_NOT_SCANNED_BY_ENV_ACCESS").toEqual([]);
+    const all = await inTree([...IN_PROCESS]);
+    expect([...all.out, ...all.err].join("\n"), "IGNORED_FILE_NOT_SCANNED_BY_ANY_GATE").not.toContain("tmp/scratch.ts");
+  });
+
+  test("a tracked file deleted in the working tree is skipped without an error by every gate", async () => {
+    const { scanRepo } = await import("../scripts/check-invisibles");
+    expect(() => scanRepo(tree), "INVISIBLES_SKIPS_DELETED").not.toThrow();
+    const all = await inTree([...IN_PROCESS]);
+    expect([...all.out, ...all.err].join("\n"), "NO_GATE_NAMES_THE_DELETED_FILES").not.toMatch(/gone\.ts|threw|ENOENT/);
+  });
+
+  test("a direct gray-matter import under evals/ fails the frontmatter gate", async () => {
+    const { scanTree } = await import("../scripts/check-frontmatter-parse");
+    expect(scanTree(tree).map(f => `${f.file}:${f.rule}`), "EVALS_SCANNED_FOR_FRONTMATTER").toEqual(["evals/voyage/matter.ts:1"]);
+  });
+
+  test("leakage still walks the whole tree, ignored files included", async () => {
+    const { scanTree } = await import("../scripts/check-leakage");
+    expect(scanTree(tree).map(f => f.file), "LEAKAGE_SCANS_IGNORED_FILES").toContain("packages/core/src/tmp/scratch.ts");
+  });
+
+  async function inTree(lints: string[]) {
+    const out: string[] = [], err: string[] = [];
+    const log = console.log, error = console.error;
+    console.log = (...parts: unknown[]) => { out.push(parts.join(" ")); };
+    console.error = (...parts: unknown[]) => { err.push(parts.join(" ")); };
+    try { await runLints(tree, lints); return { out, err }; }
+    finally { console.log = log; console.error = error; }
+  }
 });

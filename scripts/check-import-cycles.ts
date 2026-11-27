@@ -26,10 +26,10 @@
 //
 //   bun scripts/check-import-cycles.ts [root] [--json]
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import ts from "typescript";
-import { parse } from "./lib/source";
+import { listTree, parse } from "./lib/source";
 import { isTestFile, makeResolver } from "./check-unused-exports.ts";
 
 export interface CycleAllowlistEntry { files: string[]; reason: string }
@@ -86,11 +86,6 @@ export interface CycleCheckOptions {
 const SOURCE = /\.(?:[cm]?tsx?|[cm]?jsx?)$/;
 const PACKAGE_SRC = /^packages\/([^/]+)\/src\//;
 
-function listFiles(root: string): string[] {
-  const run = Bun.spawnSync(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root });
-  if (run.exitCode !== 0) throw new Error(`git ls-files failed: ${run.stderr.toString()}`);
-  return run.stdout.toString().split("\0").filter(file => file && existsSync(join(root, file)));
-}
 
 /** The specifiers of `file`'s static value imports and re-exports. */
 export function valueImports(text: string, file: string): string[] {
@@ -160,7 +155,7 @@ export function stronglyConnected(graph: Map<string, string[]>): string[][] {
 
 export function checkImportCycles(root: string, options: CycleCheckOptions = {}): CycleReport {
   const allowlist = options.allowlist ?? ALLOWLIST;
-  const listed = options.files ?? listFiles(root);
+  const listed = options.files ?? listTree(root);
   const files = listed.filter(file => PACKAGE_SRC.test(file) && SOURCE.test(file) && !file.endsWith(".d.ts") && !isTestFile(file));
   // Relative specifiers only: a workspace specifier crosses a package.
   const resolveSpecifier = makeResolver(new Set(files), new Map());

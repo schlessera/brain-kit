@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import ts from "typescript";
-import { parse } from "./lib/source";
+import { parse, treeFiles } from "./lib/source";
 
 const SRC = "packages/ui-react/src";
 const LOWER = [`${SRC}/stores/`, `${SRC}/lib/`, `${SRC}/connection.ts`, `${SRC}/ws-client/`];
@@ -44,7 +44,7 @@ export function checkLayerDirection(source: string, file: string): string[] {
 export function scanLayerDirection(root: string): { checked: number; findings: string[] } {
   const findings: string[] = [];
   let checked = 0;
-  for (const file of new Bun.Glob(`${SRC}/**/*.{ts,tsx}`).scanSync(root)) {
+  for (const file of treeFiles(root, `${SRC}/**/*.{ts,tsx}`)) {
     if (!isLowerLayer(file)) continue;
     checked++;
     findings.push(...checkLayerDirection(readFileSync(resolve(root, file), "utf8"), file));

@@ -26,7 +26,7 @@
 import { readFileSync } from "fs";
 import { relative, resolve } from "path";
 import ts from "typescript";
-import { parse } from "./lib/source";
+import { parse, treeFiles } from "./lib/source";
 
 /** Package source whose inline prefixes are not paths, how many, and why. */
 export const NOT_A_PATH: ReadonlyArray<{ file: string; count: number; reason: string }> = [
@@ -117,9 +117,8 @@ export interface Report {
 }
 
 export function scanTree(root: string): Report {
-  const files = [...new Bun.Glob(SCANNED).scanSync({ cwd: root })]
-    .filter((file) => !/(^|\/)(node_modules|dist)\//.test(file))
-    .sort();
+  const files = treeFiles(root, SCANNED)
+    .filter((file) => !/(^|\/)(node_modules|dist)\//.test(file));
   const findings: Finding[] = [];
   const counts = new Map<string, number>();
   for (const file of files) {

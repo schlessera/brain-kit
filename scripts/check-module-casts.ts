@@ -28,7 +28,7 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import ts from "typescript";
-import { parse } from "./lib/source";
+import { parse, treeFiles } from "./lib/source";
 
 interface Finding {
   file: string;
@@ -102,9 +102,8 @@ export function scanText(file: string, text: string): Finding[] {
 }
 
 export function scanModules(root: string): Finding[] {
-  const glob = new Bun.Glob("packages/module-*/src/**/*.{ts,tsx}");
   const findings: Finding[] = [];
-  for (const relative of [...glob.scanSync({ cwd: root })].sort()) {
+  for (const relative of treeFiles(root, "packages/module-*/src/**/*.{ts,tsx}")) {
     findings.push(...scanText(relative, readFileSync(resolve(root, relative), "utf-8")));
   }
   return findings;

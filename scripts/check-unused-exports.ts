@@ -52,7 +52,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import ts from "typescript";
-import { parse } from "./lib/source";
+import { listTree, parse } from "./lib/source";
 
 /** The packages (directory names under packages/) whose `src/` is scanned. */
 export const SCANNED_PACKAGES = ["ui-server", "ui-kit", "ui-react"] as const;
@@ -187,12 +187,6 @@ interface Graph {
   uses: Map<string, Map<string, Set<string>>>;
 }
 
-/** Every tracked or untracked-but-not-ignored file, repository-relative. */
-function listFiles(root: string): string[] {
-  const run = Bun.spawnSync(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root });
-  if (run.exitCode !== 0) throw new Error(`git ls-files failed: ${run.stderr.toString()}`);
-  return run.stdout.toString().split("\0").filter(file => file && existsSync(join(root, file)));
-}
 
 /** `@schlessera/brain-<name>[/sub]` -> repository-relative source file. */
 function packageEntries(root: string, files: string[]): Map<string, string> {
@@ -448,7 +442,7 @@ export interface CheckOptions {
 export function check(root: string, options: CheckOptions = {}): Report {
   const packages = options.packages ?? SCANNED_PACKAGES;
   const allowlist = options.allowlist ?? ALLOWLIST;
-  const listed = options.files ?? listFiles(root);
+  const listed = options.files ?? listTree(root);
   const files = listed.filter(file => SOURCE.test(file) && !file.endsWith(".d.ts"));
   const entries = packageEntries(root, listed);
   const graph = buildGraph(root, files, entries);
