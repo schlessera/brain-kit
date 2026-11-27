@@ -33,7 +33,8 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
   if (!awaitsDecision(toolCall)) return null;
   const parsed = toolCall.approvalKind === "google" ? GOOGLE_MAIL_APPROVAL_SCHEMA.safeParse(toolCall.input) : null;
   const google = parsed?.success ? parsed.data : null;
-  const boundKeys = google ? googleApprovalKeys(google.effect) : { allow: "a", deny: "d" };
+  // A Google request that fails the parse has an unknown effect: no single-key allow.
+  const boundKeys = toolCall.approvalKind === "google" ? googleApprovalKeys(google?.effect ?? "irreversible") : { allow: "a", deny: "d" };
   const label = typeof renderer.label === "function" ? renderer.label(toolCall) : renderer.label ?? getToolLabel(toolCall.name);
   const Input = toolCall.approvalKind === "google" && !google ? GENERIC_RENDERER.Input : renderer.Input;
   const input = toolCall.input ?? {};
@@ -71,7 +72,7 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
       {...(apifyApprovalTarget(toolCall) !== null ? { allowLabel: "Allow once" } : {})}
       {...(github ? { allowLabel: github.allowLabel, denyLabel: github.denyLabel } : {})}
       wrapHeader diff="" risk={riskHints(toolCall, renderer.semantics).join(" · ")}
-      shortcuts={printKeys ? { allow: "a", deny: "d" } : undefined}
+      shortcuts={printKeys ? boundKeys : undefined}
       onAllow={onApproval ? () => decide(true) : undefined} onDeny={onApproval ? () => decide(false) : undefined}
       onAlwaysAllow={onApproval && offersAlwaysAllow(toolCall) ? () => decide(true, true) : undefined}>
       {Input ? <Input tool={toolCall} /> : null}

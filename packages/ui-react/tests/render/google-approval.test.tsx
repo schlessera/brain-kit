@@ -92,6 +92,14 @@ test("parse failure keeps raw input visible and answerable with no standing flag
   fireEvent.click(s.view.getByRole("button", { name: "Allow" }));
   expect(s.sent).toEqual([{ type: "tool_approval", toolUseId: "google-card", channel: "card" }]);
 });
+test("parse failure has an unknown effect, so no single-key allow, but d denies", () => {
+  const s = scene({ operation: "gmail.draft.send", payload: { message_ids: ["invalid"] } });
+  expect(s.view.container.textContent).toContain("Approval needed");
+  fireEvent.keyDown(s.card(), { key: "a" });
+  expect(s.sent).toEqual([]);
+  fireEvent.keyDown(s.card(), { key: "d" });
+  expect(s.sent).toEqual([{ type: "tool_denial", toolUseId: "google-card", channel: "card", message: "Denied by user" }]);
+});
 test.each([
   ["answered", "answered on another device"], ["ended", "ended with the turn"], ["unlisted", ""], ["revoked", "no longer yours to answer"],
 ] as const)("restored Google card closes as %s with no live presentation", (closure, word) => {
