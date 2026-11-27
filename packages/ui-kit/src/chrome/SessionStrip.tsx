@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, ReactElement } from "react";
 
 import { SheetDialog } from "../internal/sheet-dialog.js";
 import { edgeFor, focusEdge, focusSibling, useRoving } from "../internal/roving.js";
+import { useStripFocus, useStripSheet } from "../internal/strip-sheet.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { ListRow } from "../rows/ListRow.js";
 import { accent, color } from "../tokens.js";
@@ -199,12 +200,6 @@ export interface SessionStripProps {
   formatClock?: (ms: number) => string;
 }
 
-interface OpenSheet {
-  /** Where focus goes when the sheet is dismissed. */
-  returnTo: HTMLElement | null;
-  /** The composer's caret, when the keyboard-open summary opened the sheet. */
-  selection: [number, number] | null;
-}
 
 /**
  * Working sessions: the left half of the shared row above the composer
@@ -245,8 +240,8 @@ interface OpenSheet {
 export function SessionStrip(p: SessionStripProps) {
   const sorted = byUrgency(p.sessions);
   const clock = p.formatClock ?? defaultWorkingClock;
-  const [sheet, setSheet] = useState<OpenSheet | null>(null);
   const group = useRef<HTMLDivElement>(null);
+  const { sheet, setSheet, openFromKeyboardSummary, dismiss } = useStripSheet({ group, item: ITEM });
   const openingSession = useRef<WorkingSession | null>(null);
   useEffect(() => {
     if (sheet || !openingSession.current) return;
@@ -256,22 +251,6 @@ export function SessionStrip(p: SessionStripProps) {
     // the opened session. A dismissal still uses the summary/caret policy.
     session.onOpen();
   }, [sheet]);
-  // Set by a dismissal, consumed once the sheet has unmounted, so the trap
-  // cannot take focus back and the target is the element that is now drawn.
-  const restore = useRef<OpenSheet | null>(null);
-  useEffect(() => {
-    const to = restore.current;
-    if (sheet || !to) return;
-    restore.current = null;
-    const target = to.returnTo && to.returnTo.isConnected
-      ? to.returnTo
-      : group.current?.querySelector<HTMLElement>(`:is(${ITEM})[tabindex="0"]`) ?? null;
-    target?.focus();
-    if (target && to.selection && (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) {
-      target.setSelectionRange(to.selection[0], to.selection[1]);
-    }
-  }, [sheet]);
-
   const mode = sorted.length === 0 ? "none" : p.keyboardOpen ? "keyboard" : sorted.length <= 2 ? "pills" : "overflow";
   const itemCount = mode === "none" ? 0 : mode === "keyboard" ? 1 : mode === "pills" ? sorted.length : 2;
   const roving = useRoving(Array.from({ length: itemCount }, () => true), 0);
@@ -281,8 +260,7 @@ export function SessionStrip(p: SessionStripProps) {
   const empty = sorted.length === 0;
   useEffect(() => {
     if (!empty || !sheet) return;
-    restore.current = sheet;
-    setSheet(null);
+    dismiss();
   }, [empty, sheet]);
 
   // Shift+Tab from the composer is meant to land on the keyboard summary. A
@@ -315,24 +293,8 @@ export function SessionStrip(p: SessionStripProps) {
   // or the summary goes when the count drops to two. A focused item that is
   // removed takes focus to <body>, so while focus was in the group, the
   // group's stop takes it back.
-  const inGroup = useRef(false);
   const drawn = `${mode}:${(mode === "pills" ? sorted : sorted.slice(0, 1)).map((s) => s.id).join("\n")}`;
-  useEffect(() => {
-    if (!inGroup.current || sheet || document.activeElement !== document.body) return;
-    group.current?.querySelector<HTMLElement>(`:is(${ITEM})[tabindex="0"]`)?.focus();
-  }, [drawn, sheet]);
-
-  // The roving stop is an index, and a live reorder can move the focused
-  // session to another one while React keeps its node focused. Re-anchor the
-  // stop on the focused item after every render, so Tab still leaves the group
-  // in one step and re-entry returns to the same session.
-  useLayoutEffect(() => {
-    const here = group.current;
-    const active = document.activeElement;
-    if (!here || !(active instanceof HTMLElement) || !here.contains(active)) return;
-    const at = [...here.querySelectorAll<HTMLElement>(ITEM)].indexOf(active);
-    if (at !== -1 && at !== roving.stop) roving.onItemFocus(at);
-  });
+  const inGroup = useStripFocus({ group, item: ITEM, drawn, sheet, roving });
 
   if (mode === "none") return null;
 
@@ -356,27 +318,6 @@ export function SessionStrip(p: SessionStripProps) {
   // click, and the summary that was pressed would be gone before it is clicked.
   function holdFocus(e: MouseEvent<HTMLButtonElement>) {
     e.preventDefault();
-  }
-
-  // The composer still has focus here: note it and its caret, then blur it
-  // so the soft keyboard drops.
-  function openFromKeyboardSummary(el: HTMLElement) {
-    const active = document.activeElement;
-    let returnTo: HTMLElement = el;
-    let selection: [number, number] | null = null;
-    if (active instanceof HTMLElement && active !== el && active !== document.body) {
-      returnTo = active;
-      if ((active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) && active.selectionStart !== null && active.selectionEnd !== null) {
-        selection = [active.selectionStart, active.selectionEnd];
-      }
-      active.blur();
-    }
-    setSheet({ returnTo, selection });
-  }
-
-  function dismiss() {
-    restore.current = sheet;
-    setSheet(null);
   }
 
   const all = counts(sorted);
