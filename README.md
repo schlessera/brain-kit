@@ -254,3 +254,11 @@ copied unchanged from main `a9bcdbd6734c1733390570e2a68c10afde3b00a9`.
 See `scripts/measurements/load-evidence-3398-2026-11-15/README.md` for provenance and evidence limits,
 and its `MANIFEST.json` and `SHA256SUMS` for byte verification.
 Use the full containing archive commit when citing this bundle.
+
+## Unread script inputs — 2026-11-27 (#4705)
+
+`scripts/native-proof/dedupe-experiment.ts` and `scripts/unit-shard-observation.json`, which no
+test, script, eval or CI step read, were copied unchanged from main `87b96b10ce178f1444bd3163ed95bd2c21ab8940`.
+See `scripts/measurements/unread-scripts-4705-2026-11-27/README.md` for provenance and evidence limits,
+and its `MANIFEST.json` and `SHA256SUMS` for byte verification.
+Use the full containing archive commit when citing this bundle.

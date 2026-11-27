@@ -1,0 +1,26 @@
+{
+  "issue": "https://github.com/schlessera/brain-kit/issues/4705",
+  "copiedFrom": "87b96b10ce178f1444bd3163ed95bd2c21ab8940",
+  "files": [
+    {
+      "path": "scripts/native-proof/dedupe-experiment.ts",
+      "bytes": 9305,
+      "sha256": "23eb915d224b8e019e938a4c8849b1e694f212265a30f73faa2dd87ff2fec8c9",
+      "gitBlob": "fab52fadf1406e044bcc86aad1cbd1ee09923b96",
+      "introducedBy": "9a1cc6470110c5c41f015c1882bc1c0ef03ea1f5",
+      "lastChangedBy": "9a1cc6470110c5c41f015c1882bc1c0ef03ea1f5",
+      "measuredSource": null,
+      "redacted": false
+    },
+    {
+      "path": "scripts/unit-shard-observation.json",
+      "bytes": 21117,
+      "sha256": "07cfb6f73ae5bb7ba111671f0abdd5c78b6d9a9c72be131decb23db497d663a8",
+      "gitBlob": "d939c34b9e82308019b283d08cf8ec159f792307",
+      "introducedBy": "fc3024b1198f5b983368d785f96e88e518c396da",
+      "lastChangedBy": "793a9ffeee88a63ae8086dc4f4d396f5ce91df55",
+      "measuredSource": null,
+      "redacted": false
+    }
+  ]
+}
