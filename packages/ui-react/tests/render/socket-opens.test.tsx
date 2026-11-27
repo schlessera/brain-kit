@@ -5,7 +5,9 @@
 // on the counter then run once per connect, and a connectivity probe keeps
 // its failure when a socket was only created while it ran. Keyless; queries
 // come from `render()`, never `screen` (tests/render/dom.ts says why).
-import { unregisterSocketOpensDom } from "./socket-opens-dom.js";
+import { registerSocketOpensDom, unregisterSocketOpensDom } from "./socket-opens-dom.js";
+
+registerSocketOpensDom();
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, render, renderHook } from "@testing-library/react";
@@ -89,7 +91,18 @@ describe("socketOpens through the real wiring", () => {
 
 describe("the counter's readers", () => {
   test("one connect reads the host status once and loads the content renderers once", async () => {
-    const { root, requests } = makeRoot(ok);
+    // Both readers ask `GET /api/status`. A request made while the renderer
+    // store's `load()` runs is that store's; every other one is the
+    // worker-host read.
+    let loading = false;
+    const reads = { workerHost: 0, renderers: 0 };
+    const { root, requests } = makeRoot((url) => {
+      if (url.endsWith("/api/status")) reads[loading ? "renderers" : "workerHost"]++;
+      return ok();
+    });
+    const renderers = root.stores.contentRenderers;
+    const load = renderers.getState().load;
+    renderers.setState({ load: () => { loading = true; try { return load(); } finally { loading = false; } } });
     root.stores.connection.setState({ vpnStatus: "connected" });
     const wrapper = ({ children }: { children: ReactNode }) => <BrainUiProvider root={root}>{children}</BrainUiProvider>;
     function Readers() {
@@ -99,13 +112,14 @@ describe("the counter's readers", () => {
     }
     render(<Readers />, { wrapper });
     await settle();
+    reads.workerHost = 0;
+    reads.renderers = 0;
     requests.length = 0;
     const release = connect(root);
     await settle();
     act(() => Socket.instances.at(-1)!.open());
     await settle();
-    // `/api/status` serves both readers: one worker-host read and one load of
-    // the renderer declarations.
+    expect(reads).toEqual({ workerHost: 1, renderers: 1 });
     expect(requests.filter((url) => url.endsWith("/api/status"))).toHaveLength(2);
     release();
   });
