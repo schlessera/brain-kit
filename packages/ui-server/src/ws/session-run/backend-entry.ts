@@ -125,15 +125,11 @@ export async function openTurnBridge(
       historyOwnerId:initial.historyOwnerId,backendId:backend.id,sourceSessionId:handoffSource,policyHash:governedHold?.policy.hash??null,at:Date.now()});
     bridge.inputSafety=createSafetyCollector(safetyDb,safetyWrites,{bindingId,turnId:turn.turnId,backendId:backend.id,
       sessionId:()=>turn.sessionId??null,actor:origin,brainPath:host.brainPath,shellProxied:()=>!!held.turnEgress,signal:run.abortController.signal,stop:error=>stopTurnForHost(host,turn,run.turnId,run.abortController,"safety_recording",error),onReady:()=>recorder?.setSafetyHooked(),policyHash:governedHold?.policy.hash??null,
-      ...((masked)=>({
-        ...(governedHold?.sandbox.profile==="strict"&&governedHold.startupView ? {grepCheckpoint:{root:governedHold.startupView.root,masked}} : {}),
-        // The view this worker searches: a strict worker's checkpoint, else
-        // the brain, with the same masks. A search candidate is certified
-        // only against it (#4347); a turn without a governed hold has none.
-        ...((root)=>root?{searchView:{root,masked}}:{})(governedHold?.sandbox.profile==="strict"?governedHold.startupView?.root:governedHold?host.brainPath:undefined),
-      }))(governedHold?[...(governedHold.sandbox.providerMasks?.folders??[]),
+      ...(governedHold?.sandbox.profile==="strict"&&governedHold.startupView ? {grepCheckpoint:{
+        root:governedHold.startupView.root,masked:[...(governedHold.sandbox.providerMasks?.folders??[]),
           ...governedHold.sandbox.areas.map(area=>area.rel),
-          ...(governedHold.sandbox.maskPaths??[])]:[]),
+          ...(governedHold.sandbox.maskPaths??[])],
+      }} : {}),
       referenceReads:host.referenceTools});
   }
   // A failed update is already on each application's Activity record,

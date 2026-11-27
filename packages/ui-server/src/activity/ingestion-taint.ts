@@ -2,7 +2,6 @@
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { z } from "zod";
 import type {InputSafetyOutputStatus} from "@schlessera/brain-ui-sdk/server";
-import { lstatSync, realpathSync } from "node:fs";
 import { posix } from "node:path";
 import { WORKER_AREA_ROOT, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
@@ -186,7 +185,7 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
 }
 
 /** Admitted format only. Invalid or incomplete output always retains unknown coverage. */
-interface SearchOutputContext { existingFile?:ExistingFileLookup; unverifiedNote?:boolean; displayOnly?:boolean; backendId?: string; outputMode?: string; lineNumbers?: boolean; contextRows?:boolean; offset?: number; limit?: number; outputComplete?: boolean }
+interface SearchOutputContext { unverifiedNote?:boolean; displayOnly?:boolean; backendId?: string; outputMode?: string; lineNumbers?: boolean; contextRows?:boolean; offset?: number; limit?: number; outputComplete?: boolean }
 // Installed SDK: GlobInput/GrepInput and GlobOutput/GrepOutput in
 // @anthropic-ai/claude-agent-sdk/sdk-tools.d.ts:905-983,3506-3545. Pi's shipped grep and text
 // envelope are `grepTool` (packages/ui-backend-pi/src/file-tools.ts:44-82)
@@ -197,56 +196,6 @@ const globOutput = z.object({ durationMs: z.number().finite().nonnegative(), num
 const grepOutput = z.object({ mode: z.enum(['content','files_with_matches','count']).optional(), numFiles: natural,
   filenames: z.array(z.string()), content: z.string().optional(), numLines: natural.optional(), numMatches: natural.optional(),
   totalFiles: natural.optional(), totalLines: natural.optional(), appliedLimit: natural.optional(), appliedOffset: natural.optional() }).strict();
-
-/** Host-owned evidence whether a search candidate names an existing file:
- * `undefined` whenever the host cannot tell. */
-export type ExistingFileLookup = (path: string) => boolean | undefined;
-/** The search view the host built for a worker: its root (a strict
- * worker's checkpoint, else the brain) and the paths masked from it. */
-export interface SearchView { root: string; masked: readonly string[] }
-/** What a worker-reported path names in `view`: `undefined` whenever the
- * host cannot tell. Only a normal-form brain-relative path is resolved, one
- * component at a time, and any symlink, mask or path outside the brain is
- * unknown: its target is not proven to be what the worker saw. */
-export function searchViewEntry(brainPath: string | undefined, view: SearchView | undefined, path: string): "file" | "directory" | "absent" | undefined {
-  if (!brainPath || !view || !path || path.includes("\0") || Buffer.byteLength(path) > 1024) return undefined;
-  if (posix.normalize(path) !== path || path.split("/").some(part => part === "." || part === "..")) return undefined;
-  const relative = brainRelative(path, brainPath);
-  if (relative === null) return undefined;
-  if (view.masked.some(mask => isWithin(posix.resolve(brainPath, mask), posix.join(brainPath, relative), { includeRoot: true }))) return undefined;
-  let current: string;
-  try { current = realpathSync(view.root); } catch { return undefined; }
-  const parts = relative.split("/");
-  for (const [index, part] of parts.entries()) {
-    current = posix.join(current, part);
-    let entry: ReturnType<typeof lstatSync>;
-    try { entry = lstatSync(current); }
-    catch (error) { const code = (error as { code?: string }).code; return code === "ENOENT" || code === "ENOTDIR" ? "absent" : undefined; }
-    if (entry.isSymbolicLink()) return undefined;
-    if (index === parts.length - 1) return entry.isFile() ? "file" : entry.isDirectory() ? "directory" : undefined;
-    if (!entry.isDirectory()) return "absent";
-  }
-  return undefined;
-}
-/** Search candidates against the worker's view: an existing file, provably
- * not one, or unknown. */
-export function brainFileLookup(brainPath: string | undefined, view: SearchView | undefined): ExistingFileLookup {
-  return path => {
-    const entry = searchViewEntry(brainPath, view, path);
-    return entry === undefined ? undefined : entry === "file";
-  };
-}
-function soleExisting(candidates: readonly string[], existing: ExistingFileLookup | undefined): boolean {
-  if (!existing) return false;
-  let found = 0;
-  for (const path of candidates) {
-    let exists: boolean | undefined;
-    try { exists = existing(path); } catch { return false; }
-    if (exists === undefined) return false;
-    if (exists) found++;
-  }
-  return found === 1;
-}
 
 /** Process evidence is mandatory for Pi search; omission never proves success. */
 export function searchOutputComplete(output:string,status:InputSafetyOutputStatus|undefined,requireProcess=false):boolean|undefined {
@@ -312,16 +261,13 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     for(const line of text.split('\n')){
       if(line==='--'&&context?.contextRows)continue;
       if(!line){unknown=true;continue;}
-      const candidates:string[]=[];
+      let count=0;
       // No line numbers: every colon could separate the filename and content.
       // With numbers: lookahead preserves overlapping `:2:7:` candidates.
       for(const split of line.matchAll(numbers?(context?.contextRows?/(?=([:-])[1-9][0-9]*\1)/g:/(?=(:)[1-9][0-9]*\1)/g):context?.contextRows?/(?=[:\-])/g:/(?=:)/g)){
-        if(candidates.length>=256){unknown=true;break;}const path=line.slice(0,split.index);candidates.push(path);contentPaths.add(path);add(path);
+        if(count++>=256){unknown=true;break;}const path=line.slice(0,split.index);contentPaths.add(path);add(path);
       }
-      // Every candidate keeps its marks and areas. Several candidates are
-      // one source only when the host proves exactly one of them is an
-      // existing file and every other one is not (#4347).
-      if(candidates.length!==1&&!(candidates.length>1&&soleExisting(candidates,context?.existingFile)))unknown=true;
+      if(count!==1)unknown=true;
     }
   };
   // Validation decides completeness, never whether an independently typed

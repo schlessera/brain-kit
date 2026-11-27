@@ -494,60 +494,6 @@ test("a fetch whose obligation failed is settled by the hook's denial even when 
   } finally { await f.close(); }
 });
 
-test("a content search row with a clock time resolves against the one existing file it names (#4347)", async () => {
-  const f = await safetyHistoryFixture();
-  try {
-    mkdirSync(join(f.root, "notes"), { recursive: true });
-    writeFileSync(join(f.root, "notes/loom.md"), "Penelope sails at 10:30:00.\n");
-    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude", brainPath: f.root,
-      searchView: { root: f.root, masked: [] }, sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
-    const input = { pattern: "sails", output_mode: "content" };
-    for (const [id, file] of [["loom", "notes/loom.md"], ["raft", "notes/raft.md"]] as const) {
-      collector.admitting?.(id, "Grep");
-      await collector.begin(id, "Grep", input);
-      await collector.allowed?.(id);
-      await collector.result(id, "Grep", JSON.stringify({ mode: "content", numFiles: 0, filenames: [], content: `${file}:1:Penelope sails at 10:30:00.`, numLines: 1, totalLines: 1 }), true);
-      expect(f.writes.safety(null, "ithaca").unresolvedCount, `CLOCK_ROW_${id.toUpperCase()}`).toBe(id === "loom" ? 0 : 1);
-    }
-  } finally { await f.close(); }
-});
-
-test("a strict worker's content search resolves candidates in the checkpoint it searched, not the live brain (#4347)", async () => {
-  const f = await safetyHistoryFixture();
-  try {
-    const checkpoint = join(f.root, "checkpoint");
-    for (const [root, files] of [[f.root, ["notes/sail"]], [checkpoint, ["notes/sail", "notes/sail:2"]]] as const)
-      for (const file of files) { mkdirSync(join(root, file, ".."), { recursive: true }); writeFileSync(join(root, file), "Odysseus sails.\n"); }
-    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude", brainPath: f.root,
-      grepCheckpoint: { root: checkpoint, masked: [] }, searchView: { root: checkpoint, masked: [] }, sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
-    collector.admitting?.("sail", "Grep");
-    await collector.begin("sail", "Grep", { pattern: "sirens", output_mode: "content" });
-    await collector.allowed?.("sail");
-    await collector.result("sail", "Grep", JSON.stringify({ mode: "content", numFiles: 0, filenames: [], content: "notes/sail:2:7:sirens", numLines: 1, totalLines: 1 }), true);
-    expect(f.writes.safety(null, "ithaca").unresolvedCount, "CHECKPOINT_AMBIGUITY_STAYS_UNKNOWN").toBe(1);
-  } finally { await f.close(); }
-});
-
-/** A candidate is certified only from the view the host built for the
- * worker, for rows known to carry filenames (#4347). */
-for (const [name, files, view, path, content] of [
-  ["a single-file search prints bare numbered lines", ["notes/loom.md", "1"], { masked: [] as string[] }, "notes/loom.md", "1:2:30:sirens"],
-  ["a host-only file masked from the worker", ["notes/log:4"], { masked: ["notes/log:4"] }, undefined, "notes/log:4:7:sirens"],
-  ["a turn without a governed view", ["notes/loom.md"], undefined, undefined, "notes/loom.md:3:sails at 10:30:00"],
-] as const) test(`a content search row stays unknown: ${name}`, async () => {
-  const f = await safetyHistoryFixture();
-  try {
-    for (const file of files) { mkdirSync(join(f.root, file, ".."), { recursive: true }); writeFileSync(join(f.root, file), "Odysseus sails.\n"); }
-    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude", brainPath: f.root,
-      ...(view ? { searchView: { root: f.root, masked: [...view.masked] } } : {}), sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
-    collector.admitting?.("grep", "Grep");
-    await collector.begin("grep", "Grep", { pattern: "sirens", output_mode: "content", ...(path ? { path } : {}) });
-    await collector.allowed?.("grep");
-    await collector.result("grep", "Grep", JSON.stringify({ mode: "content", numFiles: 0, filenames: [], content, numLines: 1, totalLines: 1 }), true);
-    expect(f.writes.safety(null, "ithaca").unresolvedCount, "UNCERTIFIED_ROW_STAYS_UNKNOWN").toBe(1);
-  } finally { await f.close(); }
-});
-
 test("ambiguous refusals and contradictory results stay unresolved", async () => {
   const f = await safetyHistoryFixture();
   try {
