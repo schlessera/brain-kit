@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { BRAIN_BIN, cleanup, keylessEnv as harnessEnv, makeTempBrain, runCli as harnessCli } from "./cli-harness";
-import { withoutSigning } from "./git-fixture";
+import { git, withoutSigning } from "./git-fixture";
 
 // Settings saves commit through the CLI. Every Git child, fixture and product
 // alike, gets signing disabled at command scope, so no ambient signing
@@ -30,18 +30,13 @@ export default {
   return root;
 }
 
-function git(root: string, args: string[]): string {
-  const result = Bun.spawnSync(["git", "-C", root, ...args], { env: keylessEnv(root) });
-  expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0);
-  return new TextDecoder().decode(result.stdout).trim();
-}
 
 function initializeGit(root: string): void {
-  git(root, ["init", "--initial-branch=main"]);
-  git(root, ["config", "user.name", "Alex Example"]);
-  git(root, ["config", "user.email", "alex@example.com"]);
-  git(root, ["add", "brain.config.json", "modules"]);
-  git(root, ["commit", "-m", "fixture"]);
+  git(root, "init", "--initial-branch=main");
+  git(root, "config", "user.name", "Alex Example");
+  git(root, "config", "user.email", "alex@example.com");
+  git(root, "add", "brain.config.json", "modules");
+  git(root, "commit", "-m", "fixture");
 }
 
 async function settings(root: string, extra: string[] = []) {
@@ -90,17 +85,17 @@ test("save changes only module JSON, makes exactly one commit and retains unrela
   initializeGit(root);
   const before = readFileSync(join(root, "brain.config.json"), "utf8");
   writeFileSync(join(root, "other.md"), "Unrelated work\n");
-  git(root, ["add", "other.md"]);
+  git(root, "add", "other.md");
   const saved = await settings(root, ["--set", "limit=7"]);
   expect(saved.changed).toBe(true);
   expect(saved.values.limit).toBe(7);
-  expect(git(root, ["rev-list", "--count", "HEAD"])).toBe("2");
-  expect(git(root, ["show", "--pretty=", "--name-only", "HEAD"])).toBe("settings/catalog.json");
-  expect(git(root, ["diff", "--cached", "--name-only"])).toBe("other.md");
+  expect(git(root, "rev-list", "--count", "HEAD")).toBe("2");
+  expect(git(root, "show", "--pretty=", "--name-only", "HEAD")).toBe("settings/catalog.json");
+  expect(git(root, "diff", "--cached", "--name-only")).toBe("other.md");
   expect(readFileSync(join(root, "brain.config.json"), "utf8")).toBe(before);
   const unchanged = await settings(root, ["--set", "limit=7"]);
   expect(unchanged.changed).toBe(false);
-  expect(git(root, ["rev-list", "--count", "HEAD"])).toBe("2");
+  expect(git(root, "rev-list", "--count", "HEAD")).toBe("2");
 });
 
 test("schema rejection and stale revision do not write or commit", async () => {
@@ -116,7 +111,7 @@ test("schema rejection and stale revision do not write or commit", async () => {
   const stale = await runCli(root, ["module", "settings", "catalog", "--set", "limit=9", "--revision", original.revision, "--json"]);
   expect(JSON.parse(stale.stdout).status).toBe(409);
   expect(readFileSync(join(root, "settings/catalog.json"), "utf8")).toBe(before);
-  expect(git(root, ["rev-list", "--count", "HEAD"])).toBe("2");
+  expect(git(root, "rev-list", "--count", "HEAD")).toBe("2");
 });
 
 test("commit failure rolls back saved bytes and only the target index entries", async () => {
@@ -126,13 +121,13 @@ test("commit failure rolls back saved bytes and only the target index entries", 
   writeFileSync(hook, "#!/bin/sh\nexit 1\n");
   chmodSync(hook, 0o755);
   writeFileSync(join(root, "other.md"), "Unrelated work\n");
-  git(root, ["add", "other.md"]);
+  git(root, "add", "other.md");
   const result = await runCli(root, ["module", "settings", "catalog", "--set", "limit=7", "--json"]);
   expect(result.code).toBe(1);
   expect(JSON.parse(result.stdout).status).toBe(500);
   expect(existsSync(join(root, "settings/catalog.json"))).toBe(false);
-  expect(git(root, ["rev-list", "--count", "HEAD"])).toBe("1");
-  expect(git(root, ["diff", "--cached", "--name-only"])).toBe("other.md");
+  expect(git(root, "rev-list", "--count", "HEAD")).toBe("1");
+  expect(git(root, "diff", "--cached", "--name-only")).toBe("other.md");
 });
 
 test("unavailable modules remain rows while valid neighboring settings can still be read and saved", async () => {
@@ -163,7 +158,7 @@ test("partial recovery keeps duplicate module names unavailable without sharing 
   const denied = await runCli(root, ["module", "settings", "duplicate", "--set", "limit=9", "--json"]);
   expect(denied.code).toBe(1);
   expect(existsSync(join(root, "settings/duplicate.json"))).toBe(false);
-  expect(git(root, ["rev-list", "--count", "HEAD"])).toBe("1");
+  expect(git(root, "rev-list", "--count", "HEAD")).toBe("1");
   expect((await settings(root, ["--set", "limit=8"])).values.limit).toBe(8);
 });
 
@@ -173,7 +168,7 @@ test("whole-form no-ops and unrelated edits preserve complete unsupported JSON s
   writeFileSync(mod, readFileSync(mod, "utf8").replace("}).strict()", "}).passthrough()"));
   const source = '{ "future": { "large": 1e+20, "escaped": "\\u0041", "nested": [null, {"odd": true}] }, "limit": 7 }\n';
   writeFileSync(join(root, "settings/catalog.json"), source);
-  initializeGit(root); git(root, ["add", "settings/catalog.json"]); git(root, ["commit", "-m", "existing overrides"]);
+  initializeGit(root); git(root, "add", "settings/catalog.json"); git(root, "commit", "-m", "existing overrides");
   const snapshot = await settings(root);
   expect(snapshot.overrides.future.nested).toHaveLength(2);
   const noOp = await saveBody(root, structuredClone(snapshot.overrides), snapshot.revision);
@@ -182,7 +177,7 @@ test("whole-form no-ops and unrelated edits preserve complete unsupported JSON s
   const preview = await saveBody(root, { ...snapshot.overrides, limit: 9 }, snapshot.revision, true);
   expect(preview.body.values.limit).toBe(9);
   expect(readFileSync(join(root, "settings/catalog.json"), "utf8")).toBe(source);
-  expect(git(root, ["rev-list", "--count", "HEAD"])).toBe("2");
+  expect(git(root, "rev-list", "--count", "HEAD")).toBe("2");
   const saved = await saveBody(root, { ...snapshot.overrides, limit: 9 }, snapshot.revision);
   expect(saved.body.changed).toBe(true);
   expect(readFileSync(join(root, "settings/catalog.json"), "utf8")).toContain('{ "large": 1e+20, "escaped": "\\u0041", "nested": [null, {"odd": true}] }');
@@ -196,7 +191,7 @@ test("simultaneous revision-guarded saves admit exactly one commit", async () =>
   expect(results.find((r) => r.code === 1)!.body.status).toBe(409);
   const winner = results.find((r) => r.code === 0)!.body;
   expect(JSON.parse(readFileSync(join(root, "settings/catalog.json"), "utf8")).limit).toBe(winner.values.limit);
-  expect(git(root, ["rev-list", "--count", "HEAD"])).toBe("2");
+  expect(git(root, "rev-list", "--count", "HEAD")).toBe("2");
 });
 
 test("settings refuse aliases but a symlinked brain root still commits its own settings path", async () => {
@@ -211,7 +206,7 @@ test("settings refuse aliases but a symlinked brain root still commits its own s
   const real = fixture(); initializeGit(real);
   const alias = real + "-alias"; symlinkSync(real, alias); roots.push(alias);
   expect((await settings(alias, ["--set", "limit=9"])).changed).toBe(true);
-  expect(git(real, ["show", "--pretty=", "--name-only", "HEAD"])).toBe("settings/catalog.json");
+  expect(git(real, "show", "--pretty=", "--name-only", "HEAD")).toBe("settings/catalog.json");
 });
 
 test("new schema fields are generated automatically and optional nested defaults remain absent", async () => {
@@ -243,17 +238,17 @@ test("a held transaction lock refuses a save before files or commits change", as
     const result = await runCli(root, ["module", "settings", "catalog", "--set", "limit=7", "--json"]);
     expect(JSON.parse(result.stdout).status).toBe(409);
     expect(existsSync(join(root, "settings/catalog.json"))).toBe(false);
-    expect(git(root, ["rev-list", "--count", "HEAD"])).toBe("1");
+    expect(git(root, "rev-list", "--count", "HEAD")).toBe("1");
     expect(existsSync(lock)).toBe(true);
   } finally { rmSync(lock, { recursive: true }); }
 });
 
 test("an initialized repository without an initial commit refuses saving before writes", async () => {
   const root = fixture();
-  git(root, ["init", "--initial-branch=main"]);
+  git(root, "init", "--initial-branch=main");
   const result = await runCli(root, ["module", "settings", "catalog", "--set", "limit=7", "--json"]);
   expect(JSON.parse(result.stdout).status).toBe(422);
   expect(JSON.parse(result.stdout).error).toContain("initial brain");
   expect(existsSync(join(root, "settings/catalog.json"))).toBe(false);
-  expect(git(root, ["status", "--porcelain"])).not.toContain("settings/catalog.json");
+  expect(git(root, "status", "--porcelain")).not.toContain("settings/catalog.json");
 });

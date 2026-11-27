@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MIN_BRAIN_CLI_VERSION as version } from "../../src/brain/client";
+import { installFakeBrain } from "./fake-brain-cli";
 import type { SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 
 import { createApp, type CreateAppOptions } from "../../src/app";
@@ -43,20 +43,15 @@ export async function httpContractApp(options: {
   writeFileSync(join(staticRoot, "fixture.css"), "main { color: #123456; }");
   // Resolve the same repo-local executable as production; startup/prune stay
   // keyless, and tests may replace this fixture to exercise CLI pass-through.
-  writeFileSync(join(brainPath, "node_modules", ".bin", "brain"),
-    `#!${process.execPath}\nimport { appendFileSync } from "node:fs";
-const args = process.argv.slice(2);
+  installFakeBrain(brainPath, { body: `import { appendFileSync } from "node:fs";
 if (!args.includes("--version") && args[0] !== "scratch") appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + ${JSON.stringify("/" + CLI_LOG)} : ${JSON.stringify(join(brainPath, CLI_LOG))}, JSON.stringify(args) + "\\n");
-if (args.includes("--version")) console.log(${JSON.stringify(version)});
-else if (args[0] === "search") console.log(JSON.stringify({results:[{path:"notes/arrival.md",title:"Arrival",type:"note",relevance:"high",score:1,snippet:"Odysseus reaches the harbor."}],warnings:["Fixture uses keyless retrieval"]}));
+if (args[0] === "search") console.log(JSON.stringify({results:[{path:"notes/arrival.md",title:"Arrival",type:"note",relevance:"high",score:1,snippet:"Odysseus reaches the harbor."}],warnings:["Fixture uses keyless retrieval"]}));
 else if (args[0] === "list") console.log(JSON.stringify([{path:"notes/arrival.md",title:"Arrival",type:"note",status:"active",relevance:"high",tags:null,score:0,snippet:"",summary:null,updated:"2026-09-28"}]));
 else if (args[0] === "module" && args[1] === "list") console.log(JSON.stringify({enabled:[],available:[]}));
 else if (args[0] === "stats") console.log(JSON.stringify(args.includes("--history") ? {history:[{date:"2026-09-28",documents:1,embeddings:null}]} : {documents:1,embeddings:null}));
 else if (args[0] === "briefing") console.log("Arrival: Odysseus reaches the harbor.");
 else if (args[0] === "add") console.log(JSON.stringify({action:"created",path:"notes/arrival.md",title:"Arrival",type:"note",indexed:false,indexError:"Fixture indexing is unavailable"}));
-else if (args[0] === "sync") console.log("Fixture sync complete");
-`,
-    { mode: 0o755 });
+else if (args[0] === "sync") console.log("Fixture sync complete");` });
   const native = createNativeAppFixture(brainPath);
   // Each independent app owns its existing state-path admission domain.
   const config = testServerConfig({ brain: brainPath, db: join(root, "ui.db") }, {

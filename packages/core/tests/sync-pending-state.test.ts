@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { conclude, pendingState } from "../src/lib/sync/merge-state.js";
 import { makeTempBrain, runCli } from "./cli-harness";
-import { withoutSigning } from "./git-fixture";
+import { git, gitResult, withoutSigning } from "./git-fixture";
 
 const CACHE = ".brain-cache/contexts.jsonl";
 const NOTE = "notes/sailor-log.md";
@@ -41,15 +41,10 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function git(cwd: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", "-C", cwd, ...args]);
-  if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
-  return result.stdout.toString().trim();
-}
 
 /** Run git where failing is the point (a conflicting merge, pop or rebase). */
 function gitMayFail(cwd: string, ...args: string[]): number {
-  return Bun.spawnSync(["git", "-C", cwd, ...args]).exitCode ?? 0;
+  return gitResult(cwd, ...args).code;
 }
 
 function identify(root: string): void {

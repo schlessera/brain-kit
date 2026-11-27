@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { git } from "./git-fixture";
 
 test("host metadata mode never executes Git or repository configuration", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-storage-host-")), brain = join(root, "brain"), bin = join(root, "bin"), marker = join(root, "git-executed");
@@ -24,7 +25,6 @@ test("public host reader resolves approved worktree markers and refuses redirect
   const { symlinkSync, unlinkSync } = await import("node:fs");
   const root = mkdtempSync(join(tmpdir(), "odysseus-storage-host-")), repo = join(root, "repo"), worktree = join(root, "voyage"), alternate = join(root, "alternate");
   mkdirSync(repo); mkdirSync(alternate);
-  const git = (path: string, ...args: string[]) => { const p = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", path, ...args], { stdout: "pipe", stderr: "pipe" }); expect(p.exitCode, p.stderr.toString()).toBe(0); };
   try {
     git(repo, "init"); git(alternate, "init", "--bare");
     writeFileSync(join(repo, "Ithaca.md"), "Odysseus returns to Ithaca.\n");
