@@ -101,10 +101,6 @@ export const APIFY_QUALIFIED_PROFILES: readonly ApifyQualifiedProfile[] = Object
 export class ApifyProfileError extends Error {
   constructor(message: string) { super(message); this.name = "ApifyProfileError"; }
 }
-/** Actor input a profile refuses. Carries no remote text. */
-export class ApifyProfileInputError extends TypeError {
-  constructor(message: string) { super(message); this.name = "ApifyProfileInputError"; }
-}
 
 const SCHEMA_KEYWORDS = new Set([
   "title", "description", "type", "editor", "default", "prefill", "example", "sectionCaption", "sectionDescription", "enumTitles",
@@ -206,119 +202,6 @@ export function profileFor(profiles: readonly ApifyQualifiedProfile[], ticket: {
   if (!profile || profile.actor_id !== ticket.actor_id || profile.build_number !== ticket.build_number
     || profile.schema_sha256 !== ticket.schema_sha256 || profile.pricing_sha256 !== ticket.pricing_sha256) return null;
   return profile;
-}
-
-/** Full validation of one value against one schema node. */
-function validate(schema: SchemaNode, value: unknown, path: string): void {
-  if (value === null) {
-    if (schema.nullable === true) return;
-    throw new ApifyProfileInputError(`${path} must not be null.`);
-  }
-  const type = schema.type;
-  const fail = (what: string) => { throw new ApifyProfileInputError(`${path} ${what}.`); };
-  switch (type) {
-    case "string": if (typeof value !== "string") fail("must be a string"); break;
-    case "integer": if (typeof value !== "number" || !Number.isSafeInteger(value)) fail("must be an integer"); break;
-    case "number": if (typeof value !== "number" || !Number.isFinite(value)) fail("must be a number"); break;
-    case "boolean": if (typeof value !== "boolean") fail("must be true or false"); break;
-    case "array": if (!Array.isArray(value)) fail("must be an array"); break;
-    case "object": if (!node(value)) fail("must be an object"); break;
-  }
-  if (Array.isArray(schema.enum) && !schema.enum.some(option => canonicalJson(option) === canonicalJson(value))) fail("is not one of the allowed values");
-  if (typeof value === "number") {
-    if (typeof schema.minimum === "number" && value < schema.minimum) fail(`is below ${schema.minimum}`);
-    if (typeof schema.maximum === "number" && value > schema.maximum) fail(`is above ${schema.maximum}`);
-  }
-  if (typeof value === "string") {
-    const length = [...value].length;
-    if (typeof schema.minLength === "number" && length < schema.minLength) fail("is too short");
-    if (typeof schema.maxLength === "number" && length > schema.maxLength) fail("is too long");
-    if (typeof schema.pattern === "string" && !new RegExp(schema.pattern, "u").test(value)) fail("does not match its pattern");
-  }
-  if (Array.isArray(value)) {
-    if (typeof schema.minItems === "number" && value.length < schema.minItems) fail(`has fewer than ${schema.minItems} items`);
-    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) fail(`has more than ${schema.maxItems} items`);
-    if (schema.uniqueItems === true && new Set(value.map(item => canonicalJson(item))).size !== value.length) fail("repeats an item");
-    const items = node(schema.items);
-    value.forEach((item, index) => { if (items) validate(items, item, `${path}[${index}]`); });
-  }
-  const object = node(value);
-  if (object && !Array.isArray(value) && type === "object") {
-    const properties = node(schema.properties) ?? {};
-    for (const key of Object.keys(object)) {
-      const child = node(properties[key]);
-      // Undeclared fields refuse: the reviewed schema is the whole input.
-      if (!child) fail(`names ${key}, which its schema does not define`);
-      validate(child!, object[key], `${path}.${key}`);
-    }
-    for (const key of Array.isArray(schema.required) ? schema.required : [])
-      if (typeof key === "string" && !(key in object)) fail(`lacks the required ${key}`);
-  }
-}
-
-/** What a validated input means for one run. */
-export interface ApifyProfiledInput {
-  /** Every target URL, in input order. */
-  readonly urls: readonly string[];
-  readonly origins: readonly string[];
-  /** The most result items the input lets the run produce. */
-  readonly items_bound: number;
-}
-
-/**
- * Validate the whole input against the profile's exact schema, collect its
- * target URLs from the mapped fields only, and bound its work. Any URL in
- * another field, an unmapped or oversized work limit, or a target outside
- * the profile's site authorization refuses.
- */
-export function profileInput(profile: ApifyQualifiedProfile, input: Readonly<Record<string, unknown>>, maxResultItems: number): ApifyProfiledInput {
-  validate(profile.input_schema, input, "input");
-  const urls: string[] = [];
-  const targetFields = new Set(profile.targets.map(target => target.field));
-  const take = (raw: unknown, field: string) => {
-    if (typeof raw !== "string") throw new ApifyProfileInputError(`input.${field} must hold URLs.`);
-    let url: URL;
-    try { url = new URL(raw.trim()); } catch { throw new ApifyProfileInputError(`input.${field} holds a URL that does not parse.`); }
-    if (url.protocol !== "https:" && url.protocol !== "http:") throw new ApifyProfileInputError(`input.${field} holds an unsupported URL.`);
-    if (url.username || url.password) throw new ApifyProfileInputError(`input.${field} must not carry credentials in a URL.`);
-    urls.push(url.href);
-  };
-  for (const target of profile.targets) {
-    const value = input[target.field];
-    if (value === undefined || value === null) continue;
-    if (target.shape === "url") take(value, target.field);
-    else for (const entry of value as unknown[]) {
-      if (target.shape === "request_list") {
-        // A request carries only its URL: no method, headers, payload or user data reach the target.
-        const request = node(entry);
-        if (!request || Object.keys(request).some(key => key !== "url")) throw new ApifyProfileInputError(`input.${target.field} entries are { url } only.`);
-        take(request.url, target.field);
-      } else take(entry, target.field);
-    }
-  }
-  // No other field may smuggle a target.
-  const scan = (value: unknown, field: string): void => {
-    if (typeof value === "string" && /^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(value.trim()))
-      throw new ApifyProfileInputError(`input.${field} carries a URL, but only the profile's target fields may.`);
-    if (Array.isArray(value)) for (const item of value) scan(item, field);
-    else if (node(value)) for (const child of Object.values(value as object)) scan(child, field);
-  };
-  for (const [field, value] of Object.entries(input)) if (!targetFields.has(field)) scan(value, field);
-  if (!urls.length) throw new ApifyProfileInputError("The input names no target.");
-  let itemsBound = Number.POSITIVE_INFINITY;
-  for (const limit of profile.work_limits) {
-    const value = input[limit.field];
-    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
-      throw new ApifyProfileInputError(`input.${limit.field} must be set to a positive whole number; it bounds the run's work.`);
-    if (value > maxResultItems) throw new ApifyProfileInputError(`input.${limit.field} exceeds the policy's max_result_items (${maxResultItems}).`);
-    itemsBound = Math.min(itemsBound, value);
-  }
-  const origins = [...new Set(urls.map(url => new URL(url).origin))].sort();
-  if (profile.site.authorization === "written_permission") {
-    const outside = origins.filter(origin => !profile.site.permitted_origins.includes(origin));
-    if (outside.length) throw new ApifyProfileInputError(`No written site permission covers ${outside.join(", ")}.`);
-  }
-  return { urls, origins, items_bound: itemsBound };
 }
 
 /** Microdollars, rounded up so a reservation never understates. */
