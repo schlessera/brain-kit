@@ -1,7 +1,8 @@
 /**
  * Real image bytes for the markup tests (#3975): PNGs encoded here with
  * zlib, so their headers, alpha and size are exactly what each test claims,
- * and a JPEG header carrying an EXIF orientation.
+ * and a JPEG header carrying an EXIF orientation. The one PNG encoder of the
+ * ui-server test helpers: media-flow.ts wraps it (#4851).
  */
 import { deflateSync } from "node:zlib";
 
@@ -30,8 +31,17 @@ export interface PngOptions {
   alpha?: boolean;
   /** Fill each pixel; default fully transparent (or black when opaque). */
   pixel?: (x: number, y: number) => [number, number, number, number];
+  /** One colour for every pixel, a shorthand for `pixel`; alpha defaults to opaque. */
+  fill?: readonly [number, number, number] | readonly [number, number, number, number];
   /** Random pixels: incompressible, so the file is about width × height × 4 bytes. */
   noise?: boolean;
+  /**
+   * Seed the noise with a linear congruential sequence (one step per raw
+   * byte, filter bytes included), so the bytes are the same on every run.
+   */
+  seed?: number;
+  /** The zlib level of the image data; default 9, or 0 for noise. */
+  level?: number;
   /** Pad with a private ancillary chunk so the file is exactly this many bytes. */
   exactBytes?: number;
 }
@@ -45,17 +55,19 @@ export function png(width: number, height: number, options: PngOptions = {}): Bu
   const row = 1 + width * channels;
   let raw: Buffer;
   if (options.noise) {
-    raw = Buffer.from(randomBytesLarge(row * height).buffer);
+    raw = options.seed === undefined ? Buffer.from(randomBytesLarge(row * height).buffer) : seededBytes(row * height, options.seed);
     for (let y = 0; y < height; y++) raw[y * row] = 0;
   } else {
     raw = Buffer.alloc(row * height);
-    if (options.pixel) for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-      const [r, g, b, a] = options.pixel(x, y);
+    const fill = options.fill && [options.fill[0], options.fill[1], options.fill[2], options.fill[3] ?? 255] as const;
+    const pixel = options.pixel ?? (fill && (() => fill));
+    if (pixel) for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const [r, g, b, a] = pixel(x, y);
       const at = y * row + 1 + x * channels;
       raw[at] = r; raw[at + 1] = g; raw[at + 2] = b; if (alpha) raw[at + 3] = a;
     }
   }
-  const parts = [Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: options.noise ? 0 : 9 }))];
+  const parts = [Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: options.level ?? (options.noise ? 0 : 9) }))];
   const end = chunk("IEND", new Uint8Array());
   const size = parts.reduce((n, part) => n + part.length, 0) + end.length;
   if (options.exactBytes !== undefined) {
@@ -64,6 +76,13 @@ export function png(width: number, height: number, options: PngOptions = {}): Bu
     parts.push(chunk("prVt", new Uint8Array(pad)));
   }
   return Buffer.concat([...parts, end]) as Buffer<ArrayBuffer>;
+}
+
+function seededBytes(n: number, seed: number): Buffer {
+  const out = Buffer.alloc(n);
+  let x = seed >>> 0;
+  for (let i = 0; i < n; i++) { x = (Math.imul(x, 1664525) + 1013904223) >>> 0; out[i] = x >>> 24; }
+  return out;
 }
 
 /** `getRandomValues` fills at most 65,536 bytes per call. */
