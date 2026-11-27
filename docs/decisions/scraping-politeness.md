@@ -87,7 +87,11 @@ site's permission. Fixture: `packages/module-jobs/tests/fixtures/boards/remotive
 - **`RobotsCache`** (`packages/scrape/src/politeness/robots.ts`) fetches
   robots.txt once per origin and answers `isAllowed`. A 404, a timeout or a 500
   means no rules rather than a blanket disallow, so an outage is not read as a
-  policy. `Crawl-delay` is honoured as well.
+  policy. `Crawl-delay` is honoured as well. A definite answer (a 200 or a 4xx)
+  is kept for 24 hours, the most RFC 9309 asks, and a failed fetch for five
+  minutes, so a long-lived cache re-reads a site's rules daily and does not keep
+  an outage's "no rules" for its whole life (#4813). It holds at most 1,000
+  origins, dropping the least recently used.
 - **`ScrapeClient`** (`packages/scrape/src/fetch/http.ts`) checks every request
   against `RobotsCache` before the rate limiter and the network. On a
   disallowed URL it throws `RobotsDisallowedError`, and the adapter reports that

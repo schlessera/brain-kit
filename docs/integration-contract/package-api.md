@@ -1663,6 +1663,23 @@ into the cache they construct. Every HTTP redirect to a URL with embedded
 credentials is now refused. All of this is additive and ships in a minor.
 Browser navigation has no address policy.
 
+<a id="robots-txt-cache-lifetime-additive-0450-4813"></a>
+
+## Robots.txt cache lifetime (additive, 0.45.0, #4813)
+
+A `RobotsCache` keeps an origin's answer for a limited time instead of for
+its whole life. `RobotsCacheOptions` gains four optional fields: `maxAgeMs`
+(default 24 hours, RFC 9309's limit) for a definite answer, meaning a 200
+with or without rules or a 4xx; `failureMaxAgeMs` (default 5 minutes) for a
+failed fetch, meaning a 5xx, a thrown or timed-out fetch or an exceeded bound;
+`maxEntries` (default 1,000 origins, least recently used dropped first); and
+`now`, a millisecond clock for tests. An expired entry is fetched again on the
+next check, and concurrent checks still share one in-flight fetch, including
+that reload. What a failed fetch means is unchanged: it stays permissive. A
+cache that lives for one scrape run behaves as before; one held for days, like
+the hosted Apify site-permission checker's, now reads robots.txt again daily
+and retries a failed fetch after five minutes. Additive; ships in a minor.
+
 <a id="browser-scraping-navigation-policy"></a>
 
 ## Browser scraping navigation policy
