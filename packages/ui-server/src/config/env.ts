@@ -1031,6 +1031,11 @@ export interface CronConfig {
   brainPath: string;
   /** The deployment database; unlike createApp(), the bin defaults to the container path. */
   dbPath: string;
+  /**
+   * Model pricing for a gated job's provider-relay budget. Its cache lives
+   * below `brainPath`, the brain the job runs in, whatever `BRAIN_PATH` is.
+   */
+  pricing: ReturnType<typeof resolveStandalonePricingConfig>;
   /** Allowlisted brain CLI environment used only to discover module cron entries. */
   moduleDiscoveryEnv: EnvRecord;
   /** Allowlisted environment for the scheduled child, before the span sink is added. */
@@ -1398,11 +1403,13 @@ export function resolveCronConfig(
   const subprocessEnvExtraNames = parseSubprocessEnvExtra(
     [env.BRAIN_UI_SUBPROCESS_ENV_EXTRA, ...admittedNames].join(",")
   );
+  const brainPath = env.BRAIN_PATH || "/data/brain";
   return {
     nativeBrain: resolveNativeBrainConfig(env),
     maintenanceTemp: hostMaintenanceTempLimits(env),
-    brainPath: env.BRAIN_PATH || "/data/brain",
+    brainPath,
     dbPath: env.DB_PATH || "/data/db/brain-ui.db",
+    pricing: { ...resolveStandalonePricingConfig(env), brainPath },
     moduleDiscoveryEnv: filterPackageSubprocessEnv(
       env,
       "brainCli",

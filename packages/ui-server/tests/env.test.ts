@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { ENV_VARS, resolveCronConfig, resolveServerConfig, subprocessEnv } from "../src/config/env";
+import { ENV_VARS, resolveCronConfig, resolveServerConfig, resolveStandalonePricingConfig, subprocessEnv } from "../src/config/env";
 
 const SUBPROCESS_KEYS = [
   "COOKIE_SECRET",
@@ -74,6 +74,23 @@ describe("config/env exec wrapper (#1363)", () => {
 });
 
 describe("config/env resolveCronConfig", () => {
+  // The relay budget of a gated job prices from this config (`createModelPricing(config.pricing)`
+  // in the cron bin), so its pricing cache must sit in the brain the job runs in (#4761).
+  test("prices relay spend from the cron brain path when BRAIN_PATH is unset", () => {
+    const env = { HOME: "/home/penelope", BRAIN_UI_PRICING_TTL_HOURS: "6", BRAIN_UI_PRICING_DISCOVERY: "1" };
+    const config = resolveCronConfig(env);
+    expect(config.brainPath).toBe("/data/brain");
+    expect(config.pricing.brainPath).toBe(config.brainPath);
+    // Only the brain path is the cron's own; the switch and TTL stay the standalone resolver's.
+    expect(config.pricing).toEqual({ ...resolveStandalonePricingConfig(env), brainPath: "/data/brain" });
+  });
+
+  test("prices relay spend from BRAIN_PATH when it is set", () => {
+    const config = resolveCronConfig({ HOME: "/home/penelope", BRAIN_PATH: "/srv/ithaca/brain" });
+    expect(config.brainPath).toBe("/srv/ithaca/brain");
+    expect(config.pricing.brainPath).toBe(config.brainPath);
+  });
+
   test("uses the container DB default and allowlists the scheduled-job environment", () => {
     const config = resolveCronConfig({
       PATH: "/usr/bin",
