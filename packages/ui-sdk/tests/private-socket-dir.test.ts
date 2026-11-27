@@ -35,8 +35,10 @@ async function listen(path: string): Promise<void> {
   await new Promise<void>(resolve => server.listen(path, resolve));
 }
 
-const dirMode = (separate: boolean) => separate ? 0o750 : 0o700;
-const sockMode = (separate: boolean) => separate ? 0o660 : 0o600;
+/** The expected modes, spelled out here rather than taken from the module under test. */
+const MODES = { private: { dir: 0o700, socket: 0o600 }, separate: { dir: 0o750, socket: 0o660 } } as const;
+const dirMode = (separate: boolean) => MODES[separate ? "separate" : "private"].dir;
+const sockMode = (separate: boolean) => MODES[separate ? "separate" : "private"].socket;
 
 /** A conforming layout: `<base>/relay` holding `relay.sock`, with the brain beside it. */
 async function layout(separate: boolean, base = root()) {
