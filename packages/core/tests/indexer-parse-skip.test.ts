@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "fs";
-import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 import type { Database } from "bun:sqlite";
@@ -10,6 +10,7 @@ import { indexAll } from "../src/lib/indexer";
 import * as links from "../src/lib/indexer/links";
 import { buildTaxonomy, type Taxonomy } from "../src/lib/taxonomy";
 import { countExecutions } from "./statement-counter";
+import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 // A complete run reads and hashes every markdown file, and parses only the
 // files whose bytes or chunker version changed (#4781). The titles and aliases
@@ -140,6 +141,32 @@ describe("unchanged files are read and hashed, not parsed (#4781)", () => {
     expect(skipping).toEqual(parsing);
     expect(skipping.aliasMap).toContainEqual(["the island", ["notes/calypso.md", "notes/raft.md"]]);
   });
+
+  test("the retrieval goldens hold after a run that parsed nothing", async () => {
+    const root = makeTempBrain();
+    cleanups.push(() => cleanup(root));
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    const again = await runCli(root, ["index", "--json"]);
+    expect(again.code).toBe(0);
+    const stats = JSON.parse(again.stdout);
+    expect([stats.added, stats.updated, stats.unchanged]).toEqual([0, 0, stats.total]);
+    const run = await runCli(root, ["eval", "--mode", "fts", "--rerank", "heuristic", "--json"]);
+    expect(run.code).toBe(0);
+    const goldens = JSON.parse(readFileSync(join(root, "evals/expected-ranks.json"), "utf-8")) as
+      Record<string, { rank: number | null; current_first?: boolean; top?: string[] }>;
+    const outcomes = (JSON.parse(run.stdout).per_query as { id: string; rank: number | null; current_first: boolean | null; top: string[] }[]);
+    expect(outcomes.map((o) => o.id).sort()).toEqual(Object.keys(goldens).sort());
+    const scored = outcomes.map((o) => {
+      const golden = goldens[o.id];
+      return {
+        id: o.id,
+        rank: o.rank,
+        ...(golden.current_first !== undefined ? { current_first: o.current_first } : {}),
+        ...(golden.top !== undefined ? { top: o.top.slice(0, golden.top.length) } : {}),
+      };
+    });
+    expect(scored).toEqual(outcomes.map((o) => ({ id: o.id, ...goldens[o.id] })));
+  }, 60_000);
 
   test("an edit that keeps a file's size and modification time is still indexed", async () => {
     const root = brain(CORPUS);
