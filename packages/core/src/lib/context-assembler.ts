@@ -8,8 +8,8 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 import type { BrainContext } from "./context.js";
 import { parseContextScope, type ContextScope, type ContextScopeInput } from "./context-scope.js";
 import type { EmbeddingProvider } from "./seams.js";
+import { CHUNKER_VERSION, estimateTokens, headingText as chunkerHeadingText, lineIndex } from "./chunker.js";
 import { topLevelBlocks, type TopLevelBlock } from "./document-parts.js";
-import { CHUNKER_VERSION, headingText as chunkerHeadingText, lineIndex } from "./chunker.js";
 import { chunkMatchLine, hybridSearch } from "./search-engine.js";
 import type { ChunkMatch, SearchResult } from "./types.js";
 
@@ -165,12 +165,8 @@ export function emptyAssembleReport(): AssembleReport {
   return { identity: null, focus: null, results: [], related: [] };
 }
 
-/**
- * Rough token estimate: ~4 chars per token.
- */
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
+/** The token estimate the chunker budgets with, re-exported for this module's importers. */
+export { estimateTokens };
 
 /** Tokens a hit is budgeted from `maxTokens`: the candidate pool is sized so
  * the budget can be filled, up to CONTEXT_SEARCH_CAP results. */
