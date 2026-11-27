@@ -101,24 +101,6 @@ export function aspectToOpenAiSize(aspect: string, resolution: Resolution = "1K"
   return `${w}x${h}`;
 }
 
-/** Nearest Gemini-legal ratio to an exact size, for reporting what was substituted. */
-export function sizeToNearestGeminiAspect(size: string): string | null {
-  const m = /^(\d+)x(\d+)$/.exec(size);
-  if (!m) return null;
-  const target = Number(m[1]) / Number(m[2]);
-  let best: string | null = null;
-  let bestDelta = Infinity;
-  for (const a of GEMINI_ASPECTS) {
-    const r = parseAspect(a)!;
-    const delta = Math.abs(r.w / r.h - target);
-    if (delta < bestDelta) {
-      bestDelta = delta;
-      best = a;
-    }
-  }
-  return best;
-}
-
 /** OpenAI's recommended sizes, accepted by every GPT-image model. */
 export const OPENAI_PRESET_SIZES = ["1024x1024", "1536x1024", "1024x1536"];
 

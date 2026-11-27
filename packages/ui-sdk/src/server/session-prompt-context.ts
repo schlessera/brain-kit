@@ -17,8 +17,16 @@ export function stripHostContextFromTitle(text: string): string {
 }
 
 export type SessionPromptFacts = Record<string, string>;
-interface OwnedTurn { original: string; wireDigest: string; facts: SessionPromptFacts; providerId?: string }
-interface Snapshot { append?: string; delivered: SessionPromptFacts; turns: Record<string, OwnedTurn> }
+/** `facts` is read only by this turn's first acknowledgement, which removes it (#4859). */
+interface OwnedTurn { original: string; wireDigest: string; facts?: SessionPromptFacts; providerId?: string }
+/**
+ * Every write serialises the whole parsed object, so top-level keys this store
+ * does not declare survive it. Another module keeps data here through
+ * `retained` (#4826); dropping those keys would re-pin a resumed session's
+ * provider-facing tool roster.
+ */
+interface Snapshot { append?: string; delivered: SessionPromptFacts; turns: Record<string, OwnedTurn>; [carried: string]: unknown }
+const OWN_KEYS = new Set(["append", "delivered", "turns"]);
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 
 /** Refuse redirected ancestors, including a storage root aliased into the brain. */
@@ -91,13 +99,40 @@ export function sessionPromptContext(root: string, brainPath: string, sessionId:
       if (!turn) return;
       turn.providerId = providerId;
       if (observedWire !== undefined) turn.wireDigest = digest(observedWire);
-      state.delivered = { ...turn.facts };
+      // A turn acknowledged again has no facts left: what it delivered stays delivered.
+      if (turn.facts) { state.delivered = { ...turn.facts }; delete turn.facts; }
+      write(state);
+    },
+    /**
+     * Read and replace caller-named top-level keys in one read-modify-write;
+     * the values are the caller's and never interpreted here. Refuses until an
+     * append is retained, so it never creates the file, and writes nothing when
+     * `update` returns undefined.
+     */
+    retained(keys: readonly string[], update: (values: Record<string, unknown>) => Record<string, unknown> | undefined): void {
+      if (keys.some(key => OWN_KEYS.has(key))) throw new Error("Session prompt context keeps its own fields");
+      const state = read();
+      if (!state || typeof state !== "object" || Array.isArray(state) || typeof state.append !== "string")
+        throw new Error("Session prompt context has no retained append");
+      directory(dir);
+      const replacement = update(Object.fromEntries(keys.map(key => [key, state[key]])));
+      if (replacement === undefined) return;
+      for (const key of keys) if (key in replacement) state[key] = replacement[key];
       write(state);
     },
     userText(providerId: string, wire: string): string {
       const turns = read().turns;
       const owned = Object.entries(turns).find(([id, turn]) => (turn.providerId ?? id) === providerId && turn.wireDigest === digest(wire));
       return owned ? owned[1].original : wire;
+    },
+    /** `userText` for a whole history read: one read, then the first owning turn in stored order. */
+    userTexts(): (providerId: string, wire: string) => string {
+      const owned = new Map<string, string>();
+      for (const [id, turn] of Object.entries(read().turns)) {
+        const key = `${turn.providerId ?? id}\n${turn.wireDigest}`;
+        if (!owned.has(key)) owned.set(key, turn.original);
+      }
+      return (providerId, wire) => owned.get(`${providerId}\n${digest(wire)}`) ?? wire;
     },
   };
 }

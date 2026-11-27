@@ -3,7 +3,7 @@ import { join, posix } from "path";
 import { inertGeneratedText, rewriteGeneratedRegion, safeResolve, writeFileSafely } from "@schlessera/brain/module";
 import type { Taxonomy } from "@schlessera/brain";
 import type { ValidationIssue } from "@schlessera/brain/module";
-import { readTravelCorpus, summarizePlaceVisits } from "./content.js";
+import { readTravelCorpus, summarizeAllPlaceVisits } from "./content.js";
 import type { Place, Trip, TravelCorpus } from "./content.js";
 
 // The registries live in core's generated regions, named apart from the
@@ -89,7 +89,7 @@ export function renderTrips(corpus: TravelCorpus, indexPath: string): string {
 export function renderPlaces(corpus: TravelCorpus, indexPath: string): string {
   const places = [...corpus.documents].filter((entry): entry is [string, Place] => entry[1].type === "place")
     .sort(([a], [b]) => byPath(a, b));
-  const summaries = new Map(places.map(([path]) => [path, summarizePlaceVisits(corpus, path)]));
+  const summaries = summarizeAllPlaceVisits(corpus, places.map(([path]) => path));
   const title = (path: string): string => corpus.documents.get(path)?.title ?? path;
 
   // A country's rollup is the union of its own and its descendants' canonical

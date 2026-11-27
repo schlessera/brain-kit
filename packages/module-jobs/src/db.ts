@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS jobs_metadata (
@@ -54,14 +54,11 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_jobs_fingerprint ON jobs(fingerprint);
-CREATE INDEX IF NOT EXISTS idx_jobs_company_normalized ON jobs(company_normalized);
-CREATE INDEX IF NOT EXISTS idx_jobs_title_normalized ON jobs(title_normalized);
 CREATE INDEX IF NOT EXISTS idx_jobs_review_status ON jobs(review_status);
 CREATE INDEX IF NOT EXISTS idx_jobs_relevance_score ON jobs(relevance_score DESC);
-CREATE INDEX IF NOT EXISTS idx_jobs_published_at ON jobs(published_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_last_seen_at ON jobs(last_seen_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source);
-CREATE INDEX IF NOT EXISTS idx_jobs_is_duplicate ON jobs(is_duplicate);
+CREATE INDEX IF NOT EXISTS idx_jobs_duplicate_of ON jobs(duplicate_of);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS jobs_fts USING fts5(
   title, company, description_text, tags,
@@ -129,24 +126,21 @@ function initSchema(db: Database): void {
       db.exec("UPDATE jobs SET scored_at = scraped_at WHERE score_breakdown IS NOT NULL");
       db.query("UPDATE jobs_metadata SET value = ? WHERE key = 'schema_version'").run("2");
     }
+
+    // v3: without statistics the planner preferred the boolean
+    // `is_duplicate` index over `fingerprint`, so every dedup group read
+    // every non-duplicate row (#4810). That index and three no statement
+    // uses are dropped here, once; `SCHEMA_SQL` no longer names them, so an
+    // ordinary open of an up-to-date database performs no write (#4809).
+    // `SCHEMA_SQL` above has already created `idx_jobs_duplicate_of`.
+    if (version < 3) {
+      db.exec("DROP INDEX IF EXISTS idx_jobs_is_duplicate");
+      db.exec("DROP INDEX IF EXISTS idx_jobs_company_normalized");
+      db.exec("DROP INDEX IF EXISTS idx_jobs_title_normalized");
+      db.exec("DROP INDEX IF EXISTS idx_jobs_published_at");
+      db.query("UPDATE jobs_metadata SET value = ? WHERE key = 'schema_version'").run("3");
+    }
   }
-
-  // Seed neutral classification-threshold fallbacks (idempotent). These are
-  // overridden by the criteria file's `queueThreshold`/`dismissThreshold`.
-  const seedDefault = db.query("INSERT OR IGNORE INTO jobs_metadata (key, value) VALUES (?, ?)");
-  seedDefault.run("queue_threshold", "60");
-  seedDefault.run("dismiss_threshold", "35");
-}
-
-export function getMetadata(db: Database, key: string): string | null {
-  const row = db.query("SELECT value FROM jobs_metadata WHERE key = ?").get(key) as
-    | { value: string }
-    | null;
-  return row?.value ?? null;
-}
-
-export function setMetadata(db: Database, key: string, value: string): void {
-  db.query("INSERT OR REPLACE INTO jobs_metadata (key, value) VALUES (?, ?)").run(key, value);
 }
 
 export function getLastCursor(db: Database, source: string): string | null {
