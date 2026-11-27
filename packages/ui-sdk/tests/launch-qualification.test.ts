@@ -167,13 +167,13 @@ describe("an unknown layout runs the walk at the launch (A12)", () => {
     expect(f.ran()).toBe(1);
   }, watchdogMs(60_000));
 
-  test("private paths declared for a brain with no provider refuse the launch", async () => {
+  test("private paths declared for a brain with no registered layout run unqualified: a backend's own credential masks", async () => {
     const f = await fixture();
     const other = join(f.root, "other-brain"); mkdirSync(other);
     const view = createFixtureWorkerStartupView(other); cleanups.push(view.cleanup);
-    await expect(runMaintenanceWorker({ ...maintenance(f, [f.markers]), brainPath: other, startupView: view, maskPaths: [join(f.root, "state")] }), "DECLARED_WITHOUT_PROVIDER")
-      .rejects.toThrow("no registered private-state provider");
-    expect(f.ran()).toBe(0);
+    const result = await runMaintenanceWorker({ ...maintenance(f, [f.markers]), brainPath: other, startupView: view, maskPaths: [join(f.root, "state")] });
+    expect(result.exitCode, `UNREGISTERED_BRAIN_RUNS_UNQUALIFIED: ${result.stderr}`).toBe(0);
+    expect(f.ran()).toBe(1);
   }, watchdogMs(60_000));
 });
 
@@ -207,13 +207,13 @@ describe("qualification never judges an incomplete table (A25)", () => {
   test("reads in order: empty, seal absent, seal with the old root stacked at /, complete: judged only on the last", async () => {
     const f = await fixture();
     const served = injected(reads);
-    expect(runWorkerStepsSync(qualifyWorkerNamespaceSteps(424242, f.brain, Date.now() + 5_000, true)), "RELEASED_ON_COMPLETE").toEqual({ result: "hidden" });
+    expect(runWorkerStepsSync(qualifyWorkerNamespaceSteps(424242, f.brain, Date.now() + 5_000)), "RELEASED_ON_COMPLETE").toEqual({ result: "hidden" });
     expect(served(), "JUDGED_ONLY_THE_FOURTH_READ").toBe(4);
   }, watchdogMs(30_000));
   test("a stacked root repeated to the deadline is unknown: the walk decides", async () => {
     const f = await fixture();
     injected(reads.slice(0, 3));
-    expect(runWorkerStepsSync(qualifyWorkerNamespaceSteps(424242, f.brain, Date.now() + 200, true)), "STACKED_TO_DEADLINE_UNKNOWN").toEqual({ result: "namespace_unverified" });
+    expect(runWorkerStepsSync(qualifyWorkerNamespaceSteps(424242, f.brain, Date.now() + 200)), "STACKED_TO_DEADLINE_UNKNOWN").toEqual({ result: "namespace_unverified" });
     expect(f.events.at(-1)).toMatchObject({ kind: "namespace_unverified", cause: "the sandbox's mount table was not complete in time" });
   }, watchdogMs(30_000));
 });

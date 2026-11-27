@@ -158,12 +158,6 @@ function processUids(pid: number): number[] {
   return uids;
 }
 
-const UNDECLARED = "private state was declared for a brain with no registered private-state provider; nothing can qualify this launch";
-/** Refuse before spawning a launch that names private paths for a brain nothing can qualify. */
-export function requirePrivateStateProvider(brain: string, declared: boolean): void {
-  if (declared && !workerPrivateStateProviders(brain).length) throw new Error(UNDECLARED);
-}
-
 /** How a launch's namespace qualified. `unqualified`: no provider for this brain. */
 export type NamespaceQualification =
   | { result: "unqualified" }
@@ -182,12 +176,12 @@ const report = (provider: WorkerPrivateStateProvider, event: WorkerPrivateStateE
  * its refusal throws with the walk's reason while a pass releases. The walk's
  * time is not counted against `deadline`, which bounds the observation only.
  */
-export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadline: number, declared: boolean): WorkerSteps<NamespaceQualification> {
+export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadline: number): WorkerSteps<NamespaceQualification> {
   const registered = workerPrivateStateProviders(brain), reporters = workerPrivateStateReporters(brain);
-  if (!registered.length) {
-    if (declared) throw new Error(UNDECLARED);
-    return { result: "unqualified" };
-  }
+  // No layout registered for this brain in this process (a backend or library
+  // used on its own, whose masks are credential files): nothing to judge or
+  // walk, so the launch runs unqualified, as before #4301.
+  if (!registered.length) return { result: "unqualified" };
   let cause: string | undefined;
   try {
     const roots = observeStateRoots(registered.flatMap(provider => provider.roots()));

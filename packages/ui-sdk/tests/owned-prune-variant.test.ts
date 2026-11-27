@@ -104,6 +104,8 @@ test("real original and variant boundary methods preserve owned operation order,
       },
       // A scratch prune is credential-free: no CLI provider relay (#1673).
       providerRelayFor: () => undefined,
+      // No boot check was deferred (#4301): the run proceeds at once.
+      preflight: async () => {},
       options: { log: logger }, command: () => launch, prepareMaintenanceGit: async (...args: unknown[]) => {
         expect(args.length, "OWNED_PRUNE_GIT_ARGUMENT_COUNT_PRESERVED").toBe(4);
         expect(args[0], "OWNED_PRUNE_GIT_COMMAND_IDENTITY_PRESERVED").toBe(launch);

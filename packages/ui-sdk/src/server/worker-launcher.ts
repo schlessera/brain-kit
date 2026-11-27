@@ -4,7 +4,7 @@ import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe, createWorkerStatusPipeSteps } from "./worker-status.js";
 import { WORKER_NAMESPACE_SEAL } from "./namespace-qualification.js";
-import { privateStateRefusalOf, qualifyWorkerNamespaceSteps, requirePrivateStateProvider } from "./worker-private-state.js";
+import { privateStateRefusalOf, qualifyWorkerNamespaceSteps } from "./worker-private-state.js";
 import { prepareWorkerIdentity, workerCleanupUnconfirmed, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
 import { chmodSync, chownSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
@@ -1160,9 +1160,18 @@ function withIdentity(boot: ReturnType<typeof workerBootstrap>, helper: string, 
   return broker;
 }
 
+/** The spawned outer process, described without Bun's types so the published surface stays node-clean. */
+export interface SpawnedWorkerProcess {
+  readonly pid: number;
+  readonly exited: Promise<number>;
+  readonly exitCode: number | null;
+  readonly signalCode: NodeJS.Signals | null;
+  kill(signal?: number | NodeJS.Signals): void;
+}
+
 /** A direct-spawn launch held at its start gate, then released (#4301). */
 export interface GatedWorkerSpawn {
-  child: ReturnType<typeof Bun.spawn>;
+  child: SpawnedWorkerProcess;
   /** When the spawn happened; a caller's deadline counts from here. */
   spawnedAt: number;
   /** The sandbox's PID, absent when bubblewrap exited before reporting it: no payload started. */
@@ -1180,7 +1189,7 @@ export interface GatedWorkerSpawn {
  * sandbox and throws; the gate shell exits 125 if the server dies first.
  */
 export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number; stdout: number; stderr: number },
-  onSpawn?: (child: ReturnType<typeof Bun.spawn>) => void,
+  onSpawn?: (child: SpawnedWorkerProcess) => void,
   /**
    * `timeoutMs` counts from the spawn, as `Bun.spawnSync`'s did: a launch whose
    * setup outlasts it is stopped unreleased and reported `timedOut`. An abort
@@ -1188,7 +1197,6 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
    * starts the payload.
    */
   options: { timeoutMs?: number; signal?: AbortSignal } = {}): WorkerSteps<GatedWorkerSpawn> {
-  requirePrivateStateProvider(realpathSync(input.brainPath), declaresPrivateState(input));
   const status = yield* createWorkerStatusPipeSteps();
   let child: ReturnType<typeof Bun.spawn> | undefined, aborted = false;
   try {
@@ -1207,7 +1215,7 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     // A synchronous caller reaps the child itself; Bun then rejects `exited`.
     const closeStatus = () => status.close(supervisor);
     void child.exited.then(closeStatus, closeStatus);
-    yield* qualifyWorkerNamespaceSteps(pid, realpathSync(input.brainPath), spawnedAt + STATE_SETUP_MS, declaresPrivateState(input));
+    yield* qualifyWorkerNamespaceSteps(pid, realpathSync(input.brainPath), spawnedAt + STATE_SETUP_MS);
     if (options.signal?.aborted) { aborted = true; throw options.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"); }
     if (options.timeoutMs !== undefined && Date.now() >= spawnedAt + options.timeoutMs) {
       // Its deadline passed during setup: stopped as spawnSync's timeout stopped it, never released.
@@ -1244,11 +1252,6 @@ function reapChild(pid: number): void {
   waitpid?.(pid);
 }
 
-/** Whether a launch names private host paths: then a registered provider must qualify it (#4301). */
-function declaresPrivateState(input: WorkerLaunch): boolean {
-  return Boolean(input.maintenance?.maskPaths?.length || input.sandbox?.maskPaths?.length);
-}
-
 /**
  * Wait for a spawned launch's outer process, killing it with SIGTERM at the
  * deadline as `Bun.spawnSync`'s timeout did. `exitCode` is null when a signal
@@ -1257,7 +1260,7 @@ function declaresPrivateState(input: WorkerLaunch): boolean {
  */
 /** Exit status of a child this process reaped itself; Bun can no longer report it (F7). */
 const reapedExits = new WeakMap<object, number | null>();
-export function awaitWorkerExitSteps(child: ReturnType<typeof Bun.spawn>, deadline?: number): WorkerSteps<{ exitCode: number | null }> {
+export function awaitWorkerExitSteps(child: SpawnedWorkerProcess, deadline?: number): WorkerSteps<{ exitCode: number | null }> {
   return workerStep(() => {
     if (reapedExits.has(child)) return { exitCode: reapedExits.get(child)! };
     let signalled = false;
@@ -1561,7 +1564,6 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       areas: (input.sandbox?.areas ?? []).flatMap(area => area.mount.writable ? [{ rel: area.rel,
         worker: input.sandbox?.profile === "governed" ? join(brain, area.rel) : join(WORKER_AREA_ROOT, area.name),
         host: input.areaOutput ? join(input.areaOutput.source, area.rel) : area.mount.path }] : []), maskPaths: input.sandbox?.maskPaths });
-    requirePrivateStateProvider(brain, declaresPrivateState(input));
     pipes = yield* createWorkerPipesSteps();
     const helper = workerIdentityHelper();
     if (!helper) status = yield* createWorkerStatusPipeSteps();
@@ -1633,7 +1635,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       yield* verifyWorkerFolderMountsSteps(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks,
         identityBroker?.brainView());
     // Every envelope, before release: no host private state reachable here (#4301).
-    yield* qualifyWorkerNamespaceSteps(pid, brain, deadline, declaresPrivateState(input));
+    yield* qualifyWorkerNamespaceSteps(pid, brain, deadline);
     // Release the gate: the worker's command starts only now.
     // A separate identity opens both keys: the coordinator's gate, then STATE_GATE's line.
     if (identityBroker) { yield* identityBroker.requestSteps("release"); writeSync(pipes.parent[0], STATE_GATE_OPEN); }

@@ -26,7 +26,7 @@ import { OUTPUT_STAGING_BYTES_ENV, resolveMaintenanceTempLimits, type WorkerStat
 import { WorkerStateError } from "./worker-state-budget.js";
 import { privateStateRefusalOf } from "./worker-private-state.js";
 import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
-import { runWorkerStepsAsync, runWorkerStepsSync, type WorkerSteps } from "./worker-steps.js";
+import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, type WorkerSteps } from "./worker-steps.js";
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
 export const CREDENTIAL_FREE_ENV = ["PATH", "BRAIN_PATH", "BRAIN_ROOT", "NODE_ENV", "TZ", "LANG", "LC_ALL", "NO_COLOR",
@@ -314,7 +314,8 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
     pipes = yield* createWorkerPipesSteps();
     // The payload starts only once the host releases its start gate (#4301).
     yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] },
-      spawned => { child = spawned; registerWorker(spawned); }, { signal: (input as { signal?: AbortSignal }).signal });
+      // The launcher's own Bun child, typed structurally on its published surface.
+      spawned => { child = spawned as ReturnType<typeof Bun.spawn>; registerWorker(child); }, { signal: (input as { signal?: AbortSignal }).signal });
     pipes.closeChild();
     const ends = pipes.take();
     let inputClosed = false;
@@ -367,11 +368,16 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       killWorker(running, "SIGKILL");
       // A synchronous launch can fail after spawn. Its late cleanup still owns
       // admission until the asynchronous stop and the actual outer exit join.
-      void Promise.all([running.exited, workerStopCompletion(running)]).then(() => {
+      // A synchronously reaped child rejects `exited`; its exit is already confirmed.
+      const cleanup = Promise.all([running.exited.catch(() => undefined), workerStopCompletion(running)]).then(() => {
         try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
       }).catch(() => { /* Unconfirmed cleanup retains ownership. */ });
-      // A private-state refusal's or an abort's sandbox has already exited: it leaves as itself (#4301).
-      if (privateStateRefusalOf(error) || (input as { signal?: AbortSignal }).signal?.aborted) throw error;
+      // A private-state refusal's or an abort's sandbox has already exited: it leaves as itself (#4301),
+      // once what the launch owns is released (an asynchronous caller waits for that).
+      if (privateStateRefusalOf(error) || (input as { signal?: AbortSignal }).signal?.aborted) {
+        yield* workerStep(() => undefined, () => cleanup);
+        throw error;
+      }
       throw Object.assign(new WorkerIdentityCleanupError("maintenance_worker_launch_cleanup_pending"), { cause: error });
     }
     try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
@@ -512,7 +518,7 @@ export function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeout
     // workerCommand refuses that stage before any payload or helper starts.
     preparedMaintenanceCommands.delete(input);
     pipes = yield* createWorkerPipesSteps();
-    let spawned: ReturnType<typeof Bun.spawn> | undefined;
+    let spawned: import("./worker-launcher.js").SpawnedWorkerProcess | undefined;
     let gated: GatedWorkerSpawn;
     // The payload starts only once the host releases its start gate (#4301).
     try { gated = yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] }, child => { spawned = child; },

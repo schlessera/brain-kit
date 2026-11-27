@@ -39,8 +39,14 @@ if [ "$kind" = identity ]; then
     shift
   done
   shift
+  # The variant files are bound; their source directory is this run's too.
+  umount -l /fixture-variants /fixture-runs
 elif [ "$kind" != host ]; then
   echo 'Invalid native proof kind' >&2
   exit 2
 fi
+# /proof-runs holds this run's private state a second time, under a name no
+# worker mask covers; launch qualification refuses that alias (#4301). Only
+# the projection at /proof stays.
+umount -l /proof-runs
 exec "$@"
