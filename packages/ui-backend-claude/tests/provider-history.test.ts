@@ -1,6 +1,7 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { providerTools, body, bytes, captureOffline, history, identical, identicalSystemPromptOptions, main, messages, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { DEFAULT_PROFILES } from "../src/profiles.js";
+import { providerTools, body, bytes, captureOffline, canonicalMessageContent, newest, sentMessages, withoutMessageCacheControls, type Exchange, history, identical, identicalSystemPromptOptions, main, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
 
 let captures: Captures;
 beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "fixtures/provider-history-probe.ts")); }, 180_000);
@@ -24,8 +25,7 @@ test("Claude typed tools stay byte-identical across repository and device change
   for (const name of ["control", "repository", "facts", "promotion", "budget", "datatree"]) for (const [a, b] of pairs(captures[name]!)) identical(body(a).tools, body(b).tools, `tools ${name}`);
 });
 test("Claude tool round trips preserve the complete prefix even in known-break scenarios", () => {
-  // The production-model scenario holds its one known violation (#4324) exactly, below.
-  for (const [name, capture] of Object.entries(captures)) if (name !== "production") for (const [a, b] of pairs(capture)) if (a.turn === b.turn) {
+  for (const capture of Object.values(captures)) for (const [a, b] of pairs(capture)) if (a.turn === b.turn) {
     providerTools(a, b, "tools within turn");
     identical(system(a), system(b), "system within turn");
     history(a, b);
@@ -105,8 +105,8 @@ test("Claude reference tools dispatch to the host and keep tools, system and his
     { tool: "reference_worktree", input: { action: "release", worktreeId: "raft-worktree" } }]);
   const results = main(capture).filter((_, index) => index % 2 === 1);
   for (const exchange of results) expect(exchange.raw).toContain('"tool_result"');
-  // The newest message of each request carries that turn's tool result.
-  const latest = results.map(exchange => JSON.stringify(messages(exchange).at(-1)));
+  // The newest turn message of each request carries that turn's tool result.
+  const latest = results.map(exchange => JSON.stringify(newest(exchange)));
   expect(latest.map(text => text.includes('"is_error":true')), "REFERENCE_TOOLS_CLAUDE_NO_HANDLER_REFUSES").toEqual([false, true, false]);
   expect(latest[1], "REFERENCE_TOOLS_CLAUDE_NO_HANDLER_REASON").toContain("no available host handler");
   expect(main(capture)[5]!.raw).toContain('\\"state\\":\\"released\\"');
@@ -131,7 +131,7 @@ for (const [name, tool, label] of [["renewal", "reference_worktree", "RENEWAL"],
     expect(main(capture).map(e => e.turn), `REFERENCE_${label}_CLAUDE_EVERY_TURN_CALLS`).toEqual([0, 0, 1, 1, 2, 2]);
     expect((capture.calls as { tool: string }[]).map(call => call.tool), `REFERENCE_${label}_CLAUDE_HOST_ANSWERS_EVERY_TURN`).toEqual([tool, tool, tool]);
     expect(capture.rosters, `REFERENCE_${label}_CLAUDE_ASSEMBLED_ROSTER_STABLE`).toEqual([capture.rosters![0], capture.rosters![0], capture.rosters![0]]);
-    const latest = main(capture).filter((_, index) => index % 2 === 1).map(exchange => JSON.stringify(messages(exchange).at(-1)));
+    const latest = main(capture).filter((_, index) => index % 2 === 1).map(exchange => JSON.stringify(newest(exchange)));
     expect(latest.map(text => text.includes('"is_error":true')), `REFERENCE_${label}_CLAUDE_EVERY_RESULT_SUCCEEDS`).toEqual([false, false, false]);
     if (name === "renewal") expect(latest.map(text => /\\"action\\":\\"(\w+)\\"/.exec(text)?.[1]), "REFERENCE_RENEWAL_CLAUDE_LIFECYCLE_RESULTS").toEqual(["request", "renew", "release"]);
     else expect(latest.map(text => [/\\"freshness\\":\\"(\w+)\\"/.exec(text)?.[1], /\\"commit\\":\\"(\w)/.exec(text)?.[1]]), "REFERENCE_FRESHNESS_CLAUDE_SOURCE_RESULTS")
@@ -158,7 +158,7 @@ test("Claude compute tools keep tools, system and history stable across enabled,
     expect.objectContaining({ tool: "brain_compute_status", input: { job: "cj_ithaca" }, toolUseId: expect.stringContaining("toolu_odysseus_0") }),
     expect.objectContaining({ tool: "brain_compute_status", input: { job: "cj_ithaca" }, toolUseId: expect.stringContaining("toolu_odysseus_2") })]);
   expect(capture.rosters, "COMPUTE_CLAUDE_ASSEMBLED_ROSTER_STABLE").toEqual([capture.rosters![0], capture.rosters![0], capture.rosters![0]]);
-  const latest = main(capture).filter((_, index) => index % 2 === 1).map(exchange => JSON.stringify(messages(exchange).at(-1)));
+  const latest = main(capture).filter((_, index) => index % 2 === 1).map(exchange => JSON.stringify(newest(exchange)));
   expect(latest.map(text => text.includes('"is_error":true')), "COMPUTE_CLAUDE_DISABLED_TURN_REFUSES").toEqual([false, true, false]);
   expect(latest.map(text => /\\"state\\":\\"(\w+)\\"/.exec(text)?.[1]), "COMPUTE_CLAUDE_RESULTS_CHANGE").toEqual(["running", undefined, "succeeded"]);
   for (const [a, b] of pairs(capture)) {
@@ -209,7 +209,7 @@ test("retained legacy policy wording and earlier taint facts stay byte-identical
   // turn's live policy no longer states it. The provider-prefix guard above
   // asserts every old message, including that note, remains unchanged.
   expect(exchanges.at(-1)!.raw, "SAFETY_REVIEW_NEVER_REWRITES_EARLIER_FACTS").toContain("This session is tainted");
-  expect(JSON.stringify(messages(exchanges.at(-1)!).at(-1)), "SAFETY_REVIEW_CHANGES_ONLY_NEW_TAIL_FACTS").not.toContain("This session is tainted");
+  expect(JSON.stringify(newest(exchanges.at(-1)!)), "SAFETY_REVIEW_CHANGES_ONLY_NEW_TAIL_FACTS").not.toContain("This session is tainted");
 });
 
 
@@ -223,46 +223,48 @@ test("workspace mode changes appear only in the new tail and preserve the provid
     history(a, b);
   }
   const changed = main(capture).find(exchange => exchange.turn === 1)!;
-  expect(JSON.stringify(messages(changed).at(-1)), "CHANGE_MODE_IN_NEW_TAIL").toContain("is writable: clone, fetch and commit");
+  expect(JSON.stringify(newest(changed)), "CHANGE_MODE_IN_NEW_TAIL").toContain("is writable: clone, fetch and commit");
   const inspect = main(capture).find(exchange => exchange.turn === 2)!;
-  expect(JSON.stringify(messages(inspect).at(-1)), "INSPECT_MODE_RETURNS_IN_NEW_TAIL").toContain("code-changes switch");
+  expect(JSON.stringify(newest(inspect)), "INSPECT_MODE_RETURNS_IN_NEW_TAIL").toContain("code-changes switch");
 });
 
-// #4324: the shipped default model receives mid-conversation system-role
-// messages from the pinned CLI (2.1.293). It sends each one as a plain string,
-// except the one that carries the moving cache breakpoint, which it wraps as a
-// single text block to hold `cache_control`. When the breakpoint moves on, that
-// earlier message reverts to a string. Until a ruling settles that encoding,
-// this holds the real worker path to exactly that rewrite: tools, system and
-// every other earlier byte stay strict, and the strict guard still fails.
-test("#4324 production model on the worker path changes only the breakpoint carrier's encoding", () => {
-  const capture = captures.production!;
-  expect(capture.sessions).toHaveLength(3);
-  expect(new Set(capture.sessions).size).toBe(1);
-  expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 2]);
-  for (const exchange of main(capture)) expect(body(exchange).model, "PRODUCTION_MODEL_ON_WIRE").toBe("claude-opus-5-5");
-  const rewrites = { "same-turn": 0, resume: 0 };
-  for (const [a, b] of pairs(capture)) {
-    identical(body(a).tools, body(b).tools, "PRODUCTION_TOOLS_STABLE");
-    identical(system(a), system(b), "PRODUCTION_SYSTEM_STABLE");
-    const expected = [...messages(a), a.answer], observed = messages(b).slice(0, expected.length);
-    const sent = JSON.parse(a.raw).messages;
-    let rewritten = false;
-    for (const [index, message] of expected.entries()) {
-      if (bytes(message) === bytes(observed[index])) continue;
-      // The earlier form is exactly one text block that carried the breakpoint.
-      expect(message.role, "ONLY_A_SYSTEM_MESSAGE_CHANGES").toBe("system");
-      expect(message.content).toEqual([{ type: "text", text: expect.any(String) }]);
-      expect(sent[index].content[0].cache_control, "EARLIER_FORM_CARRIED_THE_BREAKPOINT").toBeDefined();
-      identical({ ...message, content: message.content[0].text }, observed[index], "EXACT_4324_ENCODING_CHANGE_ONLY");
-      rewritten = true;
+// #4324 (ruling 2026-11-26): every scenario runs the shipped default model,
+// which receives mid-conversation system-role messages. The pinned CLI sends
+// each as a plain string except the one carrying the moving cache breakpoint,
+// which it wraps as one text block. The guard compares that documented
+// equivalence and nothing else; this holds the raw wire to exactly that.
+test("#4324 the production model's breakpoint carrier is the only encoding difference the guard accepts", () => {
+  const seen = { "same-turn": 0, resume: 0 };
+  for (const capture of Object.values(captures)) for (const [a, b] of pairs(capture)) {
+    expect(body(a).model, "PRODUCTION_MODEL_ON_WIRE").toBe(DEFAULT_PROFILES[0]!.model);
+    const before = sentMessages(a), after = sentMessages(b);
+    for (const [index, sent] of before.entries()) {
+      const resent = after[index];
+      if (bytes(sent) === bytes(resent)) continue;
+      // Breakpoints may move (the existing rule); strip them before judging the encoding.
+      if (bytes(withoutMessageCacheControls([sent])) === bytes(withoutMessageCacheControls([resent]))) continue;
+      expect(sent.role, "ONLY_A_SYSTEM_MESSAGE_CHANGES_ENCODING").toBe("system");
+      expect(sent.content).toEqual([{ type: "text", text: expect.any(String), cache_control: expect.anything() }]);
+      expect(resent, "EXACT_CARRIER_TO_STRING_ONLY").toEqual({ ...sent, content: sent.content[0].text });
+      seen[a.turn === b.turn ? "same-turn" : "resume"]++;
     }
-    if (rewritten) {
-      rewrites[a.turn === b.turn ? "same-turn" : "resume"]++;
-      expect(() => history(a, b), "STRICT_GUARD_STILL_REJECTS_4324").toThrow(`messages turn ${a.turn} -> ${b.turn}`);
-    } else history(a, b);
   }
-  console.log("4324_WORKER_PATH_QUALIFICATION", JSON.stringify(rewrites));
-  expect(rewrites["same-turn"], "WORKER_PATH_4324_SAME_TURN_REPRODUCTION").toBeGreaterThan(0);
-  expect(rewrites.resume, "WORKER_PATH_4324_RESUME_REPRODUCTION").toBeGreaterThan(0);
+  console.log("4324_WORKER_PATH_CARRIER_TRANSITIONS", JSON.stringify(seen));
+  // The equivalence is exercised on the real worker path in both scopes, and
+  // every strict prefix test above passes across those transitions.
+  expect(seen["same-turn"], "WORKER_PATH_CARRIER_WITHIN_TURN").toBeGreaterThan(0);
+  expect(seen.resume, "WORKER_PATH_CARRIER_ON_RESUME").toBeGreaterThan(0);
+});
+
+test("the guard's string equivalence is one non-empty text block with the same text, and nothing wider", () => {
+  const reply = { role: "assistant", content: [{ type: "text", text: "Odysseus answers." }] };
+  const exchange = (items: unknown[]): Exchange => ({ turn: 0, path: "/v1/messages", main: true, raw: JSON.stringify({ messages: items }), answer: reply });
+  const carrier = { role: "system", content: [{ type: "text", text: "Ithaca", cache_control: { type: "ephemeral" } }] };
+  const pair = (resent: unknown): [Exchange, Exchange] => [exchange([carrier]), exchange([resent, reply, { role: "user", content: "Penelope asks." }])];
+  expect(() => history(...pair({ role: "system", content: "Ithaca" })), "STRING_EQUALS_ONE_TEXT_BLOCK").not.toThrow();
+  for (const [label, resent] of [["changed text", { role: "system", content: "Ithaka" }],
+    ["another role", { role: "user", content: "Ithaca" }], ["two blocks", { role: "system", content: [{ type: "text", text: "Itha" }, { type: "text", text: "ca" }] }],
+    ["extra field", { role: "system", content: [{ type: "text", text: "Ithaca", citations: [] }] }]] as const)
+    expect(() => history(...pair(resent)), `STRICT_${label}`).toThrow("messages turn 0 -> 0");  // Text blocks are never empty, so an empty string has no block form.
+  expect(canonicalMessageContent([{ role: "system", content: "" }]), "EMPTY_STRING_STAYS_AS_SENT").toEqual([{ role: "system", content: "" }]);
 });

@@ -14,6 +14,12 @@ import type { Captures, HistoryCapture } from "../../../../tests/helpers/provide
 import type { ComputeToolCall, ReferenceToolCall } from "@schlessera/brain-ui-sdk/tool-contracts";
 
 const scratch = process.argv[2]!;
+/**
+ * #4324: the shipped default profile's model. The pinned CLI sends it
+ * mid-conversation system-role messages, which an older fixture model never
+ * received, so the guard holds the request shape production actually sends.
+ */
+const PRODUCTION_MODEL = DEFAULT_PROFILES[0]!.model!;
 const captures: Captures = {};
 let capture: HistoryCapture;
 let turnIndex = 0, sequence = 0, turnOpen = false;
@@ -65,7 +71,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
-  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety", "production"]) {
+  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety"]) {
     brain = fixtureBrain(scratch, scenario);
     if (scenario === "facts") mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
@@ -118,10 +124,7 @@ try {
               releasedAt: turnIndex === 2 ? new Date(Date.UTC(2026, 6, 12, 2)).toISOString() : null, allowanceBytes: 2 ** 31 };
             return { ok: true as const, action: REFERENCE_ACTIONS[turnIndex]!.action as "request", worktree, guidance: "Fixture lifecycle step." };
           } } : {}) },
-      }, profile: { id: "fixture", label: "Fixture",
-        // #4324: the shipped default profile's model. The pinned CLI sends it
-        // mid-conversation system-role messages; the fixture model gets none.
-        model: scenario === "production" ? DEFAULT_PROFILES[0]!.model! : "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({
+      }, profile: { id: "fixture", label: "Fixture", model: PRODUCTION_MODEL, billing: "api", requiredEnvKeys: [], buildEnv: () => ({
         HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), ANTHROPIC_BASE_URL: server.url.origin, ANTHROPIC_API_KEY: "offline-odysseus",
         ...(scenario === "title" ? {} : { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
       }) }, abortController: controller, allowedTools: ["Read", "Bash"], confirmPatterns: [],
@@ -151,7 +154,7 @@ try {
   const home = join(scratch, "home-budget");
   mkdirSync(join(home, ".claude"), { recursive: true });
   const budgetBackend = createClaudeBackend({ brainPath: brain, allowedTools: ["Read", "Bash"], confirmBashPatterns: [],
-    profiles: [{ id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({
+    profiles: [{ id: "fixture", label: "Fixture", model: PRODUCTION_MODEL, billing: "api", requiredEnvKeys: [], buildEnv: () => ({
       HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), ANTHROPIC_BASE_URL: server.url.origin, ANTHROPIC_API_KEY: "offline-odysseus",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
     }) }], log() {},

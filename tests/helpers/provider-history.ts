@@ -42,6 +42,19 @@ export function withoutMessageCacheControls(items: any[]): any[] {
   return items.map(item => item && Array.isArray(item.content) ? { ...item, content: item.content.map(cacheBlock) } : item);
 }
 
+/**
+ * The provider-history rule's one encoding equivalence (2026-11-26, #4324):
+ * the API documents string content as shorthand for one text block, and the
+ * pinned client wraps exactly the message that carries the moving cache
+ * breakpoint in that block. Only a non-empty string message content becomes
+ * `[{ type: "text", text }]`; every other byte, the top-level system
+ * included, stays exactly as sent.
+ */
+export function canonicalMessageContent(items: any[]): any[] {
+  return items.map(item => item && typeof item.content === "string" && item.content !== ""
+    ? { ...item, content: [{ type: "text", text: item.content }] } : item);
+}
+
 export function identical(expected: unknown, actual: unknown, label: string): void {
   compareBytes(bytes(expected), bytes(actual), label);
 }
@@ -101,7 +114,7 @@ export function body(exchange: Exchange): any {
   const request = JSON.parse(exchange.raw);
   if (Array.isArray(request.tools)) request.tools = request.tools.map(cacheBlock);
   if (Array.isArray(request.system)) request.system = request.system.map(cacheBlock);
-  if (Array.isArray(request.messages)) request.messages = withoutMessageCacheControls(request.messages);
+  if (Array.isArray(request.messages)) request.messages = withoutMessageCacheControls(canonicalMessageContent(request.messages));
   return request;
 }
 function instructionCount(input: any[]): number {
@@ -116,6 +129,12 @@ export function messages(exchange: Exchange): any[] {
   const request = body(exchange);
   return request.messages ?? request.input.slice(instructionCount(request.input));
 }
+/** A request's newest turn message: the production model may end it with a runtime system message. */
+export function newest(exchange: Exchange): any {
+  return messages(exchange).findLast(message => message.role !== "system");
+}
+/** Raw sent messages, before any comparison normalization. */
+export function sentMessages(exchange: Exchange): any[] { return JSON.parse(exchange.raw).messages ?? []; }
 export function history(previous: Exchange, next: Exchange): void {
   const prefix = [...messages(previous), previous.answer];
   identical(prefix, messages(next).slice(0, prefix.length), `messages turn ${previous.turn} -> ${next.turn}`);

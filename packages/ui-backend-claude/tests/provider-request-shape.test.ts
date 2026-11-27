@@ -1,6 +1,6 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { body, bytes, captureOffline, discoveredToolNames, identical, main, pairs, history, messages, providerTools, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { body, bytes, captureOffline, sentMessages, withoutMessageCacheControls, discoveredToolNames, identical, main, pairs, history, providerTools, system, type Captures } from "../../../tests/helpers/provider-history.js";
 import { HOST_UNUSED_BUILTINS } from "../src/session-request-shape.js";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import baseline from "./fixtures/legacy-sdk-inputs.json" with { type: "json" };
@@ -105,34 +105,25 @@ test("#4325: static core reads survive non-blocking startup and graph discovery 
   for (const [a, b] of pairs(capture)) { providerTools(a, b, "BRIDGED_DISCOVERY_AND_RESUME"); identical(system(a), system(b), "bridged system"); }
 });
 
-test.each(["same-turn", "resume"] as const)("#4324 %s qualification records exact earlier-message outcomes", scope => {
-  const transitions: Array<{ scenario: string; fromTurn: number; toTurn: number; rewrite: boolean }> = [];
-  // This is evidence of invalid native history, not a passing strict guard.
-  // Check the complete prefix, including a successor, on every transition.
-  for (const [scenario, capture] of Object.entries(captures)) for (const [a, b] of pairs(capture).filter(([a, b]) => scope === "same-turn" ? a.turn === b.turn : a.turn !== b.turn)) {
-    expect(a.turn === b.turn ? "same-turn" : "resume", "QUALIFICATION_TRANSITION_SCOPE").toBe(scope);
-    const expected = [...messages(a), a.answer], actual = messages(b);
-    expect(actual.length, "EVERY_TRANSITION_HAS_A_SUCCESSOR").toBeGreaterThan(expected.length);
-    const observed = actual.slice(0, expected.length);
-    let knownRewrite = false;
-    for (const [index, message] of expected.entries()) {
-      if (bytes(message) === bytes(observed[index])) continue;
-      expect(message.role, "ONLY_THE_RECORDED_4324_VIOLATION_IS_EVIDENCE").toBe("system");
-      expect(Array.isArray(message.content)).toBe(true);
-      identical(message.content, message.content.map((part: any) => ({ type: "text", text: part.text })), "4324 original text blocks");
-      identical({ ...message, content: message.content.map((part: any) => part.text).join("") }, observed[index], "EXACT_4324_REWRITE_ONLY");
-      knownRewrite = true;
+// #4324 (ruling 2026-11-26): string content equals one text block with the
+// same text. Through the relay, every transition keeps the complete strict
+// prefix under that equivalence, and the raw wire differs only by the carrier.
+test.each(["same-turn", "resume"] as const)("#4324 %s transitions keep every earlier message under the carrier equivalence", scope => {
+  let examined = 0, carriers = 0;
+  for (const capture of Object.values(captures)) for (const [a, b] of pairs(capture).filter(([a, b]) => scope === "same-turn" ? a.turn === b.turn : a.turn !== b.turn)) {
+    history(a, b);
+    examined++;
+    const sent = sentMessages(a), resent = sentMessages(b);
+    for (const [index, message] of sent.entries()) {
+      if (bytes(withoutMessageCacheControls([message])) === bytes(withoutMessageCacheControls([resent[index]]))) continue;
+      expect(message.role, "ONLY_THE_CARRIER_CHANGES_ENCODING").toBe("system");
+      expect(resent[index], "EXACT_CARRIER_TO_STRING_ONLY").toEqual({ ...message, content: message.content[0].text });
+      carriers++;
     }
-    if (knownRewrite) expect(() => history(a, b), "4324_IS_NOT_A_STRICT_GUARD_EXCEPTION").toThrow(`messages turn ${a.turn} -> ${b.turn}`);
-    else history(a, b);
-    transitions.push({ scenario, fromTurn: a.turn, toTurn: b.turn, rewrite: knownRewrite });
   }
-  expect(transitions.length, "EACH_QUALIFICATION_SCOPE_IS_EXERCISED").toBeGreaterThan(0);
-  const rewrites = transitions.filter(item => item.rewrite);
-  console.log("4324_HISTORY_QUALIFICATION", JSON.stringify({ scope, examined: transitions.length, rewrites }));
-  // Independently reproduce the pinned client's known violation in each
-  // scope: same-turn failures cannot satisfy the resume qualification.
-  expect(rewrites.length, scope === "same-turn" ? "FIRST_TURN_4324_REPRODUCTION" : "RESUME_4324_REPRODUCTION").toBeGreaterThan(0);
+  console.log("4324_RELAY_CARRIER_TRANSITIONS", JSON.stringify({ scope, examined, carriers }));
+  expect(examined, "EACH_SCOPE_IS_EXERCISED").toBeGreaterThan(0);
+  expect(carriers, scope === "same-turn" ? "RELAY_CARRIER_WITHIN_TURN" : "RELAY_CARRIER_ON_RESUME").toBeGreaterThan(0);
 });
 
 // A pre-upgrade session has no recorded original environment. This is
@@ -169,7 +160,7 @@ test("fast-mode keyless relay qualification records requested and effective API 
     for (const [a, b] of pairs(capture)) {
       identical(body(a).tools, body(b).tools, "FAST_MODE_TOOLS_STABLE");
       identical(system(a), system(b), "FAST_MODE_SYSTEM_STABLE");
-      // Earlier-message qualification is separate evidence for #4324 above.
+      history(a, b);
     }
   }
   expect(JSON.parse(captures.gateway!.rosters![0]!)).toEqual({ version: "2.1.293", state: "off", reason: "sdk_opt_in_required" });

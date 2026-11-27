@@ -1578,11 +1578,12 @@ and omits wire speed. These are keyless request-assembly observations, not
 account entitlement, pricing, throughput or spend evidence. No session speed
 control or billing change is introduced by this qualification.
 
-The earlier system-role message content array-to-string rewrite observed on
-resume is a provider-history violation (#4324), not an approved normalization.
-Fast-mode product work (#4310) waits for that fix. The qualification capture
-records this exact failure without weakening the strict earlier-message guard;
-no user-facing mode, pricing or budget change ships here.
+The earlier system-role message content array-to-string rewrite is the CLI's
+cache-breakpoint carrier: the one message that carries the moving breakpoint is
+wrapped as one text block and reverts to a string after. The 2026-11-26
+[provider-history amendment](provider-history.md#2026-11-26--string-content-equals-one-text-block-4324)
+compares that documented equivalence (#4324); every other earlier byte stays
+strict, and the captures assert that the carrier is the only encoding change.
 
 ### 2026-11-21 — Off-state retention and mandatory authority
 
