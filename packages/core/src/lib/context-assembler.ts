@@ -721,28 +721,41 @@ function splitHeadings(text: string): TopLevelBlock[] {
   );
 }
 
-/** What the index recorded for a hit's best chunk: its source lines and the file it came from. */
+/**
+ * What the index recorded for a hit's best chunk. `hash` is the file's
+ * SHA-256 as indexed, read on its own so every schema answers it, or null
+ * when the index cannot say. `range` is the chunk's recorded source lines,
+ * or null when it has none: a piece of a split section, an index from an
+ * older chunker, or an older schema that cannot be asked.
+ */
 interface IndexedChunk {
-  start_line: number | null;
-  end_line: number | null;
-  content_hash: string | null;
-  chunker_version: number | null;
+  hash: string | null;
+  range: [number, number] | null;
 }
 
-/** The index's record of a hit's chunk, or null when the index cannot say (an older schema, a failed read). */
-function indexedChunk(db: Database, path: string, chunk: ChunkMatch): IndexedChunk | null {
+/** The index's record of a hit's chunk (`IndexedChunk`); a failed read is no answer, never a pass. */
+function indexedChunk(db: Database, path: string, chunk: ChunkMatch): IndexedChunk {
+  let hash: string | null = null;
+  try {
+    const row = db.prepare("SELECT content_hash FROM documents WHERE path = ?").get(path) as { content_hash: string | null } | null;
+    hash = row?.content_hash ?? null;
+  } catch {
+    hash = null;
+  }
+  let range: [number, number] | null = null;
   try {
     const row = db
       .prepare(
-        `SELECT c.start_line, c.end_line, d.content_hash, d.chunker_version
+        `SELECT c.start_line, c.end_line, d.chunker_version
          FROM chunks c JOIN documents d ON d.id = c.document_id
          WHERE d.path = ? AND c.chunk_index = ? AND c.content = ?`
       )
-      .get(path, chunk.chunk_index, chunk.content) as IndexedChunk | null;
-    return row ?? null;
+      .get(path, chunk.chunk_index, chunk.content) as { start_line: number | null; end_line: number | null; chunker_version: number | null } | null;
+    if (row && row.start_line !== null && row.end_line !== null && row.chunker_version === CHUNKER_VERSION) range = [row.start_line, row.end_line];
   } catch {
-    return null;
+    range = null;
   }
+  return { hash, range };
 }
 
 /**
@@ -887,7 +900,8 @@ interface HitSection {
  * when the section or span does not fit: not even the header, no block but a
  * heading after the cut, or a span over `cap`. Null, so the caller keeps the
  * snippet, when the file cannot be read, has changed since the index run (its
- * hash is not the indexed one), or no longer holds the chunk.
+ * hash is not the indexed one, or the indexed hash cannot be read), or no
+ * longer holds the chunk.
  */
 function hitSection(
   result: SearchResult,
@@ -895,20 +909,17 @@ function hitSection(
   matchLine: string | null,
   read: SourceReader,
   cap: number,
-  indexed: IndexedChunk | null
+  indexed: IndexedChunk
 ): HitSection | "budget" | null {
   const doc = read(result.path);
   // A file changed since the index run no longer holds the chunk the search
-  // matched: the hit keeps its snippet, and nothing of the new text is read
-  // for it (#3683). Without an index record to compare, main's rules apply.
-  if (doc && indexed && indexed.content_hash !== doc.hash) return null;
-  // The recorded lines hold only for the chunker they were recorded by: an
-  // index from an older one has none.
-  const fresh =
-    doc && indexed && indexed.start_line !== null && indexed.end_line !== null && indexed.chunker_version === CHUNKER_VERSION;
-  const range: [number, number] | null = fresh ? [indexed.start_line! - doc.dropped, indexed.end_line! - doc.dropped] : null;
-  const found = doc ? sourcePart(doc.body, best, matchLine, range) : null;
-  if (!doc || !found) return null;
+  // matched, and a file whose indexed hash cannot be read may not: the hit
+  // keeps its snippet, and nothing of the file is read for it (#3683). This
+  // does not rest on the range read, which an older schema cannot answer.
+  if (!doc || indexed.hash !== doc.hash) return null;
+  const range: [number, number] | null = indexed.range ? [indexed.range[0] - doc.dropped, indexed.range[1] - doc.dropped] : null;
+  const found = sourcePart(doc.body, best, matchLine, range);
+  if (!found) return null;
   if (found.lines) {
     if (!found.parts.some((part) => part.text)) return null;
     const shown = found.parts.map((part) => {

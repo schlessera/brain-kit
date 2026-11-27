@@ -1227,6 +1227,45 @@ describe("sections from chunks", () => {
       expect(counts[1]! / counts[0]!).toBeLessThan(2.5);
     });
 
+    test("an older index opened read-only still keeps a changed file's hit as its snippet", async () => {
+      const file = study("Folded", `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n`);
+      const { ctx, db } = await brainWith({ "studies/folded.md": file });
+      // Back to schema 16, which has no recorded lines, opened read-only as the CLI opens it.
+      db.run("ALTER TABLE chunks DROP COLUMN start_line");
+      db.run("ALTER TABLE chunks DROP COLUMN end_line");
+      db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '16')");
+      db.close();
+      const old = openDatabase(ctx.dbPath, { readonly: true });
+      try {
+        // The premise: this index cannot answer for chunk lines.
+        expect(() => old.prepare("SELECT start_line FROM chunks").all()).toThrow();
+        // Edited after the index run: the indexed match line now sits in a new section.
+        writeFileSync(join(ctx.root, "studies/folded.md"), study("Folded", `## Cargo\n\nThe beacon code is violet.\n\nTwelve jars of oil, never indexed.\n\n## Tides\n\n${para("Tide", 8)}\n`));
+        const coverage = emptyContextCoverage();
+        const out = await assembleContext(old, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false, scope: { include: ["studies/"] }, coverage });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).not.toContain("Twelve jars of oil");
+        expect(coverage.excerpts.find((e) => e.path === "studies/folded.md")).toEqual({ path: "studies/folded.md", lane: "search", form: "snippet" });
+      } finally {
+        old.close();
+      }
+    });
+
+    test("an older index opened read-only still grows an unchanged file's hit by main's rules", async () => {
+      const { ctx, db } = await brainWith({ "studies/notes.md": study("Notes", `## Notes\n\nThe beacon log opens here.\n\n${para("Note", 8)}\n`) });
+      db.run("ALTER TABLE chunks DROP COLUMN start_line");
+      db.run("ALTER TABLE chunks DROP COLUMN end_line");
+      db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '16')");
+      db.close();
+      const old = openDatabase(ctx.dbPath, { readonly: true });
+      try {
+        const out = await assembleContext(old, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
+        expect(hitsOf(out).find((h) => h.includes("(studies/notes.md)"))).toContain("#### Notes\nThe beacon log opens here.");
+      } finally {
+        old.close();
+      }
+    });
+
     test("an unfolded section with an unplaced match is that section, with no span lines", async () => {
       const { ctx, db } = await brainWith({ "studies/notes.md": study("Notes", `## Notes\n\nThe beacon log opens here.\n\n${para("Note", 8)}\n`) });
       const spy = failMatchLine(db);
