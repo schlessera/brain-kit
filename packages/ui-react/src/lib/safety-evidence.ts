@@ -20,12 +20,13 @@ export function safetyEvidence(records:Record<string,SafetyRecord>):Map<string,S
   }
   const reused=new Set<string>();
   for(const r of Object.values(records)){
-    if(r.kind==="attribution"){reused.add(`${r.bindingId}\0${r.toolUseId}`);continue;}
+    if(r.kind==="attribution"){reused.add(r.toolUseId===null?`${r.bindingId}\0*`:`${r.bindingId}\0${r.toolUseId}`);continue;}
     const entry=entries.get(r.occurrenceId);if(!entry)continue;
     if(r.kind==="safe_decision")entry.decision=r;
     if(r.kind==="exposure"&&BigInt(r.sequence)>latest.get(r.occurrenceId)!){entry.exposure=r.state;latest.set(r.occurrenceId,BigInt(r.sequence));}
   }
-  for(const e of entries.values())if(e.occurrence.entry&&reused.has(`${e.occurrence.bindingId}\0${e.occurrence.entry.toolUseId}`))e.attribution="unknown";
+  // `*`: the host lost track of IDs in that turn, so none of its tools is proven.
+  for(const e of entries.values())if(e.occurrence.entry&&(reused.has(`${e.occurrence.bindingId}\0*`)||reused.has(`${e.occurrence.bindingId}\0${e.occurrence.entry.toolUseId}`)))e.attribution="unknown";
   const index=new Map<string,SafetyEvidence[]>();
   for(const e of entries.values())if(e.occurrence.entry){const key=`${e.occurrence.turnId}\0${e.occurrence.entry.toolUseId}`,group=index.get(key)??[];group.push(e);index.set(key,group);}
   cache.set(records,entries);tools.set(records,index);return entries;

@@ -10,6 +10,7 @@ import {MessageBubble} from '../../src/components/chat/message-bubble.js';
 import {createSafetyClient} from '../../src/lib/safety-client.js';
 import {SessionSafety} from '../../src/components/chat/safety-indicator.js';
 import {ToolCallTimeline} from '../../src/components/chat/tool-call-timeline.js';
+import {turnToolIndexBuilds} from '../../src/components/chat/turn-tool-index.js';
 import {ASK_USER_CONTRACT,visibleToolName} from '@schlessera/brain-ui-sdk/client';
 import {parseServerMessage} from '@schlessera/brain-ui-sdk/schemas';
 import type {ChatMessage} from '../../src/stores/chat-store.js';
@@ -123,6 +124,34 @@ for(const width of [320,1280])for(const hostSaw of [true,false])test(`${width}: 
  expect(only).toHaveLength(1);
  expect(only[0],'EXPANDED_VIEW_USES_THE_SAME_ATTRIBUTION').toContain(hostSaw?'Action · Unknown':'Action · Local search (Grep)');
  expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
+});
+
+/** The host's attribution can sit on a later page than its input (#4513):
+ * no action is named until the whole history has loaded. */
+test('an input under a reused ID names no action while its history is still loading',async()=>{
+ await scene(320,'light',false,reused);
+ await patch({action:'reuse',id:'tool_c'});
+ await expect.poll(()=>Object.values(ui!.stores.safety.getState().records).some(r=>r.kind==='attribution'),{timeout:5000}).toBe(true);
+ const state=ui!.stores.safety.getState(),all=Object.values(state.records);
+ const base={version:1 as const,identity:state.identity!,snapshotId:'odyssey_pages',highWater:state.revision,projection:state.projection!,detailPruned:false};
+ flushSync(()=>{state.begin('odyssey_read');ui!.stores.safety.getState().page('odyssey_read',{...base,cursor:null,nextCursor:'ithaca_page_2',snapshotComplete:false,records:all.filter(r=>r.kind!=='attribution')});});
+ expect(ui!.stores.safety.getState().status).toBe('partial');
+ const search=(await details([...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].find(b=>!b.closest('[data-safety-turn-event]'))!)).find(text=>text.includes('Workspace read'))!;
+ expect(search,'PAGINATING_HISTORY_NAMES_NO_ACTION').not.toMatch(/Action · (Local search|Bash|Grep)/);
+ expect(search,'PAGINATING_HISTORY_IS_CHECKING').toContain('Action · Checking');
+ flushSync(()=>{ui!.stores.safety.getState().page('odyssey_read',{...base,cursor:'ithaca_page_2',nextCursor:null,snapshotComplete:true,records:all.filter(r=>r.kind==='attribution')});});
+ expect(ui!.stores.safety.getState().status).toBe('ready');
+ const settled=(await details([...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].find(b=>!b.closest('[data-safety-turn-event]'))!)).find(text=>text.includes('Workspace read'))!;
+ expect(settled,'COMPLETE_HISTORY_SHOWS_THE_HOST_VERDICT').toContain('Action · Unknown');
+});
+
+test('mounted tool indicators share one turn index per messages array',async()=>{
+ await scene(1280,'light',false,reused);
+ await userEvent.click(page.getByRole('button',{name:/^3 steps/}));
+ await expect.poll(()=>host!.querySelectorAll('[data-tool-call]').length).toBe(3);
+ const chat=ui!.stores.chat.getState(),buffer=chat.buffers.ithaca!,before=turnToolIndexBuilds();
+ flushSync(()=>ui!.stores.chat.setState({buffers:{...chat.buffers,ithaca:{...buffer,messages:[...buffer.messages]}}}));
+ expect(turnToolIndexBuilds()-before,'ONE_INDEX_BUILD_PER_MESSAGES_ARRAY').toBe(1);
 });
 
 /** An ask exchange draws no step: the Grep under the same ID carries the input. */
