@@ -10,6 +10,7 @@ import { parseContextScope, type ContextScope, type ContextScopeInput } from "./
 import type { EmbeddingProvider } from "./seams.js";
 import { CHUNKER_VERSION, estimateTokens, headingText as chunkerHeadingText, lineIndex } from "./chunker.js";
 import { topLevelBlocks, type TopLevelBlock } from "./document-parts.js";
+import { codeRanges } from "./markdown-code.js";
 import { chunkMatchLine, hybridSearch } from "./search-engine.js";
 import type { ChunkMatch, SearchResult } from "./types.js";
 
@@ -825,13 +826,33 @@ function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null, r
   const span = range ? recordedSpan(body, range) : null;
   if (span) {
     if (matchLine !== null) {
-      // A component with the match line as one of its own source lines, its
-      // heading as written included, decides; one that only contains it
-      // inside a longer line counts when none does. Lines are compared raw
-      // (trimmed only), never by a heading's normalised name.
-      const own = (c: (typeof span.components)[number]) => [...(c.heading === null ? [] : c.heading.split("\n")), ...c.text.split("\n")];
-      const exact = span.components.filter((c) => own(c).some((line) => line.trim() === matchLine));
-      const holding = exact.length > 0 ? exact : span.components.filter((c) => own(c).some((line) => line.includes(matchLine)));
+      // A match line that is one of the chunker's own fold labels (a `##`
+      // heading it wrote for a merged section, which need not be a source
+      // line: a setext heading's label is not) names its section: the one
+      // whose heading the chunker reads as that same name (`headingText`, so
+      // `## Beacon ##` and `## Beacon` stay apart). Any other match line is compared raw (trimmed only) with
+      // each component's own source lines outside fenced code, its heading as
+      // written included; a component that only contains it inside a longer
+      // line counts when none has it exactly.
+      const label = splitHeadings(chunk.content).some((block) => chunk.content.slice(block.start, block.end).trim() === matchLine);
+      const own = (c: (typeof span.components)[number]) => {
+        // A line wholly inside code (a fence of any kind, an indented block)
+        // is code, never a heading or a line that owns the match.
+        const code = codeRanges(c.text);
+        const lines: string[] = c.heading === null ? [] : c.heading.split("\n");
+        let at = 0;
+        for (const line of c.text.split("\n")) {
+          const end = at + line.trimEnd().length;
+          if (!code.some(([from, to]) => at >= from && end <= to)) lines.push(line);
+          at += line.length + 1;
+        }
+        return lines;
+      };
+      const named = label ? chunkerHeadingText(matchLine) : null;
+      const exact = label
+        ? span.components.filter((c) => c.heading !== null && chunkerHeadingText(c.heading) === named)
+        : span.components.filter((c) => own(c).some((line) => line.trim() === matchLine));
+      const holding = exact.length > 0 || label ? exact : span.components.filter((c) => c.text.includes(matchLine) || (c.heading ?? "").includes(matchLine));
       if (holding.length === 0) return null;
       if (holding.length === 1) return { parts: [{ name: holding[0]!.name, text: holding[0]!.text }] };
     }

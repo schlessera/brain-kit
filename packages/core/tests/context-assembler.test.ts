@@ -1315,6 +1315,38 @@ describe("sections from chunks", () => {
       }
     });
 
+    test.each([
+      ["", ""],
+      [" when the section after it shows `## Beacon` in a fence", "\n\n```markdown\n## Beacon\n```"],
+    ])("a setext heading folded forward is found by its generated label%s", async (_, fence) => {
+      const body = `Beacon\n------\n\nThe tower is lit at dusk.\n\n## Tides\n\n${para("Tide", 8)}${fence}\n`;
+      const { ctx, db } = await brainWith({ "studies/folded.md": study("Folded", body) });
+      try {
+        const chunks = db.prepare("SELECT c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ?").all("studies/folded.md") as { content: string }[];
+        // The premise: the chunk carries the label the chunker wrote, not the setext lines.
+        expect(chunks.map((c) => c.content.startsWith("## Beacon\n\nThe tower is lit at dusk."))).toEqual([true]);
+        const out = await assembleContext(db, ctx, { query: "Beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).toContain("#### Beacon\nThe tower is lit at dusk.");
+        expect(hit).not.toContain("Tide paragraph 1");
+      } finally {
+        db.close();
+      }
+    });
+
+    test("a match line that another section shows only inside a fence still names the section that has it", async () => {
+      const body = `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n\n\`\`\`\nThe beacon code is violet.\n\`\`\`\n`;
+      const { ctx, db } = await brainWith({ "studies/folded.md": study("Folded", body) });
+      try {
+        const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).toContain("#### Signal\nThe beacon code is violet.");
+        expect(hit).not.toContain("Tide paragraph 1");
+      } finally {
+        db.close();
+      }
+    });
+
     test("an unfolded section with an unplaced match is that section, with no span lines", async () => {
       const { ctx, db } = await brainWith({ "studies/notes.md": study("Notes", `## Notes\n\nThe beacon log opens here.\n\n${para("Note", 8)}\n`) });
       const spy = failMatchLine(db);
