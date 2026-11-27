@@ -109,7 +109,6 @@ const PLAIN_WRITERS: Record<string, string> = {
   "lib/module-state.ts": "the module state area's own .gitignore, created only when absent (`wx`), never a brain document",
   "lib/propagation-review.ts": "temporary source copies outside the brain for git diff, removed in finally; never a brain document",
   "lib/skills/emitters/contract-block.ts": "agent instruction files, not brain documents",
-  "lib/skills/emitters/index-block.ts": "agent instruction files, not brain documents",
   "lib/sync/artifacts.ts": ".gitignore, restored by its own undo",
   "lib/sync/merge-state.ts": "markers inside .git",
   "lib/sync/pull.ts": "derived caches set aside around a merge",

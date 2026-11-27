@@ -18,7 +18,7 @@
  * own file reads through `flags.name`, `flags["name"]`, a helper called with
  * the flags or the raw arguments and a literal name (`stringFlag(flags, "x")`,
  * `repeatedFlag(args, "x")`), a literal `"--name"` compared or searched for,
- * and the bin's reads in `brain.ts` and `read-only.ts`: a `MUTATING_WITH_FLAGS`
+ * and the bin's reads in `main.ts` and `read-only.ts`: a `MUTATING_WITH_FLAGS`
  * row, a read-only.ts line that names one command, and a read on a line that
  * starts `if (mutates`, which the bin makes for every writing command (the
  * `--dry-run` that skips the read-only-mount refusal). It cannot see a read in
@@ -89,7 +89,8 @@ function readsIn(source: string): Set<string> {
   return reads;
 }
 
-const BRAIN_SOURCE = readFileSync(join(CLI, "brain.ts"), "utf8");
+/** The CLI entry the bin runs (`runBrainCli`), which reads flags for writing commands before dispatch. */
+const BRAIN_SOURCE = readFileSync(join(CLI, "main.ts"), "utf8");
 
 /** The commands the bin treats as writing: `MUTATING_COMMANDS`, the `MUTATING_WITH_FLAGS` rows and `hygiene`'s repair forms. */
 const WRITING_COMMANDS = new Set([
@@ -107,8 +108,8 @@ const BIN_READ_REFUSED: Record<string, string[]> = { geo: ["dry-run"] };
 
 /**
  * Reads the bin entry makes for one command: its `MUTATING_WITH_FLAGS` row in
- * brain.ts, each read-only.ts line that names that command alone
- * (`command === "<word>"`), and, for a writing command, each brain.ts line
+ * main.ts, each read-only.ts line that names that command alone
+ * (`command === "<word>"`), and, for a writing command, each main.ts line
  * that starts `if (mutates`. A read-only.ts line that names two commands is
  * not attributed.
  */
