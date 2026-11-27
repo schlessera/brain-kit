@@ -1,6 +1,7 @@
 import { sessionPromptContext } from "@schlessera/brain-ui-sdk/internal";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { open } from "node:fs/promises";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -266,4 +267,70 @@ test("new archive manifests clean first-prompt titles and old manifests clean on
   rmSync(path);
   writeFileSync(join(archive, "index.json"), JSON.stringify([old.session]));
   expect(listArchivedSessions(options)[0]!.title).toBe("Continue");
+});
+
+const ids = (count: number) => Array.from({ length: count }, (_, n) => `${(0x30000000 + n).toString(16)}-3333-4333-8333-333333333333`);
+/** Counts manifest opens per session, gunzips and renames onto index.json during one sweep. */
+async function countedSweep() {
+  const openSpy = spyOn(fs, "openSync"), gunzip = spyOn(Bun, "gunzipSync");
+  const renameSpy = spyOn(fsPromises, "rename"), renameSyncSpy = spyOn(fs, "renameSync");
+  try {
+    await archiveIdleSessions(options);
+    const manifestOpens = new Map<string, number>();
+    for (const [path] of openSpy.mock.calls) {
+      const match = /\/([^/]+)\/manifest\.json$/.exec(String(path));
+      if (match && String(path).startsWith(archive)) manifestOpens.set(match[1]!, (manifestOpens.get(match[1]!) ?? 0) + 1);
+    }
+    const indexPath = join(archive, "index.json");
+    const indexRenames = [...renameSpy.mock.calls, ...renameSyncSpy.mock.calls].filter(([, target]) => target === indexPath).length;
+    return { manifestOpens, gunzips: gunzip.mock.calls.length, indexRenames };
+  } finally { openSpy.mockRestore(); gunzip.mockRestore(); renameSpy.mockRestore(); renameSyncSpy.mockRestore(); }
+}
+test("a sweep over completed archives reads each manifest once, decompresses nothing and leaves a current index alone (#4860)", async () => {
+  const sessions = ids(20);
+  for (const id of sessions) session(id);
+  await archiveIdleSessions(options);
+  expect(errors).toEqual([]);
+  expect(readdirSync(archive).filter(name => sessions.includes(name))).toHaveLength(20);
+  now += DAY;
+  const counted = await countedSweep();
+  expect(errors).toEqual([]);
+  expect(Math.max(...sessions.map(id => counted.manifestOpens.get(id) ?? 0)), "MANIFEST_OPENS_AT_MOST_TWICE").toBeLessThanOrEqual(2);
+  expect(counted.gunzips, "COMPLETED_ARCHIVES_NOT_DECOMPRESSED").toBe(0);
+  expect(counted.indexRenames, "CURRENT_INDEX_NOT_REWRITTEN").toBe(0);
+});
+test("a lost index is rewritten exactly once by the next sweep and lists every archive (#4860)", async () => {
+  const sessions = ids(20);
+  for (const id of sessions) session(id);
+  await archiveIdleSessions(options);
+  rmSync(join(archive, "index.json"));
+  now += DAY;
+  const counted = await countedSweep();
+  expect(errors).toEqual([]);
+  expect(counted.indexRenames, "LOST_INDEX_WRITTEN_ONCE").toBe(1);
+  expect(savedIndex().map((entry: { id: string }) => entry.id).sort()).toEqual([...sessions].sort());
+});
+test("a damaged completed archive does not stop the sweep from archiving another idle session (#4860)", async () => {
+  session(); await archiveIdleSessions(options);
+  writeFileSync(join(archive, ID, ID, "notes.bin.gz"), Bun.gzipSync(new TextEncoder().encode("tampered")));
+  session(OTHER); now += DAY;
+  await archiveIdleSessions(options);
+  expect(existsSync(join(archive, OTHER)), "DAMAGED_COMPLETED_ARCHIVE_DOES_NOT_STOP_SWEEP").toBe(true);
+  expect(existsSync(join(live, `${OTHER}.jsonl`))).toBe(false);
+  expect(errors).toEqual([]);
+});
+test("an interrupted archive with a damaged copy keeps its live files and the sweep goes on (#4860)", async () => {
+  session();
+  await archiveIdleSessions({ ...options, checkpoint: at => { if (at === "index") throw new Error("interrupted"); } });
+  expect(errors).toHaveLength(1); errors.length = 0;
+  const liveBytes = [`${ID}.jsonl`, `${ID}/subagents/agent.jsonl`, `${ID}/notes.bin`].map(name => readFileSync(join(live, name)));
+  writeFileSync(join(archive, ID, ID, "notes.bin.gz"), Bun.gzipSync(new TextEncoder().encode("tampered")));
+  session(OTHER); now += DAY;
+  await archiveIdleSessions(options);
+  const names = [`${ID}.jsonl`, `${ID}/subagents/agent.jsonl`, `${ID}/notes.bin`];
+  expect(names.filter(name => existsSync(join(live, name))), "DAMAGED_COPY_KEEPS_LIVE_FILES").toEqual(names);
+  expect(names.map(name => readFileSync(join(live, name)))).toEqual(liveBytes);
+  expect(errors.map(error => String(error))).toEqual(["Error: Transcript archive checksum mismatch"]);
+  expect(existsSync(join(archive, OTHER)), "DAMAGED_INTERRUPTED_ARCHIVE_DOES_NOT_STOP_SWEEP").toBe(true);
+  expect(existsSync(join(live, `${OTHER}.jsonl`))).toBe(false);
 });
