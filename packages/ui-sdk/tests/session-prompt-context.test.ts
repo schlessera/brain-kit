@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionPromptContext, sessionPromptContextLocation, SESSION_PROMPT_CONTEXT_MAX_BYTES, stripHostContextFromTitle } from "../src/server/session-prompt-context.js";
@@ -93,4 +93,24 @@ test("all prompt-context writes check encoded size before replacing readable sta
   const facts = { device: "\u03bb".repeat(SESSION_PROMPT_CONTEXT_MAX_BYTES / 2) };
   expect(() => { store().prepare("Continue", facts); }, "SHARED_WRITER_NEVER_EXCEEDS_ITS_READ_BOUND").toThrow("storage limit");
   expect(readFileSync(path, "utf8")).toBe(before);
+});
+
+test("keys another module retains survive every store write unchanged (#4826)", () => {
+  const { root, brain, store } = fixture();
+  const keep = { roster: ["AskUserQuestion"], marker: true };
+  expect(() => store().retained(["keep"], () => ({ keep })), "RETAINED_NEEDS_APPEND").toThrow("no retained append");
+  const location = sessionPromptContextLocation(join(root, "host"), brain, "odysseus-session");
+  mkdirSync(location.dir, { recursive: true, mode: 0o700 });
+  // Seeded directly, so only the store's own writes can drop it.
+  writeFileSync(join(location.dir, location.name), JSON.stringify({ delivered: {}, turns: {}, keep }));
+  const readBack = () => { let value: unknown; store().retained(["keep"], values => { value = values.keep; return undefined; }); return value; };
+  expect(store().retainAppend("Odysseus checks Ithaca.")).toBe("Odysseus checks Ithaca.");
+  expect(readBack(), "RETAINED_KEY_AFTER_RETAIN_APPEND").toEqual(keep);
+  const sent = store().prepare("Sail", { device: "phone" });
+  expect(readBack(), "RETAINED_KEY_AFTER_PREPARE").toEqual(keep);
+  store().acknowledge(sent.id);
+  expect(readBack(), "RETAINED_KEY_AFTER_ACKNOWLEDGE").toEqual(keep);
+  store().retained(["keep"], () => ({ keep: { marker: false } }));
+  expect(readBack(), "RETAINED_KEY_REPLACED").toEqual({ marker: false });
+  expect(() => store().retained(["turns"], () => ({ turns: {} })), "OWNER_FIELDS_NOT_RETAINABLE").toThrow("its own fields");
 });

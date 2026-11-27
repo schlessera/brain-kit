@@ -18,7 +18,14 @@ export function stripHostContextFromTitle(text: string): string {
 
 export type SessionPromptFacts = Record<string, string>;
 interface OwnedTurn { original: string; wireDigest: string; facts: SessionPromptFacts; providerId?: string }
-interface Snapshot { append?: string; delivered: SessionPromptFacts; turns: Record<string, OwnedTurn> }
+/**
+ * Every write serialises the whole parsed object, so top-level keys this store
+ * does not declare survive it. Another module keeps data here through
+ * `retained` (#4826); dropping those keys would re-pin a resumed session's
+ * provider-facing tool roster.
+ */
+interface Snapshot { append?: string; delivered: SessionPromptFacts; turns: Record<string, OwnedTurn>; [carried: string]: unknown }
+const OWN_KEYS = new Set(["append", "delivered", "turns"]);
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 
 /** Refuse redirected ancestors, including a storage root aliased into the brain. */
@@ -92,6 +99,23 @@ export function sessionPromptContext(root: string, brainPath: string, sessionId:
       turn.providerId = providerId;
       if (observedWire !== undefined) turn.wireDigest = digest(observedWire);
       state.delivered = { ...turn.facts };
+      write(state);
+    },
+    /**
+     * Read and replace caller-named top-level keys in one read-modify-write;
+     * the values are the caller's and never interpreted here. Refuses until an
+     * append is retained, so it never creates the file, and writes nothing when
+     * `update` returns undefined.
+     */
+    retained(keys: readonly string[], update: (values: Record<string, unknown>) => Record<string, unknown> | undefined): void {
+      if (keys.some(key => OWN_KEYS.has(key))) throw new Error("Session prompt context keeps its own fields");
+      const state = read();
+      if (!state || typeof state !== "object" || Array.isArray(state) || typeof state.append !== "string")
+        throw new Error("Session prompt context has no retained append");
+      directory(dir);
+      const replacement = update(Object.fromEntries(keys.map(key => [key, state[key]])));
+      if (replacement === undefined) return;
+      for (const key of keys) if (key in replacement) state[key] = replacement[key];
       write(state);
     },
     userText(providerId: string, wire: string): string {
