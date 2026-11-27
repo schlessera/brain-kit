@@ -124,6 +124,7 @@ export "." (./src/index.ts)
   type FormNode
   type FormNodeBase
   type FormOption
+  GOOGLE_SEND_RECIPIENT_REFUSAL
   type GhostRole
   type GhostSpec
   GitHubComment
@@ -183,8 +184,22 @@ export "." (./src/index.ts)
   type GoogleAllowanceListProps
   GoogleApprovalList
   type GoogleApprovalListProps
+  type GoogleEffect
   type GoogleHostTime
+  GoogleMailApprovalCard
+  type GoogleMailApprovalCardProps
+  type GoogleMailDraftDeleteProps
+  type GoogleMailDraftSaveProps
+  type GoogleMailMessage
+  type GoogleMailModifyProps
+  type GoogleMailSendProps
+  type GoogleMailTarget
+  type GoogleMailThread
+  type GoogleMailTrashProps
+  type GoogleMailbox
+  type GoogleRecipientMatch
   type GoogleStandingAction
+  type GoogleStandingOffers
   type GraphEdge
   type GraphLegendItem
   type GraphNode
@@ -451,6 +466,7 @@ export "." (./src/index.ts)
   font
   githubHref
   googleActionWords
+  googleApprovalKeys
   invisibleSegments
   markupBytesLabel
   markupNotes
@@ -597,11 +613,14 @@ signatures (every public export and the types it is made of)
         onAllow?: () => void;
         onDeny?: () => void;
         onAlwaysAllow?: () => void;
+        alwaysLabel?: string;
+        alwaysNote?: ReactNode;
+        top?: ReactNode;
         children?: ReactNode;
         wrapHeader?: boolean;
         wrapActions?: boolean;
         shortcuts?: {
-            allow: string;
+            allow?: string;
             deny: string;
         };
     }
@@ -1351,6 +1370,8 @@ signatures (every public export and the types it is made of)
         description?: string;
         preview?: string;
     }
+  GOOGLE_SEND_RECIPIENT_REFUSAL (packages/ui-kit/src/google/mail-approval.ts)
+    const GOOGLE_SEND_RECIPIENT_REFUSAL: "Not sent: one recipient isn't on your send list.";
   GhostRole (packages/ui-kit/src/internal/GhostText.tsx)
     export type GhostRole = "sans" | "mono" | "title";
   GhostSpec (packages/ui-kit/src/internal/GhostText.tsx)
@@ -1758,10 +1779,97 @@ signatures (every public export and the types it is made of)
         onRevoke(id: string): void;
         onRetry?: () => void;
     }
+  GoogleEffect (packages/ui-kit/src/google/mail-approval.ts)
+    export type GoogleEffect = "reversible" | "irreversible";
   GoogleHostTime (packages/ui-kit/src/google/shared.tsx)
     export interface GoogleHostTime {
         short: string;
         full: string;
+    }
+  GoogleMailApprovalCard (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export function GoogleMailApprovalCard(p: GoogleMailApprovalCardProps): import("react").JSX.Element;
+  GoogleMailApprovalCardProps (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export type GoogleMailApprovalCardProps = GoogleMailSendProps | GoogleMailDraftSaveProps | GoogleMailDraftDeleteProps | GoogleMailTrashProps | GoogleMailModifyProps;
+  GoogleMailDraftDeleteProps (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export interface GoogleMailDraftDeleteProps extends Shared {
+        operation: "gmail.draft.delete";
+        effect?: "irreversible";
+        draftId: string;
+        message?: GoogleMailMessage | null;
+    }
+  GoogleMailDraftSaveProps (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export interface GoogleMailDraftSaveProps extends Shared, Standing {
+        operation: "gmail.draft.save";
+        effect: GoogleEffect;
+        action: "create" | "reply" | "update";
+        draftId: string | null;
+        threadId: string | null;
+        message: GoogleMailMessage;
+        thread?: GoogleMailThread | null;
+        previousBody?: string | null;
+        replacedAt?: GoogleHostTime | null;
+    }
+  GoogleMailMessage (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export interface GoogleMailMessage {
+        from: GoogleMailbox;
+        to: readonly GoogleMailbox[];
+        cc: readonly GoogleMailbox[];
+        bcc: readonly GoogleMailbox[];
+        replyTo: readonly GoogleMailbox[];
+        subject: string | null;
+        inReplyTo: readonly string[];
+        body: string;
+    }
+  GoogleMailModifyProps (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export interface GoogleMailModifyProps extends Shared, Standing {
+        operation: "gmail.modify";
+        effect: GoogleEffect;
+        messages: readonly GoogleMailTarget[];
+        addLabels: readonly GmailLabel[];
+        removeLabels: readonly GmailLabel[];
+        threads?: number | null;
+    }
+  GoogleMailSendProps (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export interface GoogleMailSendProps extends Shared {
+        operation: "gmail.draft.send";
+        effect?: "irreversible";
+        sendAs: GoogleMailbox;
+        accountAlias?: string;
+        message: GoogleMailMessage;
+        threadId: string | null;
+        thread?: GoogleMailThread | null;
+        recipientMatches?: readonly GoogleRecipientMatch[];
+    }
+  GoogleMailTarget (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export interface GoogleMailTarget {
+        messageId: string;
+        date?: GmailDate | null;
+        labels?: readonly GmailLabel[];
+        from?: string | null;
+        subject?: string | null;
+    }
+  GoogleMailThread (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export interface GoogleMailThread {
+        subject: string | null;
+        date: GmailDate | null;
+    }
+  GoogleMailTrashProps (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export interface GoogleMailTrashProps extends Shared {
+        operation: "gmail.trash";
+        effect?: "irreversible";
+        messages: readonly GoogleMailTarget[];
+        threads?: number | null;
+    }
+  GoogleMailbox (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export interface GoogleMailbox {
+        address: string;
+        displayName: string | null;
+    }
+  GoogleRecipientMatch (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export interface GoogleRecipientMatch {
+        field: "to" | "cc" | "bcc";
+        address: string;
+        entry: string | null;
     }
   GoogleStandingAction (packages/ui-kit/src/google/shared.tsx)
     export type GoogleStandingAction = {
@@ -1771,6 +1879,11 @@ signatures (every public export and the types it is made of)
         labelId: string;
         labelName: string | null;
     };
+  GoogleStandingOffers (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    export interface GoogleStandingOffers {
+        allowAlways: boolean;
+        allowForSession: boolean;
+    }
   GraphEdge (packages/ui-kit/src/agents/GraphView.tsx)
     export type GraphEdge = [
         number,
@@ -1880,6 +1993,7 @@ signatures (every public export and the types it is made of)
         readonly "calendar-ok": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "changes-requested": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "folder-open": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "hidden-copy": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "issue-closed": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "issue-open": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "mic-off": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1947,6 +2061,7 @@ signatures (every public export and the types it is made of)
         readonly ledger: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly link: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly loading: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly mail: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly menu: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly mic: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly model: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1979,6 +2094,7 @@ signatures (every public export and the types it is made of)
         readonly sunrise: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly text: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly thread: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly trash: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly trust: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly undo: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly unheard: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -2974,6 +3090,13 @@ signatures (every public export and the types it is made of)
         keyboardOpen?: boolean;
         formatClock?: (ms: number) => string;
     }
+  Shared (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    interface Shared {
+        tainted: boolean;
+        onAllow?: () => void;
+        onDeny?: () => void;
+        shortcuts?: boolean;
+    }
   SideRail (packages/ui-kit/src/desktop/SideRail.tsx)
     export function SideRail(p: SideRailProps): import("react").JSX.Element;
   SideRailProps (packages/ui-kit/src/desktop/SideRail.tsx)
@@ -3009,6 +3132,11 @@ signatures (every public export and the types it is made of)
         cutOff?: boolean;
         details?: SpokenTurnDetails;
         children?: ReactNode;
+    }
+  Standing (packages/ui-kit/src/google/GoogleMailApprovalCard.tsx)
+    interface Standing {
+        offers?: GoogleStandingOffers;
+        onStanding?: () => void;
     }
   StartCard (packages/ui-kit/src/voice/StartCard.tsx)
     export function StartCard(p: StartCardProps): import("react").JSX.Element;
@@ -3612,6 +3740,11 @@ signatures (every public export and the types it is made of)
     export function googleActionWords(action: GoogleStandingAction): {
         text: string;
         mono?: string;
+    };
+  googleApprovalKeys (packages/ui-kit/src/google/mail-approval.ts)
+    export function googleApprovalKeys(effect: GoogleEffect): {
+        allow?: "a";
+        deny: "d";
     };
   highlyRestrictive (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   invisibleSegments (packages/ui-kit/src/google/reveal-invisibles.ts)

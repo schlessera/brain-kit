@@ -141,6 +141,9 @@ import {
   Waypoints,
   Wifi,
   X,
+  EyeOff,
+  Mail,
+  Trash2,
 } from "lucide-react";
 
 import { warnOnce } from "../internal/dev.js";
@@ -187,6 +190,12 @@ export const ICONS = {
   attach: Paperclip,
   /** Gmail's starred flag (#4209). */
   star: Star,
+  /** A mail approval card's head (#4215). */
+  mail: Mail,
+  /** Deleting a draft or moving mail to Trash (#4215). */
+  trash: Trash2,
+  /** A blind-copy row: the recipients the others cannot see (#4215, M2). */
+  "hidden-copy": EyeOff,
   mic: Mic,
   send: ArrowUp,
   /** The scroll disc's glyph: back down to the newest message (D52 §7). */
