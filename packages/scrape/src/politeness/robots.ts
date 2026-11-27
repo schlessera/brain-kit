@@ -23,6 +23,7 @@
 import robotsParser from "robots-parser";
 
 import { DEFAULT_USER_AGENT } from "../config/env.js";
+import { readBoundedText } from "../fetch/bounded-body.js";
 import { checkPublicUrl, fetchUnderPolicy } from "./address.js";
 import type { AddressLookup, AddressPolicy } from "./address.js";
 
@@ -71,32 +72,6 @@ export const DEFAULT_ROBOTS_MAX_REDIRECTS = 5;
 const ROBOTS_TIMEOUT_MS = 10_000;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-/** Read at most `maxBytes` of a body as UTF-8, refusing a longer one. */
-async function boundedText(response: Response, maxBytes: number): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
-  try {
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      bytes += chunk.value.byteLength;
-      if (bytes > maxBytes) throw new Error(`robots.txt body exceeds ${maxBytes} bytes`);
-      chunks.push(chunk.value);
-    }
-  } finally {
-    await reader.cancel().catch(() => {});
-  }
-  const buffer = new Uint8Array(bytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    buffer.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(buffer);
-}
-
 /**
  * The network fetcher a cache uses unless one is injected.
  *
@@ -123,7 +98,7 @@ function networkFetcher(options: Required<Pick<RobotsCacheOptions, "userAgent" |
             await res.body?.cancel().catch(() => {});
             return { status: res.status, body: "" };
           }
-          return { status: 200, body: await boundedText(res, options.maxBytes) };
+          return { status: 200, body: await readBoundedText(res, options.maxBytes, { what: "robots.txt body" }) };
         }
         await res.body?.cancel().catch(() => {});
         if (redirects >= options.maxRedirects) {

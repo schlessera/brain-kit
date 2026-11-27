@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import {adaptStreamEvent} from "../../ui-backend-claude/src/stream-adapter";
+import {StreamAdapter} from "../../ui-backend-claude/src/stream-adapter";
 import { inputTaintSource, outputTaintSignals, searchOutputContext } from "../src/activity/ingestion-taint";
 import { createTurnRecorder } from "../src/activity/recorder";
 import { createActivityStore } from "../src/activity/store";
@@ -136,7 +136,7 @@ for(const filename of ['notes/voyage:2:home.md','notes/voyage\rhome.md'])test(`t
  try{
   recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'colon_grep',toolName:'Grep'});
   recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'colon_grep',toolName:'Grep',input:{path:'.',pattern:'sirens',output_mode:'files_with_matches'}});
-  recorder.observeFrame({type:'tool_result',sessionId,toolUseId:'colon_grep',isError:false,output:adaptStreamEvent({type:'user',message:{content:[{type:'tool_result',tool_use_id:'colon_grep',content:[{type:'text',text:filename}]}]}} as never).find(frame=>frame.type==='tool_result')!.output});
+  recorder.observeFrame({type:'tool_result',sessionId,toolUseId:'colon_grep',isError:false,output:new StreamAdapter().adapt({type:'user',message:{content:[{type:'tool_result',tool_use_id:'colon_grep',content:[{type:'text',text:filename}]}]}} as never).find(frame=>frame.type==='tool_result')!.output});
   expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source).sort(),'RECORDER_PRESERVES_ADMITTED_SEARCH_FORMAT').toEqual(['legacy_unknown','user_marked']);
  }finally{recorder.finish('success');db.close();}
 });
@@ -159,7 +159,7 @@ test('Claude display filenames preserve both workspace and mark evidence indepen
  db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES(?,0,0)").run(sessionId);untrustedMarkOperations(db).mark('workspaces/voyage/sirens.md',null,Date.UTC(2026,6,12));
  const recorder=createTurnRecorder({store:createActivityStore(db,{writer:'test'}),governanceDb:db,brainPath:brain,governance:event=>{recordGovernanceEvent(db,event);}},{turnId:'display-workspace',sessionId,profile:'governed'});
  try{
-  const frames=adaptStreamEvent({type:'user',message:{content:[{type:'tool_result',tool_use_id:'workspace_grep',content:[{type:'text',text:'workspaces/voyage/sirens.md'}]}]}} as never);
+  const frames=new StreamAdapter().adapt({type:'user',message:{content:[{type:'tool_result',tool_use_id:'workspace_grep',content:[{type:'text',text:'workspaces/voyage/sirens.md'}]}]}} as never);
   expect(frames.find(frame=>frame.type==='tool_result')!.output,'ACTUAL_ADAPTER_OUTPUT_IS_DISPLAY_TEXT').toBe('workspaces/voyage/sirens.md');
   recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'workspace_grep',toolName:'Grep'});
   recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'workspace_grep',toolName:'Grep',input:{pattern:'sirens',output_mode:'files_with_matches'}});
@@ -176,7 +176,7 @@ for(const mode of ['content','count'] as const)test(`Claude fallback recorder re
   const text=mode==='content'?`notes/loom.md:7:${'s'.repeat(1100)}`:`notes/loom.md:${'7'.repeat(1100)}`;
   recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'long_grep',toolName:'Grep'});
   recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'long_grep',toolName:'Grep',input:{pattern:'sirens',output_mode:mode}});
-  for(const frame of adaptStreamEvent({type:'user',message:{content:[{type:'tool_result',tool_use_id:'long_grep',content:[{type:'text',text}]}]}} as never))if(frame.type==='tool_result')recorder.observeFrame({...frame,sessionId});
+  for(const frame of new StreamAdapter().adapt({type:'user',message:{content:[{type:'tool_result',tool_use_id:'long_grep',content:[{type:'text',text}]}]}} as never))if(frame.type==='tool_result')recorder.observeFrame({...frame,sessionId});
   expect(aborted,'LONG_MATCH_TEXT_IS_NOT_A_FATAL_FILENAME').toEqual([]);
   expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(event=>event.payload.source).sort(),'LONG_ROW_PRESERVES_MARK_AND_UNKNOWN').toEqual(['legacy_unknown','user_marked']);
  }finally{recorder.finish('success');db.close();}

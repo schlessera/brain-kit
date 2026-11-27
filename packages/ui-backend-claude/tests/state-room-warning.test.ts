@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createClaudeBackend } from "../src/backend.js";
-import { processStateLedger } from "../src/worker-state-budget.js";
+import { processStateLedger } from "@schlessera/brain-ui-sdk/internal";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PAGE = 4096;
