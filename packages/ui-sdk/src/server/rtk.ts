@@ -38,8 +38,6 @@ function available(binary: string, env: NodeJS.ProcessEnv, cwd?: string): Promis
     catch { resolve(false); }
   });
 }
-/** @internal Compatibility for existing test callers; probes are no longer cached. */
-export function resetRtkProbe(): void {}
 
 /** Internal server-only oracle for a verified installed, worker-visible binary. */
 export function rewriteInstalledRtk(command: string, binary: string): Promise<string> {

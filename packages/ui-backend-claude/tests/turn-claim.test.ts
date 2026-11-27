@@ -127,7 +127,7 @@ test("a worker whose deferred probe refuses names the turn's failure as when its
   try {
     const backend = createClaudeBackend({ brainPath: brain, profiles, queryFn, log: () => {} });
     const outcome = await backend.startTurn({ prompt: "Return to Ithaca", signal: new AbortController().signal,
-      workerSandbox: prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] }), bridge: bridge(frames) }).then(() => "resolved", (error: unknown) => error);
+      workerSandbox: prepareWorkerSandbox(brain, { profile: "governed", areas: [] }), bridge: bridge(frames) }).then(() => "resolved", (error: unknown) => error);
     // A start refusal is the turn's terminal error, never a failed worker lifecycle for cleanup to reject on.
     expect(outcome, "DEFERRED_SPAWN_REFUSAL_LEAVES_CLEANUP_CLEAN").toBe("resolved");
     const error = frames.find(frame => frame.type === "error") as Extract<ServerMessage, { type: "error" }> | undefined;

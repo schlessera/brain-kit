@@ -84,7 +84,7 @@ try {
       if (msg.type === "result") terminal = msg;
     }
     const frames: Array<{ type: string; outcome?: string; message?: string }> = [];
-    worker = createMeasurementWorkerFixture(brainPath, root);
+    worker = createMeasurementWorkerFixture(brainPath);
     const backend = createClaudeBackend({ brainPath, maintenance: worker.maintenance, profiles, queryFn: observedQuery, allowedTools: [], log: () => {} });
     await backend.startTurn({ ...worker.request, profileId: model, prompt: "Reply with the fictional fixture sentence.", signal: controller.signal,
       bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "deny", message: "No tools in this measurement." }) } });
