@@ -30,6 +30,7 @@ for (const [name, drawnCalls, received] of [
  * only one of the calls never makes that call the proven action. */
 for (const [name, drawn, received] of ([
   ["a live pair replayed as its later call", answer([grep, running], "Odysseus", true), answer([bash], "Odysseus", true)],
+  ["one name drawn and another replayed under the same ID", answer([grep], "Odysseus", true), answer([bash], "Odysseus", true)],
   ["a settled pair replayed bounded to its first call", answer([grep, bash], "Odysseus", false),
     { ...answer([grep], "Odysseus\n…[1 tool calls elided]", false), parts: [{ kind: "tool" as const, toolIndex: 0 }, { kind: "text" as const, text: "Odysseus" }, { kind: "text" as const, text: "\n…[1 tool calls elided]" }] }],
 ] satisfies Array<[string, ChatMessage, ChatMessage]>)) test(`a reused ID stays ambiguous after ${name}`, () => {

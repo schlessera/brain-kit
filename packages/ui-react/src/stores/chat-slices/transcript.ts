@@ -49,21 +49,20 @@ function includesDrawnText(text: string, drawn: string): boolean {
 }
 
 /** Shared tools keep their chronological IDs even when either copy missed a call. */
-/** The grow-only set of `turn\0toolUseId` keys under which one copy of the
- * transcript holds differently named calls (#4513). */
+/** The grow-only set of `turn\0toolUseId` keys under which this client
+ * has seen differently named calls (#4513): one name map across everything
+ * it holds or receives in a merge, never one per copy. */
 function reusedToolIds(prior: readonly string[] | undefined, ...copies: readonly ChatMessage[][]): readonly string[] | undefined {
   const keys = new Set(prior);
-  for (const messages of copies) {
-    const names = new Map<string, Set<string>>();
-    for (const m of messages) {
-      const turn = m.turnId ?? m.streamTurnId;
-      if (turn) for (const t of m.toolCalls) {
-        const key = `${turn}\0${t.id}`, seen = names.get(key) ?? new Set<string>();
-        seen.add(t.name); names.set(key, seen);
-      }
+  const names = new Map<string, Set<string>>();
+  for (const messages of copies) for (const m of messages) {
+    const turn = m.turnId ?? m.streamTurnId;
+    if (turn) for (const t of m.toolCalls) {
+      const key = `${turn}\0${t.id}`, seen = names.get(key) ?? new Set<string>();
+      seen.add(t.name); names.set(key, seen);
     }
-    for (const [key, seen] of names) if (seen.size > 1) keys.add(key);
   }
+  for (const [key, seen] of names) if (seen.size > 1) keys.add(key);
   return keys.size ? [...keys] : prior;
 }
 
