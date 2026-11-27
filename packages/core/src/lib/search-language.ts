@@ -37,7 +37,11 @@ export function builtFtsTokenizer(db: Database, table: "documents_fts" | "chunks
   return row.sql.match(/tokenize\s*=\s*'([^']*)'/i)?.[1] ?? "unicode61";
 }
 
-/** Whether the index was built with English stemming, and so wants English stopwords in its queries. */
-export function ftsIsEnglish(db: Database): boolean {
-  return /\bporter\b/.test(builtFtsTokenizer(db) ?? TOKENIZERS.english);
+/**
+ * Whether an index whose `documents_fts` was built with `built` (null when the
+ * table does not exist yet) uses English stemming, and so wants English
+ * stopwords in its queries.
+ */
+export function ftsIsEnglish(built: string | null): boolean {
+  return /\bporter\b/.test(built ?? TOKENIZERS.english);
 }

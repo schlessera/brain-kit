@@ -274,7 +274,7 @@ shapes/defaults remain unchanged. Pi and MCP link walking default to depth 1/bot
 Pi and the supported link-walk query clamp depth to 1..4; core MCP's own cap is 5.
 It is a different result from the drawn graph: unresolved text is preserved and cycle/deduplication behavior
 stays consistent with the supported tools. Audit the pi/core parity instead of
-blindly replacing one with the other (`walkLinks`, `packages/core/src/lib/link-walk.ts:39-56`) and the [historical pi graph](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367).
+blindly replacing one with the other (`walkLinks`, `packages/core/src/lib/link-walk.ts:42-48`) and the [historical pi graph](https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280-L367).
 
 ## Index compatibility, errors and lifetime
 
