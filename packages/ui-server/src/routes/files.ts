@@ -138,13 +138,6 @@ async function rangeResponse(
 }
 
 /**
- * Who may clear an untrusted mark and see retained missing records and marker
- * labels (#2673, authority ruling B): the human owner, by the same predicate
- * the storage and history routes use. Every other authenticated principal is
- * a reader.
- */
-
-/**
  * Whether `path` names a file this request may read: the `GET /files/content`
  * rule, without reading it. A path that no longer resolves inside the brain
  * (a parent became a link out of it) is as unreadable as a missing one.
