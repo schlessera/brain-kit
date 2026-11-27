@@ -22,6 +22,8 @@ export interface WriteDeps {
   db: Database;
   root: string;
   taxonomy: Taxonomy;
+  /** Called once the operation has written a file, before its index run; never for a write refused before that. */
+  written?: () => void;
 }
 
 /** A comma-separated tag string as a list: trimmed, empties dropped. */
@@ -50,7 +52,7 @@ export function addDocument(deps: WriteDeps, input: AddInput): Promise<IngestOut
   return ingest(
     { content: input.content, type: input.type as DocumentType | undefined, title: input.title, tags: input.tags },
     deps.db,
-    { root: deps.root, taxonomy: deps.taxonomy }
+    { root: deps.root, taxonomy: deps.taxonomy, written: deps.written }
   );
 }
 
@@ -123,6 +125,7 @@ export async function updateDocumentFields(deps: WriteDeps, input: UpdateInput):
   // Only these keys change; the rest of the frontmatter keeps its bytes (#449).
   // Staged and renamed over the document, so a failed write leaves it whole (#1355).
   writeFileSafely(fullPath, updateDocument(raw, updates, input.appendContent || undefined));
+  deps.written?.();
   await reindex(deps)(deps.db, [relative(realpathSync(deps.root), fullPath)]);
 
   return { path: input.path, updated, changes };
@@ -142,5 +145,6 @@ export function archiveWithReindex(
     db: deps.db,
     embeddingDimensions: deps.embeddingDimensions,
     reindex: input.dryRun ? undefined : reindex(deps),
+    written: deps.written,
   });
 }
