@@ -238,6 +238,7 @@ export "./internal/protected-paths" (./src/protected-paths.ts)
   protectedPaths
 
 export "./internal/provider-relay" (./src/provider-relay.ts)
+  CREDENTIAL_HEADERS
   PROVIDER_RELAY_FAMILY_HEADER
   PROVIDER_RELAY_KEY_HEADER
   PROVIDER_RELAY_ORIGIN_HEADER

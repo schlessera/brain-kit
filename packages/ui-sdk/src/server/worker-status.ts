@@ -1,7 +1,8 @@
 /** Trusted bubblewrap status channel; never accepts a PID from worker output. */
-import { closeSync, constants, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, rmSync, writeSync } from "node:fs";
+import { closeSync, constants, mkdtempSync, openSync, readFileSync, readlinkSync, readSync, rmSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { parseProcStat, procChildren, readProcStat } from "./proc-identity.js";
 import { runWorkerStepsSync, workerStepRun, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 
 const MAX_STATUS_BYTES = 4096;
@@ -26,32 +27,15 @@ export interface WorkerStatusSupervisor {
 /** A process by PID and kernel start time, so a recycled PID never matches. */
 interface ProcessIdentity { pid: number; start: string }
 
-/** `/proc/<pid>/stat` after the command name: [state, ppid, ..., starttime at 19]. */
-function statFields(pid: number): string[] | undefined {
-  try { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" "); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ESRCH") return undefined; throw error; }
-}
-
 /** Whether the identified process can still run code: present, the same start, not dead. */
 function alive(target: ProcessIdentity): boolean {
-  const fields = statFields(target.pid);
-  return fields !== undefined && fields[19] === target.start && !["Z", "X", "x"].includes(fields[0]!);
+  const stat = readProcStat(target.pid);
+  return stat !== undefined && stat.start === target.start && !["Z", "X", "x"].includes(stat.state);
 }
 
 function signal(pid: number, name: NodeJS.Signals) {
   try { process.kill(pid, name); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
-}
-
-/** Every child of a process, from the kernel's record or, without CONFIG_PROC_CHILDREN, by parent PID. */
-function childrenOf(pid: number): number[] {
-  try {
-    return readdirSync(`/proc/${pid}/task`).flatMap(task =>
-      readFileSync(`/proc/${pid}/task/${task}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  return readdirSync("/proc").filter(name => /^\d+$/.test(name) && statFields(Number(name))?.[1] === String(pid)).map(Number);
 }
 
 /**
@@ -61,7 +45,7 @@ function childrenOf(pid: number): number[] {
  * gated process is killed too, by identity. Returns what must be seen dead
  * before the gate may close.
  */
-function killGatedSandbox(supervisor: WorkerStatusSupervisor, gated: ProcessIdentity | undefined): ProcessIdentity[] {
+export function killGatedSandbox(supervisor: WorkerStatusSupervisor, gated: ProcessIdentity | undefined): ProcessIdentity[] {
   const doomed: ProcessIdentity[] = [];
   // Only an unreaped supervisor still owns its PID.
   if (supervisor.exitCode === null && supervisor.signalCode === null) {
@@ -69,11 +53,10 @@ function killGatedSandbox(supervisor: WorkerStatusSupervisor, gated: ProcessIden
     // A stop takes effect when the process next leaves the kernel, so a fork
     // in progress completes and its child is listed before it is read.
     const deadline = Date.now() + SUPERVISOR_STOP_MS;
-    for (let state = statFields(supervisor.pid)?.[0]; state !== undefined && !["T", "t", "Z", "X", "x"].includes(state) && Date.now() < deadline;
-      state = statFields(supervisor.pid)?.[0]) Bun.sleepSync(1);
-    for (const pid of childrenOf(supervisor.pid)) {
-      const start = statFields(pid)?.[19];
-      if (start === undefined) continue;
+    for (let state = readProcStat(supervisor.pid)?.state; state !== undefined && !["T", "t", "Z", "X", "x"].includes(state) && Date.now() < deadline;
+      state = readProcStat(supervisor.pid)?.state) Bun.sleepSync(1);
+    // Every child of the stopped supervisor, read again so a reaped or reused PID is never signalled.
+    for (const { pid, start } of procChildren(supervisor.pid)) {
       doomed.push({ pid, start });
       signal(pid, "SIGKILL");
     }
@@ -130,15 +113,15 @@ export function* createWorkerStatusPipeSteps() {
           const status: unknown = JSON.parse(buffer.subarray(0, end).toString("utf8"));
           if (!status || typeof status !== "object" || !("child-pid" in status)) throw new Error("Worker status has no child PID");
           const pid = verifiedWorkerPid(supervisor, (status as { "child-pid": unknown })["child-pid"]);
-          const start = statFields(pid)?.[19];
+          const start = readProcStat(pid)?.start;
           if (start === undefined) throw new Error("Worker status names an exited child");
           gated = { pid, start };
           return pid;
         }
         if (used > MAX_STATUS_BYTES) throw new Error("Worker status exceeds its byte bound");
         try {
-          const state = readFileSync(`/proc/${supervisor}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[0];
-          if (["Z", "X", "x"].includes(state!)) throw new Error("bubblewrap exited before reporting worker status");
+          const { state } = parseProcStat(readFileSync(`/proc/${supervisor}/stat`, "utf8"));
+          if (["Z", "X", "x"].includes(state)) throw new Error("bubblewrap exited before reporting worker status");
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error("bubblewrap exited before reporting worker status");
           throw error;
@@ -184,18 +167,18 @@ export function* createWorkerStatusPipeSteps() {
 export function verifiedWorkerPid(supervisor: number, reported: unknown): number {
   if (typeof reported !== "number" || !Number.isSafeInteger(reported) || reported <= 0 || reported === supervisor)
     throw new Error("Worker status child PID is invalid");
-  const start = (pid: number) => readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ");
-  const root = start(reported);
-  if (["Z", "X", "x"].includes(root[0]!)) throw new Error("Worker status names an exited child");
+  const stat = (pid: number) => parseProcStat(readFileSync(`/proc/${pid}/stat`, "utf8"));
+  const root = stat(reported);
+  if (["Z", "X", "x"].includes(root.state)) throw new Error("Worker status names an exited child");
   if (readlinkSync(`/proc/${reported}/ns/pid`) === readlinkSync("/proc/self/ns/pid"))
     throw new Error("Worker status child must have a private PID namespace");
-  let parent = Number(root[1]);
+  let parent = root.parent;
   const visited = new Set<number>([reported]);
   while (parent !== supervisor) {
     if (!Number.isSafeInteger(parent) || parent <= 1 || visited.has(parent) || visited.size >= 256)
       throw new Error("Worker status child does not descend from its supervisor");
-    visited.add(parent); parent = Number(start(parent)[1]);
+    visited.add(parent); parent = stat(parent).parent;
   }
-  if (start(reported)[19] !== root[19]) throw new Error("Worker status child identity changed during verification");
+  if (stat(reported).start !== root.start) throw new Error("Worker status child identity changed during verification");
   return reported;
 }
