@@ -10,7 +10,7 @@ import type { SDKSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { archiveIdleSessions, listArchivedSessions, restoreArchivedSession, transcriptPaths, type ArchiveOptions } from "../src/transcript-archive.js";
 import { createHistory } from "../src/history.js";
 import { prepareClaudeWorkerState } from "../src/worker-spawn.js";
-import { createStateLedger } from "../src/worker-state-budget.js";
+import { createStateLedger } from "@schlessera/brain-ui-sdk/internal";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";

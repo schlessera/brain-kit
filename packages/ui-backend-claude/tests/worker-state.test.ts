@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { sessionReplay } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { appendedAnswerTexts, createClaudeWorkerState, SessionTooLargeError, workerStateLimit } from "../src/worker-state.js";
-import { createStateLedger, type StateLedger } from "../src/worker-state-budget.js";
+import { createStateLedger, type StateLedger } from "@schlessera/brain-ui-sdk/internal";
 import { resumedSessionId } from "../src/worker-spawn.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";

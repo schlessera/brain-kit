@@ -8,7 +8,7 @@ import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { createTurnLockBinding } from "../../src/turn-lock.js";
 import { createClaudeSdkTurn } from "../../src/sdk-options.js";
 import { settingsRefusal, subscriptionVerdict, type CliSettingsReport } from "../../src/subscription.js";
-import { processStateLedger } from "../../src/worker-state-budget.js";
+import { processStateLedger } from "@schlessera/brain-ui-sdk/internal";
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import type { LaunchedWorker, WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, linkSync, chmodSync } from "node:fs";

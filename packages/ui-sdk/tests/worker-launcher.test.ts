@@ -1,11 +1,12 @@
-import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
+import { createFixtureWorkerStartupView, launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { describe, expect, spyOn, test } from "bun:test";
-import { closeSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
 import { join, resolve } from "node:path";
 import { chmodSync } from "node:fs";
-import { probeWorkerHost, restrictedReadPaths, workerBootstrap, workerCommand } from "../src/server/worker-launcher";
+import { launchAgentWorker as launchUnpreparedWorker, prepareWorkerSandbox, probeWorkerHost, restrictedReadPaths, workerBootstrap, workerCommand, WorkerHostError } from "../src/server/worker-launcher";
 import { WORKER_INFERENCE_DIR } from "../src/server/inference-relay";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { createWorkerPipes } from "../src/server/worker-pipes";
 
 const GOLDEN = "Odysseus: only the server owns policy writes.\n";
@@ -94,6 +95,43 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
       expect(child.exitCode).toBe(0);
       expect(output.match(/^SigIgn:\s+([0-9a-f]+)$/m)?.[1]).toBe("0000000000000000");
     } finally { pipes.cleanup(); f.cleanup(); }
+  });
+
+  test("a startup view with a writable area and no prepared output is refused before any spawn", async () => {
+    const f = fixture();
+    try {
+      mkdirSync(join(f.brain, "workspaces"));
+      const sandbox = prepareWorkerSandbox(f.brain, { profile: "strict", codeChanges: true, areas: ["workspaces"], readPaths: [process.execPath] });
+      const startupView = createFixtureWorkerStartupView(f.brain);
+      const spawn = spyOn(Bun, "spawn");
+      let refusal: unknown, worker: ReturnType<typeof launchUnpreparedWorker> | undefined;
+      try { worker = launchUnpreparedWorker({ brainPath: f.brain, env: {}, command: [process.execPath, "-e", ""], startupView, sandbox }); }
+      catch (error) { refusal = error; }
+      finally { spawn.mockRestore(); }
+      if (worker) { worker.stdin.end(); await worker.exited; }
+      expect(refusal).toBeInstanceOf(WorkerHostError);
+      expect((refusal as WorkerHostError).requirement).toBe("a prepared output for the worker's writable areas (preparedOutput)");
+      expect(spawn).not.toHaveBeenCalled();
+    } finally { f.cleanup(); }
+  });
+
+  test("a launch without prepared output releases its startup view after the worker exits", async () => {
+    const f = fixture();
+    try {
+      const view = createFixtureWorkerStartupView(f.brain);
+      let released!: () => void;
+      const cleanedUp = new Promise<void>(resolve => { released = resolve; });
+      const startupView = { ...view, cleanup() { view.cleanup(); released(); } };
+      const worker = launchUnpreparedWorker({ brainPath: f.brain, env: {}, command: ["/bin/true"], startupView });
+      worker.stdin.end();
+      expect(await worker.exited, "WORKER_EXITED").toBe(0);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await Promise.race([cleanedUp.then(() => "released"),
+        new Promise<string>(resolve => { timer = setTimeout(() => resolve("still held"), watchdogMs(10_000)); })]);
+      clearTimeout(timer);
+      expect(outcome, "STARTUP_VIEW_RELEASED_AFTER_EXIT").toBe("released");
+      expect(existsSync(view.root), "STARTUP_VIEW_REMOVED").toBe(false);
+    } finally { f.cleanup(); }
   });
 
   test("policy bytes and membership survive hardlinks and scratch aliases while scratch writes succeed", async () => {
