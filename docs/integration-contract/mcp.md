@@ -1743,18 +1743,18 @@ permission lists wherever the turn has a host handler: the host decides every
 call, posture included. (A pi embedder that passes its own `allowedTools`
 list decides its own cards, as for every other host tool.) Restricted and
 governed autonomous rosters do not include them. The four write tools are
-declared with their final names, descriptions and schemas and answer
-`unavailable` until the write engine lands (#4211), so the roster does not
-change again for Gmail.
+declared with fixed names, descriptions and schemas. #4213 connects modify
+and draft save; #4214 connects trash, send and draft deletion, so the roster
+does not change when write implementations become available.
 
 | Tool | Input | Registered |
 |---|---|---|
 | `brain_google_gmail_search` | `query` (one line, 1–500 characters, Gmail search syntax), `view?` (`structured` or `content`, default `content`), `limit?` (1–25, default 10), `cursor?` (a `next_cursor` this conversation was given) | 0.46.0 (#4207) |
 | `brain_google_gmail_read` | `target` (`thread`, `message`, `draft` or `labels`), `id` (the thread, message or draft id; absent for `labels`), `view?` | 0.46.0 (#4207) |
-| `brain_google_gmail_modify` | exactly one of `message_ids` and `thread_ids` (1–25 each), `add_label_ids?`, `remove_label_ids?` (label ids, never names) | 0.46.0 (#4207); answers `unavailable` until #4211 |
-| `brain_google_gmail_trash` | exactly one of `message_ids` and `thread_ids` | 0.46.0 (#4207); answers `unavailable` until #4211 |
-| `brain_google_gmail_draft` | `action` (`create`, `reply`, `update`, `delete`) and that action's fields: `to`, `cc`, `bcc`, `subject`, `body`, `draft_id`, `message_id`, `reply_all`, `quote_message_id` | 0.46.0 (#4207); answers `unavailable` until #4211 |
-| `brain_google_gmail_send` | `draft_id` | 0.46.0 (#4207); answers `unavailable` until #4211 |
+| `brain_google_gmail_modify` | exactly one of `message_ids` and `thread_ids` (1–25 each), `add_label_ids?`, `remove_label_ids?` (label ids, never names) | 0.46.0 (#4207); executed through the host write engine |
+| `brain_google_gmail_trash` | exactly one of `message_ids` and `thread_ids` | 0.46.0 (#4207); executed through the host write engine |
+| `brain_google_gmail_draft` | `action` (`create`, `reply`, `update`, `delete`) and that action's fields: `to`, `cc`, `bcc`, `subject`, `body`, `draft_id`, `message_id`, `reply_all`, `quote_message_id` | 0.46.0 (#4207); executed through the host write engine |
+| `brain_google_gmail_send` | `draft_id` | 0.46.0 (#4207); executed through the host write engine |
 
 Inputs are strict objects; ids are checked against the shapes Gmail mints, and
 no field names an account, credential, endpoint, principal or session. Draft
@@ -1768,7 +1768,7 @@ result is one JSON document, `{ ok: true, tool, result }` or
 `{ ok: false, tool, error: { code, reason, message } }` (a tool error).
 `code` is one of the catalog's `GOOGLE_ERROR_CODES`: `invalid_input`,
 `unavailable`, `policy_denied`, `approval_declined`, `not_found`, `forbidden`,
-`rate_limited`, `upstream_error`, `draft_not_displayable`, `draft_locked`,
+`rate_limited`, `upstream_error`, `already_sent`, `draft_not_displayable`, `draft_locked`,
 `recording_unavailable`, `transport_incompatible` or `outcome_unknown`.
 `reason` is the decision function's cause (`not_owner`, `no_principal`,
 `not_enabled`, `policy_invalid`, `no_account`, `service_not_enabled`,
@@ -1782,7 +1782,7 @@ the home holds no usable token for; `binary_missing`, `hash_not_pinned`,
 `version_mismatch` and the other pin reasons, `spawn_failed`, `usage` or
 `unexpected_shape` with `transport_incompatible`; `timeout` or `retryable`
 with `upstream_error`); or one of the host's own: `writes_unavailable` (a
-write tool before #4211), `no_host` (no host handler in this turn), `schema`
+host without a configured write implementation), `no_host` (no host handler in this turn), `schema`
 (the input did not parse; the toolkit handler's message names the schema's
 field and the rule, never a value or an unknown key the call supplied; a
 backend runtime that validates the registered schema first answers in its own
@@ -2031,3 +2031,14 @@ route returns. Stale/invalid/refused consumes approval and needs a new proposal.
 Unknown completion is reconciled with Check again on the original request;
 it never resubmits a write. Duplicate identical requests return that request's
 receipt; a changed input cannot borrow its identity or approval.
+
+
+### Irreversible Gmail writes (#4214)
+
+The existing `brain_google_gmail_send`, `brain_google_gmail_trash` and
+`brain_google_gmail_draft` (`action: "delete"`) now execute on the host after
+an exact card. Tool names and inputs are unchanged on Claude and pi. Send
+checks the parsed raw draft's recipients and binds approval to its digest;
+recorded digests refuse resend. The send result adds optional `draft_deleted`
+(production always supplies it), and `already_sent` joins the refusal codes.
+See [the wire behavior and refusal reasons](wire.md#irreversible-gmail-writes-4214).

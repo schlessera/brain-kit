@@ -143,7 +143,7 @@ export const GMAIL_LIMITS = Object.freeze({
  */
 export const GOOGLE_ERROR_CODES = [
   "invalid_input", "unavailable", "policy_denied", "approval_declined", "not_found", "forbidden", "rate_limited",
-  "upstream_error", "draft_not_displayable", "draft_locked", "recording_unavailable", "transport_incompatible",
+  "upstream_error", "already_sent", "draft_not_displayable", "draft_locked", "recording_unavailable", "transport_incompatible",
   "outcome_unknown",
 ] as const;
 export type GoogleErrorCode = typeof GOOGLE_ERROR_CODES[number];
