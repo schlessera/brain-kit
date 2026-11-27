@@ -68,9 +68,18 @@ The `tree` artifact section records these counts, five warm turns' per-step
 medians and observer bootstrap time. Compare a default run, a full large run,
 and a large run with `--workspace-entries=40000` on the same runner. The tenfold
 and proportional sensitivity criteria are qualification measurements, never
-shared-runner CI time budgets. Cold-cache evidence is explicitly unavailable:
-this harness cannot establish an isolated cache-drop condition and never
-mutates the shared runner cache. Default runs omit the `tree` section. Admission scenarios and warm samples
+shared-runner CI time budgets. The `tree.coldCache` row is unavailable by
+default, with its reason: a default run never mutates the runner's page cache.
+`--cold-cache` (with `--tree=large`) asks for one more admission in the warm
+conversation right after `sync` and `echo 3 > /proc/sys/vm/drop_caches`, which
+empties the page, dentry and inode caches of the whole host. It runs only when
+the runner also declares itself isolated with
+`BRAIN_NATIVE_PROOF_ISOLATED_RUNNER=1` in the environment of
+`prove-native-host.ts`: a throwaway VM or a dedicated host that nothing else
+uses. Without that declaration, or when the drop fails, the row stays
+`{ available: false, reason }` and no cold admission runs. A present row is
+`{ available: true, dropMs, sample }`, where `sample` has the same shape as a
+warm sample. Default runs omit the `tree` section. Admission scenarios and warm samples
 retain the integration base's backend milestones, backend steps and missing
 evidence; closing steps remain in their sibling artifact. Parameter values
 are whole decimal integers and each size option may appear only once.
@@ -81,6 +90,14 @@ its outer process timeout from the same size model and test load factor,
 leaving at least two minutes beyond the effective inner timeout. This is
 a hang bound, not a performance promise. The small qualification keeps its
 existing one-second health/WebSocket, ten-second admission and Stop assertions.
+
+`--cpus=N` passes Docker's `--cpus=N` to the proof container, so the app, its
+workers and the fixture share N CPUs (a decimal from 0.01 to 1024). It is how
+#4286 reproduces a hosted Pi turn's seconds-long wait before its first model
+request on a runner with more CPUs: compare `--backend=pi --observation-timing
+--tree=large` at `--cpus=0.5`, 1 and without the option, on the same runner.
+`native-environment.json` records the quota. Without the option, the Docker
+arguments are unchanged.
 
 Admission component experiments must distinguish real namespace-probe and
 FULL write-worker timings from copied startup-view fixture costs. A copied

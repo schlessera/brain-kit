@@ -1,5 +1,5 @@
 import { admissionTimingSample } from "./admission-timing.js";
-import { seedObservationTree, observationTreeWatchdog, observationRunTimeout, type ObservationTree } from "./observation-tree.js";
+import { seedObservationTree, observationTreeWatchdog, observationRunTimeout, coldCacheRow, dropPageCache, type ColdCacheRequest, type ObservationTree } from "./observation-tree.js";
 import { backendStartupSamples, requireAdmissionSteps } from "./lifecycle-timing.js";
 import { observationWindowTrace, type RecordedTrace } from "./observation-recording.js";
 import { observationMatrixRequest } from "./observation-hold.js";
@@ -32,6 +32,9 @@ const APPLY_TIMING = process.env.BRAIN_NATIVE_PROOF_APPLY_TIMING === "1";
 const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING === "1";
 const TREE_SIZES = process.env.BRAIN_NATIVE_PROOF_TREE ? JSON.parse(process.env.BRAIN_NATIVE_PROOF_TREE) as ObservationTree : undefined;
 const LARGE_TREE_WATCHDOG = observationTreeWatchdog(TREE_SIZES);
+// #4284: one cold admission, only when prove-native-host.ts passed an isolated runner's opt-in.
+const COLD_CACHE = process.env.BRAIN_NATIVE_PROOF_COLD_CACHE as ColdCacheRequest | undefined;
+if (COLD_CACHE !== undefined && (!TREE_SIZES || !["isolated", "undeclared"].includes(COLD_CACHE))) throw Error("Unknown native cold-cache selection");
 const healthLimitMs = LARGE_TREE_WATCHDOG ?? 1000, websocketLimitMs = LARGE_TREE_WATCHDOG ?? 1000, admissionLimitMs = LARGE_TREE_WATCHDOG ?? 10000;
 const releaseObservations = nativeReleaseObservations(ARTIFACTS);
 let releasePinnedNamespace: (() => void) | undefined;
@@ -434,6 +437,8 @@ print(json.dumps(result))`;
       const backendStartup = backendStartupSamples(BACKEND === "claude" ? "claude" : "pi",
         startupSample(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null)),
         harbour.slice(-5).map(turnId => startupSample(lifecycles().find(record => record.turnId === turnId))));
+      // #4284: the same conversation's next admission, once, after the page cache is dropped.
+      const coldCache = tree ? await coldCacheRow(COLD_CACHE, dropPageCache, async () => lifecycleOf((await turn("Odysseus requests the Ithaca harbour record after the cache drop on 2026-07-12.", "odysseus-ithaca-cold-cache", harbourSession, 60000)).turnId)) : undefined;
       // Past the hosted app's one-minute idle observation interval.
       const IDLE_WAIT_MS = 65_000;
       // (b) A few hundred notes change while no turn runs, as a sync or maintenance pass would.
@@ -503,7 +508,7 @@ print(json.dumps(result))`;
           const trace = observationWindowTrace(traces, pathMatrix.turnId, sample);
           return { phases: observationPhases(trace, managerSpans), measuredMs: sample.frozenMs };
         })) };
-      const result = { ...(tree ? { tree: { ...tree, warmTurns: warm.length, stepMedians,
+      const result = { ...(tree ? { tree: { ...tree, coldCache, warmTurns: warm.length, stepMedians,
         observerBootstrap: eventLog.read("observer-bootstrap").filter(row => row.kind === "observer_bootstrap").map(row => ({ elapsedMs: row.elapsedMs, outcome: row.outcome })) } } : {}), backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds, pathMatrix: { ...pathMatrix, cells: pathCells, onePathHistory },
         tools: timeline?.tools ?? null, admission, backendStartup, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
           beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, phases: observationSteps, calls: timeline?.calls ?? null };

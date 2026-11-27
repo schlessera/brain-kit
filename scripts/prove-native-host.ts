@@ -1,4 +1,4 @@
-import { observationTreeOptions, type ObservationTree } from "./native-proof/observation-tree.js";
+import { nativeRunnerOptions, observationTreeOptions, type NativeRunnerOptions, type ObservationTree } from "./native-proof/observation-tree.js";
 /** Required offline Btrfs/Unix-manager hosted proof; missing prerequisites fail. */
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -10,12 +10,13 @@ import { ownedCleanupComplete } from "./native-proof/verify-owned-remove.js";
 export const NATIVE_PROOF_IMAGE = "brain-kit-native-runtime:1";
 export const NATIVE_PROOF_NAME = "native managed hosted admission";
 
-export function nativeHostDockerArgs(root: string, artifact: string, uid: string, backend: string, apparmor: boolean, retainIndexNamespace: boolean, bun: string, applyTiming = false, observationTiming = false, tree?: ObservationTree): string[] {
+export function nativeHostDockerArgs(root: string, artifact: string, uid: string, backend: string, apparmor: boolean, retainIndexNamespace: boolean, bun: string, applyTiming = false, observationTiming = false, tree?: ObservationTree, runner: NativeRunnerOptions = {}): string[] {
   const lease = join(root, "tmp", "workspace-operation");
-  return ["docker", "run", "--rm", "--pull=never", "--network=none",
+  return ["docker", "run", "--rm", "--pull=never", "--network=none", ...(runner.cpus ? [`--cpus=${runner.cpus}`] : []),
         ...(retainIndexNamespace ? ["--env=BRAIN_NATIVE_PROOF_RETAIN_INDEX_NAMESPACE=1"] : []),
         ...(applyTiming ? ["--env=BRAIN_NATIVE_PROOF_APPLY_TIMING=1"] : []),
         ...(observationTiming ? ["--env=BRAIN_NATIVE_PROOF_OBSERVATION_TIMING=1"] : []),
+        ...(runner.coldCache ? [`--env=BRAIN_NATIVE_PROOF_COLD_CACHE=${runner.coldCache}`] : []),
         ...(tree ? [`--env=BRAIN_NATIVE_PROOF_TREE=${JSON.stringify(tree)}`] : []),
         // #2783: the media review flow's worker scenario, once per qualification, in the Claude UID 1000 cell.
         ...(backend === "claude" && uid === "1000" && !retainIndexNamespace && !applyTiming && !observationTiming ? ["--env=BRAIN_NATIVE_PROOF_MEDIA_FLOW=1"] : []),
@@ -44,8 +45,9 @@ if (import.meta.main) {
     mkdirSync(output, { recursive: true });
     const selected = process.argv.slice(2);
     const tree = observationTreeOptions(selected);
-    if (selected.some(value => !/^--(?:tree|workspace-entries|dependency-entries|journal-objects|checkouts)=/.test(value) && !["--backend=claude", "--backend=pi", "--app-uid=0", "--app-uid=1000", "--retain-index-namespace", "--apply-timing", "--observation-timing"].includes(value)) || new Set(selected.map(value => value.split("=")[0])).size !== selected.length)
-      throw Error("Usage: prove-native-host.ts [--backend=claude|--backend=pi] [--app-uid=0|--app-uid=1000] [--retain-index-namespace] [--apply-timing|--observation-timing] [--tree=large] [--workspace-entries=N] [--dependency-entries=N] [--journal-objects=N] [--checkouts=N]");
+    const runner = nativeRunnerOptions(selected, process.env);
+    if (selected.some(value => !/^--(?:tree|workspace-entries|dependency-entries|journal-objects|checkouts|cpus)=/.test(value) && !["--backend=claude", "--backend=pi", "--app-uid=0", "--app-uid=1000", "--retain-index-namespace", "--apply-timing", "--observation-timing", "--cold-cache"].includes(value)) || new Set(selected.map(value => value.split("=")[0])).size !== selected.length)
+      throw Error("Usage: prove-native-host.ts [--backend=claude|--backend=pi] [--app-uid=0|--app-uid=1000] [--retain-index-namespace] [--apply-timing|--observation-timing] [--tree=large] [--workspace-entries=N] [--dependency-entries=N] [--journal-objects=N] [--checkouts=N] [--cold-cache] [--cpus=N]");
     const backends = selected.find(value => value.startsWith("--backend="))?.slice(10);
     const appUid = selected.find(value => value.startsWith("--app-uid="))?.slice(10);
     const retainIndexNamespace = selected.includes("--retain-index-namespace");
@@ -66,10 +68,10 @@ if (import.meta.main) {
       const artifact = mkdtempSync(join(output, `run-${backend}-uid${uid}-`));
       // The operator may differ from either fixed app UID; cap0 children need traversal.
       chmodSync(artifact, 0o755);
-      writeFileSync(join(artifact, "native-environment.json"), JSON.stringify({ backend, appUid: Number(uid), apparmor, profile: apparmor ? "brain-kit-native-proof" : null }));
+      writeFileSync(join(artifact, "native-environment.json"), JSON.stringify({ backend, appUid: Number(uid), apparmor, profile: apparmor ? "brain-kit-native-proof" : null, ...(runner.cpus ? { cpus: runner.cpus } : {}), ...(runner.coldCache ? { coldCache: runner.coldCache } : {}) }));
       if (!apparmor) console.log("AppArmor unavailable: this runtime provides no enforced AppArmor qualification.");
       const lease = join(root, "tmp", "workspace-operation"); mkdirSync(lease, { recursive: true, mode: 0o700 });
-      const args = nativeHostDockerArgs(root, artifact, uid, backend, apparmor, retainIndexNamespace, realpathSync(process.execPath), applyTiming, observationTiming, tree);
+      const args = nativeHostDockerArgs(root, artifact, uid, backend, apparmor, retainIndexNamespace, realpathSync(process.execPath), applyTiming, observationTiming, tree, runner);
       console.log(`Native ${backend} uid ${uid} hosted proof artifacts: ${artifact}`);
       const runnerQuota = readFileSync("/proc/sys/user/max_user_namespaces", "utf8");
       const child = Bun.spawn(args, { stdin: "ignore", stdout: "inherit", stderr: "inherit" });

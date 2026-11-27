@@ -18,7 +18,7 @@ test("large observation fixture validates parameter sizes and leaves default Doc
     .toEqual([...base.slice(0, 6), `--env=BRAIN_NATIVE_PROOF_TREE=${JSON.stringify(sizes)}`, ...base.slice(6)]);
 });
 
-test("large tree seed is deterministic and records its generated entries and unavailable cold evidence", () => {
+test("large tree seed is deterministic and records its generated entries", () => {
   const root = mkdtempSync(join(tmpdir(), "ithaca-timing-"));
   try {
     const sizes = { workspaceEntries: 8, dependencyEntries: 3, journalObjects: 4, checkouts: 2 };
@@ -26,8 +26,8 @@ test("large tree seed is deterministic and records its generated entries and una
     const before = readdirSync(root, { recursive: true }).length;
     const receipt = seedObservationTree(join(root, "brain"), join(root, "objects"), sizes);
     expect(receipt.generatedEntries, "ENTRY_RECEIPT_MATCHES_FILESYSTEM_DELTA").toBe(readdirSync(root, { recursive: true }).length - before);
-    expect(receipt).toMatchObject({ ...sizes, generatedFiles: 17, generatedDirectories: 11, generatedEntries: 28,
-      coldCache: { available: false, reason: "No isolated cache-drop proof; shared runner cache is never mutated" } });
+    expect(receipt).toMatchObject({ ...sizes, generatedFiles: 17, generatedDirectories: 11, generatedEntries: 28 });
+    expect(receipt, "COLD_EVIDENCE_IS_THE_RUN_S_NOT_THE_SEED_S").not.toHaveProperty("coldCache");
     const first = readdirSync(join(root, "objects"));
     seedObservationTree(join(root, "second"), join(root, "second-objects"), sizes);
     expect(readdirSync(join(root, "second-objects"))).toEqual(first);
@@ -106,4 +106,46 @@ print(namespace["HOSTED_TIMEOUT"])`;
     expect(outerMs, "OUTER_NATIVE_WATCHDOG_CANNOT_PREEMPT_INNER").toBeGreaterThanOrEqual(observationRunTimeout(sizes) * factor + 120000);
     if (!sizes && factor === 1) expect(outerMs).toBe(5400000);
   }
+});
+
+test("runner conditions are opt-in: --cpus and --cold-cache add Docker arguments only when selected (#4284, #4286)", async () => {
+  const { nativeRunnerOptions } = await import("../scripts/native-proof/observation-tree");
+  const large = ["--observation-timing", "--tree=large"];
+  expect(nativeRunnerOptions(large, {}), "DEFAULT_RUNNER_HAS_NO_CONDITION").toEqual({});
+  expect(nativeRunnerOptions(["--backend=pi", "--cpus=0.5"], {})).toEqual({ cpus: "0.5" });
+  expect(nativeRunnerOptions(["--cpus=2"], {})).toEqual({ cpus: "2" });
+  for (const bad of ["--cpus=0", "--cpus=-1", "--cpus=.5", "--cpus=1e3", "--cpus=0.5=1", "--cpus=", "--cpus=5000", "--cpus=0.0001"])
+    expect(() => nativeRunnerOptions([bad], {}), `INVALID_CPU_QUOTA_REFUSED ${bad}`).toThrow();
+  expect(() => nativeRunnerOptions(["--cpus=1", "--cpus=2"], {}), "DUPLICATE_CPU_QUOTA_AMBIGUOUS").toThrow();
+  expect(() => nativeRunnerOptions(["--observation-timing", "--cold-cache"], {}), "COLD_CACHE_NEEDS_THE_LARGE_TREE").toThrow();
+  expect(nativeRunnerOptions([...large, "--cold-cache"], {}), "UNDECLARED_RUNNER_IS_NOT_ISOLATED").toEqual({ coldCache: "undeclared" });
+  expect(nativeRunnerOptions([...large, "--cold-cache"], { BRAIN_NATIVE_PROOF_ISOLATED_RUNNER: "true" })).toEqual({ coldCache: "undeclared" });
+  expect(nativeRunnerOptions(large, { BRAIN_NATIVE_PROOF_ISOLATED_RUNNER: "1" }), "ISOLATION_ALONE_SELECTS_NOTHING").toEqual({});
+  expect(nativeRunnerOptions([...large, "--cold-cache"], { BRAIN_NATIVE_PROOF_ISOLATED_RUNNER: "1" })).toEqual({ coldCache: "isolated" });
+  const base = nativeHostDockerArgs("/repo", "/proof/run", "1000", "pi", false, false, "/bun", false, true);
+  expect(nativeHostDockerArgs("/repo", "/proof/run", "1000", "pi", false, false, "/bun", false, true, undefined, {}), "DEFAULT_DOCKER_ARGUMENTS_UNCHANGED").toEqual(base);
+  expect(base.some(arg => arg.startsWith("--cpus") || arg.includes("COLD_CACHE"))).toBe(false);
+  expect(nativeHostDockerArgs("/repo", "/proof/run", "1000", "pi", false, false, "/bun", false, true, undefined, { cpus: "0.5" }))
+    .toEqual([...base.slice(0, 5), "--cpus=0.5", ...base.slice(5)]);
+  expect(nativeHostDockerArgs("/repo", "/proof/run", "1000", "pi", false, false, "/bun", false, true, undefined, { coldCache: "isolated" }))
+    .toEqual([...base.slice(0, 6), "--env=BRAIN_NATIVE_PROOF_COLD_CACHE=isolated", ...base.slice(6)]);
+});
+
+test("the cold-cache row drops the page cache only when an isolated runner opted in, and says why otherwise (#4284)", async () => {
+  const { coldCacheRow } = await import("../scripts/native-proof/observation-tree");
+  let drops = 0, admissions = 0;
+  const drop = () => { drops++; };
+  const admit = async () => { admissions++; return { governedAdmissionMs: 1200 }; };
+  for (const request of [undefined, "undeclared"] as const) {
+    const row = await coldCacheRow(request, drop, admit);
+    expect(row.available, "NO_COLD_ROW_WITHOUT_ISOLATED_OPT_IN").toBe(false);
+    expect(row.available ? "" : row.reason).toMatch(request ? /did not declare itself isolated/ : /Not requested/);
+  }
+  expect([drops, admissions], "DEFAULT_NEVER_TOUCHES_THE_CACHE").toEqual([0, 0]);
+  let now = 0;
+  expect(await coldCacheRow("isolated", () => { drops++; now += 40; }, admit, () => now)).toEqual({ available: true, dropMs: 40, sample: { governedAdmissionMs: 1200 } });
+  expect([drops, admissions], "ONE_DROP_THEN_ONE_ADMISSION").toEqual([1, 1]);
+  const failed = await coldCacheRow("isolated", () => { throw Object.assign(Error("EACCES: permission denied, open '/proc/sys/vm/drop_caches'"), { code: "EACCES" }); }, admit);
+  expect(failed, "FAILED_DROP_RUNS_NO_COLD_ADMISSION").toEqual({ available: false, reason: "Page cache drop failed (EACCES: permission denied, open '/proc/sys/vm/drop_caches'); no cold admission ran" });
+  expect(admissions).toBe(1);
 });
