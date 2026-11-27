@@ -51,7 +51,7 @@ export const STALENESS_TTL_PROBE_MULTIPLE = 20;
 export interface StalenessCache {
   /** The cached answer, or a new probe's when the last one has expired. */
   read(): string | null;
-  /** Forget the cached answer, so the next read probes. A write that indexes calls it. */
+  /** Forget the cached answer, so the next read probes. A write tool that wrote a file calls it. */
   reset(): void;
 }
 
@@ -62,7 +62,10 @@ export interface StalenessCache {
  * from the probe's start, so on any size of brain the probe takes a bounded
  * share of a busy server's time. A probe that throws answers `null`, which is
  * cached like any answer: it never breaks a read. `now` is the clock in
- * milliseconds.
+ * milliseconds; the MCP server passes a monotonic one (`performance.now`),
+ * so a step of the wall clock during a probe is never counted as probe work.
+ * The lifetime has no ceiling: a ceiling below a probe's own cost would let
+ * probes run back to back, the cost this lifetime exists to bound.
  */
 export function cachedStaleness(probe: () => string | null, now: () => number): StalenessCache {
   let cache: { at: number; ttl: number; warning: string | null } | null = null;

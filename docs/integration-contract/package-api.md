@@ -1731,6 +1731,15 @@ the helpers read the whole body as before, and `get` always returns its
 robots.txt fetcher refuses a body over its `maxBytes` through the same
 reader. Additive; ships in a minor.
 
+Valid bounds (#4963): `maxBytes` is a whole number of bytes, `0` or more.
+`getJson`, `getPage` and `getText` refuse any other value (`NaN`, `Infinity`,
+a negative or a fractional number) with a `RangeError` that names
+`FetchOptions.maxBytes`, before any request is made, and `RobotsCache` refuses
+such a `RobotsCacheOptions.maxBytes` when it is built. Before, `NaN` and
+`Infinity` read the whole body and a negative bound refused every non-empty
+one. `0` reads only an empty body. Every valid value keeps its meaning; ships
+in a patch.
+
 <a id="browser-scraping-navigation-policy"></a>
 
 ## Browser scraping navigation policy

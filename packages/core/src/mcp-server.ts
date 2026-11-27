@@ -107,7 +107,7 @@ function stalenessWarning(db: Database, brain: BrainContext): StalenessCache {
   return cachedStaleness(() => {
     const { stale } = indexStaleness(db, brain.root, brain.taxonomy);
     return stale > 0 ? staleWarning(stale) : null;
-  }, Date.now);
+  }, () => performance.now());
 }
 
 /** Everything the core tool wrappers share, resolved once per server. */
@@ -120,7 +120,7 @@ interface CoreTools {
   /** Load the vector extension on first use. */
   ensureVec: () => Promise<void>;
   stale: () => string | null;
-  /** Called by a write tool after its index run, so no read serves a warning from before the write. */
+  /** Called by a write tool that wrote a file, after its index run, so no read serves a warning from before the write. */
   resetStale: () => void;
   /** The invalid-config warning, when the server runs on degraded defaults. */
   configWarning: string | null;
@@ -314,7 +314,19 @@ function registerReadManyTool(server: McpServer, t: CoreTools): void {
 
 /** brain_add, brain_update and brain_archive, in that order. Each refuses while the config is invalid. */
 function registerWriteTools(server: McpServer, t: CoreTools): void {
-  const deps = { db: t.db, root: t.brain.root, taxonomy: t.brain.taxonomy };
+  /**
+   * One call's dependencies, and whether it wrote a file. A write refused
+   * before any file changed (a missing path, nothing to change) keeps the
+   * cached staleness answer; one that wrote resets it once it returns or
+   * throws, also when its index run failed.
+   */
+  const call = () => {
+    const state = { wrote: false };
+    return {
+      deps: { db: t.db, root: t.brain.root, taxonomy: t.brain.taxonomy, written: () => { state.wrote = true; } },
+      done: () => { if (state.wrote) t.resetStale(); },
+    };
+  };
 
   server.registerTool(
     "brain_add",
@@ -331,13 +343,14 @@ function registerWriteTools(server: McpServer, t: CoreTools): void {
     async (params) => {
       const degraded = t.degradedWriteError();
       if (degraded) return degraded;
+      const { deps, done } = call();
       try {
         const tags = params.tags ? splitTags(params.tags) : undefined;
         return jsonText(await addDocument(deps, { content: params.content, type: params.type, title: params.title, tags }));
       } catch (e) {
         return errorResult(e);
       } finally {
-        t.resetStale();
+        done();
       }
     }
   );
@@ -362,6 +375,7 @@ function registerWriteTools(server: McpServer, t: CoreTools): void {
     async (params) => {
       const degraded = t.degradedWriteError();
       if (degraded) return degraded;
+      const { deps, done } = call();
       try {
         return jsonText(await updateDocumentFields(deps, {
           path: params.path,
@@ -376,7 +390,7 @@ function registerWriteTools(server: McpServer, t: CoreTools): void {
       } catch (e) {
         return errorResult(e);
       } finally {
-        t.resetStale();
+        done();
       }
     }
   );
@@ -395,12 +409,13 @@ function registerWriteTools(server: McpServer, t: CoreTools): void {
     async (params) => {
       const degraded = t.degradedWriteError();
       if (degraded) return degraded;
+      const { deps, done } = call();
       try {
         return jsonText(await archiveWithReindex(deps, { path: params.path, dryRun: params.dry_run }));
       } catch (e) {
         return errorResult(e);
       } finally {
-        if (!params.dry_run) t.resetStale();
+        done();
       }
     }
   );
