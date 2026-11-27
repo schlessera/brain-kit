@@ -3349,6 +3349,7 @@ export "./server" (./src/server/index.ts)
   type ToolAdapter
   type ToolComponentContract
   type ToolContract
+  type ToolDispatchAdmission
   type ToolInput
   type ToolPayload
   type ToolPermissionApproval
@@ -3431,12 +3432,14 @@ export "./server" (./src/server/index.ts)
   type WorkerLimitsStatus
   type WrappedKillOptions
   type WriteLock
+  admitToolDispatch
   apifyOperationOf
   assertLiveConversationProvider
   assertLiveConversationSession
   assertLoadedSdk
   assertTurnPosture
   assertVersionRequirements
+  autonomousYieldLatch
   bashLockKey
   brainApplicationInput
   brainReadBaseInput
@@ -3496,6 +3499,7 @@ export "./server" (./src/server/index.ts)
   isGithubToolName
   isPricingRoute
   isProfileUnavailableReason
+  isSessionUuid
   isThinkingLevel
   isWebToolName
   killWrapped
@@ -3520,9 +3524,12 @@ export "./server" (./src/server/index.ts)
   stitch
   subscriptionAuthAction
   sumModelUsage
+  textOfParts
+  textParts
   toleranceMetres
   toolBriefLines
   toolInputJsonSchema
+  usageTokenCount
   validateExecWrapper
   validateVersionMinimum
   visibleToolName
@@ -8472,7 +8479,7 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   FILE_SIZE_CAP_BYTES (packages/ui-sdk/src/protocol.ts)
     const FILE_SIZE_CAP_BYTES: 10485760;
-  FIRST_PARTY_FAILURE_CLASSES (packages/ui-sdk/src/protocol.ts)
+  FIRST_PARTY_FAILURE_CLASSES (packages/ui-sdk/src/failure-classes.ts)
     const FIRST_PARTY_FAILURE_CLASSES: Readonly<{
         [Class in FirstPartyFailureClass]: Class;
     }>;
@@ -8512,7 +8519,7 @@ signatures (every public export and the types it is made of)
         path: string;
         entries: FileEntry[];
     }
-  FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
+  FirstPartyFailureClass (packages/ui-sdk/src/failure-classes.ts)
     type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "private_state_unverified" | "OperationalStateAliasVerificationUnavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
   FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
     export interface FirstRequestCacheUsage {
@@ -12275,26 +12282,8 @@ signatures (every public export and the types it is made of)
         cause: "aborted" | "unspecified";
         message: string;
     }
-  SAFETY_READ_CAPABILITIES (packages/ui-sdk/src/safety.ts)
-    const SAFETY_READ_CAPABILITIES: {
-        detectorVersion: 1;
-        limits: {
-            cursorBytes: 512;
-            cursorLifetimeMs: 300000;
-            frameBytes: 262144;
-            pageRecords: 100;
-            receiptLifetimeMs?: 86400000 | undefined;
-            reviewBodyBytes?: 16384 | undefined;
-            reviewLifetimeMs?: 900000 | undefined;
-        };
-        originRules: boolean;
-        read: true;
-        readOnlyReason: "owner_required" | "review_unavailable" | null;
-        recipientRules: boolean;
-        repositoryRules: false;
-        review: boolean;
-        version: 1;
-    };
+  SAFETY_READ_CAPABILITIES (packages/ui-sdk/src/safety-capabilities.ts)
+    const SAFETY_READ_CAPABILITIES: SafetyCapabilities;
   SESSION_DRAFT_LIMITS (packages/ui-sdk/src/protocol.ts)
     const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits>;
   SESSION_NOT_FOUND (packages/ui-sdk/src/protocol.ts)
@@ -12303,7 +12292,7 @@ signatures (every public export and the types it is made of)
     const SESSION_RECOVERY_CAPABILITY: "sessionRecovery";
   SESSION_RECOVERY_FAILED (packages/ui-sdk/src/protocol.ts)
     const SESSION_RECOVERY_FAILED: "SESSION_RECOVERY_FAILED";
-  SESSION_SAFETY_CAPABILITY (packages/ui-sdk/src/safety.ts)
+  SESSION_SAFETY_CAPABILITY (packages/ui-sdk/src/safety-capabilities.ts)
     const SESSION_SAFETY_CAPABILITY: "sessionSafetyHistory";
   SHARE_ERROR_PARAM (packages/ui-sdk/src/client/share-target-handler.ts)
     const SHARE_ERROR_PARAM: "share_error";
@@ -15215,6 +15204,15 @@ signatures (every public export and the types it is made of)
         readonly input: Input;
         readonly brief: (visibleName: string) => string;
     }
+  ToolDispatchAdmission (packages/ui-sdk/src/server/backend.ts)
+    export interface ToolDispatchAdmission {
+        inputSafety: BackendBridge["inputSafety"] | undefined;
+        toolUseId: string;
+        validate: InputSafetyAdmissionCheck;
+        pending: () => Iterable<Promise<unknown>>;
+        dispatchesNow: boolean;
+        expose?: () => undefined;
+    }
   ToolInput (packages/ui-sdk/src/tool-contracts/contract.ts)
     export type ToolInput<Contract> = Contract extends ToolContract<string, infer Input> ? z.infer<Input> : never;
   ToolPayload (packages/ui-sdk/src/tool-contracts/contract.ts)
@@ -15931,6 +15929,8 @@ signatures (every public export and the types it is made of)
         acquire(): Promise<() => void>;
         withLock<T>(fn: () => Promise<T> | T): Promise<T>;
     }
+  admitToolDispatch (packages/ui-sdk/src/server/backend.ts)
+    export function admitToolDispatch(admission: ToolDispatchAdmission): Promise<void>;
   apifyOperationOf (packages/common/src/apify-operations.ts)
     export function apifyOperationOf(name: string): ApifyOperation | undefined;
   approvalDisplaySchema (packages/ui-sdk/src/schemas.ts)
@@ -15978,6 +15978,13 @@ signatures (every public export and the types it is made of)
         maxTotalBytes: z.ZodNumber;
         poolBytes: z.ZodNumber;
     }, z.core.$loose>;
+  autonomousYieldLatch (packages/ui-sdk/src/server/turn-rules.ts)
+    export function autonomousYieldLatch(options: {
+        onYield: (key: string) => void;
+        aborted: () => boolean;
+        emit: (message: ServerMessage) => void;
+        abort: () => void;
+    }): (key: string) => void;
   bashLockKey (packages/ui-sdk/src/server/lock-keys.ts)
     export function bashLockKey(command: string): string | null;
   brainApplicationInput (packages/ui-sdk/src/server/brain-application.ts)
@@ -21089,6 +21096,8 @@ signatures (every public export and the types it is made of)
     export function isPricingRoute(v: unknown): v is PricingRoute;
   isProfileUnavailableReason (packages/ui-sdk/src/protocol.ts)
     export function isProfileUnavailableReason(value: unknown): value is ProfileUnavailableReason;
+  isSessionUuid (packages/ui-sdk/src/server/turn-rules.ts)
+    export function isSessionUuid(id: string): boolean;
   isThinkingLevel (packages/ui-sdk/src/protocol.ts)
     export function isThinkingLevel(v: unknown): v is ThinkingLevel;
   isWebToolName (packages/ui-sdk/src/tool-contracts/web.ts)
@@ -30588,6 +30597,10 @@ signatures (every public export and the types it is made of)
     export function subscriptionAuthAction(errorClass: string): SubscriptionAuthAction;
   sumModelUsage (packages/ui-sdk/src/protocol.ts)
     export function sumModelUsage(perModel: Record<string, ModelUsage>): TurnUsage;
+  textOfParts (packages/ui-sdk/src/server/content-text.ts)
+    export function textOfParts(content: unknown, separator: string): string;
+  textParts (packages/ui-sdk/src/server/content-text.ts)
+    export function textParts(content: unknown): string[];
   toleranceMetres (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   toolBriefLines (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function toolBriefLines(contracts: readonly ToolContract[], available: (contract: ToolContract) => string | false | undefined): string[];
@@ -30805,6 +30818,8 @@ signatures (every public export and the types it is made of)
             submissionId: z.ZodOptional<z.ZodString>;
         }, z.core.$loose>>;
     }, z.core.$loose>;
+  usageTokenCount (packages/ui-sdk/src/server/turn-rules.ts)
+    export function usageTokenCount(value: unknown): number | null;
   v1ResolutionEffectSchema (packages/ui-sdk/src/schemas.ts)
     const v1ResolutionEffectSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         approvedBy: z.ZodOptional<z.ZodString>;

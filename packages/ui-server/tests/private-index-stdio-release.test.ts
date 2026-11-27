@@ -24,7 +24,7 @@ function fixture() {
   return { brain, brainPath: brain, startupView, index, folders: [], maskPaths: [], timeoutMs: 10_000, label: "masked CLI" };
 }
 
-type Launched = ReturnType<typeof worker.launchAgentWorker>;
+type Launched = Awaited<ReturnType<typeof worker.launchAgentWorkerAsync>>;
 type Withheld = { promise: Promise<void>; called(): void };
 
 /** The actual launcher and FIFOs; only the credential-free worker program is substituted. */
@@ -32,9 +32,9 @@ function observeLaunch(options: { script: string; pool?: true | "input"; withhel
   const fifos = ownedWorkerFifos();
   cleanup.push(fifos.restore);
   let pool: ReturnType<typeof holdWorkPool> | undefined;
-  const real = worker.launchAgentWorker;
-  const launch = spyOn(worker, "launchAgentWorker").mockImplementation(input => {
-    const child = real({ ...input, command: ["/bin/sh", "-c", options.script] });
+  const real = worker.launchAgentWorkerAsync;
+  const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async input => {
+    const child = await real({ ...input, command: ["/bin/sh", "-c", options.script] });
     cleanup.push(async () => {
       child.kill("SIGKILL");
       child.stdin.end(); child.stdout.destroy(); child.stderr.destroy();

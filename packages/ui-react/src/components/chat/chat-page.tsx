@@ -4,7 +4,7 @@ import { ConversationCoverageNotice, ConversationOutput, ConversationRecognition
 import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers, NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
+import { memo, useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { TranscriptReadingScope } from "@schlessera/brain-ui-kit/internal";
 import { Button, ConversationEndDivider } from "@schlessera/brain-ui-kit";
 import { useChatStore, activeChat, restorationOf } from "../../stores/chat-store.js";
@@ -871,11 +871,10 @@ function MarkAsSeen({ onMark }: { onMark: () => void }) {
  * replaced would say only the last. An announcement made before this
  * mounted is not spoken again.
  */
-function TrackerAnnouncer() {
+const TrackerAnnouncer = memo(function TrackerAnnouncer() {
   const root = useBrainUiRoot();
   const announcements = useRootStore("trackers", (s) => s.announcements);
   const sessions = useRootStore("sessions", (s) => s.sessions);
-  const buffers = useRootStore("chat", (s) => s.buffers);
   // The words are fixed when the announcement is made: a label that arrives
   // later must not change the region's text, which would speak it again.
   // Each root counts its own, so a replacement root starts over.
@@ -885,7 +884,9 @@ function TrackerAnnouncer() {
   const fresh = announcements.filter((a) => a.seq > after);
   for (const a of fresh) {
     if (!words.has(a.seq)) {
-      words.set(a.seq, announcementText(a, trackerLabel(a.sessionId, sessions.find((x) => x.id === a.sessionId), { buffers })));
+      // The buffers are read as the words are fixed, never subscribed to:
+      // a streamed frame must not re-render the region (#4750).
+      words.set(a.seq, announcementText(a, trackerLabel(a.sessionId, sessions.find((x) => x.id === a.sessionId), root.stores.chat.getState())));
     }
   }
   for (const seq of words.keys()) if (!fresh.some((a) => a.seq === seq)) words.delete(seq);
@@ -894,4 +895,4 @@ function TrackerAnnouncer() {
       {fresh.map((a) => <span key={a.seq}>{words.get(a.seq)}</span>)}
     </div>
   );
-}
+});

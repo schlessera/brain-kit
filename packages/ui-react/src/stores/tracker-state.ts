@@ -310,12 +310,13 @@ export function createTrackerStore(env: StoreEnvironment) {
 
     function settleEvidence(sessionId: string, evidence: TrackerEvidence, unconfirmedPatch?: Record<string, string>) {
       const state = get();
-      const patch: Partial<TrackerStoreState> = { evidence: { ...state.evidence, [sessionId]: evidence } };
       const record = state.records[sessionId];
-      if (record) {
-        const next = withIdentity(record, evidence);
-        if (next !== record) patch.records = { ...state.records, [sessionId]: next };
-      }
+      const next = record && withIdentity(record, evidence);
+      // Another frame of the work already known changes nothing: no write,
+      // so nobody is notified (#4740).
+      if (evidence === state.evidence[sessionId] && next === record && !unconfirmedPatch) return;
+      const patch: Partial<TrackerStoreState> = { evidence: { ...state.evidence, [sessionId]: evidence } };
+      if (record && next !== record) patch.records = { ...state.records, [sessionId]: next! };
       if (unconfirmedPatch) patch.unconfirmed = unconfirmedPatch;
       commit(patch);
     }

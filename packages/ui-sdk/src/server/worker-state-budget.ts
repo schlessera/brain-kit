@@ -14,7 +14,7 @@
  * changing its configuration never forgets a running worker's reservation.
  */
 import { BackendRequestError } from "./backend.js";
-import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
+import { FIRST_PARTY_FAILURE_CLASSES } from "../failure-classes.js";
 import { mib, type WorkerStateLimits } from "./worker-state-limits.js";
 
 /** The worker-state classes; see `docs/hosting/agent-workers.md`. */

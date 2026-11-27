@@ -17,6 +17,7 @@ import {
   testHost,
 } from "./helpers/test-host";
 import { testPrincipal } from "./helpers/principal";
+import { until } from "../../../tests/helpers/until";
 
 const ASK_KINDS = ["ordinary", "list", "rank", "form"] as const;
 type AskKind = (typeof ASK_KINDS)[number];
@@ -115,14 +116,6 @@ const ANSWERS: Record<AskKind, { frame: AskAnswer; result: unknown }> = {
     result: { answers: { choice: { value: "A" } } },
   },
 };
-
-async function until(condition: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if (condition()) return;
-    await Bun.sleep(5);
-  }
-  throw new Error("host did not start the scripted turn");
-}
 
 /** Real host/connection/dispatch, with an inert backend held until teardown. */
 async function setup(twoTurns = false) {

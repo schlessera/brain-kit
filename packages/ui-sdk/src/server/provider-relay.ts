@@ -1,5 +1,5 @@
 import { chargeReceivedBytes, relayAllowance } from "./egress-accounting.js";
-import { readRelayResponse, readRelayRequestHead, relayHeaderBytes } from "./relay-response.js";
+import { readRelayResponse, readRelayRequestHead, relayHeaderBytes, RELAY_REQUEST_STRIPPED, RELAY_RESPONSE_STRIPPED } from "./relay-response.js";
 /**
  * The metered host relay for the `brain` CLI's paid providers (#1673).
  *
@@ -279,12 +279,9 @@ export function parseCliProviderOrigins(value: string | undefined): ReadonlyMap<
   return result;
 }
 
-const STRIPPED = new Set(["authorization", "x-api-key", "api-key", "x-goog-api-key", "cookie", "host",
-  "proxy-authorization", "proxy-connection", "connection", "keep-alive", "transfer-encoding", "te", "trailer",
-  "upgrade", "content-length", "forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto",
-  "accept-encoding", PROVIDER_RELAY_FAMILY_HEADER, PROVIDER_RELAY_KEY_HEADER, PROVIDER_RELAY_ORIGIN_HEADER]);
-const RESPONSE_STRIPPED = new Set(["connection", "keep-alive", "transfer-encoding", "content-length",
-  "content-encoding", "set-cookie"]);
+/** The relays' shared strip list plus this relay's own routing headers, which name the key and recipient. */
+const PROVIDER_REQUEST_STRIPPED: ReadonlySet<string> = new Set([...RELAY_REQUEST_STRIPPED, PROVIDER_RELAY_FAMILY_HEADER,
+  PROVIDER_RELAY_KEY_HEADER, PROVIDER_RELAY_ORIGIN_HEADER]);
 
 const count = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
@@ -500,7 +497,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     let offset = 0;
     for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
     const headers = new Headers();
-    for (const [name, value] of request.headers) if (!STRIPPED.has(name.toLowerCase())) headers.set(name, value);
+    for (const [name, value] of request.headers) if (!PROVIDER_REQUEST_STRIPPED.has(name.toLowerCase())) headers.set(name, value);
     for (const [name, value] of Object.entries(PLACEMENT[family](secret))) headers.set(name, value);
     const { model, streaming } = files ? { model: null, streaming: false } : await requestFacts(family, path, headers.get("content-type"), body);
     // Streamed answers carry usage in events this relay does not read: refuse
@@ -585,7 +582,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     // An upstream that echoes the key (a gateway's diagnostics) must not hand it to the worker.
     // The provider's own upload URL never reaches the worker either; the Files start below hands it a token.
     for (const [name, value] of response.headers) {
-      if (!RESPONSE_STRIPPED.has(name.toLowerCase()) && name.toLowerCase() !== "x-goog-upload-url" && !value.includes(secret)) out.set(name, value);
+      if (!RELAY_RESPONSE_STRIPPED.has(name.toLowerCase()) && name.toLowerCase() !== "x-goog-upload-url" && !value.includes(secret)) out.set(name, value);
     }
     const scrub = keyScrubber(secret);
     if (files) {

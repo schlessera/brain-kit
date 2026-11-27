@@ -12,13 +12,10 @@ import {
 import { planPartitions, selectPartition } from "../scripts/determinism-plan";
 import { DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
 import { FILE_COST_SECONDS } from "../scripts/test-shards";
+import { copyScriptClosure, TEST_RUNNER_INPUTS } from "./helpers/script-closure";
 import singleFileRuns from "./fixtures/determinism-single-file-runs.json";
 
 const ROOT = join(import.meta.dir, "..");
-// The wrapper, its preload and what they import, as tests/experiment-tier.test.ts copies them.
-const SCRIPTS = ["test.ts", "offline-command.ts", "offline-command.py", "test-credential-names.json", "docker-test-files.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts",
-  "test-network-preload.ts", "test-home.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs",
-  "test-determinism.ts", "determinism-plan.ts", "proof-shards.ts", "test-deadlines.ts", "test-deadline-preload.ts"];
 
 const scratch: string[] = [];
 afterEach(() => { for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -348,7 +345,9 @@ function sh(dir: string, ...argv: string[]): string {
 function checkout(weights: Record<string, number> = {}, capMs = 30_000) {
   const dir = mkdtempSync(join(tmpdir(), "test-determinism-")); scratch.push(dir);
   const write = (path: string, text: string) => { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), text); };
-  for (const script of SCRIPTS) cpSync(join(ROOT, "scripts", script), join(dir, "scripts", script));
+  // The wrapper, the gate and what they import and load by path.
+  copyScriptClosure(dir, ["scripts/test.ts", "scripts/test-determinism.ts"],
+    [...TEST_RUNNER_INPUTS, { file: "scripts/test-deadline-preload.ts", reason: "the second preload test-determinism.ts names by path" }]);
   // The planner's selection and diff, unchanged; its other imports stay in this repository.
   write("scripts/ci-plan.ts", `export * from ${JSON.stringify(join(ROOT, "scripts/ci-plan.ts"))};\n`);
   write("scripts/test-shard-costs.json", JSON.stringify(weights));

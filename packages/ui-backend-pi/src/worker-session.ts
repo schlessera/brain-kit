@@ -2,7 +2,7 @@ import { sessionPromptContext, describeClient, NativeFileVersions, workerExecHel
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { getAgentDir, SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { safeStartupTiming, BackendRequestError, compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, BackendRequestError, compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isSessionUuid } from "@schlessera/brain-ui-sdk/server";
 
 import { piRelayOrigin } from "./host-inference.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
@@ -46,7 +46,7 @@ export async function piInferenceOrigin(backend: CreatePiBackendOptions, session
   try {
     let ref: { provider: string; id: string } | undefined;
     if (req.sessionId) {
-      if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(req.sessionId)) return undefined;
+      if (!isSessionUuid(req.sessionId)) return undefined;
       ref = savedModel(readPiSession(join(sessionDir, `${req.sessionId}.jsonl`)));
     } else {
       const declared = toModel(resolveModelSpec(backend, req.profileId));
@@ -72,7 +72,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   if (resumeId) {
     // Current server-owned transcripts have fixed UUID names. Opening one must
     // not parse every unrelated conversation just to discover that known path.
-    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(resumeId)) {
+    if (!isSessionUuid(resumeId)) {
       throw new BackendRequestError(`Cannot resume unknown session: ${resumeId}`);
     }
     try { entries = readPiSession(join(sessionDir, `${resumeId}.jsonl`)); }

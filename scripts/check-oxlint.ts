@@ -15,7 +15,7 @@ import { join, resolve } from "path";
 const ROOT = resolve(process.argv[2] ?? join(import.meta.dir, ".."));
 
 const run = Bun.spawnSync(
-  ["bun", "x", "oxlint", "-c", join(ROOT, ".oxlintrc.json"), "packages", "scripts", "tests", "experiments"],
+  ["bun", "x", "oxlint", "-c", join(ROOT, ".oxlintrc.json"), "packages", "scripts", "tests", "experiments", "evals", "template", "website/scripts"],
   { cwd: ROOT, stdout: "inherit", stderr: "inherit" }
 );
 

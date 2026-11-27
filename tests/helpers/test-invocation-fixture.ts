@@ -2,6 +2,7 @@
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { BUILD_INPUTS, copyScriptClosure, TEST_RUNNER_INPUTS } from "./script-closure";
 const source = resolve(import.meta.dir, "../..");
 export function invocationFixture(parent = tmpdir()) {
   const root = mkdtempSync(join(parent, "odysseus-test-invocation-"));
@@ -10,9 +11,8 @@ export function invocationFixture(parent = tmpdir()) {
   write("bun.lock", "{}\n");
   write(".gitignore", "node_modules/\npackages/*/dist/\ntmp/\n");
   write("tsconfig.json", JSON.stringify({ compilerOptions: { target: "ES2019", module: "ESNext", moduleResolution: "Bundler", types: [], skipLibCheck: true } }));
-  for (const file of ["build.ts", "clean.ts", "build-execution.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs", "host-admission.mjs", "test.ts", "test-shards.ts", "test-shard-costs.json", "test-invocation.ts", "test-invocation-child.ts", "offline-command.ts", "offline-command.py", "test-credential-names.json", "docker-test-files.ts", "runtime-test-builds.ts", "test-network-preload.ts", "test-home.ts", "test-network-guard.ts", "test-network-child-preload.ts", "unit-worker-entry.sh"]) {
-    write(`scripts/${file}`, readFileSync(join(source, "scripts", file), "utf8"));
-  }
+  copyScriptClosure(root, ["scripts/build.ts", "scripts/clean.ts", "scripts/test.ts"],
+    [...BUILD_INPUTS, ...TEST_RUNNER_INPUTS, { file: "scripts/unit-worker-entry.sh", reason: "the unit worker entry unit-workers.ts runs by path" }], source);
   for (const file of ["packages/core/tests/cli-harness.ts", "packages/ui-react/tests/fixtures/runtime-package-build.ts", "packages/ui-react/tests/fixtures/runtime-hook-phases.ts"]) write(file, readFileSync(join(source, file), "utf8"));
   cpSync(join(source, "node_modules/typescript"), join(root, "node_modules/typescript"), { recursive: true });
   write("node_modules/.bin/tsc", `#!${process.execPath}\nconst child=Bun.spawn([process.execPath,new URL("../typescript/bin/tsc",import.meta.url).pathname,...process.argv.slice(2)],{stdout:"inherit",stderr:"inherit"});process.exitCode=await child.exited;\n`);

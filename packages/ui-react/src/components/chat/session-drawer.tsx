@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { describeWorkingSession } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
@@ -26,6 +27,8 @@ interface GroupedSessions {
 
 /** How often the Working rows' ages (`running · 2m`) are redrawn. */
 const AGE_TICK_MS = 30_000;
+/** No printed words: one array, so a closed drawer's selections stay equal. */
+const NO_WORDS: string[] = [];
 
 /**
  * The props both Sessions containers hand `SessionList`: the root's session
@@ -54,10 +57,7 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
   const tracked = useWorkingSessions();
   const now = useNow(AGE_TICK_MS);
-  const drafts = useRootStore("drafts", (s) => s.drafts);
   const fresh = useRootStore("drafts", (s) => s.fresh);
-  const supported = useRootStore("drafts", (s) => s.supported);
-  const limits = useRootStore("drafts", (s) => s.limits);
 
   const staged = useStagedTracks();
   const localFailed = useLocalWorkStatus((s) => s.failed);
@@ -66,32 +66,50 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
   // marks its row. Content stays in the draft store; only words come here.
   // A new chat's staged tracks join its entry, or are one (#1112): they
   // live in this page only, so their words never say saved.
-  const draftRows: DraftRowData[] = useMemo(() => draftEntries(drafts, staged, root.stores.drafts.getState().originOf).map(({ id, draft: d, tracks }) => {
-    const current = currentSessionId === null && id === fresh;
+  //
+  // Selected as the printed words, compared by value, never as the drafts
+  // map: a keystroke replaces that map, but rarely a word the list prints
+  // (#4751). A closed drawer draws nothing, so it computes nothing.
+  const draftWords = useRootStore("drafts", useShallow((s) => !visible ? NO_WORDS : draftEntries(s.drafts, staged, s.originOf).flatMap(({ id, draft: d, tracks }) => {
     const trackWord = tracks ? trackStateWord(tracks) : null;
     if (!d) {
       const title = draftTitle({ text: "", attachments: [], tracks: tracks!.count });
-      return { id, title, state: `draft · ${trackWord}`, name: `Draft: ${title}, ${trackWord}. Open draft.`, current };
+      return [id, title, `draft · ${trackWord}`, `Draft: ${title}, ${trackWord}. Open draft.`];
     }
-    const word = draftEntryWord(d, { supported, limits, localFailed }, now);
+    const context = { supported: s.supported, limits: s.limits, localFailed };
+    const word = draftEntryWord(d, context, now);
     const title = draftTitle({ ...d, tracks: tracks?.count ?? 0 });
-    if (trackWord) return { id, title, state: `draft · ${word} · ${trackWord}`, name: `Draft: ${title}, ${word}, ${trackWord}. Open draft.`, current };
-    const view = draftSaveView(d, { supported, limits, localFailed }, now);
-    const state = view.state === "none" ? "draft · not saved yet" : view.copy;
-    return { id, title, state, name: `Draft: ${title}, ${word}. Open draft.`, current };
-  }), [drafts, staged, root, supported, limits, localFailed, now, currentSessionId, fresh]);
-  const sessionDrafts = useMemo(() => boundDrafts(drafts), [drafts]);
+    if (trackWord) return [id, title, `draft · ${word} · ${trackWord}`, `Draft: ${title}, ${word}, ${trackWord}. Open draft.`];
+    const view = draftSaveView(d, context, now);
+    return [id, title, view.state === "none" ? "draft · not saved yet" : view.copy, `Draft: ${title}, ${word}. Open draft.`];
+  })));
+  const draftRows: DraftRowData[] = useMemo(() => {
+    const rows: DraftRowData[] = [];
+    for (let i = 0; i < draftWords.length; i += 4) {
+      const id = draftWords[i]!;
+      rows.push({ id, title: draftWords[i + 1]!, state: draftWords[i + 2]!, name: draftWords[i + 3]!, current: currentSessionId === null && id === fresh });
+    }
+    return rows;
+  }, [draftWords, currentSessionId, fresh]);
+  // A session's own draft prints only its age, as `session, age` pairs.
+  const draftAgeWords = useRootStore("drafts", useShallow((s) => !visible ? NO_WORDS
+    : [...boundDrafts(s.drafts)].flatMap(([sessionId, d]) => [sessionId, draftAge(now - d.editedAt)])));
+  const draftAges = useMemo(() => {
+    const ages = new Map<string, string>();
+    for (let i = 0; i < draftAgeWords.length; i += 2) ages.set(draftAgeWords[i]!, draftAgeWords[i + 1]!);
+    return ages;
+  }, [draftAgeWords]);
 
   useEffect(() => {
     if (visible) void root.stores.sessions.getState().refresh();
   }, [visible, root]);
 
-  const working: WorkingRowData[] = useMemo(() => tracked.shown.map((s) => {
+  const working: WorkingRowData[] = useMemo(() => !visible ? [] : tracked.shown.map((s) => {
     const view = describeWorkingSession({ ...s, onOpen: () => {} }, now);
     return { id: s.id, label: s.label, word: view.word, tone: view.tone, icon: view.icon, name: view.name };
-  }), [tracked, now]);
+  }), [visible, tracked, now]);
 
-  const groups = groupSessionsByDate(sessions).map((group) => ({
+  const groups = useMemo(() => !visible ? [] : groupSessionsByDate(sessions).map((group) => ({
     label: group.label,
     sessions: group.sessions.map((session) => {
       const state = runStates[session.id];
@@ -103,13 +121,14 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
         run: state === "streaming" || state === "queued" ? state : null,
         note: queueNotes[session.id],
         ...(tracked.overflow.has(session.id) ? { unseen: true } : {}),
-        ...(sessionDrafts.has(session.id) ? { draft: draftAge(now - sessionDrafts.get(session.id)!.editedAt) } : {}),
+        ...(draftAges.has(session.id) ? { draft: draftAges.get(session.id)! } : {}),
         ...(session.handoffFrom ? { from: session.handoffFrom.title || "an earlier chat" } : {}),
         // A stored session with a settled turn can continue elsewhere.
         ...((session.numTurns ?? 0) > 0 ? { handoff: { why: handoffWhy(providers, session.backendId, connected, unavailable, backendName) } } : {}),
       };
     }),
-  }));
+  // `now` also moves `when`, on the same tick as the ages.
+  })), [visible, sessions, runStates, queueNotes, tracked, draftAges, providers, connected, unavailable, backendName, now]);
 
   return {
     working,

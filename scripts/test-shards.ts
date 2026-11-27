@@ -7,8 +7,9 @@
  * Weights are completed-file elapsed seconds, with a positive 0.1s minimum.
  * New/renamed tests remain discoverable and receive the small-file default;
  * refresh validation names any observed unweighted file exceeding 30 seconds.
- * Historical partial observations remain in scripts/unit-shard-observation.json;
- * they do not describe the current complete refresh or passing unfinished files.
+ * The historical partial observations of the first two-partition runs are
+ * archived (archive/measurements commit d96d8541a493, #4705); they never described
+ * a complete refresh or passing unfinished files.
  */
 import { readdirSync } from "node:fs";
 import { join } from "node:path";

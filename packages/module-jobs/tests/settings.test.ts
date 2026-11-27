@@ -8,7 +8,8 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 import { configSchema } from "../src/module";
 import { jobsSettings, planScoringMigration } from "../src/settings";
 import { loadScoringConfig, parseScoringConfig, scoreJob } from "../src/score";
-import { ADAPTERS, getAdapterOptions } from "../src/scrape";
+import { ADAPTERS } from "../src/scrape";
+import { getAdapterOptions, JOB_BOARDS } from "../src/boards";
 
 // Settings saves commit through the CLI. Every Git child, fixture and product
 // alike, gets signing disabled at command scope, so no ambient signing
@@ -139,12 +140,33 @@ test("stale migration and commit failure leave both source files unchanged", asy
   expect(git(root, ["rev-list", "--count", "HEAD"])).toBe("1");
 });
 
-test("board choices follow adapter registry additions and expose documented blocked status", () => {
+test("board choices expose the documented blocked status", () => {
   expect(getAdapterOptions().find((o) => o.source === "remotive")).toMatchObject({ status: "blocked", caveat: expect.stringContaining("permission") });
-  const registry = ADAPTERS as Record<string, typeof ADAPTERS.remoteok>;
-  registry.fixture = ADAPTERS.remoteok;
-  try { expect(jobsSettings().fields.find((f) => f.key === "boards")!.options!.map((o) => o.value)).toContain("fixture"); }
-  finally { delete registry.fixture; }
+});
+
+test("board choices are the ten boards with their labels, availability and help", () => {
+  expect(jobsSettings().fields.find((f) => f.key === "boards")!.options).toEqual([
+    { value: "remoteok", label: "RemoteOK", disabled: false, help: "Selected by default" },
+    { value: "remotive", label: "Remotive", disabled: true, help: "Not selected by default \u00b7 robots.txt disallows /api/*, the only path its adapter fetches; it needs the site's permission before it can run" },
+    { value: "weworkremotely", label: "We Work Remotely", disabled: false, help: "Selected by default" },
+    { value: "workingnomads", label: "Working Nomads", disabled: false, help: "Selected by default" },
+    { value: "builtin", label: "BuiltIn", disabled: false, help: "Not selected by default \u00b7 Needs a browser on the host" },
+    { value: "nodesk", label: "NoDesk", disabled: false, help: "Not selected by default \u00b7 Needs a browser on the host" },
+    { value: "simplyhired", label: "SimplyHired", disabled: false, help: "Not selected by default \u00b7 Uses your queries \u00b7 intermittent 403s (rate limiting) from the measured vantage point" },
+    { value: "jobgether", label: "Jobgether", disabled: false, help: "Not selected by default \u00b7 robots.txt disallows its API's query-string paging, so a run gets one page" },
+    { value: "dice", label: "Dice", disabled: false, help: "Not selected by default \u00b7 Uses your queries \u00b7 Needs a browser on the host" },
+    { value: "remotelyde", label: "Remotely.de", disabled: false, help: "Selected by default" },
+  ]);
+});
+
+// Settings choices read JOB_BOARDS so the settings form loads no adapter; this
+// keeps them following the adapter registry.
+test("the adapter registry and the board policy name the same boards with the same label and browser need", () => {
+  expect(Object.keys(ADAPTERS).sort()).toEqual(JOB_BOARDS.map((board) => board.source).sort());
+  for (const board of JOB_BOARDS) {
+    const adapter = ADAPTERS[board.source]();
+    expect({ source: board.source, label: adapter.name, needsBrowser: adapter.needsBrowser ?? false }).toEqual({ source: board.source, label: board.label, needsBrowser: board.needsBrowser });
+  }
 });
 
 
