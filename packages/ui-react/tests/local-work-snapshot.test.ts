@@ -23,6 +23,7 @@ function partitionsDouble(seed: Record<string, unknown> = {}) {
   const data = new Map<string, unknown>(Object.entries(seed).map(([k, v]) => [k, structuredClone(v)]));
   const calls = { write: 0, mutate: [] as Mutate[] };
   let gate: Promise<void> | null = null;
+  let refuse: ((changes: readonly PartitionWrite[]) => boolean) | null = null;
   const apply = (changes: readonly PartitionWrite[]) => {
     for (const c of changes) {
       if ("put" in c) data.set(c.put, structuredClone(c.value));
@@ -38,6 +39,7 @@ function partitionsDouble(seed: Record<string, unknown> = {}) {
     async write(changes: readonly PartitionWrite[]) { calls.write++; apply(changes); },
     async mutate<T>(prefix: string, update: (rows: Array<{ key: string; value: unknown }>) => { changes: readonly PartitionWrite[]; result: T }) {
       const { changes, result } = update(rows(prefix));
+      if (refuse?.(changes)) { refuse = null; throw new DOMException("The device refused the write", "UnknownError"); }
       const open = gate;
       if (open) { gate = null; await open; }
       calls.mutate.push({ puts: changes.flatMap((c) => ("put" in c ? [c.put] : [])), deletes: changes.flatMap((c) => ("delete" in c ? [c.delete] : [])) });
@@ -49,6 +51,8 @@ function partitionsDouble(seed: Record<string, unknown> = {}) {
   return {
     data, calls, partitions,
     /** Holds the next mutate after its callback ran, until the returned function is called. */
+    /** Refuses the next mutate whose planned changes match, once. */
+    refuseNextMutate(match: (changes: readonly PartitionWrite[]) => boolean) { refuse = match; },
     holdNextMutate() { let release!: () => void; gate = new Promise<void>((r) => { release = r; }); return release; },
   };
 }
@@ -167,5 +171,29 @@ describe("a device snapshot", () => {
     for (const m of withReceipt) expect(m.puts).toContain(draftKey(a));
     expect((data.get("recording:accepted:rec-sirens") as { finalized: boolean }).finalized).toBe(true);
     expect((data.get(draftKey(a)) as { text: string }).text).toContain("The song was sweet");
+  });
+
+  test("a retried acceptance whose draft object was already written still writes the record with its receipt", async () => {
+    const { r, work, calls, data, refuseNextMutate } = await harness();
+    const drafts = r.stores.drafts.getState();
+    const a = drafts.idFor("odysseus-sirens");
+    drafts.edit(a, "odysseus-sirens", { text: "Notes:" });
+    await work.snapshotNow();
+    const finalizing = (changes: readonly PartitionWrite[]) =>
+      changes.some((c) => "put" in c && c.put === "recording:accepted:rec-sirens" && (c.value as { finalized?: boolean }).finalized === true);
+    refuseNextMutate(finalizing);
+    await expect(work.addTranscript("rec-sirens", "The song was sweet", a, "odysseus-sirens")).rejects.toThrow();
+    expect((data.get("recording:accepted:rec-sirens") as { finalized: boolean }).finalized).toBe(false);
+    // An ordinary snapshot writes the live draft: the retry finalizes with that same object.
+    await work.snapshotNow();
+    const live = r.stores.drafts.getState().drafts[a];
+    expect((data.get(draftKey(a)) as { text: string }).text).toBe(live!.text);
+    calls.mutate.length = 0;
+    await work.addTranscript("rec-sirens", "The song was sweet", a, "odysseus-sirens");
+    expect(r.stores.drafts.getState().drafts[a]).toBe(live);
+    const final = calls.mutate.filter((m) => m.puts.includes("recording:accepted:rec-sirens"));
+    expect(final).toHaveLength(1);
+    expect(final[0]!.puts).toContain(draftKey(a));
+    expect((data.get("recording:accepted:rec-sirens") as { finalized: boolean }).finalized).toBe(true);
   });
 });
