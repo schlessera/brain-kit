@@ -107,13 +107,15 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
       const chat = get().buffers[key];
       const owns = (m: ChatMessage, t: ToolCall) => t.id === receipt.toolUseId && (t.approvalTurnId ?? m.turnId ?? m.streamTurnId) === receipt.turnId;
       if (!chat?.messages.some(m => m.toolCalls.some(t => owns(m, t) && t.voicePermission !== receipt))) return;
-      mutateBuffer(key, current => ({ messages: current.messages.map(m => ({ ...m, toolCalls: m.toolCalls.map(t => {
-        if (!owns(m, t)) return t;
+      // Only the messages that own the call are replaced; every other one
+      // keeps its identity, and so its drawn bubble (#4742).
+      mutateBuffer(key, current => ({ messages: current.messages.map(m => !m.toolCalls.some(t => owns(m, t) && t.voicePermission !== receipt) ? m : { ...m, toolCalls: m.toolCalls.map(t => {
+        if (!owns(m, t) || t.voicePermission === receipt) return t;
         // Receipt state locks decisions through awaitsDecision. Preserve the
         // transcript status so ordinary result/recovery routing can still
         // recognize an unanswered restored card and record its closure.
         return { ...t, voicePermission: receipt };
-      }) })) }));
+      }) }) }));
     },
 
     resolveToolApproval: (key, toolUseId, approved) =>
