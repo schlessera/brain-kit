@@ -1386,9 +1386,34 @@ export function resolveComputeConfig(env: EnvRecord, dbPath: string): NonNullabl
     }
     keys[provider] = [...new Set([...(keys[provider] ?? []), ...names])];
   }
+  const workerEnvExtra = parseSubprocessEnvExtra(env.BRAIN_UI_SUBPROCESS_ENV_EXTRA);
+  if (env.BRAIN_UI_COMPUTE_STATE_DIR) return { keys, stateDir: resolve(env.BRAIN_UI_COMPUTE_STATE_DIR), workerEnvExtra };
+  return computeBesideDatabase({ keys, stateDir: null, workerEnvExtra }, dbPath);
+}
+
+/**
+ * Compute settings whose state directory was derived from the database path
+ * rather than set by BRAIN_UI_COMPUTE_STATE_DIR. Kept out of `ServerConfig`
+ * so no embedder-visible field carries it.
+ */
+const computeStateDirDerived = new WeakSet<object>();
+
+/**
+ * The compute settings for a database at `dbPath`: a state directory derived
+ * from the database moves beside it (`<dbPath>.compute`, or none for an
+ * ephemeral database), while an explicit BRAIN_UI_COMPUTE_STATE_DIR, or
+ * settings that did not come from `resolveComputeConfig`, stay as they are.
+ * `createApp` calls it when `options.dbPath` replaces the resolved path (#4821).
+ */
+export function computeConfigForDbPath(compute: NonNullable<ServerConfig["compute"]>, dbPath: string): NonNullable<ServerConfig["compute"]> {
+  return computeStateDirDerived.has(compute) ? computeBesideDatabase(compute, dbPath) : compute;
+}
+
+function computeBesideDatabase(compute: NonNullable<ServerConfig["compute"]>, dbPath: string): NonNullable<ServerConfig["compute"]> {
   const ephemeral = dbPath === "" || dbPath === ":memory:";
-  const stateDir = env.BRAIN_UI_COMPUTE_STATE_DIR ? resolve(env.BRAIN_UI_COMPUTE_STATE_DIR) : ephemeral ? null : `${resolve(dbPath)}.compute`;
-  return { keys, stateDir, workerEnvExtra: parseSubprocessEnvExtra(env.BRAIN_UI_SUBPROCESS_ENV_EXTRA) };
+  const derived = { ...compute, stateDir: ephemeral ? null : `${resolve(dbPath)}.compute` };
+  computeStateDirDerived.add(derived);
+  return derived;
 }
 
 /**
