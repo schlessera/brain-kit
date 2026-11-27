@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "nod
 import { join } from "node:path";
 import { finished } from "node:stream/promises";
 import { launchAgentWorker, prepareWorkerSandbox } from "../src/server/worker-launcher.js";
-import { prepareFixtureWorkerOutput as prepareWorkerOutput } from "./helpers/worker-startup-view-fixture.js";
+import { prepareFixtureLaunchOutput, prepareFixtureWorkerOutput as prepareWorkerOutput } from "./helpers/worker-startup-view-fixture.js";
 import { launchMaintenanceWorker, runMaintenanceWorkerSync } from "../src/server/maintenance-worker.js";
 import { createFixtureWorkerStartupView as createWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { createStateLedger, processStateLedger } from "../src/server/worker-state-budget.js";
@@ -26,7 +26,7 @@ for (const profile of ["strict", "maintenance"] as const) test(`${profile} refus
     console.log(fs.statfsSync(${JSON.stringify(path.replace("/proof.bin", ""))}).blocks * fs.statfsSync(${JSON.stringify(path.replace("/proof.bin", ""))}).bsize);`];
   const worker = launchAgentWorker({ brainPath: brain, env: {}, command,
     ...(outputs ? { startupView: outputs.view, maintenance: { network: false, credentials: false, readPaths: [process.execPath], output: outputs.output } }
-      : { startupView: createWorkerStartupView(brain), sandbox: prepareWorkerSandbox(brain, { profile: "strict", codeChanges: true, areas: ["workspaces"], readPaths: [process.execPath] }), turnTempBytes: 1024 ** 2 }) });
+      : { preparedOutput: prepareFixtureLaunchOutput(brain, createWorkerStartupView(brain), ["workspaces"]), sandbox: prepareWorkerSandbox(brain, { profile: "strict", codeChanges: true, areas: ["workspaces"], readPaths: [process.execPath] }), turnTempBytes: 1024 ** 2 }) });
   cleanup.push(() => worker.kill("SIGKILL"));
   let stdout = "", stderr = "";
   worker.stdout.on("data", data => { stdout += String(data); }); worker.stderr.on("data", data => { stderr += String(data); });

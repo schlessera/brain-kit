@@ -12,12 +12,10 @@ import {
   BackendRequestError,
   createKeyedLock,
 } from "@schlessera/brain-ui-sdk/server";
-import {
-  BRAIN_LOCK_KEY,
-  GIT_LOCK_KEY,
-  createClaudeBackend,
-  lockKeyForTool,
-} from "../src/backend";
+import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
+import { GIT_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
+import { createClaudeBackend } from "../src/backend";
+import { lockKeyForTool } from "../src/tool-policy";
 import { defineProfiles } from "../src/profiles";
 
 type Gen = (options: Options) => AsyncGenerator<unknown>;
