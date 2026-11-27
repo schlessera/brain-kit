@@ -1198,7 +1198,7 @@ signatures (every public export and the types it is made of)
         brainPath: string;
     }
   SCHEMA_VERSION (packages/core/src/lib/db.ts)
-    const SCHEMA_VERSION: 15;
+    const SCHEMA_VERSION: 16;
   SCRATCH_DIR (packages/core/src/lib/scratch.ts)
     const SCRATCH_DIR: ".brain/scratch";
   STORAGE_ATTACHMENT_LIMITS (packages/core/src/lib/storage-attachments.ts)

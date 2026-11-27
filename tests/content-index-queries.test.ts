@@ -434,7 +434,24 @@ describe("graph profile edge cases and caps", () => {
       const hood = success(queries.readGraphNeighborhood(hoodOpts));
       expect(hood.nodes.length).toBe(1500);
       expect(hood.truncated).toBe(true);
-      expect(hood).toEqual(getNeighborhood(hoodOpts));
+      // Truncated: the walk visits out-neighbours in ascending id (#4789), so
+      // the nodes kept are the centre and its first 1,499 out-links by id,
+      // not the legacy reader's engine-order survivors. The scene holds
+      // exactly the edges between them.
+      const keptIds = hood.nodes.map(n => n.id).sort((a, b) => a - b);
+      expect(keptIds).toEqual(Array.from({ length: 1500 }, (_, i) => 10000 + i));
+      const kept = new Set(keptIds);
+      const between = db.query<{ source: number; target: number }, []>("SELECT DISTINCT source_id AS source, target_id AS target FROM links WHERE target_id IS NOT NULL AND target_id <> source_id").all()
+        .filter(e => kept.has(e.source) && kept.has(e.target)).map(e => `${e.source}>${e.target}`).sort();
+      expect(hood.edges.map(e => `${e.source}>${e.target}`).sort()).toEqual(between);
+      // Below the budget the result is the legacy reader's, edge order aside.
+      const smallOpts = { brainPath: dir, center: "notes/ithaca-3000.md", depth: 1, direction: "both" as const };
+      const small = success(queries.readGraphNeighborhood(smallOpts));
+      const legacySmall = getNeighborhood(smallOpts);
+      const byEdge = (a: { source: number; target: number }, b: { source: number; target: number }) => a.source - b.source || a.target - b.target;
+      expect(small.truncated).toBe(false);
+      expect(small.nodes.length).toBe(11);
+      expect({ ...small, edges: [...small.edges].sort(byEdge) }).toEqual({ ...legacySmall, edges: [...legacySmall.edges].sort(byEdge) });
       expect(success(queries.readGraphClusters({ brainPath: dir, community: 2 })).nodes).toEqual([]);
       const discovery = success(queries.readGraphDiscovery({ brainPath: dir, root: "notes/ithaca-0.md", maxDepth: 1 }));
       expect(discovery.reachableCount).toBe(5100);
