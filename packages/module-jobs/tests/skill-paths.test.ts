@@ -4,10 +4,12 @@
  * `brain config check --json` before the first write.
  */
 
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { describe, expect, test } from "bun:test";
+import { tempDirs } from "../../../tests/helpers/temp";
+import { readFileSync, symlinkSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
+
+const tempDir = tempDirs({ scope: "file" });
 
 const SKILLS = ["research-opportunity", "interview-scheduled"];
 const read = (skill: string) => readFileSync(join(import.meta.dir, "../skills", skill, "SKILL.md"), "utf-8");
@@ -47,8 +49,6 @@ describe.each(SKILLS)("%s", (skill) => {
 // opportunity directory to the module (dir: null), as `jobs scaffold` reads it.
 describe("the documented lookup", () => {
   const BRAIN_BIN = resolve(import.meta.dir, "../../core/src/cli/brain.ts");
-  const roots: string[] = [];
-  afterAll(() => roots.forEach((r) => rmSync(r, { recursive: true, force: true })));
 
   async function brain(root: string, ...args: string[]): Promise<unknown> {
     const proc = Bun.spawn(["bun", BRAIN_BIN, ...args], {
@@ -62,8 +62,7 @@ describe("the documented lookup", () => {
   }
 
   function makeBrain(config: object): string {
-    const root = mkdtempSync(join(tmpdir(), "jobs-skill-paths-"));
-    roots.push(root);
+    const root = tempDir("jobs-skill-paths-");
     symlinkSync(resolve(import.meta.dir, "../../../node_modules"), join(root, "node_modules"));
     writeFileSync(join(root, "brain.config.json"), JSON.stringify(config));
     return root;

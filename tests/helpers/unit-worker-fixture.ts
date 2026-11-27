@@ -1,6 +1,7 @@
 /** Small real Git/Bun workspaces for the queue's filesystem and kernel boundaries. */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { copyScriptClosure, TEST_RUNNER_INPUTS } from "./script-closure";
 
 export function unitWorkerFixture(options: { failBuild?: boolean; diagnostics?: boolean; failAfterDiagnostics?: boolean; diagnosticLink?: "file" | "directory" | "ancestor"; dropReport?: boolean } = {}) {
   const source = resolve(import.meta.dir, "../..");
@@ -73,10 +74,7 @@ const shared=${JSON.stringify(join(root,"tmp"))};writeFileSync(join(shared,"buil
 const stop=Date.now()+5000;while((!existsSync(join(shared,"built-1"))||!existsSync(join(shared,"built-2")))&&Date.now()<stop)await Bun.sleep(5);` : ""}
 ${options.failBuild ? "process.exit(7);" : ""}
 mkdirSync("dist",{recursive:true});writeFileSync("dist/lease.json",JSON.stringify({lease:JSON.parse(process.env.BRAIN_WORKSPACE_LEASE),nonce:process.env.BRAIN_TEST_INVOCATION_NONCE}));writeFileSync("dist/ready.txt","Odysseus builds the raft.");receipt.packageEnd("raft",true);receipt.finish(0);\n`);
-  for (const file of ["scripts/test.ts", "scripts/offline-command.ts", "scripts/offline-command.py", "scripts/test-credential-names.json", "scripts/docker-test-files.ts", "scripts/runtime-test-builds.ts", "scripts/test-invocation.ts", "scripts/test-invocation-child.ts", "scripts/publishable-packages.ts",
-    "scripts/workspace-lease.mjs", "scripts/host-admission.mjs", "scripts/test-shards.ts", "scripts/test-shard-costs.json", "scripts/test-network-preload.ts", "scripts/test-home.ts", "scripts/test-network-child-preload.ts", "scripts/test-network-guard.ts", "packages/core/tests/cli-harness.ts"]) {
-    write(file, readFileSync(join(source, file), "utf8"));
-  }
+  copyScriptClosure(root, ["scripts/test.ts"], TEST_RUNNER_INPUTS, source);
   const files = ["odysseus", "penelope"].map(name => `tests/${name}.test.ts`);
   for (const [index, file] of files.entries()) write(file, `import {expect,test} from "bun:test";
 import {existsSync,mkdirSync,readFileSync,statSync,writeFileSync} from "node:fs";

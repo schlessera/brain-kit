@@ -2,7 +2,7 @@ import { constants, closeSync, existsSync, fstatSync, ftruncateSync, mkdirSync, 
 import { homedir } from "node:os";
 import { join, resolve, relative, sep } from "node:path";
 import { createHash } from "node:crypto";
-import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { BackendRequestError, isSessionUuid } from "@schlessera/brain-ui-sdk/server";
 import type { SessionHistoryRemovalOutcome } from "@schlessera/brain-ui-sdk/server";
 import { combineRemovalOutcomes, nativeObservationIdentity, ownedNames, removeMetadataFile, removeOwnedArtifact, sessionPromptContextLocation, sessionReplayLocation } from "@schlessera/brain-ui-sdk/internal";
 
@@ -30,9 +30,9 @@ export function piSessionDirectory(brainPath: string, configured?: string): stri
 }
 function inside(root: string, path: string): boolean { return path === root || path.startsWith(root.endsWith(sep) ? root : root + sep); }
 
-/** Fixed server-minted UUID paths, O_NOFOLLOW, and no shared-inode writes. */
-export function savePiSession(dir: string, sessionId: string, entries: unknown[]): void {
-  if (!/^[a-f0-9-]{36}$/.test(sessionId)) throw new Error("Invalid server session identity");
+/** Fixed server-minted UUID paths, O_NOFOLLOW, and no shared-inode writes. Returns the bytes written. */
+export function savePiSession(dir: string, sessionId: string, entries: unknown[]): number {
+  if (!isSessionUuid(sessionId)) throw new Error("Invalid server session identity");
   const path = join(dir, `${sessionId}.jsonl`);
   const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
   try {
@@ -42,6 +42,34 @@ export function savePiSession(dir: string, sessionId: string, entries: unknown[]
     const bytes = entries.map(entry => JSON.stringify(entry)).join("\n") + "\n";
     ftruncateSync(fd, 0);
     writeFileSync(fd, bytes);
+    return Buffer.byteLength(bytes);
+  } finally { closeSync(fd); }
+}
+
+/**
+ * Appends entries to a saved transcript, serialized exactly as savePiSession
+ * does, when the file holds exactly the `savedBytes` the caller last saved
+ * (#4856). Returns the new size, or undefined when the size differs and the
+ * caller must rewrite the whole file. The same fixed path, O_NOFOLLOW and
+ * unaliased-file refusal apply before any byte is written. A failed or short
+ * append is truncated back, so no partial line is left for a resume to refuse.
+ */
+export function appendPiSession(dir: string, sessionId: string, savedBytes: number, entries: readonly unknown[]): number | undefined {
+  if (!isSessionUuid(sessionId)) throw new Error("Invalid server session identity");
+  const fd = openSync(join(dir, `${sessionId}.jsonl`), constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1) throw new Error("Pi transcript must be an unaliased regular file");
+    if (stat.size !== savedBytes) return undefined;
+    const bytes = Buffer.from(entries.map(entry => JSON.stringify(entry) + "\n").join(""));
+    try {
+      if (writeSync(fd, bytes, 0, bytes.length, savedBytes) !== bytes.length) throw new Error("Pi transcript append was incomplete");
+    } catch (error) {
+      // If this fails too, the size no longer matches and the next save rewrites the file.
+      try { ftruncateSync(fd, savedBytes); } catch { /* the next save rewrites the whole file */ }
+      throw error;
+    }
+    return savedBytes + bytes.length;
   } finally { closeSync(fd); }
 }
 
@@ -72,7 +100,7 @@ export function syncPiAuth(dir: string, original: string | undefined, content: s
 }
 
 /** Server-minted Pi session identities, the only ones a removal or tombstone names. */
-export const isPiSessionId = (id: string) => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id);
+export const isPiSessionId: (id: string) => boolean = isSessionUuid;
 /** Content-free tombstones of explicitly retired sessions (#3229); permanent. */
 export const piRetiredDirectory = (sessionDir: string) => join(sessionDir, "retired");
 

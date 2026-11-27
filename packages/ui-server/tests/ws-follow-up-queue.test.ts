@@ -15,14 +15,8 @@ import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
+import { until } from "../../../tests/helpers/until";
 
-async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
-  const start = Date.now();
-  while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error("until: timed out");
-    await new Promise((r) => setTimeout(r, 5));
-  }
-}
 const settle = () => new Promise((r) => setTimeout(r, 25));
 
 const SESSION = "sess-ithaca";
@@ -232,7 +226,7 @@ describe("session_queue", () => {
       for (let i = 0; i < 50; i++) {
         client.send({ type: "chat_message", text: `${i}: Ithaca ${filler.repeat(199_980)}`, sessionId: SESSION, requestId: `req-${i}` });
       }
-      await until(() => client.frames("session_queue").length === 50, 5000);
+      await until(() => client.frames("session_queue").length === 50, undefined, 5000);
       const raw = client.all().filter((f) => f.type === "session_queue").at(-1);
       expect(raw.followUps).toHaveLength(50);
       expect(raw.followUps.map((f: any) => f.requestId)).toEqual(Array.from({ length: 50 }, (_, i) => `req-${i}`));

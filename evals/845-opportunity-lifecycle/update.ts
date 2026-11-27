@@ -16,7 +16,7 @@ export function update(c: Pick<Case, "directory" | "focusPath" | "facts" | "mess
   const refuse = () => ({ files: before, kind: "unclear", opportunity: "unclear" });
   if (["none", "unclear"].includes(kind)) return { files: before, kind, opportunity: kind };
   if (!files[status] || !["scheduled", "rebooked", "cancelled", "offer", "closed"].includes(kind)) return refuse();
-  let calls = [...new Set((files[prep] ?? "").split("\n").filter(l => /^- /.test(l) && /with .+2026-07-\d\dT/.test(l)).map(l => l.replace(/^- (\[[^\]]+\] )?/, "")))];
+  let calls = [...new Set((files[prep] ?? "").split("\n").filter(l => l.startsWith("- ") && /with .+2026-07-\d\dT/.test(l)).map(l => l.replace(/^- (\[[^\]]+\] )?/, "")))];
   if (["scheduled", "rebooked"].includes(kind)) {
     if (!f.round || !f.format || !f.startsAt || !f.timeZone || !f.contact?.name || !f.contact?.role) return refuse();
     try {

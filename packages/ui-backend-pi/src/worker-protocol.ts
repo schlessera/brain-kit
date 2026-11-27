@@ -1,4 +1,4 @@
-import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { BackendRequestError, textParts } from "@schlessera/brain-ui-sdk/server";
 import { WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { z } from "zod";
@@ -40,6 +40,10 @@ const content = z.array(z.object({ type: text }).passthrough().superRefine((part
   if (part.type === "toolCall" && (typeof part.id !== "string" || typeof part.name !== "string"
     || !input.safeParse(part.arguments).success)) ctx.addIssue({ code: "custom", message: "Malformed transcript tool call" });
 }));
+const usage = z.object({ input: usageNumber, output: usageNumber, cacheRead: usageNumber,
+  cacheWrite: usageNumber, totalTokens: usageNumber,
+  cost: z.object({ input: usageNumber, output: usageNumber, cacheRead: usageNumber,
+    cacheWrite: usageNumber, total: usageNumber }) });
 const message = z.object({ role: text }).passthrough().superRefine((m, ctx) => {
   if (["assistant", "toolResult"].includes(m.role) && !content.safeParse(m.content).success
     || m.role === "user" && typeof m.content !== "string" && !content.safeParse(m.content).success) {
@@ -49,11 +53,7 @@ const message = z.object({ role: text }).passthrough().superRefine((m, ctx) => {
   if (typeof m.model !== "string" || !Array.isArray(m.content) || typeof m.stopReason !== "string") {
     ctx.addIssue({ code: "custom", message: "Malformed assistant message" });
   }
-  const usage = z.object({ input: usageNumber, output: usageNumber, cacheRead: usageNumber,
-    cacheWrite: usageNumber, totalTokens: usageNumber,
-    cost: z.object({ input: usageNumber, output: usageNumber, cacheRead: usageNumber,
-      cacheWrite: usageNumber, total: usageNumber }) }).safeParse(m.usage);
-  if (!usage.success) ctx.addIssue({ code: "custom", message: "Malformed usage" });
+  if (!usage.safeParse(m.usage).success) ctx.addIssue({ code: "custom", message: "Malformed usage" });
 });
 const transcriptEntry = input.superRefine((entry, ctx) => {
   if (entry.type === "message" && !message.safeParse(entry.message).success) {
@@ -62,8 +62,9 @@ const transcriptEntry = input.superRefine((entry, ctx) => {
 });
 export const piWorkerEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("message_end"), message }),
+  // A delta frame carries its text only: never the accumulated answer (#4853).
   z.object({ type: z.literal("message_update"), assistantMessageEvent:
-    z.object({ type: z.enum(["text_delta", "thinking_delta"]), delta: text }).passthrough() }),
+    z.object({ type: z.enum(["text_delta", "thinking_delta"]), delta: text }).strict() }).strict(),
   z.object({ type: z.literal("tool_execution_start"), toolCallId: text, toolName: text, args: input }),
   z.object({ type: z.literal("tool_execution_end"), toolCallId: text, toolName: text,
     result: z.object({ content: z.array(z.object({ type: text, text: text.optional() }).passthrough()), details: z.unknown().optional() }), isError: z.boolean() }),
@@ -84,6 +85,8 @@ export const piWorkerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rpc"), id, method: z.enum(["permission", "admission", "bridge", "apply", "readBase", "syncAuth", "lock", "unlock", "fileObservation", "safetyResult", "safetyUnavailable"]),
     toolCallId: text, toolName: text, input }).strict(),
   z.object({ type: z.literal("snapshot"), entries: z.array(transcriptEntry) }).strict(),
+  // The entries appended since the transcript the host holds, which has `base` entries (#4856).
+  z.object({ type: z.literal("transcript_append"), base: id, entries: z.array(transcriptEntry).min(1) }).strict(),
   z.object({ type: z.literal("done"), cost: usageNumber, error: text.optional() }).strict(),
   z.object({ type: z.literal("error"), message: text, errorClass: z.enum(["session_too_large","input_safety_unavailable"]).optional() }).strict(),
 ]);
@@ -93,7 +96,7 @@ export const piOutputStatus=z.object({complete:z.boolean(),exitCode:z.number().i
 const searchStatus=z.object({decodingLoss:z.boolean().optional(),stdoutEmpty:z.boolean().optional(),exitCode:z.number().int(),stderr:z.boolean(),truncated:z.boolean(),framedOutput:z.string().optional(),visibleText:z.string().optional()}).strict();
 /** Host-only observation. Never alter provider result content to encode status. */
 export function safetyResultInput(tool:string,content:readonly {type:string;text?:unknown}[],complete=true,failed=false,details?:unknown): {output:string;segments?:string[];outputStatus:z.infer<typeof piOutputStatus>;failed?:true} {
- const segments=content.filter(part=>part.type==='text'&&typeof part.text==='string').map(part=>part.text as string),output=segments.join('\n');
+ const segments=textParts(content),output=segments.join('\n');
  if(tool==='grep'){
   const status=searchStatus.safeParse(details&&typeof details==='object'?(details as Record<string,unknown>).search:undefined);
   const original=complete&&content.length===1&&content[0]?.type==='text'&&typeof content[0]?.text==='string';
@@ -111,28 +114,44 @@ export function safetyResultInput(tool:string,content:readonly {type:string;text
 
 }
 
-export function sendPipe(pipe: Pick<Writable, "write">, value: unknown): void {
-  const line = JSON.stringify(value) + "\n";
-  if (Buffer.byteLength(line) > PI_PIPE_MAX_BYTES) {
-    if ((value as { type?: string } | null)?.type === "snapshot") throw new SessionTooLargeError();
+/** Writes one frame and returns its size on the pipe. */
+export function sendPipe(pipe: Pick<Writable, "write">, value: unknown): number {
+  const line = JSON.stringify(value) + "\n", bytes = Buffer.byteLength(line);
+  if (bytes > PI_PIPE_MAX_BYTES) {
+    const type = (value as { type?: string } | null)?.type;
+    if (type === "snapshot" || type === "transcript_append") throw new SessionTooLargeError();
     throw new Error("Pi worker protocol payload exceeds its bound.");
   }
   pipe.write(line);
+  return bytes;
 }
+
+/**
+ * The transcript bound is the size a whole `snapshot` frame of it would have,
+ * whichever frames carried it (#4856): these give that size for a whole list,
+ * and what appending entries to a non-empty list adds to it.
+ */
+export const snapshotFrameBytes = (entries: readonly unknown[]): number => Buffer.byteLength(JSON.stringify({ type: "snapshot", entries }) + "\n");
+export const appendedFrameBytes = (entries: readonly unknown[]): number =>
+  entries.reduce<number>((sum, entry) => sum + Buffer.byteLength(JSON.stringify(entry)) + 1, 0);
 
 /** Bound bytes before JSON parsing, including a sender that never sends LF. */
 export async function* pipeMessages(pipe: Readable): AsyncGenerator<unknown> {
-  let pending = Buffer.alloc(0);
-  for await (const chunk of pipe) {
-    pending = Buffer.concat([pending, Buffer.from(chunk)]);
-    let newline: number;
-    while ((newline = pending.indexOf(10)) >= 0) {
-      if (newline > PI_PIPE_MAX_BYTES) throw new Error("Pi worker protocol payload exceeds its bound.");
-      const line = pending.subarray(0, newline).toString("utf8");
-      pending = pending.subarray(newline + 1);
-      yield JSON.parse(line);
+  // The chunks of the line not yet completed: each chunk is searched once and
+  // each line is joined once, so a large frame costs linear time (#4854).
+  let parts: Buffer[] = [], pending = 0;
+  for await (const received of pipe) {
+    const chunk = Buffer.isBuffer(received) ? received : Buffer.from(received);
+    let start = 0, newline: number;
+    while ((newline = chunk.indexOf(10, start)) >= 0) {
+      if (pending + newline - start > PI_PIPE_MAX_BYTES) throw new Error("Pi worker protocol payload exceeds its bound.");
+      const tail = chunk.subarray(start, newline);
+      const line = parts.length ? Buffer.concat([...parts, tail], pending + tail.length) : tail;
+      parts = []; pending = 0; start = newline + 1;
+      yield JSON.parse(line.toString("utf8"));
     }
-    if (pending.length > PI_PIPE_MAX_BYTES) throw new Error("Pi worker protocol payload exceeds its bound.");
+    if (start < chunk.length) { parts.push(chunk.subarray(start)); pending += chunk.length - start; }
+    if (pending > PI_PIPE_MAX_BYTES) throw new Error("Pi worker protocol payload exceeds its bound.");
   }
-  if (pending.length) throw new Error("Pi worker protocol ended with a partial message.");
+  if (pending) throw new Error("Pi worker protocol ended with a partial message.");
 }

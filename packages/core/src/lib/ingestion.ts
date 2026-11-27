@@ -144,18 +144,21 @@ function today(): string {
 }
 
 /**
- * Re-index after a write. Failures are surfaced, not swallowed — the file
- * exists on disk but is invisible to search until the next successful index.
- * The indexer is imported dynamically (as in the reference brain) so ingestion
- * does not statically depend on the whole embedding pipeline.
+ * Re-index after a write, reading only the file written (`path`,
+ * repo-relative); the rest of the brain is taken from the index. Failures are
+ * surfaced, not swallowed — the file exists on disk but is invisible to search
+ * until the next successful index. The indexer is imported dynamically (as in
+ * the reference brain) so ingestion does not statically depend on the whole
+ * embedding pipeline.
  */
 async function reindex(
   db: Database,
-  ctx: IngestContext
+  ctx: IngestContext,
+  path: string
 ): Promise<{ indexed: boolean; indexError?: string }> {
   try {
     const { indexAll } = await import("./indexer.js");
-    await indexAll(db, { root: ctx.root, taxonomy: ctx.taxonomy, force: false, quiet: true });
+    await indexAll(db, { root: ctx.root, taxonomy: ctx.taxonomy, force: false, quiet: true, paths: [path] });
     return { indexed: true };
   } catch (e) {
     return { indexed: false, indexError: (e as Error).message };
@@ -261,6 +264,6 @@ export async function ingest(input: IngestInput, db: Database, ctx: IngestContex
       if (plan.baseContent === null && !input.path && error instanceof WriteRefusedError && error.code === "EEXIST") continue;
       throw error;
     }
-    return { ...plan.outcome, ...(await reindex(db, ctx)) };
+    return { ...plan.outcome, ...(await reindex(db, ctx, plan.path)) };
   }
 }

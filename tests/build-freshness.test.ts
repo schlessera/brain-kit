@@ -3,6 +3,7 @@ import { chmodSync, copyFileSync, cpSync, lstatSync, mkdirSync, mkdtempSync, rea
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { buildProducerPaths } from "../scripts/ci-build-state";
+import { BUILD_INPUTS, copyScriptClosure } from "./helpers/script-closure";
 
 const repo = join(import.meta.dir, "..");
 const roots: string[] = [];
@@ -19,9 +20,7 @@ function fixture() {
   write(root, "bun.lock", "{}\n");
   write(root, "tsconfig.json", JSON.stringify({ compilerOptions: { target: "ES2019", module: "ESNext", moduleResolution: "Bundler", types: [], skipLibCheck: true } }));
   mkdirSync(join(root, "scripts"));
-  for (const file of ["build.ts", "build-execution.ts", "ci-build-boundary.ts", "ci-build-files.ts", "ci-build-lifetime.ts", "ci-build-context.ts", "ci-build-state.ts", "ci-build-data.ts", "ci-build-trace.ts", "ci-build-consumers.ts", "ci-build-evidence.ts", "ci-build-operation.ts", "ci-build-entry.ts", "ci-build-qualification.json", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
-    copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
-  }
+  copyScriptClosure(root, ["scripts/build.ts"], BUILD_INPUTS);
   const compiler = join(root, "node_modules/typescript");
   cpSync(join(repo, "node_modules/typescript"), compiler, { recursive: true });
   expect(lstatSync(join(compiler, "lib/_tsc.js")).ino).not.toBe(lstatSync(join(repo, "node_modules/typescript/lib/_tsc.js")).ino);
