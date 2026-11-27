@@ -92,7 +92,7 @@ export function ToolCallTimeline({
       <div className="relative ml-1 border-l-2 border-border/40 pl-4 space-y-1.5">
         {toolCalls.map((tool, index) => (
           <ToolCallEntry
-            key={toolCalls.findIndex((t) => t.id === tool.id) === index ? tool.id : `${tool.id}:${index}`}
+            key={toolCalls.findIndex((t) => t.id === tool.id) === index ? `id:${tool.id}` : `repeat:${index}:${tool.id}`}
             toolCall={tool}
             backendId={backendId}
             onApproval={onApproval}

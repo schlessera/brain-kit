@@ -1,5 +1,5 @@
 /// <reference types="@vitest/browser-playwright" />
-import {afterAll,afterEach,beforeAll,expect,test} from 'vitest';
+import {afterAll,afterEach,beforeAll,expect,test,vi} from 'vitest';
 import {watchdogMs} from '../../../../scripts/test-deadlines.js';
 import {commands,page,userEvent} from 'vitest/browser';
 import {createRoot,type Root} from 'react-dom/client';
@@ -9,6 +9,8 @@ import {BrainUiProvider} from '../../src/root-context.js';
 import {MessageBubble} from '../../src/components/chat/message-bubble.js';
 import {createSafetyClient} from '../../src/lib/safety-client.js';
 import {SessionSafety} from '../../src/components/chat/safety-indicator.js';
+import {ToolCallTimeline} from '../../src/components/chat/tool-call-timeline.js';
+import {ASK_USER_CONTRACT,visibleToolName} from '@schlessera/brain-ui-sdk/client';
 import {parseServerMessage} from '@schlessera/brain-ui-sdk/schemas';
 import type {ChatMessage} from '../../src/stores/chat-store.js';
 import type {ClientMessage,SafetyPage,SafetyRecord} from '@schlessera/brain-ui-sdk/protocol';
@@ -117,6 +119,39 @@ for(const width of [320,1280])test(`${width}: a tool-use ID reused by differentl
  const [only]=await details(expanded[0]!.querySelector<HTMLButtonElement>('[data-safety-indicator] > button')!);
  expect(only).toContain('Action · Unknown');expect(only).not.toMatch(/Action · (Local search|Bash|Grep)/);
  expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
+});
+
+/** An ask exchange draws no step: the Grep under the same ID carries the input. */
+const asked:ChatMessage={...defaultMessage,toolCalls:[{id:'tool_c',name:visibleToolName(ASK_USER_CONTRACT.name,'claude'),inputJson:'{}',input:{},status:'complete'},...defaultMessage.toolCalls],
+ parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'tool',toolIndex:2},{kind:'text',text:'Voyage notes retained.'}],
+ askUserExchanges:[{requestId:'tool_c',questions:[{question:'Sail past the sirens?',header:'Course',multiSelect:false,options:[{label:'Sail on',description:'Keep the course'},{label:'Turn back',description:'Return to Aeaea'}]}]}]};
+function allCounts(){
+ return [...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].filter(b=>b.getClientRects().length>0)
+  .reduce((n,b)=>n+Number(/· (\d+) unresolved input/.exec(b.getAttribute('aria-label')??'')?.[1]??0),0);
+}
+test('an ask exchange reusing a search ID leaves the input on the search step',async()=>{
+ await scene(320,'light',false,asked);
+ expect(allCounts(),'EVERY_UNRESOLVED_INPUT_HAS_AN_INDICATOR').toBe(ui!.stores.safety.getState().projection?.unresolvedCount);
+ await userEvent.click(page.getByRole('button',{name:/^2 steps/}));
+ await expect.poll(()=>host!.querySelectorAll('[data-tool-call]').length).toBe(2);
+ expect(host!.querySelector('[data-tool-call="tool_c"] [data-safety-indicator]'),'SEARCH_STEP_CARRIES_THE_INPUT').not.toBeNull();
+ expect(allCounts()).toBe(3);
+});
+
+test('calls under a reused ID and an ID that looks like a repeat keep distinct cards',async()=>{
+ const errors=vi.spyOn(console,'error');
+ try{
+  const calls=(['Grep','Bash','Glob'] as const).map((name,i)=>({id:i<2?'x':'x:1',name,inputJson:'{}',input:{pattern:'sirens'},output:'notes/loom.md',status:'complete' as const}));
+  await scene(320,'light',false,{...defaultMessage,toolCalls:calls,parts:[...calls.map((_,toolIndex)=>({kind:'tool' as const,toolIndex})),{kind:'text',text:'Voyage notes retained.'}]});
+  await userEvent.click(page.getByRole('button',{name:/^3 steps/}));
+  await expect.poll(()=>host!.querySelectorAll('[data-tool-call]').length,{message:'BUBBLE_DRAWS_EVERY_CALL'}).toBe(3);
+  const timeline=document.createElement('div');document.body.append(timeline);const extra=createRoot(timeline);
+  try{
+   flushSync(()=>extra.render(<BrainUiProvider root={ui!}><ToolCallTimeline live toolCalls={calls} onApproval={noop}/></BrainUiProvider>));
+   expect(timeline.querySelectorAll('[data-tool-call]').length,'TIMELINE_DRAWS_EVERY_CALL').toBe(3);
+  }finally{flushSync(()=>extra.unmount());timeline.remove();}
+  expect(errors.mock.calls.map(args=>String(args[0])).filter(text=>text.includes('same key')),'TOOL_KEYS_NEVER_COLLIDE').toEqual([]);
+ }finally{errors.mockRestore();}
 });
 
 test('open delivery, pruning, recorder loss and explicit unavailable evidence remain restrictive',async()=>{

@@ -9,6 +9,8 @@ import { activeChat, useChatStore, type ChatMessage, type ToolCall } from "../..
 import { READING_COLUMN_ATTR } from "../../lib/client-environment.js";
 import { entryEvidence, safetyEvidence, type SafetyEvidence } from "../../lib/safety-evidence.js";
 import { createSafetyReviewer, type SafetyReviewProgress } from "../../lib/safety-reviewer.js";
+import { isAskExchangeTool, isShowBlockTool } from "../../lib/tool-names.js";
+import { SHOW_BLOCK_CONTRACT, parseToolPayload } from "@schlessera/brain-ui-sdk/client";
 
 const formatAuthority = ({host,port}:{host:string;port:number}) => `${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`;
 
@@ -16,17 +18,28 @@ const sources:Record<SafetyEvidence["occurrence"]["source"],string>={web_fetch:"
   workspace_read:"Workspace read",mcp_document:"External tool input",user_marked:"Marked untrusted",fetching_command:"Fetching command",unclassified_command:"Unclassified command",
   compute_output:"Compute output",apify_result:"Apify result",github_result:"GitHub result",egress_connection:"Network input",legacy_unknown:"Input with an unknown source"};
 
+/** The calls a message draws as timeline steps, in drawn order: the steps
+ * that carry a safety indicator. An ask exchange and an inline block draw
+ * no step (`groupParts`, message-bubble.tsx). */
+function timelineSteps(message:ChatMessage):ToolCall[] {
+  return message.parts.flatMap(part=>{
+    const tool=part.kind==="tool"?message.toolCalls[part.toolIndex]:undefined;
+    return tool&&!isAskExchangeTool(tool.name)&&!(isShowBlockTool(tool.name)&&parseToolPayload(SHOW_BLOCK_CONTRACT,tool.output))?[tool]:[];
+  });
+}
+
 /** The host's tool identity AND turn identity must match the rendered entry.
  * The runtime can reuse one tool-use ID for several calls in a turn (#4513),
  * so attribution and placement look at every call of the turn: the input
- * shows once, at the turn's first call under its ID. */
+ * shows once, at the turn's first drawn step under its ID. */
 export function ToolSafetyIndicator({turnId,toolCalls}:{turnId?:string;toolCalls:readonly ToolCall[]}) {
   const root=useBrainUiRoot(),records=useStore(root.stores.safety,s=>s.records);
   const messages=useChatStore(s=>activeChat(s).messages);
-  const calls=useMemo(()=>turnId?messages.flatMap(m=>(m.turnId??m.streamTurnId)===turnId?m.toolCalls:[]):[],[messages,turnId]);
-  const ids=useMemo(()=>toolCalls.filter(tool=>{const own=calls.indexOf(tool);return own<0||calls.findIndex(call=>call.id===tool.id)===own;}).map(tool=>tool.id),[calls,toolCalls]);
+  const turn=useMemo(()=>turnId?messages.filter(m=>(m.turnId??m.streamTurnId)===turnId):[],[messages,turnId]);
+  const steps=useMemo(()=>turn.flatMap(timelineSteps),[turn]);
+  const ids=useMemo(()=>toolCalls.filter(tool=>{const own=steps.indexOf(tool);return own<0||steps.findIndex(call=>call.id===tool.id)===own;}).map(tool=>tool.id),[steps,toolCalls]);
   const entries=useMemo(()=>entryEvidence(records,turnId,ids),[records,turnId,ids]);
-  const named=useMemo(()=>[...new Set([...calls,...toolCalls])],[calls,toolCalls]);
+  const named=useMemo(()=>[...new Set([...turn.flatMap(m=>m.toolCalls),...toolCalls])],[turn,toolCalls]);
   return <SafetyIndicator entries={entries} toolCalls={named} turnId={turnId}/>;
 }
 
@@ -57,7 +70,9 @@ export function SessionSafety({visibleMessages}:{visibleMessages:readonly ChatMe
   },[messages]);
   const groups=useMemo(()=>{
     const visible=new Set<string>();
-    for(const message of visibleMessages){const turn=message.turnId??message.streamTurnId;if(turn)for(const tool of message.toolCalls)visible.add(`${turn}\0${tool.id}`);}
+    // Only a drawn step carries an indicator: an input joined to no step
+    // keeps its own turn event here.
+    for(const message of visibleMessages){const turn=message.turnId??message.streamTurnId;if(turn)for(const tool of timelineSteps(message))visible.add(`${turn}\0${tool.id}`);}
     const result=new Map<string,SafetyEvidence[]>();
     for(const entry of safetyEvidence(state.records).values()){
       const r=entry.occurrence;
