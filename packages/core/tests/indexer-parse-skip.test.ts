@@ -143,14 +143,17 @@ describe("unchanged files are read and hashed, not parsed (#4781)", () => {
 
   test("an edit that keeps a file's size and modification time is still indexed", async () => {
     const root = brain(CORPUS);
+    const path = join(root, "notes/old-ithaca.md");
+    // A whole second, so restoring it after the edit is exact on any filesystem.
+    utimesSync(path, 1_783_828_800, 1_783_828_800);
     const db = open(root, "brain");
     await indexAll(db, options(root));
-    const path = join(root, "notes/old-ithaca.md");
-    const { atime, mtime, size } = statSync(path);
+    const before = statSync(path, { bigint: true });
     writeFileSync(path, note("Old Ithaca", "Before the waR."));
-    utimesSync(path, atime, mtime);
-    expect(statSync(path).size).toBe(size);
-    expect(statSync(path).mtimeMs).toBe(mtime.getTime());
+    utimesSync(path, 1_783_828_800, 1_783_828_800);
+    const after = statSync(path, { bigint: true });
+    expect(after.size).toBe(before.size);
+    expect(after.mtimeNs).toBe(before.mtimeNs);
     expect((await indexAll(db, options(root))).updated).toBe(1);
     expect((db.prepare("SELECT content FROM documents WHERE path = 'notes/old-ithaca.md'").get() as { content: string }).content)
       .toContain("Before the waR.");

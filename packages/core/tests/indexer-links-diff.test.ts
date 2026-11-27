@@ -156,12 +156,14 @@ describe("links are written as a difference (#4780)", () => {
     const executions = async (linksPerNote: number) => {
       const files: Record<string, string> = {};
       for (let i = 0; i < 10; i++) {
-        const targets = Array.from({ length: linksPerNote }, (_, k) => (k % 2 ? `[[n${(i + k) % 10}]]` : `[[missing-${i}-${k}]]`));
+        // Distinct link texts: half resolve (a heading keeps each one apart), half do not.
+        const targets = Array.from({ length: linksPerNote }, (_, k) => (k % 2 ? `[[n${(i + k) % 10}#s${k}]]` : `[[missing-${i}-${k}]]`));
         files[`notes/n${i}.md`] = note(`Note ${i}`, `Links: ${targets.join(" ")}`);
       }
       const root = brain(files);
       const db = open(root, "brain");
       await indexAll(db, options(root));
+      expect(db.prepare("SELECT COUNT(*) AS n, COUNT(target_id) AS resolved FROM links").get()).toEqual({ n: 10 * linksPerNote, resolved: 5 * linksPerNote });
       const counter = countExecutions(db);
       try {
         expect((await indexAll(db, options(root))).unchanged).toBe(10);

@@ -245,6 +245,7 @@ describe("precompute", () => {
       expect(stats.graphNodes).toBe(0);
       expect(db.prepare("SELECT * FROM graph_layouts ORDER BY document_id").all()).toEqual(layout);
       const meta = readGraphMeta({ brainPath: root });
+      expect(meta.ok).toBe(true);
       expect(meta.ok && meta.value.stale).toBe(false);
       const computedAt = getMeta(db, "graph_computed_at")!;
       const { newest } = db.prepare("SELECT MAX(indexed_at) AS newest FROM documents").get() as { newest: string };
