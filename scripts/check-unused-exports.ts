@@ -27,9 +27,22 @@
 //     with it (docs/decisions/public-export-boundary.md, "Public");
 //   - test, spec and story files under `src/`, whose exports a runner reads.
 //
+// A second pass finds code that only tests reach (#4677). The graph is
+// propagated again with every test file (`isTestFile`) removed from the
+// importing side, and a value declaration (a function, class, enum or
+// variable) is reported as `test-only` when it was used in the first pass, has
+// no use in the second, and its own file never references it: no production
+// path can execute it. `evals/` counts as a test file here, so an eval's import
+// is not a use. Type-only declarations, re-exports and `export { a }` names
+// not declared in their own file are not reported by this pass; a declaration
+// its own file also uses is production code with an extra test importer.
+//
 // Anything else that must stay exported needs an ALLOWLIST entry below with a
 // one-line reason. A stale entry fails the gate, so the list cannot outlive the
-// export it excuses.
+// export it excuses. An entry excuses one finding kind: a `test-only` entry
+// does not excuse the same name once it loses its last test importer, it goes
+// stale instead. An entry that waits for another issue to delete or wire its
+// name records that issue as its `owner`.
 //
 // The scanned package list is explicit. Other workspace packages are not
 // scanned: adding one is a reviewed change to SCANNED_PACKAGES.
@@ -43,7 +56,26 @@ import ts from "typescript";
 /** The packages (directory names under packages/) whose `src/` is scanned. */
 export const SCANNED_PACKAGES = ["ui-server", "ui-kit", "ui-react"] as const;
 
-export interface AllowlistEntry { file: string; name: string; reason: string }
+export interface AllowlistEntry {
+  file: string;
+  name: string;
+  reason: string;
+  /** The finding kind the entry excuses: absent for a plain unused export. */
+  kind?: "test-only";
+  /** The issue whose change deletes or wires the name, which deletes the entry. */
+  owner?: string;
+}
+
+/**
+ * Whether a file is a test, fixture, story or eval, whose import of a name is
+ * not a production use. `evals/` counts: an eval harness is not production.
+ */
+export function isTestFile(file: string): boolean {
+  return /^(?:tests|experiments|evals)\//.test(file) ||
+    /^packages\/[^/]+\/(?:tests|stories|fixtures|evals|\.storybook)\//.test(file) ||
+    /^scripts\/(?:skill-tests|fixtures)\//.test(file) ||
+    TEST_FILE.test(file);
+}
 
 // The import graph cannot see one kind of use: another file's exported
 // declaration whose type is *inferred* through this name. No file imports the
@@ -67,9 +99,57 @@ export const ALLOWLIST: AllowlistEntry[] = [
   { file: "packages/ui-react/src/stores/tracker-state.ts", name: "TrackerStoreState", reason: INFERRED("createBrainStores") },
   { file: "packages/ui-server/src/inbox/cleanup.ts", name: "CleanupReport", reason: INFERRED("createInboxRuntime") },
   { file: "packages/ui-server/src/inbox/cleanup.ts", name: "CleanupRequest", reason: INFERRED("createInboxRuntime") },
+  // Only tests (or evals) import these (`kind: "test-only"`). Entries are
+  // grouped by owner, so each owning issue deletes one contiguous block.
+
+  // Deliberate test seams and requalification inputs: no owner.
+  { file: "packages/ui-server/src/middleware/auth.ts", name: "resetVerificationReservations", kind: "test-only", reason: "test seam: resets the module-level verification reservations between tests" },
+  { file: "packages/ui-react/src/lib/client-environment.ts", name: "resetClientEnvironmentCache", kind: "test-only", reason: "test seam: clears the cached client environment between tests" },
+  { file: "packages/ui-server/src/governance/extraction-classifier.ts", name: "policyFor", kind: "test-only", reason: "read by the extraction-classifier requalification eval under evals/" },
+  { file: "packages/ui-server/src/governance/extraction-classifier.ts", name: "decide", kind: "test-only", reason: "read by the extraction-classifier requalification eval under evals/" },
+
+  // Staged for the in-process schedule runner (#915), which wires them.
+  { file: "packages/ui-server/src/schedules/admission.ts", name: "createScheduleAdmission", kind: "test-only", owner: "#915", reason: "staged for the schedule runner; #915 wires it into production" },
+  { file: "packages/ui-server/src/schedules/time.ts", name: "cronInstantsBetween", kind: "test-only", owner: "#915", reason: "staged for the schedule runner; #915 wires it into production" },
+
+  // #2524 removes the unrendered timeline.
+  { file: "packages/ui-react/src/components/chat/tool-call-timeline.tsx", name: "ToolCallTimeline", kind: "test-only", owner: "#2524", reason: "production never renders it; #2524 removes or wires it" },
+
+  // #2525 removes ui-react helpers only tests call.
+  { file: "packages/ui-react/src/components/graph/graph-form.tsx", name: "SwitchRow", kind: "test-only", owner: "#2525", reason: "only tests call it; #2525 removes it" },
+  { file: "packages/ui-react/src/lib/answer-delivery/tabs.ts", name: "createTabHub", kind: "test-only", owner: "#2525", reason: "only tests call it; #2525 removes it" },
+  { file: "packages/ui-react/src/lib/graph-helpers.ts", name: "nodeSize", kind: "test-only", owner: "#2525", reason: "only tests call it; #2525 removes it" },
+  { file: "packages/ui-react/src/lib/mermaid.ts", name: "inlineRenderedFences", kind: "test-only", owner: "#2525", reason: "only tests call it; #2525 removes it" },
+  { file: "packages/ui-react/src/lib/trackers.ts", name: "trackerWords", kind: "test-only", owner: "#2525", reason: "only tests call it; #2525 removes it" },
+  { file: "packages/ui-react/src/stores/graph-store.ts", name: "clearGraphSceneCache", kind: "test-only", owner: "#2525", reason: "only tests call it; #2525 removes it" },
+
+  // #4682 wires or removes safety-detail pruning.
+  { file: "packages/ui-server/src/governance/safety-store.ts", name: "pruneSafetyDetail", kind: "test-only", owner: "#4682", reason: "nothing in production prunes safety detail; #4682 wires or removes it" },
+
+  // #4678 removes ui-server exports only tests reach.
+  { file: "packages/ui-server/src/activity/ingestion-taint.ts", name: "outputTaintSource", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
+  { file: "packages/ui-server/src/activity/ingestion-taint.ts", name: "INGESTION_DETECTOR_MANIFEST", kind: "test-only", owner: "#4678", reason: "only tests read it; #4678 removes it" },
+  { file: "packages/ui-server/src/brain/journal-steering.ts", name: "journalSteeringInputs", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
+  { file: "packages/ui-server/src/brain/maintenance-git-publication.ts", name: "gitPublicationAllowed", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
+  { file: "packages/ui-server/src/brain/origin-trust.ts", name: "originTrustMatch", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
+  { file: "packages/ui-server/src/classification/confidence-store.ts", name: "confidenceDistribution", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
+  { file: "packages/ui-server/src/governance/events.ts", name: "GOVERNANCE_EVENT_KINDS", kind: "test-only", owner: "#4678", reason: "only tests read it; #4678 removes it" },
+  { file: "packages/ui-server/src/middleware/tailscale.ts", name: "tailscaleGuard", kind: "test-only", owner: "#4678", reason: "only tests mount it; #4678 removes it" },
+  { file: "packages/ui-server/src/share/staging.ts", name: "shareStagingRoot", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
+  { file: "packages/ui-server/src/voice/conversation-history.ts", name: "conversationHistory", kind: "test-only", owner: "#4678", reason: "only tests call it; #4678 removes it" },
+
+  // #4679 removes ui-react and ui-kit helpers only tests reach.
+  { file: "packages/ui-react/src/components/chat/draft-save-line.tsx", name: "DraftSaveLine", kind: "test-only", owner: "#4679", reason: "production never renders it; #4679 removes it" },
+  { file: "packages/ui-react/src/lib/draft-indicator.ts", name: "draftIndicatorAtRisk", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
+  { file: "packages/ui-react/src/lib/graph-helpers.ts", name: "SLOT_COUNT", kind: "test-only", owner: "#4679", reason: "only tests read it; #4679 removes it" },
+  { file: "packages/ui-react/src/lib/stats/compose-stats.ts", name: "VALUE_BUDGET", kind: "test-only", owner: "#4679", reason: "only tests read it; #4679 removes it" },
+  { file: "packages/ui-react/src/stores/activity-store-helpers.ts", name: "subagentSpans", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
+  { file: "packages/ui-react/src/stores/activity-store-helpers.ts", name: "timingFor", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
+  { file: "packages/ui-kit/src/storage/history-geometry.ts", name: "subpathCount", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
+  { file: "packages/ui-kit/src/storage/tool-row-model.ts", name: "toolStateText", kind: "test-only", owner: "#4679", reason: "only tests call it; #4679 removes it" },
 ];
 
-export interface Finding { file: string; line: number; name: string; kind: "declaration" | "re-export" }
+export interface Finding { file: string; line: number; name: string; kind: "declaration" | "re-export" | "test-only" }
 
 export interface Report {
   schemaVersion: 1;
@@ -88,6 +168,10 @@ const ALL = "*";
 interface ModuleInfo {
   /** Exported name -> line, for declarations and local export lists. */
   local: Map<string, number>;
+  /** Exported local names declared as values (function, class, enum, variable). */
+  values: Set<string>;
+  /** Identifier texts the file references outside declaration and export names. */
+  references: Set<string>;
   /** Exported name -> the file and name it forwards (`export { a as b } from`). */
   forwards: Map<string, { file: string; name: string; line: number }>;
   /** `export * from` targets. */
@@ -96,8 +180,8 @@ interface ModuleInfo {
 
 interface Graph {
   modules: Map<string, ModuleInfo>;
-  /** File -> names other files import from it directly. */
-  uses: Map<string, Set<string>>;
+  /** Importing file -> (imported file -> names it imports from that file directly). */
+  uses: Map<string, Map<string, Set<string>>>;
 }
 
 /** Every tracked or untracked-but-not-ignored file, repository-relative. */
@@ -122,7 +206,8 @@ function packageEntries(root: string, files: string[]): Map<string, string> {
   return entries;
 }
 
-function makeResolver(files: Set<string>, entries: Map<string, string>) {
+/** Resolves a relative or workspace-package specifier to a repository-relative file. */
+export function makeResolver(files: Set<string>, entries: Map<string, string>) {
   const candidates = (base: string) => {
     const stripped = base.replace(/\.(?:[cm]?js|jsx)$/, "");
     return [base, ...[".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".jsx"].map(ext => stripped + ext),
@@ -146,23 +231,48 @@ function bindingNames(name: ts.BindingName, out: string[]) {
   else for (const element of name.elements) if (!ts.isOmittedExpression(element)) bindingNames(element.name, out);
 }
 
+/**
+ * Whether an identifier reads a binding: not a declaration's own name, an
+ * import or export specifier, a property name after `.`, or a member or
+ * property key. A shorthand `{ name }` reads the binding and counts.
+ */
+function isReference(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  if (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent) || ts.isImportClause(parent) || ts.isNamespaceImport(parent)) return false;
+  if (ts.isPropertyAccessExpression(parent) && parent.name === node) return false;
+  if (ts.isQualifiedName(parent) && parent.right === node) return false;
+  if ((ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent) || ts.isPropertySignature(parent) ||
+    ts.isMethodDeclaration(parent) || ts.isMethodSignature(parent) || ts.isGetAccessor(parent) || ts.isSetAccessor(parent) ||
+    ts.isEnumMember(parent) || ts.isJsxAttribute(parent)) && parent.name === node) return false;
+  if ((ts.isFunctionDeclaration(parent) || ts.isClassDeclaration(parent) || ts.isEnumDeclaration(parent) ||
+    ts.isInterfaceDeclaration(parent) || ts.isTypeAliasDeclaration(parent) || ts.isModuleDeclaration(parent) ||
+    ts.isVariableDeclaration(parent) || ts.isBindingElement(parent)) && parent.name === node) return false;
+  if (ts.isBindingElement(parent) && parent.propertyName === node) return false;
+  return true;
+}
+
 function buildGraph(root: string, files: string[], entries: Map<string, string>): Graph {
   const fileSet = new Set(files);
   const resolveSpecifier = makeResolver(fileSet, entries);
   const modules = new Map<string, ModuleInfo>();
-  const uses = new Map<string, Set<string>>();
-  const use = (file: string | undefined, name: string) => {
-    if (!file) return;
-    let set = uses.get(file);
-    if (!set) uses.set(file, set = new Set());
-    set.add(name);
-  };
+  const uses = new Map<string, Map<string, Set<string>>>();
 
   for (const file of files) {
+    const fileUses = new Map<string, Set<string>>();
+    uses.set(file, fileUses);
+    const use = (target: string | undefined, name: string) => {
+      if (!target) return;
+      let set = fileUses.get(target);
+      if (!set) fileUses.set(target, set = new Set());
+      set.add(name);
+    };
     const text = readFileSync(join(root, file), "utf8");
     const kind = /\.[cm]?tsx$|\.jsx$/.test(file) ? ts.ScriptKind.TSX : /\.[cm]?jsx?$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
     const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true, kind);
-    const info: ModuleInfo = { local: new Map(), forwards: new Map(), stars: [] };
+    const info: ModuleInfo = { local: new Map(), values: new Set(), references: new Set(), forwards: new Map(), stars: [] };
+    // Top-level value declarations by name, so `export { a }` can be classified.
+    const declaredValues = new Set<string>();
+    const exportedList: string[] = [];
     modules.set(file, info);
     const lineOf = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
     const target = (specifier: ts.Expression | undefined) =>
@@ -187,6 +297,11 @@ function buildGraph(root: string, files: string[], entries: Map<string, string>)
           else for (const element of clause.elements) {
             info.forwards.set(element.name.text, { file: from, name: (element.propertyName ?? element.name).text, line: lineOf(element) });
           }
+        } else if (clause && ts.isNamedExports(clause) && !statement.isTypeOnly) {
+          for (const element of clause.elements) {
+            info.local.set(element.name.text, lineOf(element));
+            if (!element.isTypeOnly && !element.propertyName) exportedList.push(element.name.text);
+          }
         } else if (clause && ts.isNamedExports(clause)) {
           for (const element of clause.elements) info.local.set(element.name.text, lineOf(element));
         }
@@ -210,14 +325,28 @@ function buildGraph(root: string, files: string[], entries: Map<string, string>)
         else if (ts.isVariableStatement(statement)) {
           const names: string[] = [];
           for (const declaration of statement.declarationList.declarations) bindingNames(declaration.name, names);
-          for (const name of names) info.local.set(name, line);
+          for (const name of names) { info.local.set(name, line); info.values.add(name); }
         } else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement) ||
           ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement) || ts.isModuleDeclaration(statement)) &&
           statement.name && ts.isIdentifier(statement.name)) {
           info.local.set(statement.name.text, line);
+          if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement)) {
+            info.values.add(statement.name.text);
+          }
+        }
+      }
+      if (!exported(statement)) {
+        if (ts.isVariableStatement(statement)) {
+          const names: string[] = [];
+          for (const declaration of statement.declarationList.declarations) bindingNames(declaration.name, names);
+          for (const name of names) declaredValues.add(name);
+        } else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement)) &&
+          statement.name) {
+          declaredValues.add(statement.name.text);
         }
       }
     }
+    for (const name of exportedList) if (declaredValues.has(name)) info.values.add(name);
 
     // Uses that are not top-level statements: `import("…")`, `require("…")`
     // and `import("…").Name` types, and a module loaded by path —
@@ -229,6 +358,7 @@ function buildGraph(root: string, files: string[], entries: Map<string, string>)
       if (text) use(resolveSpecifier(file, text), ALL);
     };
     const visit = (node: ts.Node) => {
+      if (ts.isIdentifier(node) && isReference(node)) info.references.add(node.text);
       if (ts.isCallExpression(node) && node.arguments.length > 0 &&
         (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === "require"))) {
         use(target(node.arguments[0]), ALL);
@@ -256,8 +386,11 @@ function buildGraph(root: string, files: string[], entries: Map<string, string>)
   return { modules, uses };
 }
 
-/** Every (file, name) pair some other file reaches, following re-export chains. */
-function propagate(graph: Graph, publicFiles: Iterable<string>): Map<string, Set<string>> {
+/**
+ * Every (file, name) pair some other file reaches, following re-export chains.
+ * `counts` limits which files' imports and re-exports take part.
+ */
+function propagate(graph: Graph, publicFiles: Iterable<string>, counts: (file: string) => boolean = () => true): Map<string, Set<string>> {
   const used = new Map<string, Set<string>>();
   const queue: Array<[string, string]> = [];
   const mark = (file: string, name: string) => {
@@ -267,12 +400,15 @@ function propagate(graph: Graph, publicFiles: Iterable<string>): Map<string, Set
     set.add(name);
     queue.push([file, name]);
   };
-  for (const [file, names] of graph.uses) for (const name of names) mark(file, name);
+  for (const [importer, targets] of graph.uses) {
+    if (!counts(importer)) continue;
+    for (const [file, names] of targets) for (const name of names) mark(file, name);
+  }
   for (const file of publicFiles) mark(file, ALL);
   while (queue.length > 0) {
     const [file, name] = queue.pop()!;
     const info = graph.modules.get(file);
-    if (!info) continue;
+    if (!info || !counts(file)) continue;
     if (name === ALL) {
       for (const forward of info.forwards.values()) mark(forward.file, forward.name);
       for (const star of info.stars) mark(star, ALL);
@@ -316,7 +452,10 @@ export function check(root: string, options: CheckOptions = {}): Report {
   const graph = buildGraph(root, files, entries);
   const entryFiles = new Set(entries.values());
   const used = propagate(graph, entryFiles);
-  const allowed = new Map(allowlist.map(entry => [`${entry.file}\0${entry.name}`, entry]));
+  const usedOutsideTests = propagate(graph, entryFiles, file => !isTestFile(file));
+  const allowed = new Map(allowlist.map(entry => [`${entry.kind ?? ""}\0${entry.file}\0${entry.name}`, entry]));
+  const excuse = (kind: Finding["kind"], file: string, name: string) =>
+    allowed.get(`${kind === "test-only" ? "test-only" : ""}\0${file}\0${name}`);
   const findings: Finding[] = [];
   const allowlisted: AllowlistEntry[] = [];
   let scannedFiles = 0;
@@ -329,14 +468,21 @@ export function check(root: string, options: CheckOptions = {}): Report {
       scannedFiles++;
       const info = graph.modules.get(file)!;
       const reached = used.get(file) ?? new Set<string>();
-      if (reached.has(ALL)) continue;
+      const reachedOutsideTests = usedOutsideTests.get(file) ?? new Set<string>();
       const exports: Array<[string, number, Finding["kind"]]> = [
         ...[...info.local].map(([name, line]) => [name, line, "declaration"] as [string, number, Finding["kind"]]),
         ...[...info.forwards].map(([name, f]) => [name, f.line, "re-export"] as [string, number, Finding["kind"]]),
       ];
-      for (const [name, line, kind] of exports) {
-        if (reached.has(name) || signatures.has(`${file}\0${name}`)) continue;
-        const entry = allowed.get(`${file}\0${name}`);
+      for (const [name, line, declared] of exports) {
+        if (signatures.has(`${file}\0${name}`)) continue;
+        let kind: Finding["kind"] = declared;
+        if (reached.has(ALL) || reached.has(name)) {
+          // Used. Report it only if no production path can reach it.
+          if (declared !== "declaration" || !info.values.has(name) || info.references.has(name) ||
+            reachedOutsideTests.has(ALL) || reachedOutsideTests.has(name)) continue;
+          kind = "test-only";
+        }
+        const entry = excuse(kind, file, name);
         if (entry) { allowlisted.push(entry); continue; }
         findings.push({ file, line, name, kind });
       }
@@ -357,10 +503,15 @@ if (import.meta.main) {
   if (json) console.log(JSON.stringify(report, null, 2));
   else {
     for (const f of report.findings) {
-      console.error(`${f.file}:${f.line}: \`${f.name}\` is exported but no other file imports it — drop the export, delete it, or allowlist it with a reason in scripts/check-unused-exports.ts`);
+      if (f.kind === "test-only") {
+        console.error(`${f.file}:${f.line}: \`${f.name}\` is imported only by tests and its own file never uses it, so no production path runs it — delete it with its tests, wire it, or allowlist it with \`kind: "test-only"\` and a reason in scripts/check-unused-exports.ts`);
+      } else {
+        console.error(`${f.file}:${f.line}: \`${f.name}\` is exported but no other file imports it — drop the export, delete it, or allowlist it with a reason in scripts/check-unused-exports.ts`);
+      }
     }
     for (const entry of report.staleAllowlist) {
-      console.error(`scripts/check-unused-exports.ts: stale allowlist entry ${entry.file} \`${entry.name}\` — it is imported, recorded, or gone; remove the entry`);
+      const what = entry.kind === "test-only" ? "a production file uses it, its last test importer is gone, or it is gone" : "it is imported, recorded, or gone";
+      console.error(`scripts/check-unused-exports.ts: stale ${entry.kind ?? ""}${entry.kind ? " " : ""}allowlist entry ${entry.file} \`${entry.name}\` — ${what}; remove the entry`);
     }
     if (!failed) {
       console.log(`unused exports: ${report.scannedFiles} files in ${report.packages.join(", ")} clean (${report.allowlisted.length} allowlisted)`);
