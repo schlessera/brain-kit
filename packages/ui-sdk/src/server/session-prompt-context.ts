@@ -17,7 +17,8 @@ export function stripHostContextFromTitle(text: string): string {
 }
 
 export type SessionPromptFacts = Record<string, string>;
-interface OwnedTurn { original: string; wireDigest: string; facts: SessionPromptFacts; providerId?: string }
+/** `facts` is read only by this turn's first acknowledgement, which removes it (#4859). */
+interface OwnedTurn { original: string; wireDigest: string; facts?: SessionPromptFacts; providerId?: string }
 /**
  * Every write serialises the whole parsed object, so top-level keys this store
  * does not declare survive it. Another module keeps data here through
@@ -98,7 +99,8 @@ export function sessionPromptContext(root: string, brainPath: string, sessionId:
       if (!turn) return;
       turn.providerId = providerId;
       if (observedWire !== undefined) turn.wireDigest = digest(observedWire);
-      state.delivered = { ...turn.facts };
+      // A turn acknowledged again has no facts left: what it delivered stays delivered.
+      if (turn.facts) { state.delivered = { ...turn.facts }; delete turn.facts; }
       write(state);
     },
     /**
@@ -122,6 +124,15 @@ export function sessionPromptContext(root: string, brainPath: string, sessionId:
       const turns = read().turns;
       const owned = Object.entries(turns).find(([id, turn]) => (turn.providerId ?? id) === providerId && turn.wireDigest === digest(wire));
       return owned ? owned[1].original : wire;
+    },
+    /** `userText` for a whole history read: one read, then the first owning turn in stored order. */
+    userTexts(): (providerId: string, wire: string) => string {
+      const owned = new Map<string, string>();
+      for (const [id, turn] of Object.entries(read().turns)) {
+        const key = `${turn.providerId ?? id}\n${turn.wireDigest}`;
+        if (!owned.has(key)) owned.set(key, turn.original);
+      }
+      return (providerId, wire) => owned.get(`${providerId}\n${digest(wire)}`) ?? wire;
     },
   };
 }

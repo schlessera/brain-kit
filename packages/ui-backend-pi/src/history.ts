@@ -99,6 +99,8 @@ async function readPiHistory(cwd: string, sessionId: string, sessionDir?: string
   const branch = info ? SessionManager.open(info.path, sessionDir).getBranch() : [];
   const omitted = retriedAttempts(branch);
   const context = sessionDir ? sessionPromptContext(sessionDir, cwd, sessionId) : undefined;
+  // One prompt-context read per history read, taken at the first user message (#4859).
+  let userText: ((providerId: string, wire: string) => string) | undefined;
   const display = sessionReplay(sessionDir ?? dirname(info!.path), cwd, sessionId);
   const displayText = display.texts();
   const messages: AgentMessage[] = [];
@@ -110,7 +112,7 @@ async function readPiHistory(cwd: string, sessionId: string, sessionDir?: string
       if (context && message.role === "user") {
         const content = message.content;
         const wire = typeof content === "string" ? content : content.filter(part => part.type === "text").map(part => (part as { text: string }).text).join("");
-        const text = context.userText(entry.id, wire);
+        const text = (userText ??= context.userTexts())(entry.id, wire);
         message.content = typeof content === "string" ? text : [
           { type: "text", text }, ...content.filter(part => part.type !== "text"),
         ];

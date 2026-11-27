@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "fs";
 import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -6,6 +7,7 @@ import { join } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
+import { sessionPromptContext, sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
 import { normalizeMessages, getPiHistory, listPiSessions } from "../src/history";
 
 describe("normalizeMessages (pure)", () => {
@@ -205,4 +207,29 @@ describe("one session's history opens its fixed-name transcript directly (#4858)
     await read(cwd, crypto.randomUUID(), dir);
     expect(snapshot(dir), "HISTORY_READ_WRITES_NOTHING").toEqual(before);
   });
+});
+
+test("a history read opens the prompt-context file once, whatever the number of user messages (#4859)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-history-opens-cwd-")), sessionDir = mkdtempSync(join(tmpdir(), "pi-history-opens-dir-"));
+  try {
+    const sm = SessionManager.create(cwd, sessionDir), session = sm.getSessionId(), store = sessionPromptContext(sessionDir, cwd, session);
+    store.retainAppend("Odysseus keeps the log.");
+    for (let turn = 0; turn < 20; turn++) {
+      const sent = store.prepare(`Turn ${turn}: which way to Ithaca?`, { device: turn % 2 ? "phone" : "tablet" });
+      const id = sm.appendMessage({ role: "user", content: [{ type: "text", text: sent.text }], timestamp: turn * 2 } as never);
+      store.acknowledge(sent.id, id);
+      sm.appendMessage({ role: "assistant", content: [{ type: "text", text: "Sail west." }], api: "anthropic-messages",
+        provider: "anthropic", model: "m", usage: emptyUsage(), stopReason: "stop", timestamp: turn * 2 + 1 } as never);
+    }
+    const { dir, name } = sessionPromptContextLocation(sessionDir, cwd, session);
+    const open = spyOn(fs, "openSync");
+    let history, opens;
+    try {
+      history = await getPiHistory(cwd, session, sessionDir);
+      opens = open.mock.calls.filter(([path]) => path === join(dir, name)).length;
+    } finally { open.mockRestore(); }
+    expect(opens, "ONE_PROMPT_CONTEXT_READ_PER_HISTORY").toBe(1);
+    expect(history.filter(message => message.role === "user").map(message => message.content))
+      .toEqual(Array.from({ length: 20 }, (_, turn) => `Turn ${turn}: which way to Ithaca?`));
+  } finally { rmSync(cwd, { recursive: true, force: true }); rmSync(sessionDir, { recursive: true, force: true }); }
 });
