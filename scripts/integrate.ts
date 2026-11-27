@@ -12,6 +12,7 @@ import { reviewGate as recordedReview } from "./review-receipt";
 import type { API } from "./proof-api";
 import { classify as classifyProofSystem } from "./proof-system";
 import { checkQualification as qualify, laneRefusal, readLane as laneAt, type MainRun } from "./proof-system-lane";
+import { gh } from "./lib/gh";
 
 /**
  * A refusal no retry can cure: the candidate changed or the reservation no longer
@@ -25,13 +26,6 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
 const SAFETY_MS = LEASE_MS - RENEW_MS;
 /** How long `confirm` waits for a pending contract run before refusing (#3573). */
 const CONTRACT_WAIT_MS = 10 * RENEW_MS;
-
-async function gh(...args: string[]): Promise<string> {
-  const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
-  const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-  if (code !== 0) throw new Error(err.trim());
-  return out.trim();
-}
 
 /**
  * Everything `runIntegrate` takes from its surroundings: the GitHub CLI, the
@@ -66,7 +60,7 @@ export interface IntegrateIO {
 
 export function processIntegrateIo(): IntegrateIO {
   return {
-    gh, store: () => new GitReservationStore(process.cwd()),
+    gh: (...args) => gh(args, { trim: true, error: (_args, _code, stderr) => stderr.trim() }), store: () => new GitReservationStore(process.cwd()),
     now: () => performance.now(), sleep: ms => Bun.sleep(ms),
     setInterval: (tick, ms) => setInterval(tick, ms), clearInterval: timer => clearInterval(timer as ReturnType<typeof setInterval>),
     out: line => console.log(line), err: line => console.error(line),

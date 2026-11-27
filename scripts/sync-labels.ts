@@ -13,8 +13,7 @@
 // whatever auth the maintainer already has. It needs no scopes beyond `repo`.
 
 import { labelsFor, OBSOLETE_LABELS, type LabelSpec, type RepoKind } from "./labels.ts";
-
-const DEFAULT_REPO = "schlessera/brain-kit";
+import { gh, resolveRepository } from "./lib/gh";
 
 interface ExistingLabel {
   name: string;
@@ -32,17 +31,6 @@ function repoKind(repo: string): RepoKind {
   throw new Error(
     `Unknown repository ${repo}: the taxonomy defines area labels for ${KNOWN.join(", ")}.`,
   );
-}
-
-async function gh(args: string[]): Promise<string> {
-  const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  if (code !== 0) throw new Error(`gh ${args.join(" ")} failed (${code}):\n${stderr.trim()}`);
-  return stdout;
 }
 
 async function listLabels(repo: string): Promise<ExistingLabel[]> {
@@ -144,7 +132,7 @@ async function apply(repo: string, action: Action): Promise<void> {
 
 if (import.meta.main) {
   const argv = process.argv.slice(2);
-  const repo = argv.includes("--repo") ? argv[argv.indexOf("--repo") + 1] : DEFAULT_REPO;
+  const repo = resolveRepository({ flag: argv.includes("--repo") ? argv[argv.indexOf("--repo") + 1] : undefined });
   const shouldApply = argv.includes("--apply");
   const prune = argv.includes("--prune");
 

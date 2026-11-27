@@ -12,6 +12,7 @@ import { seedTimings } from "./ci-timing-seed";
 import { gitEpochSource } from "./ci-epochs";
 import { collectCoordinatorRuns, collectRedMainHistory, RED_MAIN_ARCHIVE, redIntervals, redMainMarkdown, summarizeRedMain,
   type CoordinatorObservation, type RedMainArchive } from "./ci-red-main";
+import { resolveRepository } from "./lib/gh";
 
 export interface TimingAPI { json(path: string): Promise<any>; log(job: number): Promise<string>; }
 interface RawRun {
@@ -586,7 +587,7 @@ if (import.meta.main) {
     // Proof-policy epochs read this ref's first-parent history from the local checkout.
     const history = options.get("--history") ?? "origin/main";
     await mkdir(dir, { recursive: true });
-    const repository = options.get("--repo") ?? "schlessera/brain-kit";
+    const repository = resolveRepository({ flag: options.get("--repo") });
     if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid repository");
     const api = new TimingClient(repository, Number(options.get("--request-budget") ?? 200), Number(options.get("--reserve") ?? 500));
     if (reservations) {

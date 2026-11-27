@@ -22,6 +22,7 @@ import { scanText } from "./check-leakage";
 import { CORE_PACKAGES, touchesCorePackages } from "./fast-lane";
 import { DEFAULT_REPO, type Gh } from "./issue-queue";
 import { gitResult } from "./lib/git";
+import { realGh } from "./lib/gh";
 
 export const REVIEW_KIND = "brain-review-receipt";
 export const REVIEW_START = "<!-- brain-review-receipt:start -->";
@@ -219,10 +220,6 @@ export async function reviewGate(root: string, candidate: ReviewCandidate, comme
 
 export interface ReviewIo { gh?: Gh; out: (text: string) => void; root?: string }
 
-const realGh: Gh = args => {
-  const result = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
-  return { code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
-};
 function ghMust(gh: Gh, args: string[]): string {
   const result = gh(args);
   if (result.code !== 0) throw new Error(`gh ${args.slice(0, 3).join(" ")}: ${result.stderr.trim() || `exit ${result.code}`}`);
