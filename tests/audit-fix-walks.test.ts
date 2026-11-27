@@ -4,13 +4,30 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { resolve } from "node:path";
-import { prepare, registryFixture, DAY } from "./fixtures/audit-fix/prepare";
+import { commandOutput, document, prepare, prepareBenchmark, registryFixture, DAY, type BenchmarkCase } from "./fixtures/audit-fix/prepare";
 import { auditFixSuggester } from "../packages/core/src/lib/audit-repair";
 
 const spies: { mockRestore(): void }[] = [];
 afterEach(() => {
   for (const spy of spies.splice(0)) spy.mockRestore();
 });
+
+/** Count the suggester's own walks of `root`: registry planning and validation walk too, and are shared already. */
+function countSuggestionWalks(root: string): { walks: number } {
+  const target = resolve(root);
+  const real = fs.readdirSync;
+  const counter = { walks: 0 };
+  spies.push(
+    spyOn(fs, "readdirSync").mockImplementation(((path: unknown, ...rest: unknown[]) => {
+      if (typeof path === "string" && resolve(path) === target) {
+        const stack = new Error().stack ?? "";
+        if (/suggestAuditFix/.test(stack) && !/planRegistry|validateDetailed/.test(stack)) counter.walks++;
+      }
+      return (real as (...a: unknown[]) => unknown)(path, ...rest);
+    }) as typeof fs.readdirSync)
+  );
+  return counter;
+}
 
 test("three index-stale findings share one suggestion walk", () => {
   const p = prepare(registryFixture.files);
@@ -34,4 +51,27 @@ test("three index-stale findings share one suggestion walk", () => {
     expect(results.map((r) => r.canAutoFix)).toEqual([true, true, true]);
     expect(walks).toBe(1);
   } finally { p.close(); }
+});
+
+test("brain audit --fix walks the tree once for three index-stale findings (#4880)", async () => {
+  // Three stale registry indexes, each with one child.
+  const files: Record<string, string> = {};
+  for (const dir of ["rituals", "rituals/dawn", "rituals/dusk"]) {
+    files[`${dir}/_index.md`] = document("index", `Rituals of ${dir}`, "registry: { columns: [title, status] }\n", "Odysseus keeps this prose.\n");
+    files[`${dir}/watch.md`] = document("ritual", `The watch of ${dir}`);
+  }
+  const p = await prepareBenchmark({ id: "three-stale-registries", files, moduleMode: null, modulePath: null } as unknown as BenchmarkCase);
+  try {
+    const counter = countSuggestionWalks(p.root);
+    const fixes = await commandOutput(p, true) as { path: string; canAutoFix: boolean; repair?: { capability: string } }[];
+    const stale = fixes.filter((fix) => fix.repair !== undefined);
+    expect(stale.map((fix) => [fix.path, fix.canAutoFix])).toEqual([
+      ["rituals/_index.md", true],
+      ["rituals/dawn/_index.md", true],
+      ["rituals/dusk/_index.md", true],
+    ]);
+    expect(counter.walks).toBe(1);
+  } finally {
+    p.close();
+  }
 });

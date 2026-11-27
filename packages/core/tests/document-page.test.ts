@@ -333,9 +333,9 @@ describe("truthful warnings", () => {
 describe("page cost (#4788)", () => {
   type Statement = { sql: string; params: unknown[] };
 
-  /** Every statement one selection runs, with the parameters it ran with. */
-  function statementsOf(input: DocumentPageInput): Statement[] {
-    return withDb((db) => {
+  /** Every statement one selection runs, with the parameters it ran with, on the fixture index or on `on`. */
+  function statementsOf(input: DocumentPageInput, on?: Database): Statement[] {
+    const spy = (db: Database) => {
       const seen: Statement[] = [];
       const query = db.query.bind(db);
       db.query = ((sql: string) => {
@@ -352,13 +352,14 @@ describe("page cost (#4788)", () => {
         db.query = query as typeof db.query;
       }
       return seen;
-    });
+    };
+    return on ? spy(on) : withDb(spy);
   }
 
-  function plan(statement: Statement): string[] {
-    return withDb((db) =>
-      (db.prepare(`EXPLAIN QUERY PLAN ${statement.sql}`).all(...(statement.params as [])) as { detail: string }[]).map((r) => r.detail)
-    );
+  function plan(statement: Statement, on?: Database): string[] {
+    const explain = (db: Database) =>
+      (db.prepare(`EXPLAIN QUERY PLAN ${statement.sql}`).all(...(statement.params as [])) as { detail: string }[]).map((r) => r.detail);
+    return on ? explain(on) : withDb(explain);
   }
 
   const continuation = (): string => page({ limit: 7 }).next_cursor!;
@@ -388,6 +389,63 @@ describe("page cost (#4788)", () => {
     expect(plan(newest).some((d) => /USING (COVERING )?INDEX idx_documents_indexed_at\b/.test(d)), plan(newest).join("\n")).toBe(true);
   });
 
+  const commonTag = (): string =>
+    withDb((db) =>
+      db.query<{ name: string }, []>("SELECT t.name FROM tags t JOIN document_tags dt ON dt.tag_id = t.id GROUP BY t.id ORDER BY COUNT(*) DESC, t.name LIMIT 1").get()!.name
+    );
+
+  test("a filtered scope takes its newest value from idx_documents_indexed_at, never from each matching row (#4879)", () => {
+    // `indexed_at` is stored behind the body: a plan that reads it from the
+    // rows a filter's index finds reads every matching body to get there.
+    const scopes: Array<[string, Partial<DocumentPageInput>, RegExp]> = [
+      ["type", { type: "project" }, /^SEARCH d USING INDEX idx_documents_type \(type=\?\)$/],
+      ["status", { status: "active" }, /^SEARCH d USING COVERING INDEX idx_documents_status \(status=\?\)$/],
+      ["tag", { tag: commonTag() }, /^SEARCH t USING COVERING INDEX sqlite_autoindex_tags_1 \(name=\?\)$/],
+    ];
+    for (const [name, input, filter] of scopes) {
+      const newest = statementsOf({ ...input, limit: 7 }).filter((s) => /MAX\(\w+\.indexed_at\)/.test(s.sql));
+      expect(newest, name).toHaveLength(1);
+      const detail = plan(newest[0]);
+      const text = `${name}\n${detail.join("\n")}`;
+      // The one read of the newest value: a search of its own index, down to
+      // the first entry in scope.
+      expect(detail.filter((d) => /^(SCAN|SEARCH) x\b/.test(d)), text).toEqual(["SEARCH x USING COVERING INDEX idx_documents_indexed_at"]);
+      // The scope's ids come from the filter's own index, never a scan.
+      expect(detail.some((d) => filter.test(d)), text).toBe(true);
+      expect(detail.filter((d) => /^SCAN d\b/.test(d)), text).toEqual([]);
+    }
+  });
+
+  test("on an index without idx_documents_indexed_at a filtered scope keeps reading only its matching rows (#4879)", () => {
+    // A read-only snapshot serves schema 4 and later without migrating; v16 added the index.
+    const dir = makeTempBrain({ empty: true });
+    try {
+      const dbFile = join(dir, "brain.db");
+      withDb((db) => db.run(`VACUUM INTO '${dbFile}'`));
+      const older = openDatabase(dbFile, { readonly: false });
+      try {
+        older.run("DROP INDEX idx_documents_indexed_at");
+        for (const input of [{ type: "project" }, { status: "active" }, { tag: commonTag() }] as Partial<DocumentPageInput>[]) {
+          const text = JSON.stringify(input);
+          const newest = statementsOf({ ...input, limit: 7 }, older).filter((s) => /MAX\(\w+\.indexed_at\)/.test(s.sql));
+          expect(newest, text).toHaveLength(1);
+          const detail = plan(newest[0], older);
+          // Documents are read only through an index. A bare `SEARCH x` is a
+          // walk of the whole table that checks each rowid against the list.
+          // (The tag scope's `SCAN dt` is its tag lookup.)
+          expect(detail.filter((d) => /^(SCAN|SEARCH) (d|x)\b/.test(d) && !/ USING /.test(d)), `${text}\n${detail.join("\n")}`).toEqual([]);
+          const selection = selectDocumentPage(older, { ...input, limit: 7 });
+          const current = withDb((db) => selectDocumentPage(db, { ...input, limit: 7 }));
+          expect([selection.total, selection.fingerprint], text).toEqual([current.total, current.fingerprint]);
+        }
+      } finally {
+        older.close();
+      }
+    } finally {
+      cleanup(dir);
+    }
+  });
+
   test("page boundaries fall inside groups of rows that share one updated value", () => {
     // The precondition of the enumeration tests above: without a tie across a
     // boundary, a keyset that drops tied rows would still enumerate fully.
@@ -399,11 +457,11 @@ describe("page cost (#4788)", () => {
   });
 
   test("total and the cursor fingerprint keep the values the combined scope row gave, for every kind of scope", () => {
-    type Row = { path: string; type: string; status: string; indexed_at: string; tags: string | null };
+    type Row = { path: string; type: string; status: string; relevance: string; indexed_at: string; tags: string | null };
     const rows = withDb((db) =>
       db
         .query<Row, []>(
-          `SELECT d.path, d.type, d.status, d.indexed_at,
+          `SELECT d.path, d.type, d.status, d.relevance, d.indexed_at,
              (SELECT GROUP_CONCAT(t.name, char(10)) FROM document_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.document_id = d.id) AS tags
            FROM documents d`
         )
@@ -416,7 +474,10 @@ describe("page cost (#4788)", () => {
     const scopes: Array<[Partial<DocumentPageInput>, (r: Row) => boolean]> = [
       [{}, live],
       [{ type: "project" }, (r) => live(r) && r.type === "project"],
+      [{ status: "active" }, (r) => r.status === "active"],
+      [{ relevance: "secondary" }, (r) => live(r) && r.relevance === "secondary"],
       [{ tag }, (r) => live(r) && (r.tags ?? "").split("\n").includes(tag)],
+      [{ type: "project", tag }, (r) => live(r) && r.type === "project" && (r.tags ?? "").split("\n").includes(tag)],
       [{ pathPrefix: "notes/fleet" }, (r) => live(r) && r.path.startsWith("notes/fleet/")],
       [{ includeArchived: true }, () => true],
     ];
