@@ -4,7 +4,8 @@ import type {
   AgentBackend,
   FollowUpRequest,
 } from "@schlessera/brain-ui-sdk/server";
-import type { WSContext } from "../src/ws/clients";
+import { resultFrame } from "./helpers/fake-backend";
+import { fakeClient } from "./helpers/fake-socket";
 import {
   addClient,
   closeDb,
@@ -58,7 +59,7 @@ function makeFakeBackend(caps: { concurrentSessions: boolean; followUp: boolean 
       controls.set(sessionId, {
         emit: (m) => req.bridge.emit(m),
         finish: () => {
-          req.bridge.emit({ type: "result", sessionId, costUsd: 0, durationMs: 1, numTurns: 1, isError: false });
+          req.bridge.emit(resultFrame(sessionId, { outcome: undefined }));
           resolveDone();
         },
         end: () => resolveDone(),
@@ -91,11 +92,6 @@ function makeFakeBackend(caps: { concurrentSessions: boolean; followUp: boolean 
   return { backend, controls, startCalls, followUpCalls };
 }
 
-function fakeClient() {
-  const sent: ServerMessage[] = [];
-  const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
-  return { ws, sent };
-}
 
 const sid = (f: ServerMessage): string | undefined =>
   (f as { sessionId?: string }).sessionId;
@@ -218,7 +214,7 @@ describe("parallel sessions (ws handler)", () => {
 
     // The turn has streamed its terminal result but startTurn has not resolved:
     // its input is closed, so a live follow-up would be refused and lost.
-    controls.get(sidA)!.emit({ type: "result", sessionId: sidA, costUsd: 0, durationMs: 1, numTurns: 1, isError: false });
+    controls.get(sidA)!.emit(resultFrame(sidA, { outcome: undefined }));
     await handleClientMessage(ws, { type: "chat_message", text: "just after", sessionId: sidA });
     expect(followUpCalls).toHaveLength(0);
     expect(sent.some((f) => f.type === "status" && (f as { status: string }).status === "queued" && sid(f) === sidA)).toBe(true);

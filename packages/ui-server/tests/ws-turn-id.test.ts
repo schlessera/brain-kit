@@ -10,10 +10,10 @@ import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { turnIdMatches } from "../src/ws/dispatch";
 import { createWsHandlers } from "../src/ws/connection";
 import { testHost } from "./helpers/test-host";
-import { makeFakeBackend } from "./helpers/fake-backend";
+import { makeFakeBackend, resultFrame } from "./helpers/fake-backend";
+import { fakeClient } from "./helpers/fake-socket";
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
-import type { WSContext } from "../src/ws/clients";
 import {
   addClient,
   closeDb,
@@ -70,15 +70,7 @@ function approvalBackend() {
             input: {},
           }) as Promise<{ behavior: string }>,
         finish: () => {
-          req.bridge.emit({
-            type: "result",
-            sessionId,
-            outcome: "success",
-            costUsd: 0,
-            durationMs: 1,
-            numTurns: 1,
-            isError: false,
-          });
+          req.bridge.emit(resultFrame(sessionId));
           resolveDone();
         },
       });
@@ -94,11 +86,6 @@ function approvalBackend() {
   return { backend, controls };
 }
 
-function fakeClient() {
-  const sent: ServerMessage[] = [];
-  const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
-  return { ws, sent };
-}
 
 const turnIdOf = (f: ServerMessage): string | undefined =>
   (f as { turnId?: string }).turnId;

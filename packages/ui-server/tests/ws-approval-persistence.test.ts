@@ -13,7 +13,8 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend, LocationFix } from "@schlessera/brain-ui-sdk/server";
 import { createWsHandlers as createAuthorizedWsHandlers } from "../src/ws/connection";
-import type { WSContext } from "../src/ws/clients";
+import { resultFrame } from "./helpers/fake-backend";
+import { fakeClient } from "./helpers/fake-socket";
 import {
   closeDb,
   handleClientMessage,
@@ -75,15 +76,7 @@ function interactiveBackend() {
           }) as Promise<{ behavior: string; message?: string }>,
         requestLocation: () => req.bridge.getLocation!(),
         finish: () => {
-          req.bridge.emit({
-            type: "result",
-            sessionId,
-            outcome: "success",
-            costUsd: 0,
-            durationMs: 1,
-            numTurns: 1,
-            isError: false,
-          });
+          req.bridge.emit(resultFrame(sessionId));
           resolveDone();
         },
       });
@@ -99,11 +92,6 @@ function interactiveBackend() {
   return { backend, controls };
 }
 
-function fakeClient() {
-  const sent: ServerMessage[] = [];
-  const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
-  return { ws, sent };
-}
 
 const openEvt = {} as Event;
 const closeEvt = { code: 1001 } as CloseEvent;

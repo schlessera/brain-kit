@@ -31,7 +31,7 @@ import {
 import type { AgentBackend, BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { createWsHandlers } from "../src/ws/connection";
 import { handleClientMessage as dispatch } from "../src/ws/dispatch";
-import type { WSContext } from "../src/ws/clients";
+import { fakeClient } from "./helpers/fake-socket";
 import { closeDb, resetForTests, setBackendForTests, testHost } from "./helpers/test-host";
 import { testAuthorization, testPrincipal } from "./helpers/principal";
 import { until as waitFor } from "../../../tests/helpers/until";
@@ -166,11 +166,6 @@ function askingBackend(kind: Kind, timing: Timing) {
   return { backend, settlements, failures, clock };
 }
 
-function fakeClient() {
-  const sent: ServerMessage[] = [];
-  const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
-  return { ws, sent };
-}
 
 const asPrincipal = (id: string) => ({ principal: testPrincipal(id), authorization: testAuthorization(id) });
 

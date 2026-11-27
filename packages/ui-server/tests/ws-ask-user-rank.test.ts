@@ -8,7 +8,8 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { AskUserRankSpec, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend, AskUserRankResult } from "@schlessera/brain-ui-sdk/server";
 import { createWsHandlers as createAuthorizedWsHandlers } from "../src/ws/connection";
-import type { WSContext } from "../src/ws/clients";
+import { resultFrame } from "./helpers/fake-backend";
+import { fakeClient } from "./helpers/fake-socket";
 import {
   closeDb,
   handleClientMessage,
@@ -54,15 +55,7 @@ function rankBackend() {
       } catch (err) {
         settled = { error: err as Error };
       }
-      req.bridge.emit({
-        type: "result",
-        sessionId: "s1",
-        outcome: "success",
-        costUsd: 0,
-        durationMs: 1,
-        numTurns: 1,
-        isError: false,
-      });
+      req.bridge.emit(resultFrame("s1"));
     },
     async listSessions() {
       return [];
@@ -74,11 +67,6 @@ function rankBackend() {
   return { backend, settled: () => settled };
 }
 
-function fakeClient() {
-  const sent: ServerMessage[] = [];
-  const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
-  return { ws, sent };
-}
 
 const openEvt = {} as Event;
 const closeEvt = { code: 1001 } as CloseEvent;

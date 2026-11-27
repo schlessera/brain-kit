@@ -18,7 +18,8 @@ import { createUiDb } from "../src/db/client";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { handleClientMessage as dispatch } from "../src/ws/dispatch";
 import { createWsHandlers } from "../src/ws/connection";
-import type { WSContext } from "../src/ws/clients";
+import { resultFrame } from "./helpers/fake-backend";
+import { fakeClient } from "./helpers/fake-socket";
 import { WsHost, type ToolPermissions } from "../src/ws/host";
 import {
   closeDb,
@@ -63,15 +64,7 @@ function permissionBackend() {
       controls.push({
         request: (r, id) => req.bridge.requestPermission({ ...r, toolUseId: id }),
         finish: () => {
-          req.bridge.emit({
-            type: "result",
-            sessionId,
-            outcome: "success",
-            costUsd: 0,
-            durationMs: 1,
-            numTurns: 1,
-            isError: false,
-          });
+          req.bridge.emit(resultFrame(sessionId));
           resolveDone();
         },
       });
@@ -87,11 +80,6 @@ function permissionBackend() {
   return { backend, controls };
 }
 
-function fakeClient() {
-  const sent: ServerMessage[] = [];
-  const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
-  return { ws, sent };
-}
 
 /** In-memory grants store mirroring the app's db-backed one. */
 function memoryGrants(initial: string[] = []) {
