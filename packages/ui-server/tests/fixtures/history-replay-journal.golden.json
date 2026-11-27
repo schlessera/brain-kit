@@ -1,0 +1,197 @@
+[
+  {
+    "turnId": "complete",
+    "journal": {
+      "configurationCoverage": "unknown",
+      "scope": {
+        "read": [
+          "notes"
+        ],
+        "wrote": [
+          "notes"
+        ]
+      },
+      "state": "complete",
+      "changedFiles": 2,
+      "steeringFiles": 1,
+      "keptFiles": 2,
+      "sharedAttribution": true,
+      "costUsd": 0.25,
+      "costIsEstimate": true,
+      "profile": "governed",
+      "actor": "interactive",
+      "kind": "turn",
+      "model": "fixture-model",
+      "policyHash": null,
+      "observedAt": 2,
+      "budget": {
+        "turn": {
+          "costUsd": 0.25
+        }
+      }
+    }
+  },
+  {
+    "turnId": "partial",
+    "journal": {
+      "configurationCoverage": "unknown",
+      "state": "partial",
+      "changedFiles": 1,
+      "steeringFiles": 0,
+      "keptFiles": 1,
+      "sharedAttribution": false,
+      "costUsd": null,
+      "costIsEstimate": null,
+      "profile": "governed",
+      "actor": "interactive",
+      "kind": "turn",
+      "model": "fixture-model",
+      "policyHash": null,
+      "observedAt": 3
+    }
+  },
+  {
+    "turnId": "failed",
+    "journal": {
+      "configurationCoverage": "unknown",
+      "state": "partial",
+      "changedFiles": null,
+      "steeringFiles": null,
+      "keptFiles": null,
+      "sharedAttribution": false,
+      "costUsd": null,
+      "costIsEstimate": null,
+      "profile": "governed",
+      "actor": "interactive",
+      "kind": "turn",
+      "model": "fixture-model",
+      "policyHash": null,
+      "observedAt": 4
+    }
+  },
+  {
+    "turnId": "expired",
+    "journal": {
+      "configurationCoverage": "unknown",
+      "state": "expired",
+      "changedFiles": 4,
+      "steeringFiles": 1,
+      "keptFiles": 3,
+      "sharedAttribution": true,
+      "costUsd": null,
+      "costIsEstimate": null,
+      "profile": "governed",
+      "actor": "interactive",
+      "kind": "turn",
+      "model": "fixture-model",
+      "policyHash": null,
+      "observedAt": 5
+    }
+  },
+  {
+    "turnId": "configured",
+    "journal": {
+      "configurationCoverage": "incomplete",
+      "configurationCoverageSet": "218d82d0ca12a080e1cc82fafaf17493e44cdbe7a94527f36ff6d0ca781dd24d",
+      "state": "complete",
+      "changedFiles": 0,
+      "steeringFiles": 0,
+      "keptFiles": 0,
+      "sharedAttribution": false,
+      "costUsd": null,
+      "costIsEstimate": null,
+      "profile": "governed",
+      "actor": "interactive",
+      "kind": "turn",
+      "model": "fixture-model",
+      "policyHash": null,
+      "observedAt": 6
+    }
+  },
+  {
+    "turnId": "code",
+    "journal": {
+      "configurationCoverage": "unknown",
+      "state": "complete",
+      "changedFiles": 3,
+      "steeringFiles": 0,
+      "keptFiles": 3,
+      "sharedAttribution": false,
+      "costUsd": null,
+      "costIsEstimate": null,
+      "profile": "governed",
+      "actor": "interactive",
+      "kind": "turn",
+      "model": "fixture-model",
+      "policyHash": null,
+      "observedAt": 7
+    }
+  },
+  {
+    "turnId": "active",
+    "journal": {
+      "configurationCoverage": "unknown",
+      "state": "recording",
+      "changedFiles": 0,
+      "steeringFiles": 0,
+      "keptFiles": 0,
+      "sharedAttribution": false,
+      "costUsd": null,
+      "costIsEstimate": null,
+      "profile": "governed",
+      "actor": "interactive",
+      "kind": "turn",
+      "model": null,
+      "policyHash": null
+    }
+  },
+  {
+    "turnId": "unjournaled",
+    "journal": {
+      "state": "unknown",
+      "changedFiles": null,
+      "steeringFiles": null,
+      "keptFiles": null,
+      "costUsd": null,
+      "costIsEstimate": null,
+      "profile": null,
+      "actor": null,
+      "model": null,
+      "policyHash": null,
+      "sharedAttribution": false,
+      "observedAt": null
+    }
+  },
+  {
+    "turnId": "complete",
+    "journal": {
+      "configurationCoverage": "unknown",
+      "scope": {
+        "read": [
+          "notes"
+        ],
+        "wrote": [
+          "notes"
+        ]
+      },
+      "state": "complete",
+      "changedFiles": 2,
+      "steeringFiles": 1,
+      "keptFiles": 2,
+      "sharedAttribution": true,
+      "costUsd": 0.25,
+      "costIsEstimate": true,
+      "profile": "governed",
+      "actor": "interactive",
+      "kind": "turn",
+      "model": "fixture-model",
+      "policyHash": null,
+      "observedAt": 2,
+      "budget": {
+        "turn": {
+          "costUsd": 0.25
+        }
+      }
+    }
+  }
+]
