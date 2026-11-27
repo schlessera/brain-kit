@@ -1,5 +1,5 @@
-import { loadVecSupport, openDatabase, vecTableExists, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
-import { compactVectors, indexAll, needsCompaction, readVectorSlots } from "../../lib/indexer.js";
+import { loadVecSupport, openDatabase, vecTableExists } from "../../lib/db.js";
+import { compactVectors, needsCompaction, readVectorSlots } from "../../lib/indexer.js";
 import { auditTotals, auditWithModules } from "../../lib/auditor.js";
 import { runRegistry } from "../../lib/index-registry.js";
 import { pruneScratch } from "../../lib/scratch.js";
@@ -10,7 +10,7 @@ import type { StatsTrends } from "../../lib/stats-trends.js";
 import { GitPackingSkipped, gitObjectCounts, GitNoSpaceError, GitUnavailableError, gitPackingHeadroom, isGitWorkTree, packRepository } from "../../lib/git-storage.js";
 import { workerOutputAllowance } from "../../config/env.js";
 import type { CoreCommand } from "../types.js";
-import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
+import { emit, embeddingDims, parseArgs, reindexWithProviders, UsageError } from "../io.js";
 
 const HELP = `brain maintain — routine maintenance (cron-friendly)
 
@@ -80,23 +80,7 @@ export const maintainCommand: CoreCommand = {
 
     // 1. Incremental index (+embeddings when available — self-heals vectors).
     try {
-      const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
-      let stats;
-      try {
-        await migrateVecSchema(db, storedVectorWidth(db, dims));
-        const wantEmbeddings = !!cli.embeddings;
-        stats = await indexAll(db, {
-          root: cli.brain.root,
-          taxonomy: cli.brain.taxonomy,
-          force: false,
-          quiet: true,
-          embeddings: wantEmbeddings,
-          provider: wantEmbeddings ? cli.embeddings : undefined,
-          enrichment: wantEmbeddings ? cli.enrichment : undefined,
-        });
-      } finally {
-        db.close();
-      }
+      const stats = await reindexWithProviders(cli);
       report.push({
         step: "index",
         result: `ok — ${stats.added} added, ${stats.updated} updated, ${stats.deleted} deleted, ${stats.embeddings} embeddings`,
