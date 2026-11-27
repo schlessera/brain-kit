@@ -303,8 +303,11 @@ describe("documentation check", () => {
  * Every flag first-party code outside packages/core passes to a core command,
  * with the file that passes it. Found with
  * `git grep -n -E 'execBrain\(|argv: \[("brain"|\.\.\.command|cliBin)|brain\.hygiene\(|cli\(\[' -- packages/ui-server/src packages/ui-backend-claude/src packages/ui-backend-pi/src`
- * and the `"--<flag>"` literals in each hit's file; the two backends reach
- * core through the library, not its CLI, and have no hit.
+ * and the `"--<flag>"` literals in each hit's file, plus argument lists
+ * returned as `[...command, "<core command>", …]`. The two backends reach core
+ * through the library, not its CLI, and have no hit. A row's flag must still
+ * appear in its file as `--<flag>`. The hosted schedules' shell lines are not
+ * rows: `SHELL_HOSTS` below parses them.
  */
 const HOST_ROWS: { command: string; flags: string[]; file: string }[] = [
   { command: "module", flags: ["json", "stdin", "preview", "migrate", "revision", "action"], file: "packages/ui-server/src/brain/client.ts" },
@@ -314,8 +317,9 @@ const HOST_ROWS: { command: string; flags: string[]; file: string }[] = [
   { command: "hygiene", flags: ["json"], file: "packages/ui-server/src/brain/client.ts" },
   { command: "sync", flags: ["json"], file: "packages/ui-server/src/brain/client.ts" },
   { command: "add", flags: ["type", "title", "tags"], file: "packages/ui-server/src/brain/client.ts" },
-  { command: "index", flags: ["force"], file: "packages/ui-server/src/brain/client.ts" },
+  { command: "index", flags: ["force", "json"], file: "packages/ui-server/src/brain/client.ts" },
   { command: "storage", flags: ["json"], file: "packages/ui-server/src/brain/client.ts" },
+  { command: "config", flags: ["json"], file: "packages/ui-server/src/brain/client.ts" },
   { command: "scratch", flags: ["pins-file", "json"], file: "packages/ui-server/src/brain/client.ts" },
   { command: "module", flags: ["json"], file: "packages/ui-server/src/cron/module-discovery.ts" },
   { command: "sync", flags: ["human"], file: "packages/ui-server/src/routes/brain.ts" },
@@ -331,6 +335,19 @@ const HOST_ROWS: { command: string; flags: string[]; file: string }[] = [
   },
 ];
 
+/**
+ * Host files that run core commands as shell text, found with
+ * `git grep -n -E '\bbrain (<core command words>)\b' -- packages/ui-server/src`
+ * outside comments: the hosted schedules' crontab and sync job. Every
+ * `brain <core command> …` in them is parsed and judged like a documented
+ * invocation, so a flag added to a schedule line is checked. The words each
+ * file must yield keep the parser from silently finding nothing.
+ */
+const SHELL_HOSTS: { file: string; commands: string[] }[] = [
+  // `module` is the crontab comment emitted when `brain module list` is unavailable.
+  { file: "packages/ui-server/src/cron/emit.ts", commands: ["hygiene", "index", "maintain", "module", "sync", "validate"] },
+];
+
 /** Flags a host passes that its command does not read, each filed. None today. */
 const HOST_EXCEPTIONS: { command: string; flag: string; file: string; issue: string }[] = [];
 
@@ -339,10 +356,22 @@ describe("host check", () => {
     for (const row of HOST_ROWS) {
       const source = readFileSync(join(REPO, row.file), "utf8");
       for (const flag of row.flags) {
-        expect({ ...row, flag, present: source.includes(`"--${flag}"`) }).toEqual({ ...row, flag, present: true });
+        expect({ ...row, flag, present: new RegExp(`(?<![\\w-])--${flag}(?![\\w-])`).test(source) }).toEqual({ ...row, flag, present: true });
         const excepted = HOST_EXCEPTIONS.some((x) => x.command === row.command && x.flag === flag && x.file === row.file);
         expect({ ...row, flag, accepted: excepted || accepted(row.command, flag) }).toEqual({ ...row, flag, accepted: true });
       }
+    }
+  });
+
+  test("every flag a host's shell line passes a core command is declared or global", () => {
+    for (const host of SHELL_HOSTS) {
+      const source = readFileSync(join(REPO, host.file), "utf8").replace(/^\s*(\/\/|\*|\/\*\*).*$/gm, "");
+      const lines = [...source.matchAll(/(?<![\w/.-])brain ([a-z][a-z-]*)((?: +[^\s|&;>`'"$]+)*)/g)]
+        .filter((m) => Object.hasOwn(COMMANDS, m[1]!))
+        .map((m) => ({ command: m[1]!, flags: flagsIn(m[2]!) }));
+      expect({ file: host.file, commands: sorted(lines.map((l) => l.command)) }).toEqual({ file: host.file, commands: host.commands });
+      const undeclaredFlags = lines.flatMap((l) => l.flags.filter((flag) => !accepted(l.command, flag)).map((flag) => `brain ${l.command} --${flag}`));
+      expect({ file: host.file, undeclared: undeclaredFlags }).toEqual({ file: host.file, undeclared: [] });
     }
   });
 });
