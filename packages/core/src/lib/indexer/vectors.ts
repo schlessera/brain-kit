@@ -17,7 +17,6 @@ import {
   loadVecSupport,
   migrateVecSchema,
   setMeta,
-  vecStoreHasRows,
   vecTableExists,
 } from "../db.js";
 import { chunkTextForEmbedding } from "../chunker.js";
@@ -27,6 +26,16 @@ import type { IndexRun } from "./types.js";
 
 /** Rows are deleted in batches of this many document ids per IN-list. */
 const ID_BATCH = 500;
+
+/** True when at least one vector is stored (cheap EXISTS probe). */
+export function vecStoreHasRows(db: Database): boolean {
+  try {
+    const row = db.prepare("SELECT EXISTS(SELECT 1 FROM vec_chunks) AS n").get() as { n: number };
+    return row.n === 1;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Drop markdown vectors ahead of a `--force` rebuild.
