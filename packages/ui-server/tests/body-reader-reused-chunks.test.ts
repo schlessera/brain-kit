@@ -62,7 +62,7 @@ const multipart = (name: string, filename: string, type: string, content: string
 
 interface Route {
   route: string;
-  send: (body: ReadableStream<Uint8Array>) => Promise<Response>;
+  send: (body: ReadableStream<Uint8Array>) => Response | Promise<Response>;
   text: string;
 }
 
