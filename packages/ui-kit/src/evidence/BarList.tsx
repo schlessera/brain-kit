@@ -30,18 +30,6 @@ export interface BarListProps {
   valueWidth?: number;
 }
 
-/** A 5px-high bar is a mark, not a field: the `mark` role is the one that
- * survives the light theme at this size. */
-const TONES: Record<Tone, string> = {
-  amber: accent.amber.mark,
-  gold: accent.gold.mark,
-  teal: accent.teal.mark,
-  purple: accent.purple.mark,
-  blue: accent.blue.mark,
-  red: accent.red.mark,
-  neutral: accent.neutral.mark,
-};
-
 /** The source's own fallback, verbatim — it names tiers of work rather than
  * anything of anyone's, so there is nothing here to replace. */
 const FALLBACK: BarListRow[] = [
@@ -109,7 +97,7 @@ export function BarList(p: BarListProps) {
                 display: "block",
                 width: `${Math.max(0, Math.min(100, r.pct))}%`,
                 height: "100%",
-                background: TONES[r.tone || "teal"] || TONES.teal,
+                background: (accent[r.tone || "teal"] ?? accent.teal).mark,
               }}
             />
           </span>
