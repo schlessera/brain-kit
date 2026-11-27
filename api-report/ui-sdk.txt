@@ -3431,6 +3431,7 @@ export "./server" (./src/server/index.ts)
   assertLoadedSdk
   assertTurnPosture
   assertVersionRequirements
+  autonomousYieldLatch
   bashLockKey
   brainApplicationInput
   brainReadBaseInput
@@ -3490,6 +3491,7 @@ export "./server" (./src/server/index.ts)
   isGithubToolName
   isPricingRoute
   isProfileUnavailableReason
+  isSessionUuid
   isThinkingLevel
   isWebToolName
   killWrapped
@@ -3519,6 +3521,7 @@ export "./server" (./src/server/index.ts)
   toleranceMetres
   toolBriefLines
   toolInputJsonSchema
+  usageTokenCount
   validateExecWrapper
   validateVersionMinimum
   visibleToolName
@@ -15953,6 +15956,13 @@ signatures (every public export and the types it is made of)
         maxTotalBytes: z.ZodNumber;
         poolBytes: z.ZodNumber;
     }, z.core.$loose>;
+  autonomousYieldLatch (packages/ui-sdk/src/server/turn-rules.ts)
+    export function autonomousYieldLatch(options: {
+        onYield: (key: string) => void;
+        aborted: () => boolean;
+        emit: (message: ServerMessage) => void;
+        abort: () => void;
+    }): (key: string) => void;
   bashLockKey (packages/ui-sdk/src/server/lock-keys.ts)
     export function bashLockKey(command: string): string | null;
   brainApplicationInput (packages/ui-sdk/src/server/brain-application.ts)
@@ -21054,6 +21064,8 @@ signatures (every public export and the types it is made of)
     export function isPricingRoute(v: unknown): v is PricingRoute;
   isProfileUnavailableReason (packages/ui-sdk/src/protocol.ts)
     export function isProfileUnavailableReason(value: unknown): value is ProfileUnavailableReason;
+  isSessionUuid (packages/ui-sdk/src/server/turn-rules.ts)
+    export function isSessionUuid(id: string): boolean;
   isThinkingLevel (packages/ui-sdk/src/protocol.ts)
     export function isThinkingLevel(v: unknown): v is ThinkingLevel;
   isWebToolName (packages/ui-sdk/src/tool-contracts/web.ts)
@@ -30738,6 +30750,8 @@ signatures (every public export and the types it is made of)
             submissionId: z.ZodOptional<z.ZodString>;
         }, z.core.$loose>>;
     }, z.core.$loose>;
+  usageTokenCount (packages/ui-sdk/src/server/turn-rules.ts)
+    export function usageTokenCount(value: unknown): number | null;
   v1ResolutionEffectSchema (packages/ui-sdk/src/schemas.ts)
     const v1ResolutionEffectSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         approvedBy: z.ZodOptional<z.ZodString>;

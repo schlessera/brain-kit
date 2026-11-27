@@ -6541,3 +6541,26 @@ its live stream always did, where it joined them with `""`. Stored
 transcripts are not rewritten, no wire type changes, and the sites that compare
 text with the prompt as sent keep their separator, so provider requests are
 unchanged.
+
+<a id="turn-rule-helpers-additive-0450-4721"></a>
+
+## Turn rule helpers (additive, 0.45.0, #4721)
+
+`@schlessera/brain-ui-sdk/server` exports, `@experimental` backend toolkit
+until 1.0:
+
+- `isSessionUuid(id): boolean`, the anchored, case-insensitive UUID test both
+  backends apply to a session id. The Claude `isSessionId` and Pi
+  `isPiSessionId` names remain as aliases of it, and Pi's `savePiSession` and
+  `appendPiSession` now refuse an id it rejects (they accepted any 36
+  characters of `[a-f0-9-]`; their callers pass server-minted UUIDs).
+- `autonomousYieldLatch({ onYield, aborted, emit, abort })`, returning the
+  `onYield` wrapper both
+  backends hand their runtimes: the first yield of a live turn calls
+  `onYield`, emits an `AUTONOMOUS_YIELD_FAILED` error frame when it throws,
+  then calls the runtime's own `abort`; later yields and a yield after
+  `aborted()` do nothing.
+- `usageTokenCount(value): number | null`, the token check of the
+  `first_request_cache` activity event: a non-negative safe integer, or `null`.
+
+Wire frames, activity events and provider requests are unchanged.

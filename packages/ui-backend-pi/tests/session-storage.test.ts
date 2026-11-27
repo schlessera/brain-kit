@@ -47,6 +47,13 @@ test.each(["symlink", "hardlink"] as const)("a transcript append through a %s al
   expect(() => appendPiSession(f.state, id, size, [{ type: "message", id: "e1" }])).toThrow(ALIAS_REFUSAL[kind]);
   expect(readFileSync(f.policy, "utf8")).toBe("Athena owns policy.\n");
 });
+test("saving or appending a transcript under an id that is not a UUID is refused before any file exists", () => {
+  // The same session-id test as the rest of the package (#4721): 36 hyphens are not an id.
+  const f = fixture(), id = "-".repeat(36);
+  expect(() => savePiSession(f.state, id, [])).toThrow("Invalid server session identity");
+  expect(() => appendPiSession(f.state, id, 0, [{ type: "message", id: "e1" }])).toThrow("Invalid server session identity");
+  expect(existsSync(join(f.state, `${id}.jsonl`))).toBe(false);
+});
 const serialized = (entries: unknown[]) => entries.map(entry => JSON.stringify(entry)).join("\n") + "\n";
 test("a transcript append writes the serialization rule's lines only onto the size last saved", () => {
   const f = fixture(), id = randomUUID(), path = join(f.state, `${id}.jsonl`);

@@ -20,6 +20,16 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Turn rule helpers (additive, 0.45.0, #4721)
+
+`@schlessera/brain-ui-sdk/server` exports the `@experimental` backend toolkit
+helpers `isSessionUuid(id)`, `autonomousYieldLatch(options)` and
+`usageTokenCount(value)`, which both
+first-party backends now use. The Pi backend refuses to save or append a
+transcript under a session id that is not a UUID. See
+[the package API](integration-contract/package-api.md#turn-rule-helpers-additive-0450-4721).
+This ships in a minor.
+
 ## Content text helpers (additive, 0.45.0, #4720)
 
 `@schlessera/brain-ui-sdk/server` exports the `@experimental` backend toolkit

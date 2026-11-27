@@ -1,6 +1,6 @@
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { describeRetry, textOfParts } from "@schlessera/brain-ui-sdk/server";
+import { describeRetry, textOfParts, usageTokenCount } from "@schlessera/brain-ui-sdk/server";
 import type {
   BackendActivityEvent,
   ServerMessage,
@@ -75,7 +75,7 @@ export class StreamAdapter {
             && !this.firstMainRequest && event.type === "message_start") {
           this.firstMainRequest = true;
           const u = event.message.usage;
-          const token = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
+          const token = usageTokenCount;
           // Runtime title requests are not root stream events. Model equality
           // cannot establish provenance; child channels are excluded above.
           this.report({ kind: "first_request_cache", usage: { inputTokens: token(u.input_tokens),
