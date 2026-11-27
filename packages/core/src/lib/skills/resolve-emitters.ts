@@ -1,6 +1,6 @@
-import type { BrainContext } from "../lib/context.js";
-import type { SkillEmitter } from "../lib/seams.js";
-import { BUILTIN_EMITTERS, claudeEmitter } from "../lib/skills/index.js";
+import type { BrainContext } from "../context.js";
+import type { SkillEmitter } from "../seams.js";
+import { BUILTIN_EMITTERS, claudeEmitter } from "./index.js";
 
 /**
  * Resolve the skill emitters to run: the claude emitter always, plus any named
