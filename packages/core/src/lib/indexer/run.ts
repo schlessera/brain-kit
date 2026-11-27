@@ -198,13 +198,17 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   // --- parse --------------------------------------------------------------
   let parsed: ParseResult, markdownOnDisk: Set<string>;
   if (targeted) {
-    parsed = completeCorpusMaps(run, parseMarkdownFiles(run, targeted.present, existingDocs), targeted.unnamed);
+    const named = parseMarkdownFiles(run, targeted.present, existingDocs);
+    parsed = completeCorpusMaps(run, named, [...targeted.unnamed, ...named.unparsed]);
     // A named path that is no longer a valid document leaves the index, as a
     // fresh build would never have written it.
     markdownOnDisk = new Set([...targeted.unnamed, ...targeted.present.filter((path) => parsed.fileMap.has(path))]);
   } else {
     const markdownFiles = getMarkdownFiles(run.root, run.taxonomy);
-    parsed = parseMarkdownFiles(run, markdownFiles, existingDocs);
+    const read = parseMarkdownFiles(run, markdownFiles, existingDocs);
+    // The files that were not parsed are unchanged: their titles and aliases
+    // are the index's.
+    parsed = read.unparsed.length ? completeCorpusMaps(run, read, read.unparsed) : read;
     markdownOnDisk = new Set(markdownFiles);
   }
   run.stats.total = markdownOnDisk.size;
