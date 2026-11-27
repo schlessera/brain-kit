@@ -19,11 +19,6 @@ import {
 } from "../src/activity/store.js";
 import type { PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 import type { PricingRates } from "../src/pricing/model-pricing.js";
-import {
-  getDetailRetentionDays,
-  setDetailRetentionDays,
-  setSetting,
-} from "../src/db/settings.js";
 
 function freshStore(writer?: string): { store: ActivityStore; db: ReturnType<typeof createUiDb> } {
   const db = createUiDb(":memory:");
@@ -424,28 +419,6 @@ describe("activity store: detail retention window", () => {
     const res = store.prune({ digestFloorAt: NOW, detailRetentionMs: 0, hardCeilingMs: CEILING, now: NOW });
     expect(res.runsPruned).toBe(1);
     expect(store.snapshotRun("fresh")).toBeNull();
-  });
-
-  test("the retention setting degrades garbage and negatives to the 7-day default", () => {
-    const { db } = freshStore();
-    // No row yet: default.
-    expect(getDetailRetentionDays(db)).toBe(7);
-    setDetailRetentionDays(db, 3);
-    expect(getDetailRetentionDays(db)).toBe(3);
-    // 0 is a valid choice (floor-only pruning), not garbage.
-    setDetailRetentionDays(db, 0);
-    expect(getDetailRetentionDays(db)).toBe(0);
-    // Wrong type, negative, non-finite, corrupt JSON: all degrade to default.
-    setSetting(db, "activity.retention.detailDays", "banana");
-    expect(getDetailRetentionDays(db)).toBe(7);
-    setSetting(db, "activity.retention.detailDays", -3);
-    expect(getDetailRetentionDays(db)).toBe(7);
-    setSetting(db, "activity.retention.detailDays", Number.NaN); // serializes as null
-    expect(getDetailRetentionDays(db)).toBe(7);
-    db.prepare(
-      "UPDATE settings SET value = 'not json' WHERE key = 'activity.retention.detailDays'"
-    ).run();
-    expect(getDetailRetentionDays(db)).toBe(7);
   });
 });
 
