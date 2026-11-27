@@ -347,32 +347,52 @@ function toScoreInput(row: ScoreRow): ScoreJobInput {
   };
 }
 
-/** Score all unscored jobs (scored_at IS NULL and not duplicate). */
+/**
+ * Candidates are read in pages by id, so a pass never holds every description
+ * in memory at once (#4811). Paging, not iterating one open cursor, because
+ * the pass updates `scored_at`, which the unscored read filters on.
+ */
+const SCORE_PAGE_SIZE = 500;
+
+function forEachCandidatePage<Row extends ScoreRow>(
+  db: Database,
+  columns: string,
+  where: string,
+  visit: (row: Row) => void
+): void {
+  const page = db.query(
+    `SELECT ${columns} FROM jobs WHERE ${where} AND id > ? ORDER BY id LIMIT ${SCORE_PAGE_SIZE}`
+  );
+  let after = 0;
+  for (;;) {
+    const rows = page.all(after) as Row[];
+    for (const row of rows) visit(row);
+    if (rows.length < SCORE_PAGE_SIZE) return;
+    after = rows[rows.length - 1]!.id;
+  }
+}
+
+const SCORE_COLUMNS = "id, title, company, description_text, location, tags, salary_min, salary_max, remote_type";
+
+/** Score all unscored jobs (scored_at IS NULL and not duplicate), all or none. */
 export function scoreNewJobs(db: Database, config: ScoringConfig, verbose = false): number {
-  const rows = db
-    .query(
-      `SELECT id, title, company, description_text, location, tags, salary_min, salary_max, remote_type
-       FROM jobs WHERE scored_at IS NULL AND is_duplicate = 0`
-    )
-    .all() as ScoreRow[];
-
-  if (rows.length === 0) return 0;
-
   const now = new Date().toISOString();
   const updateStmt = db.prepare(
     "UPDATE jobs SET relevance_score = ?, score_breakdown = ?, scored_at = ? WHERE id = ?"
   );
 
   let scored = 0;
-  for (const row of rows) {
-    const breakdown = scoreJob(toScoreInput(row), config);
-    updateStmt.run(breakdown.total, JSON.stringify(breakdown), now, row.id);
-    scored++;
+  db.transaction(() => {
+    forEachCandidatePage<ScoreRow>(db, SCORE_COLUMNS, "scored_at IS NULL AND is_duplicate = 0", (row) => {
+      const breakdown = scoreJob(toScoreInput(row), config);
+      updateStmt.run(breakdown.total, JSON.stringify(breakdown), now, row.id);
+      scored++;
 
-    if (verbose && breakdown.total >= config.queueThreshold) {
-      console.log(`[score] #${row.id} "${row.title}" @ ${row.company} -> ${breakdown.total}`);
-    }
-  }
+      if (verbose && breakdown.total >= config.queueThreshold) {
+        console.log(`[score] #${row.id} "${row.title}" @ ${row.company} -> ${breakdown.total}`);
+      }
+    });
+  })();
 
   return scored;
 }
@@ -382,15 +402,6 @@ export function scoreNewJobs(db: Database, config: ScoringConfig, verbose = fals
  * review statuses; only pending/queued jobs are later reclassified.
  */
 export function rescoreAllJobs(db: Database, config: ScoringConfig, verbose = false): number {
-  const rows = db
-    .query(
-      `SELECT id, title, company, description_text, location, tags, salary_min, salary_max, remote_type, relevance_score
-       FROM jobs WHERE is_duplicate = 0`
-    )
-    .all() as Array<ScoreRow & { relevance_score: number }>;
-
-  if (rows.length === 0) return 0;
-
   const now = new Date().toISOString();
   const updateStmt = db.prepare(
     "UPDATE jobs SET relevance_score = ?, score_breakdown = ?, scored_at = ? WHERE id = ?"
@@ -398,14 +409,19 @@ export function rescoreAllJobs(db: Database, config: ScoringConfig, verbose = fa
 
   let rescored = 0;
   let changed = 0;
-  for (const row of rows) {
-    const breakdown = scoreJob(toScoreInput(row), config);
-    if (row.relevance_score !== breakdown.total) changed++;
-    updateStmt.run(breakdown.total, JSON.stringify(breakdown), now, row.id);
-    rescored++;
-  }
+  db.transaction(() => {
+    forEachCandidatePage<ScoreRow & { relevance_score: number }>(
+      db, `${SCORE_COLUMNS}, relevance_score`, "is_duplicate = 0",
+      (row) => {
+        const breakdown = scoreJob(toScoreInput(row), config);
+        if (row.relevance_score !== breakdown.total) changed++;
+        updateStmt.run(breakdown.total, JSON.stringify(breakdown), now, row.id);
+        rescored++;
+      }
+    );
+  })();
 
-  if (verbose) {
+  if (verbose && rescored > 0) {
     console.log(`[rescore] ${rescored} jobs rescored, ${changed} scores changed`);
   }
 

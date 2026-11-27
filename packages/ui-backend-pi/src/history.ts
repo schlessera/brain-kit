@@ -1,5 +1,5 @@
 import { sessionPromptContext, sessionReplay } from "@schlessera/brain-ui-sdk/internal";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 /**
  * Session listing + history normalization for the pi backend.
  *
@@ -32,7 +32,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 
 import { failureFromPiError } from "./turn-failure.js";
-import { isPiSessionId } from "./session-storage.js";
+import { isPiSessionId, piSessionHeader } from "./session-storage.js";
 import type { SessionRetirement } from "@schlessera/brain-ui-sdk/internal";
 
 /** List the pi sessions rooted at this brain repo, newest activity first. */
@@ -77,9 +77,20 @@ export async function getPiHistory(
   } finally { release?.(); }
 }
 
+/**
+ * The server-owned fixed name `<sessionDir>/<id>.jsonl`, when it is a plain
+ * file whose header names this session in this brain (#4858). Anything else
+ * takes the listing path, which also finds older SDK-managed names.
+ */
+function fixedNameTranscript(cwd: string, sessionId: string, sessionDir: string | undefined): { path: string } | undefined {
+  if (!sessionDir || !isPiSessionId(sessionId)) return undefined;
+  const path = join(sessionDir, `${sessionId}.jsonl`), header = piSessionHeader(path);
+  return header?.type === "session" && header.id === sessionId && header.cwd === cwd ? { path } : undefined;
+}
+
 async function readPiHistory(cwd: string, sessionId: string, sessionDir?: string): Promise<SessionHistoryMessage[]> {
-  const infos = await SessionManager.list(cwd, sessionDir);
-  const info = infos.find((i) => i.id === sessionId);
+  const info = fixedNameTranscript(cwd, sessionId, sessionDir)
+    ?? (await SessionManager.list(cwd, sessionDir)).find((i) => i.id === sessionId);
   if (!info && !sessionDir) return [];
 
   // A committed direct effect may be the session's only retained history.
@@ -88,6 +99,8 @@ async function readPiHistory(cwd: string, sessionId: string, sessionDir?: string
   const branch = info ? SessionManager.open(info.path, sessionDir).getBranch() : [];
   const omitted = retriedAttempts(branch);
   const context = sessionDir ? sessionPromptContext(sessionDir, cwd, sessionId) : undefined;
+  // One prompt-context read per history read, taken at the first user message (#4859).
+  let userText: ((providerId: string, wire: string) => string) | undefined;
   const display = sessionReplay(sessionDir ?? dirname(info!.path), cwd, sessionId);
   const displayText = display.texts();
   const messages: AgentMessage[] = [];
@@ -99,7 +112,7 @@ async function readPiHistory(cwd: string, sessionId: string, sessionDir?: string
       if (context && message.role === "user") {
         const content = message.content;
         const wire = typeof content === "string" ? content : content.filter(part => part.type === "text").map(part => (part as { text: string }).text).join("");
-        const text = context.userText(entry.id, wire);
+        const text = (userText ??= context.userTexts())(entry.id, wire);
         message.content = typeof content === "string" ? text : [
           { type: "text", text }, ...content.filter(part => part.type !== "text"),
         ];
