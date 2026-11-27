@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { formatSalaryRange } from "../src/review";
 import { parseSalaryRange } from "../src/salary";
 
 describe("parseSalaryRange", () => {
@@ -43,4 +44,17 @@ describe("parseSalaryRange", () => {
     expect(p.max).toBeUndefined();
     expect(p.annualizedFromHourly).toBe(false);
   });
+});
+
+describe("formatSalaryRange", () => {
+  const cases: Array<[string, number | null, number | null, boolean, string]> = [
+    ["both bounds", 12_000_000, 15_000_000, false, "€120,000 - €150,000"],
+    ["missing minimum", null, 15_000_000, false, "? - €150,000"],
+    ["missing maximum", 12_000_000, null, false, "€120,000 - ?"],
+    ["suffix on", 12_000_000, 15_000_000, true, "€120,000 - €150,000 (EUR, annual)"],
+    ["suffix on, missing maximum", 12_000_000, null, true, "€120,000 - ? (EUR, annual)"],
+  ];
+  for (const [name, min, max, suffix, expected] of cases) {
+    test(name, () => expect(formatSalaryRange({ salary_min: min, salary_max: max }, { suffix })).toBe(expected));
+  }
 });
