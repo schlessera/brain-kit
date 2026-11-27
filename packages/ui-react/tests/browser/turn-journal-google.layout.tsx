@@ -53,6 +53,8 @@ for (const width of [320, 1280]) for (const theme of ["light", "dark"]) {
     const outward = [...host.querySelectorAll("h3")].find(h => h.textContent === "Outward actions")!.closest("section")!;
     expect(section.compareDocumentPosition(outward) & Node.DOCUMENT_POSITION_FOLLOWING, "reversible calls come first").toBeTruthy();
     expect(getComputedStyle(list).rowGap, "the kit list keeps the journal's row rhythm under consumer CSS").toBe(matchMedia("(any-pointer: coarse)").matches ? "16px" : "8px");
+    const [first, second] = [...list.children].map(item => item.getBoundingClientRect());
+    expect(second!.top - first!.bottom, "rows are actually spaced by that gap").toBeCloseTo(parseFloat(getComputedStyle(list).rowGap), 0);
     expect(getComputedStyle(list).marginTop).toBe("8px");
     expect(getComputedStyle(list).listStyleType).toBe("none");
     expect([...outward.querySelectorAll("li")].map(li => li.textContent?.trim()).slice(0, 2)).toEqual([`Gmail send · Approved · ${draft}`, "Gmail trash · Refused"]);
