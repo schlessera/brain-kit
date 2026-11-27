@@ -11,6 +11,7 @@ import { readGeneratedRegion, replaceGeneratedRegion } from "../src/lib/generate
 import { applyRegistry, planRegistry, registrySpecSchema, renderRegistry, runRegistry } from "../src/lib/index-registry";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { git } from "./git-fixture";
 
 const roots: string[] = [];
 afterAll(() => roots.forEach(cleanup));
@@ -235,11 +236,6 @@ async function json(root: string, args: string[]): Promise<{ code: number; out: 
   return { code: r.code, out: JSON.parse(r.stdout) };
 }
 
-function git(cwd: string, ...args: string[]): string {
-  const r = Bun.spawnSync(["git", "-C", cwd, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", ...args]);
-  if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
-  return r.stdout.toString();
-}
 
 describe("brain registry", () => {
   test("writes a table of the children and keeps the prose around it", async () => {
