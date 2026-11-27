@@ -58,7 +58,7 @@ function fixture(free: number) {
 /** Drives the capture sink with `count` one-second chunks of `size` bytes; returns the index of a refused chunk. */
 async function record(f: ReturnType<typeof fixture>, count: number, size: number, between?: (index: number) => void): Promise<number | null> {
   const sink = f.store.sink();
-  await sink.begin?.({ mimeType: "audio/webm", stop: async (reason) => { f.stops.push(reason); return reason; } });
+  await sink.begin?.({ mimeType: "audio/webm;codecs=opus", stop: async (reason) => { f.stops.push(reason); return reason; } });
   let refused: number | null = null;
   for (let index = 0; index < count; index++) {
     between?.(index);

@@ -31,7 +31,7 @@ function fixture() {
   Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { async request(name: string, _opts: unknown, callback: (lock: unknown) => Promise<unknown>) { if (locks.has(name)) return callback(null); locks.add(name); try { return await callback({ name }); } finally { locks.delete(name); } } } } });
   const reads: Record<string, Reads> = {};
   const counted = (partition: string, data: Map<string, unknown>) => {
-    const count = reads[partition] = { list: {}, get: 0 };
+    const count: Reads = reads[partition] = { list: {}, get: 0 };
     return {
       async get(k: string) { count.get++; return structuredClone(data.get(k)); },
       async put(k: string, v: unknown) { data.set(k, structuredClone(v)); },
