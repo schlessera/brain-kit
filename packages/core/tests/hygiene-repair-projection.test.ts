@@ -112,6 +112,41 @@ async function apply(root: string, c: (typeof CASES)[number]) {
   return () => resolveHygiene(brainContext, { id: c.id, handler: c.handler, input: c.input, expectFingerprint, expectPreview: preview.previewToken }, { now: NOW });
 }
 
+/** Apply `c` and compare its post-check detection with a fresh complete build of the tree it leaves. */
+async function postCheckEqualsFresh(root: string, c: (typeof CASES)[number]) {
+  const brainContext = context(root);
+  const resolve = await apply(root, c);
+  const real = hygiene.detectCandidates;
+  const compared: Array<{ refreshed: unknown; fresh: unknown }> = [];
+  let calls = 0;
+  let nested = false;
+  spies.push(
+    spyOn(hygiene, "detectCandidates").mockImplementation((async (...args: Parameters<typeof real>) => {
+      const detection = await real(...args);
+      if (nested) return detection;
+      calls++;
+      if (calls === 2) {
+        // The post-check: the tree now holds the repair and its receipt.
+        const view = (d: { candidates: hygiene.HygieneCandidate[]; failedChecks: string[] }) => ({
+          findings: [...hygiene.canonicalFindings(d.candidates).values()].map((f) => [f.id, f.fingerprint]).sort(),
+          failedChecks: d.failedChecks,
+        });
+        nested = true;
+        try {
+          compared.push({ refreshed: view(detection), fresh: view(await repairDetection(brainContext, NOW)) });
+        } finally {
+          nested = false;
+        }
+      }
+      return detection;
+    }) as typeof real)
+  );
+  expect((await resolve()).status).toBe("fixed");
+  expect(calls).toBe(2);
+  expect(compared).toHaveLength(1);
+  expect(compared[0].refreshed).toEqual(compared[0].fresh);
+}
+
 describe("one projection per hygiene operation", () => {
   for (const c of CASES) {
     test(`${c.name} makes one complete build and one targeted run of the document and its receipt, all without the graph`, async () => {
@@ -132,40 +167,16 @@ describe("one projection per hygiene operation", () => {
     });
 
     test(`${c.name}: the post-check detection equals a fresh complete build of the same tree`, async () => {
-      const root = brain(c.doc);
-      const brainContext = context(root);
-      const resolve = await apply(root, c);
-      const real = hygiene.detectCandidates;
-      const compared: Array<{ refreshed: unknown; fresh: unknown }> = [];
-      let calls = 0;
-      let nested = false;
-      spies.push(
-        spyOn(hygiene, "detectCandidates").mockImplementation((async (...args: Parameters<typeof real>) => {
-          const detection = await real(...args);
-          if (nested) return detection;
-          calls++;
-          if (calls === 2) {
-            // The post-check: the tree now holds the repair and its receipt.
-            const view = (d: { candidates: hygiene.HygieneCandidate[]; failedChecks: string[] }) => ({
-              findings: [...hygiene.canonicalFindings(d.candidates).values()].map((f) => [f.id, f.fingerprint]).sort(),
-              failedChecks: d.failedChecks,
-            });
-            nested = true;
-            try {
-              compared.push({ refreshed: view(detection), fresh: view(await repairDetection(brainContext, NOW)) });
-            } finally {
-              nested = false;
-            }
-          }
-          return detection;
-        }) as typeof real)
-      );
-      expect((await resolve()).status).toBe("fixed");
-      expect(calls).toBe(2);
-      expect(compared).toHaveLength(1);
-      expect(compared[0].refreshed).toEqual(compared[0].fresh);
+      await postCheckEqualsFresh(brain(c.doc), c);
     });
   }
+
+  test("the post-check detection equals a fresh build when an unnamed note's alias holds a line break (#4876)", async () => {
+    const root = brain(CASES[0].doc);
+    write(root, "places/cove.md", note("Cove", "Where the Phaeacians left him.").replace("tags: [voyage]\n", 'tags: [voyage]\naliases: ["Phorcys\\nharbour"]\n'));
+    write(root, "journeys/landing.md", note("Landing", "Asleep at [[harbour]]."));
+    await postCheckEqualsFresh(root, CASES[0]);
+  });
 
   test("a check of a finding no longer detected makes exactly one complete build", async () => {
     const root = brain(note("Return to Ithaca", "Odysseus met [[Eumaios hut stop]] at the gate."));

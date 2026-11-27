@@ -221,6 +221,35 @@ describe("targeted index runs (#2835)", () => {
     expect(partitions(snapshot(db))).toEqual(await fresh(root, "fresh"));
   });
 
+  test("an alias that holds a line break resolves links as a fresh build does (#4876)", async () => {
+    // The stored aliases column holds one alias per line; this one spans two.
+    const root = brain({
+      "notes/cove.md": note("Cove", "Where the Phaeacians left him.", 'aliases: ["Phorcys\\nharbour"]\n'),
+      "notes/landing.md": note("Landing", "Asleep at [[harbour]], then woke at [[Phorcys\nharbour]]."),
+      "notes/raft.md": note("Raft", "Built on Ogygia."),
+    });
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    const built = partitions(snapshot(db));
+    expect(built.links).toEqual([
+      { source: "notes/landing.md", target: "Phorcys\nharbour", resolved: "notes/cove.md" },
+      { source: "notes/landing.md", target: "harbour", resolved: null },
+    ]);
+    write(root, "notes/raft.md", note("Raft", "Built on Ogygia, then wrecked."));
+    await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
+    expect(partitions(snapshot(db))).toEqual(await fresh(root, "fresh-targeted"));
+    // A complete run that finds the note unchanged takes its aliases from the index too.
+    write(root, "notes/raft.md", note("Raft", "Built on Ogygia, wrecked, rebuilt."));
+    await indexAll(db, options(root));
+    expect(partitions(snapshot(db)).links).toEqual(built.links);
+    // Such a note's aliases come from its file, as a fresh build reads them,
+    // even when it changed and the run was not told.
+    write(root, "notes/cove.md", note("Cove", "Where the Phaeacians left him.", 'aliases: ["Phorcys\\nbay"]\n'));
+    write(root, "notes/raft.md", note("Raft", "Built on Ogygia, wrecked, rebuilt, sailed."));
+    await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
+    expect(partitions(snapshot(db)).links).toEqual((await fresh(root, "fresh-edited")).links);
+  });
+
   test("an index without markdown is built completely, whatever paths were named", async () => {
     const root = brain({
       "notes/penelope.md": note("Penelope", "Penelope weaves. [[telemachus]]"),

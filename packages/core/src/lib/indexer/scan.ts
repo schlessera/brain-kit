@@ -6,11 +6,14 @@
  */
 import { discoveryFiles } from "../discovery-walk.js";
 import type { Database } from "bun:sqlite";
-import { statSync } from "fs";
+import { readFileSync, statSync } from "fs";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { resolve } from "path";
 
 import { CHUNKER_VERSION } from "../chunker.js";
 import { gitIgnoredMatcher, isAssetPath } from "../git-ignore.js";
+import { nameKeys } from "../name-key.js";
+import { aliasKeys } from "./parse.js";
 import { ASSET_EXTENSIONS } from "../types.js";
 import type { Asset } from "../types.js";
 import type { Taxonomy } from "../taxonomy.js";
@@ -169,6 +172,41 @@ export function targetedScan(run: IndexRun, options: IndexOptions, existingDocs:
   };
 }
 
+/** A row as `completeCorpusMaps` reads it. */
+interface CorpusRow {
+  path: string;
+  title: string;
+  aliases: string | null;
+  /** The row's `name_keys`, one per line; read only when `aliases` spans lines. */
+  name_keys: string | null;
+}
+
+/**
+ * A row's alias keys, as a parse of its file gives them.
+ *
+ * The `aliases` column holds one alias per line, so an alias that itself
+ * holds a line break reads back as two. The row's name keys tell such a row
+ * apart: they were written from the whole aliases, so they differ from the
+ * keys of the lines exactly when an alias spans lines. That file's aliases
+ * are read from the file itself, as a fresh build reads them; a file that is
+ * gone or no longer parses leaves the lines, for the run that reads it next.
+ */
+function storedAliasKeys(run: IndexRun, row: CorpusRow): string[] {
+  const lines = (row.aliases ?? "").split("\n");
+  if (row.name_keys !== null) {
+    const stored = new Set(row.name_keys.split("\n"));
+    const fromLines = nameKeys(row.title, lines);
+    if (fromLines.length !== stored.size || fromLines.some((key) => !stored.has(key))) {
+      try {
+        return aliasKeys(parseFrontmatter(readFileSync(resolve(run.root, row.path), "utf-8"), { dataOnly: true }).data.aliases);
+      } catch {
+        // Gone or unparseable: the lines are what the index has.
+      }
+    }
+  }
+  return aliasKeys(lines);
+}
+
 /**
  * Add the corpus the parse did not read to its maps: the title and aliases of
  * every row in `fromIndex` (a targeted run's unnamed rows, and any file the parse
@@ -180,15 +218,19 @@ export function completeCorpusMaps(run: IndexRun, parsed: ParseResult, fromIndex
   const titles = new Map(parsed.fileMap);
   const aliases = new Map<string, string[]>();
   for (const [alias, paths] of parsed.aliasMap) for (const path of paths) aliases.set(path, [...(aliases.get(path) ?? []), alias]);
-  // One statement for the whole corpus, not one per row it fills.
-  const rows = run.db.prepare<{ path: string; title: string; aliases: string | null }, []>(
-    "SELECT d.path, d.title, f.aliases FROM documents d LEFT JOIN documents_fts f ON f.rowid = d.id WHERE d.asset_type = 'markdown'"
+  // One statement for the whole corpus, not one per row it fills. Name keys
+  // are read only for a row whose aliases span lines.
+  const rows = run.db.prepare<CorpusRow, []>(
+    `SELECT d.path, d.title, f.aliases,
+       CASE WHEN instr(f.aliases, char(10)) > 0
+         THEN (SELECT group_concat(k.key, char(10)) FROM name_keys k WHERE k.document_id = d.id) END AS name_keys
+     FROM documents d LEFT JOIN documents_fts f ON f.rowid = d.id WHERE d.asset_type = 'markdown'`
   );
   for (const row of rows.iterate()) {
     const path = row.path;
     if (!wanted.has(path)) continue;
     titles.set(path, row.title);
-    const keys = (row.aliases ?? "").split("\n").map((alias) => alias.toLowerCase().trim()).filter(Boolean);
+    const keys = storedAliasKeys(run, row);
     if (keys.length) aliases.set(path, keys);
   }
   // In scan order, as a complete run fills them.
