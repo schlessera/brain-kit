@@ -706,9 +706,16 @@ export function createActivityStore(
   return {
     writer,
     previousSessionRoot(spanId, sessionId) {
-      const row = db.query(`SELECT * FROM activity_spans WHERE parent_span_id IS NULL AND COALESCE(session_id, json_extract(attrs, '$."session.id"')) = ?
-        AND origin = 'session' AND name = 'invoke_agent' AND rowid < (SELECT rowid FROM activity_spans WHERE span_id = ?)
-        ORDER BY rowid DESC LIMIT 1`).get(sessionId, spanId);
+      // The session is the root's column or, while that is NULL, its attribute: one indexed lookup each, newest wins.
+      const row = db.query(`SELECT * FROM activity_spans WHERE rowid IN (
+          SELECT rowid FROM (SELECT rowid FROM activity_spans WHERE parent_span_id IS NULL AND session_id = ?
+            AND origin = 'session' AND name = 'invoke_agent' AND rowid < (SELECT rowid FROM activity_spans WHERE span_id = ?)
+            ORDER BY rowid DESC LIMIT 1)
+          UNION ALL
+          SELECT rowid FROM (SELECT rowid FROM activity_spans WHERE parent_span_id IS NULL AND session_id IS NULL AND json_extract(attrs, '$."session.id"') = ?
+            AND origin = 'session' AND name = 'invoke_agent' AND rowid < (SELECT rowid FROM activity_spans WHERE span_id = ?)
+            ORDER BY rowid DESC LIMIT 1))
+        ORDER BY rowid DESC LIMIT 1`).get(sessionId, spanId, sessionId, spanId);
       if (!row) return null;
       const prior = rowToSpan(row);
       // A pruned newer turn is a gap, never permission to compare an older
