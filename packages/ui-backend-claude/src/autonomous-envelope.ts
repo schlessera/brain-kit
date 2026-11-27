@@ -9,7 +9,7 @@
  * be; the relay injects the server-held credential for the selected profile.
  */
 import { ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, WORKER_INFERENCE_SOCKET, startInferenceRelay,
-  type InferenceRelay, type InferenceRelayEvent } from "@schlessera/brain-ui-sdk/internal";
+  type InferenceRelay } from "@schlessera/brain-ui-sdk/internal";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { InferenceProfile } from "./profiles.js";
 import { CLEARED_API_CREDENTIALS } from "./subscription.js";
@@ -28,7 +28,6 @@ const SOCKET_ORIGIN = "http://localhost";
 export function claudeAutonomousEnvelope(
   profile: InferenceProfile,
   turnEnvironment: Readonly<Record<string, string | undefined>>,
-  observe?: (event: InferenceRelayEvent) => void,
   received?: Parameters<typeof startInferenceRelay>[0]["received"]
 ): ClaudeAutonomousEnvelope {
   const value = (name: string): string | undefined => turnEnvironment[name]?.trim() || undefined;
@@ -56,7 +55,7 @@ export function claudeAutonomousEnvelope(
   const pinned = { ...CLEARED_API_CREDENTIALS, ...placeholder,
     ANTHROPIC_UNIX_SOCKET: WORKER_INFERENCE_SOCKET, ANTHROPIC_BASE_URL: SOCKET_ORIGIN };
   const relay = startInferenceRelay({ upstream: value("ANTHROPIC_BASE_URL") ?? "https://api.anthropic.com",
-    routes: ANTHROPIC_INFERENCE_ROUTES, credentials, received, ...(observe ? { observe } : {}) });
+    routes: ANTHROPIC_INFERENCE_ROUTES, credentials, received });
   return {
     relay,
     pinned,

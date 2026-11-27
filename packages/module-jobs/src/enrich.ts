@@ -66,6 +66,13 @@ export const DEFAULT_ENRICHMENT: EnrichmentConfig = { concurrency: 4, maxDetailP
  */
 export const DEFAULT_DETAIL_DELAY_MS = 2000;
 
+/**
+ * The most bytes one detail page may carry (#4768). The largest detail page
+ * recorded under `tests/fixtures/jsonld/` was 540 KB in full. A page past it
+ * is one counted failure, like any other fetch that fails.
+ */
+const DETAIL_MAX_BYTES = 8 * 1024 * 1024;
+
 /** How many individual failures one board's summary line quotes. */
 const QUOTED_FAILURES = 3;
 
@@ -216,6 +223,7 @@ export function createEnricher(
         try {
           const page = await http.getPage(url, {
             delayMs: DEFAULT_DETAIL_DELAY_MS,
+            maxBytes: DETAIL_MAX_BYTES,
             ...board.fetchOptions,
           });
           const description = postingDescription(page.body);

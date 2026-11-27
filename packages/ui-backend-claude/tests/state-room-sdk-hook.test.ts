@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createClaudeBackend } from "../src/backend.js";
-import { processStateLedger } from "../src/worker-state-budget.js";
+import { processStateLedger } from "@schlessera/brain-ui-sdk/internal";
 
 // Spy on the runtime namespace so named production imports are observed too.
 const fs = await import("node:fs");
