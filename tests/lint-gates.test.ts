@@ -27,6 +27,8 @@ const PLANTED: Record<string, { files: Record<string, string>; needles: string[]
   "check-layer-direction.ts": { files: { "packages/ui-react/src/lib/up.ts": upward, "packages/ui-react/src/lib/up-view.tsx": upward },
     needles: ["packages/ui-react/src/lib/up.ts:1:", "packages/ui-react/src/lib/up-view.tsx:1:"] },
   "check-unused-exports.ts": { files: { "packages/ui-server/src/probe.ts": "export const probe = 1;\n" }, needles: ["packages/ui-server/src/probe.ts:1: `probe`"] },
+  "check-icon-imports.ts": { files: { "packages/ui-react/src/raw-icon.tsx": 'import { Sun } from "lucide-react";\nexport const Dawn = Sun;\n' }, needles: ["packages/ui-react/src/raw-icon.tsx:1:"] },
+  "check-sqlite-prepare.ts": { files: { "packages/ui-server/src/ledger.ts": 'export const crew = (db: { prepare(sql: string): unknown }) => db.prepare("SELECT name FROM crew");\n' }, needles: ["packages/ui-server/src/ledger.ts:1:"] },
   "check-import-cycles.ts": { files: { "packages/core/src/ithaca.ts": 'import { troy } from "./troy";\nexport const ithaca = () => troy;\n',
     "packages/core/src/troy.ts": 'import { ithaca } from "./ithaca";\nexport const troy = () => ithaca;\n' }, needles: ["packages/core/src/ithaca.ts\n  packages/core/src/troy.ts"] },
 };
@@ -41,6 +43,8 @@ const SUPPORT: Record<string, string> = {
   "packages/ui-react/src/index.ts": "",
   "packages/ui-react/src/components/chat/chat-page.tsx": "export const ChatPage = () => null;\n",
   "packages/core/src/lib/harbour.ts": "export const harbour = 1;\n",
+  "packages/ui-react/src/components/icons.ts": 'export { Moon } from "lucide-react";\n',
+  "packages/ui-react/src/night.tsx": 'import { Moon } from "./components/icons";\nexport const Night = Moon;\n',
   "packages/ui-react/src/stores/chat-store.ts": "export const useChatStore = Object.assign(() => null, { getState: () => ({ draft: \"\" }) });\n",
   "packages/module-odyssey/package.json": JSON.stringify({ name: "@fixture/module-odyssey" }),
 };

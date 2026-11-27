@@ -40,7 +40,7 @@ export const LINTS = [
 export const IN_PROCESS = new Set([
   "check-env-access.ts", "check-frontmatter-parse.ts", "check-inline-containment.ts", "check-module-casts.ts",
   "check-kit-purity.ts", "check-raw-buttons.ts", "check-root-stores.ts", "check-layer-direction.ts",
-  "check-unused-exports.ts", "check-import-cycles.ts",
+  "check-unused-exports.ts", "check-import-cycles.ts", "check-icon-imports.ts", "check-sqlite-prepare.ts",
 ]);
 
 type Gate = { lintGate(root: string): number };
