@@ -7,6 +7,7 @@
  * (`evaluateNamespace`). Nothing here reads the filesystem.
  * Design and rules: docs/decisions/worker-writable-areas.md.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 
 /**
  * A read-only tmpfs `workerCommand` mounts as a launch's last mount option,
@@ -52,7 +53,8 @@ export function parseMountinfo(text: string): MountRow[] | undefined {
 
 /** Whether `ancestor` names `path` or a directory above it, by whole components. */
 export function holdsPath(ancestor: string, path: string): boolean {
-  return ancestor === "/" || path === ancestor || path.startsWith(`${ancestor}/`);
+  // `/` holds every absolute path; candidate names are symlink-free strings.
+  return isWithin(ancestor, path, { trailingSeparator: "boundary" });
 }
 /** `path` below `ancestor`, as `""` or `/rest`. */
 const below = (ancestor: string, path: string) => ancestor === "/" ? (path === "/" ? "" : path) : path.slice(ancestor.length);

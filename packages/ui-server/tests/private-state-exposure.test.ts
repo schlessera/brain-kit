@@ -16,7 +16,7 @@ import { createActivityRuntime } from "../src/activity/runtime";
 import { createUiDb } from "../src/db/client";
 import { createSettingsWrites } from "../src/db/settings-writes";
 import { createFixtureApp } from "./helpers/native-app-fixture";
-import { resolveServerConfig } from "../src/config/env";
+import { testServerConfig } from "./helpers/test-config";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createPrincipal } from "../src/db/principals";
@@ -103,7 +103,7 @@ describe("boot and admission with an exposure (A9, A13, A15)", () => {
       bridge.emit({ type: "session_info", sessionId: "sess-ithaca", isNew: true });
       bridge.emit({ type: "result", sessionId: "sess-ithaca", durationMs: 1, numTurns: 1, isError: false }); } });
     const app = await createFixtureApp({ versionRequirements: { brainCli: MIN_BRAIN_CLI_VERSION, backends: {} },
-      config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: dbPath, AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }),
+      config: testServerConfig({ brain, db: dbPath }),
       registry: createStaticBackendRegistry([backend], backend.id) });
     cleanups.push(() => app.close());
     const status = await (await app.fetch(new Request("http://localhost/api/status"))).json() as { runtime?: { workerHost?: { governed?: { stateBoundary?: unknown } }; privateStateLastExposure?: unknown } };

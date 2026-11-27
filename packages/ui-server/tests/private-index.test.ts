@@ -4,6 +4,7 @@
  * turn's own filtered index (#1668). Real bubblewrap workers from production
  * admission; the index is built by the real CLI inside a masked worker.
  */
+import { tmpdir } from "node:os";
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { expectRejection } from "./helpers/expect-rejection.js";
@@ -50,14 +51,18 @@ function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]", profile
   // The real index, built on the host from every document, me/ included.
   const index = Bun.spawnSync([...CLI, "index", "--json"], { cwd: brain, env: { PATH, BRAIN_ROOT: brain, HOME: root, NO_COLOR: "1" }, stdout: "pipe", stderr: "pipe" });
   expect(index.exitCode, index.stderr.toString()).toBe(0);
-  const dbPath = join(root, "state/ui.db"); mkdirSync(join(root, "state"));
+  // Host state outside the repository: the workers bind the workspace back for the CLI, and
+  // launch qualification refuses any launch that would reach the database (#4301).
+  const stateRoot = mkdtempSync(join(tmpdir(), "odysseus-private-index-state-"));
+  cleanup.push(() => rmSync(stateRoot, { recursive: true, force: true }));
+  const dbPath = join(stateRoot, "ui.db");
   const db = createUiDb(dbPath); cleanup.push(() => db.close());
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
   const reports: string[] = [];
   const argv = typeof command === "function" ? command(brain) : command;
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution,
     profile, maskPaths: [], index: async () => {}, report: message => reports.push(message), ...(argv ? { privateIndexCommand: argv } : {}) });
-  return { root, brain, db, turns, reports, execution };
+  return { root, brain, db, dbPath, turns, reports, execution };
 }
 
 function search(brain: string, sandbox: Parameters<typeof workerCommand>[0]["sandbox"], query: string): string[] {
@@ -204,7 +209,7 @@ test("a writer in another process, such as the cron runner, plans the type folde
   const f = fixture("[{ types: [identity], allow: [anthropic] }]");
   await (await f.turns.begin("translating", new AbortController().signal)).end();
   // The cron runner is its own process: nothing in its module cache knows the translation.
-  const cron = Bun.spawn([process.execPath, join(import.meta.dir, "helpers/gate-process.ts"), join(f.root, "state/ui.db"), f.brain, "acquire"],
+  const cron = Bun.spawn([process.execPath, join(import.meta.dir, "helpers/gate-process.ts"), f.dbPath, f.brain, "acquire"],
     { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   let hold: Awaited<ReturnType<typeof f.turns.begin>> | undefined, refusal: unknown;
   try {
