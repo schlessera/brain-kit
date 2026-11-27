@@ -1,10 +1,10 @@
-import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
+import { createFixtureWorkerStartupView, launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { describe, expect, spyOn, test } from "bun:test";
 import { closeSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
 import { join, resolve } from "node:path";
 import { chmodSync } from "node:fs";
-import { probeWorkerHost, restrictedReadPaths, workerBootstrap, workerCommand } from "../src/server/worker-launcher";
+import { launchAgentWorker as launchUnpreparedWorker, prepareWorkerSandbox, probeWorkerHost, restrictedReadPaths, workerBootstrap, workerCommand, WorkerHostError } from "../src/server/worker-launcher";
 import { WORKER_INFERENCE_DIR } from "../src/server/inference-relay";
 import { createWorkerPipes } from "../src/server/worker-pipes";
 
@@ -94,6 +94,24 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
       expect(child.exitCode).toBe(0);
       expect(output.match(/^SigIgn:\s+([0-9a-f]+)$/m)?.[1]).toBe("0000000000000000");
     } finally { pipes.cleanup(); f.cleanup(); }
+  });
+
+  test("a startup view with a writable area and no prepared output is refused before any spawn", async () => {
+    const f = fixture();
+    try {
+      mkdirSync(join(f.brain, "workspaces"));
+      const sandbox = prepareWorkerSandbox(f.brain, { profile: "strict", codeChanges: true, areas: ["workspaces"], readPaths: [process.execPath] });
+      const startupView = createFixtureWorkerStartupView(f.brain);
+      const spawn = spyOn(Bun, "spawn");
+      let refusal: unknown, worker: ReturnType<typeof launchUnpreparedWorker> | undefined;
+      try { worker = launchUnpreparedWorker({ brainPath: f.brain, env: {}, command: [process.execPath, "-e", ""], startupView, sandbox }); }
+      catch (error) { refusal = error; }
+      finally { spawn.mockRestore(); }
+      if (worker) { worker.stdin.end(); await worker.exited; }
+      expect(refusal).toBeInstanceOf(WorkerHostError);
+      expect((refusal as WorkerHostError).requirement).toBe("a prepared output for the worker's writable areas (preparedOutput)");
+      expect(spawn).not.toHaveBeenCalled();
+    } finally { f.cleanup(); }
   });
 
   test("policy bytes and membership survive hardlinks and scratch aliases while scratch writes succeed", async () => {

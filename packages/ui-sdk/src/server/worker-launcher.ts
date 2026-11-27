@@ -28,7 +28,6 @@ import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from ".
 import { processStateLedger } from "./worker-state-budget.js";
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
 import { dataTreeMounts, resolveWorkerProtection, protectedWorkerMounts, providerMaskMounts, verifyWorkerFolderMountsSteps } from "./worker-protection.js";
-import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
@@ -1442,7 +1441,7 @@ export function launchAgentWorkerAsync(input: WorkerLaunch): Promise<LaunchedWor
 /** The launch as steps, for a caller that drives it inside its own steps (#2790). */
 export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<LaunchedWorker> {
   let startupView = input.preparedOutput?.view ?? input.startupView;
-  let areaOutput: ReturnType<typeof prepareWorkerOutput> | PreparedWorkerOutput | undefined = input.preparedOutput;
+  const areaOutput: PreparedWorkerOutput | undefined = input.preparedOutput;
   let plan: WorkerLimitsPlan;
   try { plan = launchLimits(input); }
   catch (error) {
@@ -1497,7 +1496,9 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     startupView ??= input.sandbox?.profile === "governed" ? undefined : createWorkerStartupView(realpathSync(input.brainPath), { omitGit: Boolean(input.restricted) });
     const configurationRoot = startupView?.root ?? realpathSync(input.brainPath);
     const areas = input.sandbox?.areas.filter(area => area.mount.writable).map(area => area.rel) ?? [];
-    if (startupView && areas.length && !areaOutput) areaOutput = prepareWorkerOutput(input.brainPath, { startupView, areas });
+    // Writable areas publish only through output the caller prepared; no
+    // host can stage it here, so the launch is refused before any spawn.
+    if (startupView && areas.length && !areaOutput) throw new WorkerHostError("a prepared output for the worker's writable areas (preparedOutput)");
     const resolvedInput = { ...input, ...(startupView ? { startupView } : {}), ...(areaOutput ? { areaOutput: areaOutput.output } : {}) };
     transferNativeMaintenanceMasks(input, resolvedInput);
     input = resolvedInput;

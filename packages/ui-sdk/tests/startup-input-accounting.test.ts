@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, openSync, writeSync, closeSync, rmSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { prepareFixtureWorkerOutput as prepareWorkerOutput } from "./helpers/worker-startup-view-fixture.js";
+import { prepareFixtureLaunchOutput, prepareFixtureWorkerOutput as prepareWorkerOutput } from "./helpers/worker-startup-view-fixture.js";
 import { runMaintenanceWorker } from "../src/server/maintenance-worker.js";
 import { text } from "node:stream/consumers";
 import { createOutputStagingStorage, launchAgentWorker, prepareWorkerSandbox } from "../src/server/worker-launcher.js";
@@ -19,7 +19,9 @@ test("complete immutable inputs larger than output staging are not staged writes
     mkdirSync(join(brain, ".brain", "scratch"), { recursive: true });
     view = createWorkerStartupView(brain);
     expect(view.root).toBeDefined();
-    const worker = launchAgentWorker({ brainPath: brain, startupView: view, sandbox: prepareWorkerSandbox(brain, { profile: "strict", areas: ["scratch"], maintenance: { startupView: view, tempDomain: { statePath: join(view.storage.root, "maintenance-state.db") } } }),
+    const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: ["scratch"], maintenance: { startupView: view, tempDomain: { statePath: join(view.storage.root, "maintenance-state.db") } } });
+    const preparedOutput = prepareFixtureLaunchOutput(brain, view, sandbox.areas.filter(area => area.mount.writable).map(area => area.rel));
+    const worker = launchAgentWorker({ brainPath: brain, preparedOutput, sandbox,
       env: {}, command: ["/bin/sh", "-c", '/usr/bin/head -c1 node_modules/odysseus-input.bin; printf "Penelope strict output" > /tmp/brain-worker-areas/scratch/retained.txt'] });
     const streams = Promise.all([text(worker.stdout), text(worker.stderr)]);
     try {
