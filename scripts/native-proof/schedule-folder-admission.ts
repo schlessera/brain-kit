@@ -56,7 +56,9 @@ export async function proveScheduleFolderAdmission(artifacts: string): Promise<v
       const manager = createNativeBrainManagerClient({ socketPath });
       const boundary = createHostBoundary({ brainPath: brain, dbPath, nativeManager: manager, profile: "governed",
         requireGate: true, gate: () => observedGate, history: () => true });
-      assert.equal((await boundary.prepare()).available, true, "ACTUAL_NATIVE_MAINTENANCE_QUALIFIES");
+      // The whole availability on failure: its reason, detail and private-state diagnostic (#4301).
+      const availability = await boundary.prepare();
+      assert.equal(availability.available, true, `ACTUAL_NATIVE_MAINTENANCE_QUALIFIES: ${JSON.stringify({ availability, status: boundary.status(), privateState: boundary.privateStateStatus?.() })}`);
       hold = await gate.acquire("shared", "turn:odysseus");
       hold.assertPeerFolderPlans!(["group/private"]);
       // The host's own masks, as a server's turns get them: its UI database is private state (#4301).
