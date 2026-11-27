@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { Glob } from "bun";
+import { createHash } from "crypto";
 import { readFileSync, existsSync, closeSync, constants, fstatSync, openSync } from "fs";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { join, posix } from "path";
@@ -53,6 +54,14 @@ export interface AuditOptions {
    * module's name, so `brain hygiene` can record which module found it.
    */
   onModuleIssue?: (issue: AuditIssue, module: string) => void;
+  /**
+   * Every indexed markdown row, as `loadAuditDocs` returns them and before
+   * `exclude`, when the caller has loaded them already. Without it the audit
+   * loads them itself. The rows are read, never changed.
+   */
+  docs?: AuditDoc[];
+  /** The registry plan for `root` as of the audit's day, when the caller has planned it already. */
+  registry?: ReturnType<typeof planRegistry>;
 }
 
 /** One indexed markdown document, as the audit checks see it. */
@@ -553,13 +562,18 @@ export function findDuplicateTitles(docs: AuditDoc[]): Array<{ doc: AuditDoc; ot
  * and counts only when one of its top-level paragraph blocks is the candidate.
  */
 export function findRepeatedText(docs: AuditDoc[]): RepeatedText[] {
-  const seen = new Map<string, Set<AuditDoc>>();
+  // Keyed by a hash of the text, not the text: a map keyed by every long
+  // paragraph held a second copy of most of the corpus. The text itself is
+  // kept once a second document carries it, for the confirmation below.
+  const seen = new Map<string, { text?: string; where: Set<AuditDoc> }>();
   for (const doc of docs) {
     for (const text of candidateParagraphs(doc.content)) {
       if (text.length < REPEATED_TEXT_MIN_CHARS) continue;
-      let where = seen.get(text);
-      if (!where) seen.set(text, (where = new Set()));
-      where.add(doc);
+      const key = createHash("sha256").update(text).digest("base64");
+      let entry = seen.get(key);
+      if (!entry) seen.set(key, (entry = { where: new Set() }));
+      entry.where.add(doc);
+      if (entry.where.size >= Math.min(2, REPEATED_TEXT_MIN_DOCS)) entry.text ??= text;
     }
   }
 
@@ -578,8 +592,8 @@ export function findRepeatedText(docs: AuditDoc[]): RepeatedText[] {
   };
 
   const repeated: RepeatedText[] = [];
-  for (const [text, where] of seen) {
-    if (where.size < REPEATED_TEXT_MIN_DOCS) continue;
+  for (const { text, where } of seen.values()) {
+    if (where.size < REPEATED_TEXT_MIN_DOCS || text === undefined) continue;
     const paths = [...where].filter((doc) => paragraphsIn(doc).has(text)).map((doc) => doc.path);
     if (paths.length >= REPEATED_TEXT_MIN_DOCS) repeated.push({ text, paths: paths.sort() });
   }
@@ -669,7 +683,7 @@ export function audit(
   const now = (opts.now ?? new Date()).getTime();
 
   const exclude = opts.exclude;
-  const indexed = loadAuditDocs(db);
+  const indexed = opts.docs ?? loadAuditDocs(db);
   const docs = exclude ? indexed.filter((d) => !exclude(d.path)) : indexed;
 
   // ---------------------------------------------------------------
@@ -753,7 +767,7 @@ export function audit(
   // root that is given but missing is a check that could not run.
   const rootMissing = !!opts.root && !existsSync(opts.root);
   if (rootMissing) opts.onCheckFailed?.("index-stale");
-  const registry = opts.root && !rootMissing ? planRegistry(opts.root, taxonomy, isoDay(now)) : null;
+  const registry = opts.root && !rootMissing ? (opts.registry ?? planRegistry(opts.root, taxonomy, isoDay(now))) : null;
   const generated = new Set([
     ...(registry?.indexes.map((i) => i.path) ?? []),
     ...(registry?.problems.map((p) => p.path) ?? []),
@@ -1064,11 +1078,13 @@ export async function auditWithModules(
   brain: { taxonomy: Taxonomy; root: string; modules: LoadedModule[]; config?: BrainConfig | null },
   opts: AuditOptions = {}
 ): Promise<AuditIssue[]> {
-  const issues = audit(db, brain.taxonomy, { root: brain.root, propagationConfig: brain.config?.hygiene?.propagation, ...opts });
+  // One load for the core audit and the diagrams check below.
+  const docs = opts.docs ?? loadAuditDocs(db);
+  const issues = audit(db, brain.taxonomy, { root: brain.root, propagationConfig: brain.config?.hygiene?.propagation, ...opts, docs });
   // Missing modules cannot contribute their own hygiene checks. This concrete
   // built-in diagnostic reads data only and never imports an absent pack.
   if (!brain.modules.some(mod => mod.state !== "dormant" && mod.manifest.name === "diagrams")) {
-    for (const doc of loadAuditDocs(db)) {
+    for (const doc of docs) {
       if (opts.exclude?.(doc.path) || doc.status === "archived") continue;
       const root = opts.root ?? brain.root, absolute = safeResolve(root, doc.path);
       try {

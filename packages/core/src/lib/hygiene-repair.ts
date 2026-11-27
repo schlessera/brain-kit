@@ -6,8 +6,8 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSy
 import { tmpdir } from "os";
 import { basename, join } from "path";
 
-import { loadAuditDocs } from "./auditor.js";
 import type { BrainContext } from "./context.js";
+import type { Database } from "bun:sqlite";
 import { hasDocumentsColumn, openDatabase } from "./db.js";
 import { frontmatterLength } from "./document-parts.js";
 import { editFrontmatter, type FrontmatterValue } from "./frontmatter-edit.js";
@@ -64,48 +64,86 @@ const hash = (value: string) => createHash("sha256").update(value).digest("hex")
 const lineAt = (text: string, offset: number) => text.slice(0, offset).split("\n").length;
 
 /** Fresh projection in memory: previews/checks never create or refresh brain.db.
- * Preserve accepted-mtime baselines from the existing disposable index. */
-export async function repairDetection(brain: BrainContext, now: Date) {
-  const db = openDatabase(":memory:");
-  try {
-    await indexAll(db, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true });
-    if (existsSync(brain.dbPath)) {
-      // Even a read-only SQLite connection updates WAL shared-memory bytes.
-      // Read a private copy so check/preview changes no source file or sidecar.
-      const dir = mkdtempSync(join(tmpdir(), "brain-hygiene-index-"));
-      let previous;
-      try {
-        const copy = join(dir, "brain.db");
-        copyFileSync(brain.dbPath, copy);
-        if (existsSync(`${brain.dbPath}-wal`)) copyFileSync(`${brain.dbPath}-wal`, `${copy}-wal`);
-        previous = openDatabase(copy, { readonly: true });
-      } catch (e) { rmSync(dir, { recursive: true, force: true }); throw e; }
-      try {
-        if (hasDocumentsColumn(previous, "accepted_mtime")) {
-          for (const row of previous.query("SELECT path, accepted_mtime FROM documents WHERE accepted_mtime IS NOT NULL").all() as Array<{ path: string; accepted_mtime: string }>) {
-            db.query("UPDATE documents SET accepted_mtime = ? WHERE path = ?").run(row.accepted_mtime, row.path);
-          }
-        }
-      } finally { previous.close(); rmSync(dir, { recursive: true, force: true }); }
-    }
-    const detection = await detectCandidates(db, brain, now);
-    return { ...detection, findings: canonicalFindings(detection.candidates), docs: new Map(loadAuditDocs(db).map(d => [d.path, d])) };
-  } finally { db.close(); }
+ * Preserve accepted-mtime baselines from the existing disposable index. One
+ * operation builds it once and keeps it for the operation. */
+interface Projection {
+  db: Database;
+  /** `accepted_mtime` per path, from one private copy of brain.db. */
+  baselines: Array<{ path: string; accepted_mtime: string }>;
 }
 
-function documentPath(brain: BrainContext, path: string, files = getMarkdownFiles(brain.root, brain.taxonomy)): string | null {
+async function openProjection(brain: BrainContext): Promise<Projection> {
+  const db = openDatabase(":memory:");
+  try {
+    // Nothing on this path reads the graph tables: detection reads documents,
+    // links and tags, and module checks read the on-disk index.
+    await indexAll(db, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true, graph: false });
+    const projection = { db, baselines: acceptedBaselines(brain) };
+    applyBaselines(projection);
+    return projection;
+  } catch (e) { db.close(); throw e; }
+}
+
+function acceptedBaselines(brain: BrainContext): Projection["baselines"] {
+  if (!existsSync(brain.dbPath)) return [];
+  // Even a read-only SQLite connection updates WAL shared-memory bytes.
+  // Read a private copy so check/preview changes no source file or sidecar.
+  const dir = mkdtempSync(join(tmpdir(), "brain-hygiene-index-"));
+  let previous;
+  try {
+    const copy = join(dir, "brain.db");
+    copyFileSync(brain.dbPath, copy);
+    if (existsSync(`${brain.dbPath}-wal`)) copyFileSync(`${brain.dbPath}-wal`, `${copy}-wal`);
+    previous = openDatabase(copy, { readonly: true });
+  } catch (e) { rmSync(dir, { recursive: true, force: true }); throw e; }
+  try {
+    return hasDocumentsColumn(previous, "accepted_mtime")
+      ? previous.query("SELECT path, accepted_mtime FROM documents WHERE accepted_mtime IS NOT NULL").all() as Projection["baselines"]
+      : [];
+  } finally { previous.close(); rmSync(dir, { recursive: true, force: true }); }
+}
+
+function applyBaselines({ db, baselines }: Projection): void {
+  for (const row of baselines) db.query("UPDATE documents SET accepted_mtime = ? WHERE path = ?").run(row.accepted_mtime, row.path);
+}
+
+/** Bring the projection up to date after the operation wrote `paths`. */
+async function refreshProjection(projection: Projection, brain: BrainContext, paths: string[]): Promise<void> {
+  await indexAll(projection.db, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true, graph: false, paths });
+  // A rewritten row starts without its baseline, as a fresh build's would
+  // before the baselines are applied.
+  applyBaselines(projection);
+}
+
+async function detect(projection: Projection, brain: BrainContext, now: Date) {
+  const detection = await detectCandidates(projection.db, brain, now);
+  return { ...detection, findings: canonicalFindings(detection.candidates), docs: new Map(detection.docs.map(d => [d.path, d])) };
+}
+type RepairDetection = Awaited<ReturnType<typeof detect>>;
+
+export async function repairDetection(brain: BrainContext, now: Date): Promise<RepairDetection> {
+  const projection = await openProjection(brain);
+  try { return await detect(projection, brain, now); }
+  finally { projection.db.close(); }
+}
+
+/** The paths the indexer would scan: one tree walk. */
+function scannedPaths(brain: BrainContext): ReadonlySet<string> {
+  return new Set(getMarkdownFiles(brain.root, brain.taxonomy));
+}
+
+function documentPath(brain: BrainContext, path: string, files: ReadonlySet<string> = scannedPaths(brain)): string | null {
   const abs = safeResolve(brain.root, path);
-  if (!abs || !path.endsWith(".md") || !files.includes(path)) return null;
+  if (!abs || !path.endsWith(".md") || !files.has(path)) return null;
   try { return lstatSync(join(brain.root, path)).isFile() ? abs : null; }
   catch { return null; }
 }
 
 /** Exactly one note by deterministic slug, alias or exact title. No proximity/fuzzy score. */
-function suggestedNote(brain: BrainContext, target: string): string | null {
+function suggestedNote(brain: BrainContext, target: string, files: ReadonlySet<string>): string | null {
   const name = target.split("#")[0].replace(/\.md$/, "");
   const slug = basename(name);
-  const files = getMarkdownFiles(brain.root, brain.taxonomy);
-  const matches = files.filter(path => {
+  const matches = [...files].filter(path => {
     if (!documentPath(brain, path, files)) return false;
     let data: Record<string, unknown> = {};
     try { data = parseFrontmatter(readFileSync(join(brain.root, path), "utf8"), { dataOnly: true }).data; } catch { /* Only a literal slug can match malformed metadata. */ }
@@ -124,15 +162,15 @@ function fieldSchema(field: string, taxonomy: Taxonomy): InputSchema | null {
 }
 
 /** Fixed category table, also consumed by the selection/server layers. */
-export function repairHandlers(brain: BrainContext, finding: HygieneFinding): RepairHandler[] {
+export function repairHandlers(brain: BrainContext, finding: HygieneFinding, files: ReadonlySet<string> = scannedPaths(brain)): RepairHandler[] {
   const base = { category: finding.category, path: finding.path, line: 1, explanation: finding.message };
   if (finding.category === "broken-link") {
-    const abs = documentPath(brain, finding.path);
+    const abs = documentPath(brain, finding.path, files);
     if (abs) {
       const raw = readFileSync(abs, "utf8");
       base.line = linkSpans(raw, finding.evidence)[0]?.line ?? 1;
     }
-    const suggestion = suggestedNote(brain, finding.evidence);
+    const suggestion = suggestedNote(brain, finding.evidence, files);
     return [
       ...(suggestion ? [{ ...base, name: "link-suggested" as const, kind: "choice" as const, input: { type: "none" as const }, effect: "Replace this target's link tokens with the suggested note", postCheck: "file-validation", suggestedPath: suggestion }] : []),
       { ...base, name: "link-note", kind: "choice", input: { type: "path" }, effect: "Replace this target's link tokens with the selected note", postCheck: "file-validation" },
@@ -140,7 +178,7 @@ export function repairHandlers(brain: BrainContext, finding: HygieneFinding): Re
     ];
   }
   if (["todo", "verify"].includes(finding.category)) {
-    const abs = documentPath(brain, finding.path);
+    const abs = documentPath(brain, finding.path, files);
     if (abs) {
       const text = readFileSync(abs, "utf8");
       const marker = finding.category === "todo" ? "[TODO:" : "[VERIFY:";
@@ -174,7 +212,7 @@ function fieldError(field: string, schema: InputSchema, value: unknown): string 
   return null;
 }
 
-function plan(brain: BrainContext, finding: HygieneFinding, handler: RepairHandler, input: unknown, before: string): Plan | RepairResult {
+function plan(brain: BrainContext, finding: HygieneFinding, handler: RepairHandler, input: unknown, before: string, files: ReadonlySet<string>): Plan | RepairResult {
   if (handler.kind === "manual") return { status: "refused", id: finding.id, reason: "manual-only", handler };
   if (handler.name === "required-field") {
     const error = fieldError(finding.evidence, handler.input, input);
@@ -192,7 +230,7 @@ function plan(brain: BrainContext, finding: HygieneFinding, handler: RepairHandl
   }
   if (handler.name !== "link-note" && input !== null) return { status: "refused", id: finding.id, reason: "invalid-input" };
   const path = handler.name === "link-suggested" ? handler.suggestedPath : input;
-  if (handler.name !== "link-text" && (typeof path !== "string" || !documentPath(brain, path) || /[\[\]|#\r\n]/.test(path))) return { status: "refused", id: finding.id, reason: "not-a-contained-document" };
+  if (handler.name !== "link-text" && (typeof path !== "string" || !documentPath(brain, path, files) || /[\[\]|#\r\n]/.test(path))) return { status: "refused", id: finding.id, reason: "not-a-contained-document" };
   const spans = linkSpans(before, finding.evidence);
   if (spans.length === 0) return { status: "stale", id: finding.id, reason: "link-premise-changed" };
   const changes = spans.map(s => ({ before: s.token, after: handler.name === "link-text" ? s.label : `[[${(path as string).replace(/\.md$/, "")}${finding.evidence.includes("#") ? "#" + finding.evidence.split("#").slice(1).join("#") : ""}|${s.label}]]`, line: s.line }));
@@ -208,9 +246,9 @@ function logContained(root: string): boolean {
   return safeResolve(root, HYGIENE_DIR) === expected && ["open.md", "snoozed.md", "dismissed.md", "resolved.md", "kept.md", "_index.md", "last-run.md", "repairs"].every(name => safeResolve(root, `${HYGIENE_DIR}/${name}`) === join(expected, name));
 }
 
-async function markResolved(brain: BrainContext, id: string, by: string, now: Date): Promise<string[]> {
+/** `d` is the operation's latest detection; nothing was written since it ran. */
+function markResolved(brain: BrainContext, d: RepairDetection, id: string, by: string, now: Date): string[] {
   if (!logContained(brain.root)) throw new HygieneLogError("hygiene log is not contained");
-  const d = await repairDetection(brain, now);
   if (d.failedChecks.length || d.findings.has(id)) throw new HygieneLogError("resolution check did not complete");
   return reconcile(brain.root, d.candidates, d.docs, { now, resolution: { id, by }, media: mediaPolicy(brain.config) }).changedFiles;
 }
@@ -219,17 +257,26 @@ async function markResolved(brain: BrainContext, id: string, by: string, now: Da
  * failing post-check after a real write without replacing the writer. */
 export async function resolveHygiene(brain: BrainContext, request: RepairRequest, options: { now?: Date; postCheck?: (path: string) => string | null } = {}): Promise<RepairResult> {
   const now = options.now ?? new Date();
-  const d = await repairDetection(brain, now);
+  const projection = await openProjection(brain);
+  try { return await resolveOn(projection, brain, request, options, now); }
+  finally { projection.db.close(); }
+}
+
+async function resolveOn(projection: Projection, brain: BrainContext, request: RepairRequest, options: { postCheck?: (path: string) => string | null }, now: Date): Promise<RepairResult> {
+  const d = await detect(projection, brain, now);
   const finding = d.findings.get(request.id);
   if (!finding || finding.fingerprint !== request.expectFingerprint) return { status: "stale", id: request.id, reason: "stale-fingerprint" };
-  const handler = repairHandlers(brain, finding).find(h => h.name === request.handler);
+  // One walk for the read side of the operation; the write-time guards below
+  // take their own, at the moment of the write.
+  const files = scannedPaths(brain);
+  const handler = repairHandlers(brain, finding, files).find(h => h.name === request.handler);
   if (!handler) return { status: "refused", id: request.id, reason: "handler-unavailable" };
-  const abs = documentPath(brain, finding.path);
+  const abs = documentPath(brain, finding.path, files);
   if (!abs || !logContained(brain.root)) return { status: "refused", id: request.id, reason: "not-a-contained-document" };
   const sourceBytes = readFileSync(abs);
   const before = sourceBytes.toString("utf8");
   if (!Buffer.from(before, "utf8").equals(sourceBytes)) return { status: "refused", id: request.id, reason: "not-utf8" };
-  const effect = plan(brain, finding, handler, request.input, before);
+  const effect = plan(brain, finding, handler, request.input, before, files);
   if ("status" in effect) return effect;
   const previewToken = hash(JSON.stringify([finding.id, finding.fingerprint, request.handler, request.input, effect.premise]));
   const diff = { path: finding.path, before, after: effect.after, changes: effect.changes };
@@ -256,17 +303,20 @@ export async function resolveHygiene(brain: BrainContext, request: RepairRequest
     return { status: "stale", id: request.id, reason: "write-premise-changed" };
   }
   let code: string | null;
+  let after: RepairDetection | undefined;
   try {
     code = options.postCheck ? options.postCheck(finding.path) : validateDetailed(brain.root, brain.taxonomy).find(i => i.file === finding.path)?.detail.rule ?? null;
     if (!code) {
-      const after = await repairDetection(brain, now);
+      // The repair wrote the document and its receipt, nothing else.
+      await refreshProjection(projection, brain, [finding.path, `${HYGIENE_DIR}/repairs/${token}.md`]);
+      after = await detect(projection, brain, now);
       code = after.failedChecks[0] ?? (after.findings.has(request.id) ? "still-detected" : null);
     }
   } catch { code = "validation-unavailable"; }
   if (code) return { status: "check_failed", id: request.id, code, undoToken: token, changedFiles: [finding.path] };
   // A publication/storage exception is an internal error with an uncertain
   // receipt, not a post-check failure that promises an unchanged open log.
-  const changed = await markResolved(brain, request.id, `handler:${request.handler}`, now);
+  const changed = markResolved(brain, after!, request.id, `handler:${request.handler}`, now);
   return { status: "fixed", id: request.id, changedFiles: [finding.path, ...changed] };
 }
 
@@ -306,6 +356,6 @@ export async function checkHygiene(brain: BrainContext, id: string, now = new Da
   catch { return { status: "check_failed", id, code: "detection-unavailable" }; }
   if (d.failedChecks.length) return { status: "check_failed", id, code: d.failedChecks[0] };
   if (d.findings.has(id)) return { status: "still_detected", id, handler: repairHandlers(brain, d.findings.get(id)!)[0] };
-  const changedFiles = await markResolved(brain, id, "check", now);
+  const changedFiles = markResolved(brain, d, id, "check", now);
   return { status: "not_detected", id, changedFiles };
 }

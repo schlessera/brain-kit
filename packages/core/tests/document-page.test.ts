@@ -7,6 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
+import { createHash } from "crypto";
 import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
@@ -21,6 +22,7 @@ import {
   type DocumentPage,
   type DocumentPageInput,
   type PagedDocument,
+  selectDocumentPage,
 } from "../src/lib/document-page";
 import { listDocuments, pageDocuments } from "../src/lib/ops/read";
 import { pageIndexDocuments } from "../src/queries/index";
@@ -324,6 +326,115 @@ describe("truthful warnings", () => {
     } finally {
       rmSync(join(root, "notes/fleet/ship-new.md"));
       await index();
+    }
+  });
+});
+
+describe("page cost (#4788)", () => {
+  type Statement = { sql: string; params: unknown[] };
+
+  /** Every statement one selection runs, with the parameters it ran with. */
+  function statementsOf(input: DocumentPageInput): Statement[] {
+    return withDb((db) => {
+      const seen: Statement[] = [];
+      const query = db.query.bind(db);
+      db.query = ((sql: string) => {
+        const statement = query(sql);
+        const get = statement.get.bind(statement);
+        const all = statement.all.bind(statement);
+        statement.get = ((...params: unknown[]) => (seen.push({ sql, params }), get(...(params as [])))) as typeof statement.get;
+        statement.all = ((...params: unknown[]) => (seen.push({ sql, params }), all(...(params as [])))) as typeof statement.all;
+        return statement;
+      }) as typeof db.query;
+      try {
+        selectDocumentPage(db, input);
+      } finally {
+        db.query = query as typeof db.query;
+      }
+      return seen;
+    });
+  }
+
+  function plan(statement: Statement): string[] {
+    return withDb((db) =>
+      (db.prepare(`EXPLAIN QUERY PLAN ${statement.sql}`).all(...(statement.params as [])) as { detail: string }[]).map((r) => r.detail)
+    );
+  }
+
+  const continuation = (): string => page({ limit: 7 }).next_cursor!;
+
+  test("a continuation page searches idx_documents_updated and sorts only within one updated value", () => {
+    const statements = statementsOf({ limit: 7, cursor: continuation() });
+    const pages = statements.filter((s) => /ORDER BY d\.updated DESC/.test(s.sql));
+    expect(pages).toHaveLength(1);
+    const detail = plan(pages[0]);
+    const text = detail.join("\n");
+    expect(detail.filter((d) => /MULTI-INDEX OR/.test(d)), text).toEqual([]);
+    expect(detail.some((d) => d.startsWith("SEARCH d USING INDEX idx_documents_updated")), text).toBe(true);
+    expect(detail.filter((d) => d === "USE TEMP B-TREE FOR ORDER BY"), text).toEqual([]);
+  });
+
+  test("the scope's total and newest value come from indexes, never from a scan of documents", () => {
+    const statements = statementsOf({ limit: 7, cursor: continuation() });
+    const scope = statements.filter((s) => !/ORDER BY/.test(s.sql));
+    for (const statement of scope) {
+      const detail = plan(statement);
+      expect(detail.filter((d) => /^SCAN d\b/.test(d) && !/COVERING INDEX/.test(d)), `${statement.sql}\n${detail.join("\n")}`).toEqual([]);
+    }
+    expect(scope).toHaveLength(2);
+    const count = scope.find((s) => /COUNT\(\*\)/.test(s.sql))!;
+    const newest = scope.find((s) => /MAX\(d\.indexed_at\)/.test(s.sql))!;
+    expect(plan(count).some((d) => /USING COVERING INDEX/.test(d)), plan(count).join("\n")).toBe(true);
+    expect(plan(newest).some((d) => /USING (COVERING )?INDEX idx_documents_indexed_at\b/.test(d)), plan(newest).join("\n")).toBe(true);
+  });
+
+  test("page boundaries fall inside groups of rows that share one updated value", () => {
+    // The precondition of the enumeration tests above: without a tie across a
+    // boundary, a keyset that drops tied rows would still enumerate fully.
+    const { pages } = enumerate({ pathPrefix: "notes/fleet", limit: 7 });
+    const updatedOf = (path: string) =>
+      withDb((db) => db.query<{ updated: string }, [string]>("SELECT updated FROM documents WHERE path = ?").get(path)!.updated);
+    const split = pages.slice(1).filter((p, i) => updatedOf(p.documents[0].path) === updatedOf(pages[i].documents.at(-1)!.path));
+    expect(split.length).toBeGreaterThan(0);
+  });
+
+  test("total and the cursor fingerprint keep the values the combined scope row gave, for every kind of scope", () => {
+    type Row = { path: string; type: string; status: string; indexed_at: string; tags: string | null };
+    const rows = withDb((db) =>
+      db
+        .query<Row, []>(
+          `SELECT d.path, d.type, d.status, d.indexed_at,
+             (SELECT GROUP_CONCAT(t.name, char(10)) FROM document_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.document_id = d.id) AS tags
+           FROM documents d`
+        )
+        .all()
+    );
+    const tag = withDb((db) =>
+      db.query<{ name: string }, []>("SELECT t.name FROM tags t JOIN document_tags dt ON dt.tag_id = t.id GROUP BY t.id ORDER BY COUNT(*) DESC, t.name LIMIT 1").get()!.name
+    );
+    const live = (r: Row) => r.status !== "archived";
+    const scopes: Array<[Partial<DocumentPageInput>, (r: Row) => boolean]> = [
+      [{}, live],
+      [{ type: "project" }, (r) => live(r) && r.type === "project"],
+      [{ tag }, (r) => live(r) && (r.tags ?? "").split("\n").includes(tag)],
+      [{ pathPrefix: "notes/fleet" }, (r) => live(r) && r.path.startsWith("notes/fleet/")],
+      [{ includeArchived: true }, () => true],
+    ];
+    expect(rows.some((r) => !live(r))).toBe(true);
+    for (const [input, member] of scopes) {
+      const inScope = rows.filter(member);
+      expect(inScope.length).toBeGreaterThan(1);
+      const newest = inScope.map((r) => r.indexed_at).sort().at(-1)!;
+      const fingerprint = createHash("sha256").update(`${inScope.length}|${newest}`).digest("hex").slice(0, 16);
+      const first = page({ ...input, limit: 1 });
+      expect(first.total).toBe(inScope.length);
+      const state = JSON.parse(Buffer.from(first.next_cursor!, "base64url").toString("utf8")) as { f: string };
+      expect(state.f).toBe(fingerprint);
+      // A cursor issued before the split carries the same fingerprint and
+      // continues without a stale-cursor warning.
+      const second = page({ ...input, limit: 1, cursor: first.next_cursor! });
+      expect(second.warnings).toEqual([]);
+      expect(second.total).toBe(inScope.length);
     }
   });
 });
