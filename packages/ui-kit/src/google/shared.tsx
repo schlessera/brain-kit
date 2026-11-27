@@ -1,5 +1,8 @@
-import { useLayoutEffect, useRef, type CSSProperties, type FocusEvent, type RefObject } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type FocusEvent, type ReactNode, type RefObject } from "react";
 
+import { Button } from "../primitives/Button.js";
+import { Callout } from "../primitives/Callout.js";
+import { Placeholder } from "../states/Placeholder.js";
 import { color, font } from "../tokens.js";
 
 /**
@@ -121,6 +124,86 @@ export function titleStyle(dim: boolean): CSSProperties {
     font: `600 12.5px/1.35 ${font.body}`,
     color: dim ? color.inkDim : color.ink,
     overflowWrap: "anywhere",
+  };
+}
+
+/* ── Rows the host cannot show, and a read that failed ──────────────────── */
+
+/**
+ * How many rows the host holds but cannot show, read only in the ready
+ * state. Any count above zero is at least one: a fractional or absurd count is
+ * a host bug, and it must never turn into an empty claim.
+ */
+export function unshownCount(state: string, unshown: number | undefined): number {
+  return state === "ready" && typeof unshown === "number" && unshown > 0 ? Math.ceil(unshown) : 0;
+}
+
+/** "1 remembered approval", "2 remembered approvals". */
+export function counted(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** A CLI command inside notice text: mono, wrapping at its spaces. */
+const COMMAND: CSSProperties = { font: `500 10.5px/1.5 ${font.mono}`, color: color.ink, overflowWrap: "anywhere" };
+
+export function Command({ children }: { children: string }) {
+  return <code style={COMMAND}>{children}</code>;
+}
+
+/**
+ * Rows that exist but cannot be drawn here: a boxed amber notice with the
+ * standing-permission key, saying how many and what still holds for them.
+ * It replaces the list's empty line whenever its count is above zero, and it
+ * is separate from the revoke-error banner: both can show at once.
+ */
+export function UnshownNotice({ count, children }: { count: number; children: ReactNode }) {
+  return (
+    <div data-google-unshown={count}>
+      <Callout tone="amber" variant="boxed" icon="capability">
+        {children}
+      </Callout>
+    </div>
+  );
+}
+
+/**
+ * A read that finished and failed: the kit's error state (red hairline, the
+ * failure named, what it means underneath), never the loading ghost, which
+ * says `aria-busy` while nothing is running, and never the empty line, which
+ * would claim there is nothing. Try again shows only when the host listens,
+ * as every kit retry does; it is a reaching `Button` as Live service settings'
+ * Try again is, rather than `Placeholder`'s own pill, which paints under 24px
+ * and has no coarse-pointer reach (#3252).
+ */
+export function FailedRead({ message, detail, onRetry }: { message: string; detail: string; onRetry?: () => void }) {
+  return (
+    <div data-google-failed="" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
+      <Placeholder variant="error" message={message} detail={detail} />
+      {onRetry ? <Button label="Try again" icon="retry" tone="ghost" size="sm" block={false} reach onClick={onRetry} /> : null}
+    </div>
+  );
+}
+
+/**
+ * Try again leaves the failed state, and with it the button: when the press
+ * took focus with it, focus goes to the heading, the list's focus target when
+ * nothing else is left to hold it. Focus the user moved elsewhere stays.
+ */
+export function useFocusAfterRetry(state: string, root: RefObject<HTMLElement | null>, heading: RefObject<HTMLElement | null>, onRetry?: () => void) {
+  const pressed = useRef(false);
+  useLayoutEffect(() => {
+    if (state === "failed" || !pressed.current) return;
+    pressed.current = false;
+    const doc = root.current?.ownerDocument;
+    if (!doc) return;
+    const active = doc.activeElement;
+    if (active && active !== doc.body && active.isConnected) return;
+    heading.current?.focus();
+  }, [state, root, heading]);
+  if (!onRetry) return undefined;
+  return () => {
+    pressed.current = true;
+    onRetry();
   };
 }
 

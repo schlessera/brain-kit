@@ -209,6 +209,37 @@ export async function loadingRows(list: List) {
   }
 }
 
+/**
+ * A finished read that failed: the kit's error state, and nothing that says
+ * a read is running (no `aria-busy`, no ghost) or that the list is empty.
+ */
+export async function failedRead(list: List, claims: { failed: string; detail: string; empty: string; unavailable: string }) {
+  const box = list.querySelector<HTMLElement>("[data-google-failed]");
+  await expect(box, "the failed state is drawn").not.toBeNull();
+  await expect(box!.textContent, "the failure, then what it means").toContain(`${claims.failed}${claims.detail}`);
+  await expect(list.querySelector("[aria-busy]"), "nothing claims to be loading").toBeNull();
+  await expect(list.querySelectorAll(".bk-ghost"), "no loading ghost").toHaveLength(0);
+  await expect(list.textContent, "no empty claim").not.toContain(claims.empty);
+  await expect(list.textContent, "no unavailable claim").not.toContain(claims.unavailable);
+  await expect(list.querySelector("[data-google-unshown]"), "no count notice").toBeNull();
+}
+
+/**
+ * Rows the host holds but cannot show: the count notice, after any rows and
+ * before any revoke-error banner, and never the empty line.
+ */
+export async function unshownNotice(list: List, expected: { count: number; text: string; empty: string }) {
+  const notice = list.querySelector<HTMLElement>("[data-google-unshown]");
+  await expect(notice, "the count notice is drawn").not.toBeNull();
+  await expect(notice!.getAttribute("data-google-unshown")).toBe(String(expected.count));
+  await expect(notice!.textContent, "the count notice's copy").toBe(expected.text);
+  await expect(list.textContent, "rows that exist are never called none").not.toContain(expected.empty);
+  const rows = [...list.querySelectorAll<HTMLElement>("[data-google-target]")];
+  if (rows.length) await expect(notice!.getBoundingClientRect().top, "the notice is under the rows").toBeGreaterThanOrEqual(rows.at(-1)!.getBoundingClientRect().bottom);
+  const alert = list.querySelector<HTMLElement>("[role='alert']");
+  if (alert) await expect(alert.getBoundingClientRect().top, "a revoke error sits under the notice").toBeGreaterThanOrEqual(notice!.getBoundingClientRect().bottom);
+}
+
 /** The document point (x, y) brought on screen, and what is hit there. */
 function ownerAt(x: number, y: number): HTMLElement | null {
   window.scrollTo({ left: x - innerWidth / 2, top: y - innerHeight / 2, behavior: "instant" });
@@ -295,6 +326,8 @@ export interface Expected {
   copy?: string[];
   /** The Revoke controls' accessible names, in order. */
   names: string[];
+  /** The list's own controls after the rows (Try again), by accessible name. */
+  controls?: string[];
   /** Each list's item count, in order: one list per card. */
   lists: number[];
   /** The named groups' names, in order: one per approval account. */
@@ -319,9 +352,13 @@ export async function looksRight(context: { canvasElement: HTMLElement; paramete
   for (const line of expected.copy ?? []) await expect(text, "the exact copy").toContain(line);
 
   const buttons = within(list).queryAllByRole("button");
-  await expect(buttons.length, "one Revoke control per row").toBe(expected.names.length);
+  const controls = expected.controls ?? [];
+  await expect(buttons.length, "one Revoke control per row, then the list's own").toBe(expected.names.length + controls.length);
   for (const [i, name] of expected.names.entries()) {
     await expect(within(list).getByRole("button", { name }), `Revoke control ${i + 1}'s accessible name`).toBe(buttons[i]);
+  }
+  for (const [i, name] of controls.entries()) {
+    await expect(within(list).getByRole("button", { name }), `the list's control "${name}"`).toBe(buttons[expected.names.length + i]);
   }
   const lists = within(list).queryAllByRole("list");
   await expect(lists.map((ul) => within(ul).queryAllByRole("listitem").length), "a list per card, an item per row").toEqual(expected.lists);

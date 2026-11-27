@@ -1580,7 +1580,7 @@ signatures (every public export and the types it is made of)
     export function GoogleAllowanceList(p: GoogleAllowanceListProps): import("react").JSX.Element;
   GoogleAllowanceListProps (packages/ui-kit/src/google/GoogleAllowanceList.tsx)
     export interface GoogleAllowanceListProps {
-        state: "ready" | "loading" | "unavailable";
+        state: "ready" | "loading" | "unavailable" | "failed";
         grants: {
             id: string;
             address: string;
@@ -1589,15 +1589,17 @@ signatures (every public export and the types it is made of)
             limit: number;
             until: GoogleHostTime;
         }[];
+        unshown?: number;
         busy?: string | null;
         error?: string | null;
         onRevoke(id: string): void;
+        onRetry?: () => void;
     }
   GoogleApprovalList (packages/ui-kit/src/google/GoogleApprovalList.tsx)
     export function GoogleApprovalList(p: GoogleApprovalListProps): import("react").JSX.Element;
   GoogleApprovalListProps (packages/ui-kit/src/google/GoogleApprovalList.tsx)
     export interface GoogleApprovalListProps {
-        state: "ready" | "loading" | "unavailable";
+        state: "ready" | "loading" | "unavailable" | "failed";
         accounts: {
             address: string;
             approvals: {
@@ -1606,9 +1608,11 @@ signatures (every public export and the types it is made of)
                 since: GoogleHostTime;
             }[];
         }[];
+        unshown?: number;
         busy?: string | null;
         error?: string | null;
         onRevoke(id: string): void;
+        onRetry?: () => void;
     }
   GoogleHostTime (packages/ui-kit/src/google/shared.tsx)
     export interface GoogleHostTime {

@@ -623,6 +623,14 @@ else the previous one, else, when the host's response replaced the rows, the
 first row now shown; only an empty list sends focus to its heading. No
 existing export, key, glyph or prop changes. This ships in a minor.
 
+Both lists' `state` also takes `"failed"`, a read that finished without a
+list: it is drawn as the kit's error state and never as loading or empty.
+Both take an optional `onRetry()`, which the failed state offers as Try
+again, and an optional `unshown` count of rows the host holds but cannot
+name. While `unshown` is above zero the empty line is never drawn, and a
+notice gives the count. These additions are optional and change no existing
+prop's meaning (additive, minor).
+
 ## UI-kit enlarge icon (additive #3397)
 
 The semantic `IconName` gains `enlarge`: open content in its dedicated

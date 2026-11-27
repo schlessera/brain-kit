@@ -10,13 +10,18 @@ import {
   ADDRESS,
   ActionWords,
   EXPLAINER,
+  FailedRead,
   HEADING,
   LIST_ROOT,
   TARGET_ATTR,
+  UnshownNotice,
   actionText,
+  counted,
   joinAnd,
   titleStyle,
+  unshownCount,
   useFocusAfterRemoval,
+  useFocusAfterRetry,
   type GoogleHostTime,
   type GoogleStandingAction,
 } from "./shared.js";
@@ -37,20 +42,32 @@ import {
  * row also names its account, in its text and in its Revoke's name. The
  * rows are a real list, one item per card.
  *
- * With nothing to list (loading, empty or unavailable) the explainer keeps
- * only its first sentence: the rest describes rows that are not there.
+ * With no row to draw (loading, empty, unavailable, failed, or only
+ * allowances the host cannot name) the explainer keeps only its first
+ * sentence: the rest describes rows that are not there.
+ *
+ * `failed` is a read that finished without a list: it says so and claims
+ * neither that nothing is allowed nor that anything is still loading, with
+ * Try again when the host passes `onRetry`. `unshown` counts allowances the
+ * host holds but cannot name; while it is above zero the list never says
+ * "Nothing is allowed", and a notice under the rows says how many and that
+ * they still apply.
  *
  * When the host drops a revoked row, focus goes to the next row's Revoke,
  * else the previous one, else the heading.
  */
 export interface GoogleAllowanceListProps {
-  state: "ready" | "loading" | "unavailable";
+  state: "ready" | "loading" | "unavailable" | "failed";
   grants: { id: string; address: string; actions: GoogleStandingAction[]; remaining: number; limit: number; until: GoogleHostTime }[];
+  /** Ready only: allowances that exist in this chat but cannot be shown here. */
+  unshown?: number;
   /** The grant whose revoke is in flight. */
   busy?: string | null;
   /** The last revoke failure, shown as a banner under the list. */
   error?: string | null;
   onRevoke(id: string): void;
+  /** Failed only: read again. Without it the failed state offers no Try again. */
+  onRetry?: () => void;
 }
 
 const HEADING_TEXT = "Allowed in this chat";
@@ -58,6 +75,8 @@ const EXPLAINER_LEAD = "This chat is restricted, so remembered approvals are off
 const EXPLAINER_TEXT = `${EXPLAINER_LEAD} You allowed these on a card here. They end at the time shown, when the chat returns to normal, when the policy changes or when Brain restarts.`;
 const EMPTY_TEXT = "Nothing is allowed in this chat. Each Gmail change asks.";
 const UNAVAILABLE_TEXT = "Allowances for this chat can't be read right now, so each Gmail change asks until they can.";
+const FAILED_TEXT = "Couldn't load this chat's allowances.";
+const FAILED_DETAIL = "Any you allowed here may still apply.";
 
 /** At or under this many changes left, the count turns amber. */
 const LOW = 10;
@@ -68,7 +87,9 @@ export function GoogleAllowanceList(p: GoogleAllowanceListProps) {
   const grants = p.state === "ready" ? p.grants : [];
   const ids = grants.map((grant) => grant.id);
   const accounts = new Set(grants.map((grant) => grant.address)).size;
+  const unshown = unshownCount(p.state, p.unshown);
   const focus = useFocusAfterRemoval(ids, root, heading);
+  const retry = useFocusAfterRetry(p.state, root, heading, p.onRetry);
 
   return (
     <div ref={root} data-google-allowances={p.state} style={LIST_ROOT} onFocus={focus.onFocus} onBlur={focus.onBlur}>
@@ -78,7 +99,8 @@ export function GoogleAllowanceList(p: GoogleAllowanceListProps) {
       <p style={EXPLAINER}>{grants.length > 0 ? EXPLAINER_TEXT : EXPLAINER_LEAD}</p>
       {p.state === "loading" ? <Placeholder variant="loading" lines={2} /> : null}
       {p.state === "unavailable" ? <Callout tone="amber" variant="boxed" icon="unverified" text={UNAVAILABLE_TEXT} /> : null}
-      {p.state === "ready" && grants.length === 0 ? <Placeholder variant="empty" message={EMPTY_TEXT} /> : null}
+      {p.state === "failed" ? <FailedRead message={FAILED_TEXT} detail={FAILED_DETAIL} onRetry={retry} /> : null}
+      {p.state === "ready" && grants.length === 0 && unshown === 0 ? <Placeholder variant="empty" message={EMPTY_TEXT} /> : null}
       {grants.length > 0 ? (
         <Surface pad={0}>
           {/* `role="list"` restates the list a `list-style: none` can strip in WebKit. */}
@@ -95,6 +117,11 @@ export function GoogleAllowanceList(p: GoogleAllowanceListProps) {
             ))}
           </ul>
         </Surface>
+      ) : null}
+      {unshown > 0 ? (
+        <UnshownNotice count={unshown}>
+          {counted(unshown, "allowance", "allowances")} in this chat can't be shown here. {unshown === 1 ? "It still applies." : "They still apply."}
+        </UnshownNotice>
       ) : null}
       {p.error ? (
         <div role="alert">

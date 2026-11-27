@@ -627,6 +627,13 @@ const GOOGLE: [story: unknown, name: string, width: 320 | 760, height: number][]
   [googleApprovals.OneAccountNarrow, "google-approvals-phone", 320, 520],
   [googleAllowances.NearlyUsedNarrow, "google-allowances-phone", 320, 480],
   [googleAllowances.UsedUpNarrow, "google-allowances-used-phone", 320, 480],
+  // A read that failed, and rows the host cannot show (#4212 round 2): the red
+  // error box with Try again, never the ghost; the amber count notice with
+  // rows above it and the revoke-error banner under it; and a count alone.
+  [googleApprovals.FailedNarrow, "google-approvals-failed-phone", 320, 420],
+  [googleApprovals.PartialRevokeErrorNarrow, "google-approvals-partial-phone", 320, 640],
+  [googleAllowances.FailedNarrow, "google-allowances-failed-phone", 320, 420],
+  [googleAllowances.PartialOnlyNarrow, "google-allowances-partial-phone", 320, 400],
 ];
 for (const light of [false, true]) {
   for (const [story, name, width, height] of GOOGLE) {

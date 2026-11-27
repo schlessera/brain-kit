@@ -22,8 +22,10 @@ import {
   looksRight,
   narrow,
   nearlyUsed,
+  failedRead,
   loadingRows,
   spokenText,
+  unshownNotice,
   type Expected,
 } from "./_google.js";
 
@@ -52,6 +54,12 @@ const EXPLAINER_LEAD = "This chat is restricted, so remembered approvals are off
 const EXPLAINER = `${EXPLAINER_LEAD} You allowed these on a card here. They end at the time shown, when the chat returns to normal, when the policy changes or when Brain restarts.`;
 const EMPTY = "Nothing is allowed in this chat. Each Gmail change asks.";
 const UNAVAILABLE = "Allowances for this chat can't be read right now, so each Gmail change asks until they can.";
+const FAILED = "Couldn't load this chat's allowances.";
+const FAILED_DETAIL = "Any you allowed here may still apply.";
+/** How often the story's `onRetry` spy was called: a subject run repeats a story without clearing its spies. */
+const retries = (args: { onRetry?: () => void }) => (args.onRetry as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+const CLAIMS = { failed: FAILED, detail: FAILED_DETAIL, empty: "Nothing is allowed", unavailable: "can't be read right now" };
+const unshownText = (count: number) => `${count} allowance${count === 1 ? "" : "s"} in this chat can't be shown here. ${count === 1 ? "It still applies." : "They still apply."}`;
 
 /** Allowances have no account groups; the full explainer unless a story says otherwise. */
 const expected = ({ explainer = EXPLAINER, ...rest }: Omit<Expected, "heading" | "explainer" | "groups"> & { explainer?: string }): Expected =>
@@ -233,6 +241,76 @@ export const Unavailable = meta.story({
 });
 export const UnavailableNarrow = Unavailable.extend({ ...narrow });
 
+/* ── A failed read, and allowances the host cannot show (#4212 round 2) ─── */
+
+/** The read finished without a list: say so, claim nothing allowed and nothing running, offer Try again. */
+export const Failed = meta.story({
+  ...desktop,
+  args: { state: "failed", onRetry: fn() },
+  play: async (context) => {
+    await looksRight(context, expected({ explainer: EXPLAINER_LEAD, copy: [FAILED, FAILED_DETAIL], names: [], controls: ["Try again"], lists: [] }));
+    const list = listIn(context.canvasElement);
+    await failedRead(list, CLAIMS);
+    await expect(list.getAttribute("data-google-allowances")).toBe("failed");
+    await userEvent.tab();
+    const retry = within(list).getByRole("button", { name: "Try again" });
+    await expect(document.activeElement, "Try again is the first tab stop").toBe(retry);
+    await expect(retry.classList.contains("bk-hit"), "Try again reaches under a coarse pointer").toBe(true);
+    const before = retries(context.args);
+    await userEvent.keyboard("{Enter}");
+    await expect(retries(context.args), "Enter on Try again calls onRetry once").toBe(before + 1);
+    blurActive();
+  },
+});
+export const FailedNarrow = Failed.extend({ ...narrow });
+
+/** A failed read whose host offers no retry: the same words, and no control. */
+export const FailedNoRetry = meta.story({
+  ...desktop,
+  args: { state: "failed" },
+  play: async (context) => {
+    await looksRight(context, expected({ explainer: EXPLAINER_LEAD, copy: [FAILED, FAILED_DETAIL], names: [], lists: [] }));
+    await failedRead(listIn(context.canvasElement), CLAIMS);
+  },
+});
+export const FailedNoRetryNarrow = FailedNoRetry.extend({ ...narrow });
+
+/** Only allowances the host cannot name: never "Nothing is allowed"; they still apply. */
+export const PartialOnly = meta.story({
+  ...desktop,
+  args: { grants: [], unshown: 1 },
+  play: async (context) => {
+    await looksRight(context, expected({ explainer: EXPLAINER_LEAD, copy: [unshownText(1)], names: [], lists: [] }));
+    await unshownNotice(listIn(context.canvasElement), { count: 1, text: unshownText(1), empty: "Nothing is allowed" });
+  },
+});
+export const PartialOnlyNarrow = PartialOnly.extend({ ...narrow });
+
+/** Shown cards, and two more allowances the host cannot name, counted under them. */
+export const Partial = meta.story({
+  ...desktop,
+  args: { grants: nearlyUsed(), unshown: 2 },
+  play: async (context) => {
+    await looksRight(context, expected({ copy: [unshownText(2)], names: NEARLY_USED_NAMES, lists: [2] }));
+    await unshownNotice(listIn(context.canvasElement), { count: 2, text: unshownText(2), empty: "Nothing is allowed" });
+    await expect(within(listIn(context.canvasElement)).queryByRole("alert"), "the notice is not a revoke error").toBeNull();
+  },
+});
+export const PartialNarrow = Partial.extend({ ...narrow });
+
+/** The count notice and a revoke error at once: two separate notices, the banner last. */
+export const PartialRevokeError = meta.story({
+  ...desktop,
+  args: { grants: nearlyUsed(), unshown: 1, error: ERROR },
+  play: async (context) => {
+    await looksRight(context, expected({ copy: [unshownText(1), ERROR], names: NEARLY_USED_NAMES, lists: [2] }));
+    const list = listIn(context.canvasElement);
+    await unshownNotice(list, { count: 1, text: unshownText(1), empty: "Nothing is allowed" });
+    await expect(within(list).getByRole("alert").textContent).toBe(ERROR);
+  },
+});
+export const PartialRevokeErrorNarrow = PartialRevokeError.extend({ ...narrow });
+
 /* ── Keyboard ────────────────────────────────────────────────────────── */
 
 /** Revokes the harness holds until the play lets them finish. */
@@ -365,3 +443,59 @@ export const KeyboardRevokeReplaced = meta.story({
   },
 });
 export const KeyboardRevokeReplacedNarrow = KeyboardRevokeReplaced.extend({ ...narrow });
+
+/* ── Try again ───────────────────────────────────────────────────────── */
+
+/** Reads the harness holds until the play lets them finish. */
+const reads: (() => void)[] = [];
+const finishRead = () => reads.shift()?.();
+
+/** The host's side of a retry: the list reads (loading), then lands with the mock's grants. */
+function RetryHost(p: GoogleAllowanceListProps) {
+  const [state, setState] = useState<GoogleAllowanceListProps["state"]>(() => {
+    reads.length = 0;
+    return "failed";
+  });
+  return (
+    <GoogleAllowanceList
+      {...p}
+      state={state}
+      grants={state === "ready" ? nearlyUsed() : []}
+      onRetry={() => {
+        p.onRetry?.();
+        setState("loading");
+        reads.push(() => setState("ready"));
+      }}
+    />
+  );
+}
+
+/**
+ * Tab to Try again and press Enter: the list reads, Try again goes with the
+ * failed state, and focus waits on the heading; the grants land and Tab
+ * reaches the first Revoke.
+ */
+export const RetryKeyboard = meta.story({
+  ...desktop,
+  args: { onRetry: fn() },
+  render: (args) => <RetryHost {...args} />,
+  play: async (context) => {
+    const list = listIn(context.canvasElement);
+    await failedRead(list, CLAIMS);
+    await userEvent.tab();
+    await expect(document.activeElement).toBe(within(list).getByRole("button", { name: "Try again" }));
+    const before = retries(context.args);
+    await userEvent.keyboard("{Enter}");
+    await expect(retries(context.args), "Enter on Try again calls onRetry once").toBe(before + 1);
+    await waitFor(() => expect(list.getAttribute("data-google-allowances")).toBe("loading"));
+    await loadingRows(list);
+    await expect(document.activeElement, "focus waits on the heading while it reads").toBe(within(list).getByRole("heading"));
+    finishRead();
+    await waitFor(() => expect(list.getAttribute("data-google-allowances")).toBe("ready"));
+    await looksRight(context, expected({ names: NEARLY_USED_NAMES, lists: [2] }));
+    await userEvent.tab();
+    await expect(document.activeElement, "the next Tab reaches the first Revoke").toBe(within(list).getByRole("button", { name: NEARLY_USED_NAMES[0] }));
+    blurActive();
+  },
+});
+export const RetryKeyboardNarrow = RetryKeyboard.extend({ ...narrow });
