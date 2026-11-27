@@ -46,7 +46,7 @@ const SUPPORT: Record<string, string> = {
 let root = "";
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "lint-gates-"));
-  for (const [file, text] of Object.entries({ ...SUPPORT, ...Object.assign({}, ...Object.values(PLANTED).map(entry => entry.files)) })) {
+  for (const [file, text] of Object.entries({ ...SUPPORT, ...Object.fromEntries(Object.values(PLANTED).flatMap(entry => Object.entries(entry.files))) })) {
     mkdirSync(join(root, dirname(file)), { recursive: true });
     writeFileSync(join(root, file), text);
   }

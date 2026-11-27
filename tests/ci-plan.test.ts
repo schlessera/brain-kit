@@ -37,7 +37,7 @@ function fixture() {
 /** The real planner executable inside a fixture repository whose HEAD changes one core source file. */
 function plannerFixture() {
   const f = fixture(); f.write("scripts/ci-plan.ts", readFileSync(join(import.meta.dir, "../scripts/ci-plan.ts"), "utf8").replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
-  for (const name of ["browser-input-closure", "unit-test-consumers", "integration-reservation", "red-main", "proof-shards", "determinism-plan", "browser-determinism-plan"]) f.write(`scripts/${name}.ts`, `export * from ${JSON.stringify(resolve(import.meta.dir, `../scripts/${name}.ts`))};\n`);
+  for (const name of ["browser-input-closure", "unit-test-consumers", "integration-reservation", "red-main", "proof-shards", "determinism-plan", "browser-determinism-plan", "lib/git"]) f.write(`scripts/${name}.ts`, `export * from ${JSON.stringify(resolve(import.meta.dir, `../scripts/${name}.ts`))};\n`);
   f.write("packages/core/src/note.ts", "export const note = 2;\n");
   f.git("add", "."); f.git("commit", "-qm", "planner fixture");
   return f;
