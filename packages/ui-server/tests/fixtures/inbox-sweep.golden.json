@@ -1,0 +1,2415 @@
+{
+ "uncapped": {
+  "hygiene_review": [],
+  "hygiene_action_revisions": [],
+  "hygiene_effect_attempts": [],
+  "inbox_threads": [
+   {
+    "id": "aeolus",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "circe",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "scylla",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "charybdis",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "helios",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "polyphemus",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "ithaca",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "laertes",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "calypso",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   }
+  ],
+  "inbox_items": [
+   {
+    "id": "work-aeolus",
+    "thread_id": "aeolus",
+    "dedup_key": "work-aeolus",
+    "queue": "queue",
+    "type": "triage",
+    "status": "done",
+    "version": 3,
+    "data_json": "{\"id\":\"work-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"work-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-aeolus\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 1,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "action-aeolus",
+    "thread_id": "aeolus",
+    "dedup_key": "action-aeolus",
+    "queue": "actions",
+    "type": "choose",
+    "status": "expired",
+    "version": 2,
+    "data_json": "{\"id\":\"action-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"action-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":2,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"expired\",\"payload\":{\"title\":\"Decide for aeolus\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}",
+    "expires_at": 1783846800000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-circe",
+    "thread_id": "circe",
+    "dedup_key": "work-circe",
+    "queue": "queue",
+    "type": "triage",
+    "status": "done",
+    "version": 3,
+    "data_json": "{\"id\":\"work-circe\",\"threadId\":\"circe\",\"dedupKey\":\"work-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-circe\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 1,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "action-circe",
+    "thread_id": "circe",
+    "dedup_key": "action-circe",
+    "queue": "actions",
+    "type": "choose",
+    "status": "pending",
+    "version": 3,
+    "data_json": "{\"id\":\"action-circe\",\"threadId\":\"circe\",\"dedupKey\":\"action-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":3,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Decide for circe\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-scylla",
+    "thread_id": "scylla",
+    "dedup_key": "work-scylla",
+    "queue": "queue",
+    "type": "triage",
+    "status": "expired",
+    "version": 2,
+    "data_json": "{\"id\":\"work-scylla\",\"threadId\":\"scylla\",\"dedupKey\":\"work-scylla\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":2,\"queue\":\"queue\",\"status\":\"expired\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-scylla\"}}",
+    "expires_at": 1783846800000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-charybdis",
+    "thread_id": "charybdis",
+    "dedup_key": "work-charybdis",
+    "queue": "queue",
+    "type": "triage",
+    "status": "superseded",
+    "version": 4,
+    "data_json": "{\"id\":\"work-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"work-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":4,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"superseded\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-charybdis\"}}",
+    "expires_at": 1783846800000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 1,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "action-charybdis",
+    "thread_id": "charybdis",
+    "dedup_key": "action-charybdis",
+    "queue": "actions",
+    "type": "choose",
+    "status": "expired",
+    "version": 2,
+    "data_json": "{\"id\":\"action-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"action-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"expired\",\"payload\":{\"title\":\"Decide for charybdis\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-helios",
+    "thread_id": "helios",
+    "dedup_key": "work-helios",
+    "queue": "queue",
+    "type": "triage",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"work-helios\",\"threadId\":\"helios\",\"dedupKey\":\"work-helios\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-helios\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "schedule-helios",
+    "thread_id": "helios",
+    "dedup_key": "schedule-helios",
+    "queue": "queue",
+    "type": "execute",
+    "status": "ready",
+    "version": 2,
+    "data_json": "{\"id\":\"schedule-helios\",\"threadId\":\"helios\",\"dedupKey\":\"schedule-helios\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"execute\",\"payload\":{\"instruction\":\"Herd the cattle of the sun\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-polyphemus",
+    "thread_id": "polyphemus",
+    "dedup_key": "work-polyphemus",
+    "queue": "queue",
+    "type": "triage",
+    "status": "failed",
+    "version": 9,
+    "data_json": "{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":9,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"failed\",\"attempts\":3,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 3,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-ithaca",
+    "thread_id": "ithaca",
+    "dedup_key": "work-ithaca",
+    "queue": "queue",
+    "type": "triage",
+    "status": "done",
+    "version": 3,
+    "data_json": "{\"id\":\"work-ithaca\",\"threadId\":\"ithaca\",\"dedupKey\":\"work-ithaca\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-ithaca\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 1,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-laertes",
+    "thread_id": "laertes",
+    "dedup_key": "work-laertes",
+    "queue": "queue",
+    "type": "triage",
+    "status": "done",
+    "version": 3,
+    "data_json": "{\"id\":\"work-laertes\",\"threadId\":\"laertes\",\"dedupKey\":\"work-laertes\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-laertes\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 1,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585",
+    "thread_id": "laertes",
+    "dedup_key": "cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585",
+    "queue": "queue",
+    "type": "cleanup_pending",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585\",\"threadId\":\"laertes\",\"dedupKey\":\"cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-laertes\"}}",
+    "expires_at": 9007199254740991,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-calypso",
+    "thread_id": "calypso",
+    "dedup_key": "work-calypso",
+    "queue": "queue",
+    "type": "triage",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"work-calypso\",\"threadId\":\"calypso\",\"dedupKey\":\"work-calypso\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-calypso\"}}",
+    "expires_at": 1783846800000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd",
+    "thread_id": "aeolus",
+    "dedup_key": "retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd",
+    "queue": "actions",
+    "type": "fyi",
+    "status": "pending",
+    "version": 1,
+    "data_json": "{\"id\":\"retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd\",\"threadId\":\"aeolus\",\"dedupKey\":\"retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"A decision expired\",\"detail\":\"Decide for aeolus\\nAssociated work was stopped; staging cleanup is journaled separately.\"},\"options\":[]}",
+    "expires_at": 1786442400000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06",
+    "thread_id": "aeolus",
+    "dedup_key": "cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06",
+    "queue": "queue",
+    "type": "cleanup_pending",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06\",\"threadId\":\"aeolus\",\"dedupKey\":\"cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-aeolus\"}}",
+    "expires_at": 9007199254740991,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86",
+    "thread_id": "charybdis",
+    "dedup_key": "retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86",
+    "queue": "actions",
+    "type": "fyi",
+    "status": "pending",
+    "version": 1,
+    "data_json": "{\"id\":\"retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86\",\"threadId\":\"charybdis\",\"dedupKey\":\"retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"A decision expired\",\"detail\":\"Decide for charybdis\\nAssociated work was stopped; staging cleanup is journaled separately.\"},\"options\":[]}",
+    "expires_at": 1786442400000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e",
+    "thread_id": "charybdis",
+    "dedup_key": "cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e",
+    "queue": "queue",
+    "type": "cleanup_pending",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e\",\"threadId\":\"charybdis\",\"dedupKey\":\"cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-charybdis\"}}",
+    "expires_at": 9007199254740991,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9",
+    "thread_id": "ithaca",
+    "dedup_key": "cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9",
+    "queue": "queue",
+    "type": "cleanup_pending",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9\",\"threadId\":\"ithaca\",\"dedupKey\":\"cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-ithaca\"}}",
+    "expires_at": 9007199254740991,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "thread_id": "polyphemus",
+    "dedup_key": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "queue": "actions",
+    "type": "choose",
+    "status": "pending",
+    "version": 1,
+    "data_json": "{\"id\":\"dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165\",\"threadId\":\"polyphemus\",\"dedupKey\":\"dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Queued work exhausted its retries\",\"detail\":\"Work work-polyphemus stopped after 3 attempts.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}",
+    "expires_at": 1786442400000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47",
+    "thread_id": "scylla",
+    "dedup_key": "expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47",
+    "queue": "actions",
+    "type": "fyi",
+    "status": "pending",
+    "version": 1,
+    "data_json": "{\"id\":\"expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47\",\"threadId\":\"scylla\",\"dedupKey\":\"expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"Queued work expired\",\"detail\":\"Work work-scylla expired before completion; staging cleanup is journaled separately.\"},\"options\":[]}",
+    "expires_at": 1786442400000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435",
+    "thread_id": "scylla",
+    "dedup_key": "cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435",
+    "queue": "queue",
+    "type": "cleanup_pending",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435\",\"threadId\":\"scylla\",\"dedupKey\":\"cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-scylla\"}}",
+    "expires_at": 9007199254740991,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   }
+  ],
+  "inbox_thread_sequences": [
+   {
+    "thread_id": "aeolus",
+    "seq": 8
+   },
+   {
+    "thread_id": "circe",
+    "seq": 7
+   },
+   {
+    "thread_id": "scylla",
+    "seq": 5
+   },
+   {
+    "thread_id": "charybdis",
+    "seq": 9
+   },
+   {
+    "thread_id": "helios",
+    "seq": 4
+   },
+   {
+    "thread_id": "polyphemus",
+    "seq": 11
+   },
+   {
+    "thread_id": "ithaca",
+    "seq": 5
+   },
+   {
+    "thread_id": "laertes",
+    "seq": 5
+   },
+   {
+    "thread_id": "calypso",
+    "seq": 2
+   }
+  ],
+  "inbox_changes": [
+   {
+    "change_id": 1,
+    "thread_id": "aeolus",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"aeolus\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 2,
+    "thread_id": "aeolus",
+    "item_id": "work-aeolus",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-aeolus\",\"item\":{\"id\":\"work-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"work-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-aeolus\"}}}"
+   },
+   {
+    "change_id": 3,
+    "thread_id": "aeolus",
+    "item_id": "work-aeolus",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-aeolus\",\"item\":{\"id\":\"work-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"work-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-aeolus\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 4,
+    "thread_id": "aeolus",
+    "item_id": "work-aeolus",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-aeolus\",\"item\":{\"id\":\"work-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"work-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-aeolus\"}}}"
+   },
+   {
+    "change_id": 5,
+    "thread_id": "aeolus",
+    "item_id": "action-aeolus",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-aeolus\",\"item\":{\"id\":\"action-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"action-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":1,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Decide for aeolus\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 6,
+    "thread_id": "circe",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"circe\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 7,
+    "thread_id": "circe",
+    "item_id": "work-circe",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-circe\",\"item\":{\"id\":\"work-circe\",\"threadId\":\"circe\",\"dedupKey\":\"work-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-circe\"}}}"
+   },
+   {
+    "change_id": 8,
+    "thread_id": "circe",
+    "item_id": "work-circe",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-circe\",\"item\":{\"id\":\"work-circe\",\"threadId\":\"circe\",\"dedupKey\":\"work-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-circe\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 9,
+    "thread_id": "circe",
+    "item_id": "work-circe",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-circe\",\"item\":{\"id\":\"work-circe\",\"threadId\":\"circe\",\"dedupKey\":\"work-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-circe\"}}}"
+   },
+   {
+    "change_id": 10,
+    "thread_id": "circe",
+    "item_id": "action-circe",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-circe\",\"item\":{\"id\":\"action-circe\",\"threadId\":\"circe\",\"dedupKey\":\"action-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Decide for circe\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 11,
+    "thread_id": "circe",
+    "item_id": "action-circe",
+    "seq": 6,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-circe\",\"item\":{\"id\":\"action-circe\",\"threadId\":\"circe\",\"dedupKey\":\"action-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"snoozed\",\"payload\":{\"title\":\"Decide for circe\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}],\"waitUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 12,
+    "thread_id": "scylla",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"scylla\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 13,
+    "thread_id": "scylla",
+    "item_id": "work-scylla",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-scylla\",\"item\":{\"id\":\"work-scylla\",\"threadId\":\"scylla\",\"dedupKey\":\"work-scylla\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-scylla\"}}}"
+   },
+   {
+    "change_id": 14,
+    "thread_id": "charybdis",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"charybdis\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 15,
+    "thread_id": "charybdis",
+    "item_id": "work-charybdis",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-charybdis\",\"item\":{\"id\":\"work-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"work-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-charybdis\"}}}"
+   },
+   {
+    "change_id": 16,
+    "thread_id": "charybdis",
+    "item_id": "work-charybdis",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-charybdis\",\"item\":{\"id\":\"work-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"work-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-charybdis\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 17,
+    "thread_id": "charybdis",
+    "item_id": "action-charybdis",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-charybdis\",\"item\":{\"id\":\"action-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"action-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Decide for charybdis\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 18,
+    "thread_id": "charybdis",
+    "item_id": "work-charybdis",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-charybdis\",\"item\":{\"id\":\"work-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"work-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"blocked\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-charybdis\"},\"blockedByItemId\":\"action-charybdis\"}}"
+   },
+   {
+    "change_id": 19,
+    "thread_id": "helios",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"helios\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 20,
+    "thread_id": "helios",
+    "item_id": "work-helios",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-helios\",\"item\":{\"id\":\"work-helios\",\"threadId\":\"helios\",\"dedupKey\":\"work-helios\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-helios\"}}}"
+   },
+   {
+    "change_id": 21,
+    "thread_id": "helios",
+    "item_id": "schedule-helios",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"schedule-helios\",\"item\":{\"id\":\"schedule-helios\",\"threadId\":\"helios\",\"dedupKey\":\"schedule-helios\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"waitUntil\":1783846800000,\"version\":1,\"queue\":\"queue\",\"status\":\"scheduled\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"execute\",\"payload\":{\"instruction\":\"Herd the cattle of the sun\"}}}"
+   },
+   {
+    "change_id": 22,
+    "thread_id": "polyphemus",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"polyphemus\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 23,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 24,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 25,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"failed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 26,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":4,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 27,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 6,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":5,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":2,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"},\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 28,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 7,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":6,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"failed\",\"attempts\":2,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 29,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 8,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":7,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":2,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 30,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 9,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":8,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":3,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"},\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 31,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 10,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":9,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"failed\",\"attempts\":3,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 32,
+    "thread_id": "ithaca",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"ithaca\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 33,
+    "thread_id": "ithaca",
+    "item_id": "work-ithaca",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-ithaca\",\"item\":{\"id\":\"work-ithaca\",\"threadId\":\"ithaca\",\"dedupKey\":\"work-ithaca\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-ithaca\"}}}"
+   },
+   {
+    "change_id": 34,
+    "thread_id": "ithaca",
+    "item_id": "work-ithaca",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-ithaca\",\"item\":{\"id\":\"work-ithaca\",\"threadId\":\"ithaca\",\"dedupKey\":\"work-ithaca\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-ithaca\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 35,
+    "thread_id": "ithaca",
+    "item_id": "work-ithaca",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-ithaca\",\"item\":{\"id\":\"work-ithaca\",\"threadId\":\"ithaca\",\"dedupKey\":\"work-ithaca\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-ithaca\"}}}"
+   },
+   {
+    "change_id": 36,
+    "thread_id": "laertes",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"laertes\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 37,
+    "thread_id": "laertes",
+    "item_id": "work-laertes",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-laertes\",\"item\":{\"id\":\"work-laertes\",\"threadId\":\"laertes\",\"dedupKey\":\"work-laertes\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-laertes\"}}}"
+   },
+   {
+    "change_id": 38,
+    "thread_id": "laertes",
+    "item_id": "work-laertes",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-laertes\",\"item\":{\"id\":\"work-laertes\",\"threadId\":\"laertes\",\"dedupKey\":\"work-laertes\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-laertes\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 39,
+    "thread_id": "laertes",
+    "item_id": "work-laertes",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-laertes\",\"item\":{\"id\":\"work-laertes\",\"threadId\":\"laertes\",\"dedupKey\":\"work-laertes\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-laertes\"}}}"
+   },
+   {
+    "change_id": 40,
+    "thread_id": "laertes",
+    "item_id": "cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585\",\"item\":{\"id\":\"cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585\",\"threadId\":\"laertes\",\"dedupKey\":\"cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-laertes\"}}}"
+   },
+   {
+    "change_id": 41,
+    "thread_id": "calypso",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"calypso\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 42,
+    "thread_id": "calypso",
+    "item_id": "work-calypso",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-calypso\",\"item\":{\"id\":\"work-calypso\",\"threadId\":\"calypso\",\"dedupKey\":\"work-calypso\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-calypso\"}}}"
+   },
+   {
+    "change_id": 43,
+    "thread_id": "aeolus",
+    "item_id": "action-aeolus",
+    "seq": 6,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-aeolus\",\"item\":{\"id\":\"action-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"action-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":2,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"expired\",\"payload\":{\"title\":\"Decide for aeolus\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 44,
+    "thread_id": "aeolus",
+    "item_id": "retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd",
+    "seq": 7,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd\",\"item\":{\"id\":\"retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd\",\"threadId\":\"aeolus\",\"dedupKey\":\"retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"A decision expired\",\"detail\":\"Decide for aeolus\\nAssociated work was stopped; staging cleanup is journaled separately.\"},\"options\":[]}}"
+   },
+   {
+    "change_id": 45,
+    "thread_id": "aeolus",
+    "item_id": "cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06",
+    "seq": 8,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06\",\"item\":{\"id\":\"cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06\",\"threadId\":\"aeolus\",\"dedupKey\":\"cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-aeolus\"}}}"
+   },
+   {
+    "change_id": 46,
+    "thread_id": "circe",
+    "item_id": "action-circe",
+    "seq": 7,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-circe\",\"item\":{\"id\":\"action-circe\",\"threadId\":\"circe\",\"dedupKey\":\"action-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":3,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Decide for circe\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 47,
+    "thread_id": "helios",
+    "item_id": "schedule-helios",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"schedule-helios\",\"item\":{\"id\":\"schedule-helios\",\"threadId\":\"helios\",\"dedupKey\":\"schedule-helios\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"execute\",\"payload\":{\"instruction\":\"Herd the cattle of the sun\"}}}"
+   },
+   {
+    "change_id": 48,
+    "thread_id": "charybdis",
+    "item_id": "work-charybdis",
+    "seq": 6,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-charybdis\",\"item\":{\"id\":\"work-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"work-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":4,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"superseded\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-charybdis\"}}}"
+   },
+   {
+    "change_id": 49,
+    "thread_id": "charybdis",
+    "item_id": "action-charybdis",
+    "seq": 7,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-charybdis\",\"item\":{\"id\":\"action-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"action-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"expired\",\"payload\":{\"title\":\"Decide for charybdis\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 50,
+    "thread_id": "charybdis",
+    "item_id": "retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86",
+    "seq": 8,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86\",\"item\":{\"id\":\"retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86\",\"threadId\":\"charybdis\",\"dedupKey\":\"retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"A decision expired\",\"detail\":\"Decide for charybdis\\nAssociated work was stopped; staging cleanup is journaled separately.\"},\"options\":[]}}"
+   },
+   {
+    "change_id": 51,
+    "thread_id": "charybdis",
+    "item_id": "cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e",
+    "seq": 9,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e\",\"item\":{\"id\":\"cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e\",\"threadId\":\"charybdis\",\"dedupKey\":\"cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-charybdis\"}}}"
+   },
+   {
+    "change_id": 52,
+    "thread_id": "ithaca",
+    "item_id": "cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9\",\"item\":{\"id\":\"cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9\",\"threadId\":\"ithaca\",\"dedupKey\":\"cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-ithaca\"}}}"
+   },
+   {
+    "change_id": 53,
+    "thread_id": "polyphemus",
+    "item_id": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "seq": 11,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165\",\"item\":{\"id\":\"dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165\",\"threadId\":\"polyphemus\",\"dedupKey\":\"dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Queued work exhausted its retries\",\"detail\":\"Work work-polyphemus stopped after 3 attempts.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 54,
+    "thread_id": "scylla",
+    "item_id": "work-scylla",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-scylla\",\"item\":{\"id\":\"work-scylla\",\"threadId\":\"scylla\",\"dedupKey\":\"work-scylla\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":2,\"queue\":\"queue\",\"status\":\"expired\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-scylla\"}}}"
+   },
+   {
+    "change_id": 55,
+    "thread_id": "scylla",
+    "item_id": "expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47\",\"item\":{\"id\":\"expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47\",\"threadId\":\"scylla\",\"dedupKey\":\"expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"Queued work expired\",\"detail\":\"Work work-scylla expired before completion; staging cleanup is journaled separately.\"},\"options\":[]}}"
+   },
+   {
+    "change_id": 56,
+    "thread_id": "scylla",
+    "item_id": "cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435\",\"item\":{\"id\":\"cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435\",\"threadId\":\"scylla\",\"dedupKey\":\"cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-scylla\"}}}"
+   }
+  ],
+  "inbox_checkpoints": [],
+  "inbox_resolutions": [],
+  "inbox_suppressions": [
+   {
+    "class_key": "action-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd",
+    "evidence_boundary": "action-aeolus",
+    "expires_at": 1783936800000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "created_at": 1783850400000
+   },
+   {
+    "class_key": "action-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86",
+    "evidence_boundary": "action-charybdis",
+    "expires_at": 1786435200000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "created_at": 1783850400000
+   },
+   {
+    "class_key": "work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47",
+    "evidence_boundary": "work-scylla",
+    "expires_at": 1783936800000,
+    "reraise_condition": "New intake evidence or suppression expiry.",
+    "created_at": 1783850400000
+   }
+  ],
+  "inbox_scheduler_heartbeats": [],
+  "inbox_budget_reservations": [],
+  "inbox_intake_receipts": [],
+  "inbox_interactive_shares": [
+   {
+    "item_id": "work-calypso",
+    "staging_id": "staging-calypso",
+    "principal_id": "odysseus",
+    "session_id": null,
+    "run_id": "run-calypso",
+    "completion_json": null
+   }
+  ],
+  "inbox_share_applications": [],
+  "inbox_completed_tool_calls": [],
+  "inbox_action_contexts": [
+   {
+    "item_id": "action-aeolus",
+    "source_item_id": null,
+    "class_key": "action-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd",
+    "evidence_boundary": "action-aeolus",
+    "suppression_until": 1783846800000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "options_json": "[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]",
+    "blocking_escalation": 0
+   },
+   {
+    "item_id": "action-circe",
+    "source_item_id": null,
+    "class_key": "action-fdd6b468800fbaf7961a5d7fcff1ba6d073890bbca556378cdede59c694e2c93",
+    "evidence_boundary": "action-circe",
+    "suppression_until": 1786435200000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "options_json": "[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]",
+    "blocking_escalation": 0
+   },
+   {
+    "item_id": "action-charybdis",
+    "source_item_id": null,
+    "class_key": "action-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86",
+    "evidence_boundary": "action-charybdis",
+    "suppression_until": 1786435200000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "options_json": "[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]",
+    "blocking_escalation": 0
+   },
+   {
+    "item_id": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "source_item_id": "work-polyphemus",
+    "class_key": "action-a2f022f613c3da4bffa482190fb84ffcb1ab3d6acf431c4a2eddf75493b38a0d",
+    "evidence_boundary": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "suppression_until": 1786442400000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "options_json": "[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]",
+    "blocking_escalation": 0
+   }
+  ],
+  "inbox_notice_clients": [],
+  "inbox_notice_episodes": [
+   {
+    "id": "action-aeolus#1",
+    "item_id": "action-aeolus",
+    "thread_id": "aeolus",
+    "ordinal": 1,
+    "started_at": 1783843200000,
+    "ended_at": 1783850400000
+   },
+   {
+    "id": "action-circe#1",
+    "item_id": "action-circe",
+    "thread_id": "circe",
+    "ordinal": 1,
+    "started_at": 1783843200000,
+    "ended_at": 1783843200000
+   },
+   {
+    "id": "action-charybdis#1",
+    "item_id": "action-charybdis",
+    "thread_id": "charybdis",
+    "ordinal": 1,
+    "started_at": 1783843200000,
+    "ended_at": 1783850400000
+   },
+   {
+    "id": "action-circe#2",
+    "item_id": "action-circe",
+    "thread_id": "circe",
+    "ordinal": 2,
+    "started_at": 1783850400000,
+    "ended_at": null
+   },
+   {
+    "id": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165#1",
+    "item_id": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "thread_id": "polyphemus",
+    "ordinal": 1,
+    "started_at": 1783850400000,
+    "ended_at": null
+   }
+  ],
+  "inbox_notice_batches": [],
+  "inbox_notice_constituents": [],
+  "inbox_notice_attempts": [],
+  "inbox_notice_attempt_components": [],
+  "inbox_notice_digests": [],
+  "inbox_notice_coverage": []
+ },
+ "capped": {
+  "hygiene_review": [],
+  "hygiene_action_revisions": [],
+  "hygiene_effect_attempts": [],
+  "inbox_threads": [
+   {
+    "id": "aeolus",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "circe",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "scylla",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "charybdis",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "helios",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "polyphemus",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "ithaca",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "laertes",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   },
+   {
+    "id": "calypso",
+    "trust_class": "untrusted",
+    "source": "share",
+    "status": "open",
+    "stakes": 1,
+    "deadline": null,
+    "created_at": 1783843200000,
+    "last_seen_at": 1783843200000,
+    "state_md": "",
+    "projection_seq": 0,
+    "compaction_pending": 0,
+    "deleted_at": null
+   }
+  ],
+  "inbox_items": [
+   {
+    "id": "work-aeolus",
+    "thread_id": "aeolus",
+    "dedup_key": "work-aeolus",
+    "queue": "queue",
+    "type": "triage",
+    "status": "done",
+    "version": 3,
+    "data_json": "{\"id\":\"work-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"work-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-aeolus\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 1,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "action-aeolus",
+    "thread_id": "aeolus",
+    "dedup_key": "action-aeolus",
+    "queue": "actions",
+    "type": "choose",
+    "status": "expired",
+    "version": 2,
+    "data_json": "{\"id\":\"action-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"action-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":2,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"expired\",\"payload\":{\"title\":\"Decide for aeolus\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}",
+    "expires_at": 1783846800000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-circe",
+    "thread_id": "circe",
+    "dedup_key": "work-circe",
+    "queue": "queue",
+    "type": "triage",
+    "status": "done",
+    "version": 3,
+    "data_json": "{\"id\":\"work-circe\",\"threadId\":\"circe\",\"dedupKey\":\"work-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-circe\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 1,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "action-circe",
+    "thread_id": "circe",
+    "dedup_key": "action-circe",
+    "queue": "actions",
+    "type": "choose",
+    "status": "dropped",
+    "version": 4,
+    "data_json": "{\"id\":\"action-circe\",\"threadId\":\"circe\",\"dedupKey\":\"action-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":4,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"dropped\",\"payload\":{\"title\":\"Decide for circe\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-scylla",
+    "thread_id": "scylla",
+    "dedup_key": "work-scylla",
+    "queue": "queue",
+    "type": "triage",
+    "status": "expired",
+    "version": 2,
+    "data_json": "{\"id\":\"work-scylla\",\"threadId\":\"scylla\",\"dedupKey\":\"work-scylla\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":2,\"queue\":\"queue\",\"status\":\"expired\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-scylla\"}}",
+    "expires_at": 1783846800000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-charybdis",
+    "thread_id": "charybdis",
+    "dedup_key": "work-charybdis",
+    "queue": "queue",
+    "type": "triage",
+    "status": "superseded",
+    "version": 4,
+    "data_json": "{\"id\":\"work-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"work-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":4,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"superseded\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-charybdis\"}}",
+    "expires_at": 1783846800000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 1,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "action-charybdis",
+    "thread_id": "charybdis",
+    "dedup_key": "action-charybdis",
+    "queue": "actions",
+    "type": "choose",
+    "status": "expired",
+    "version": 2,
+    "data_json": "{\"id\":\"action-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"action-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"expired\",\"payload\":{\"title\":\"Decide for charybdis\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-helios",
+    "thread_id": "helios",
+    "dedup_key": "work-helios",
+    "queue": "queue",
+    "type": "triage",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"work-helios\",\"threadId\":\"helios\",\"dedupKey\":\"work-helios\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-helios\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "schedule-helios",
+    "thread_id": "helios",
+    "dedup_key": "schedule-helios",
+    "queue": "queue",
+    "type": "execute",
+    "status": "ready",
+    "version": 2,
+    "data_json": "{\"id\":\"schedule-helios\",\"threadId\":\"helios\",\"dedupKey\":\"schedule-helios\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"execute\",\"payload\":{\"instruction\":\"Herd the cattle of the sun\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-polyphemus",
+    "thread_id": "polyphemus",
+    "dedup_key": "work-polyphemus",
+    "queue": "queue",
+    "type": "triage",
+    "status": "failed",
+    "version": 9,
+    "data_json": "{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":9,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"failed\",\"attempts\":3,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 3,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-ithaca",
+    "thread_id": "ithaca",
+    "dedup_key": "work-ithaca",
+    "queue": "queue",
+    "type": "triage",
+    "status": "done",
+    "version": 3,
+    "data_json": "{\"id\":\"work-ithaca\",\"threadId\":\"ithaca\",\"dedupKey\":\"work-ithaca\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-ithaca\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 1,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-laertes",
+    "thread_id": "laertes",
+    "dedup_key": "work-laertes",
+    "queue": "queue",
+    "type": "triage",
+    "status": "done",
+    "version": 3,
+    "data_json": "{\"id\":\"work-laertes\",\"threadId\":\"laertes\",\"dedupKey\":\"work-laertes\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-laertes\"}}",
+    "expires_at": 1786435200000,
+    "wait_until": null,
+    "run_id": "run-fixture",
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 1,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585",
+    "thread_id": "laertes",
+    "dedup_key": "cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585",
+    "queue": "queue",
+    "type": "cleanup_pending",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585\",\"threadId\":\"laertes\",\"dedupKey\":\"cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-laertes\"}}",
+    "expires_at": 9007199254740991,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "work-calypso",
+    "thread_id": "calypso",
+    "dedup_key": "work-calypso",
+    "queue": "queue",
+    "type": "triage",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"work-calypso\",\"threadId\":\"calypso\",\"dedupKey\":\"work-calypso\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-calypso\"}}",
+    "expires_at": 1783846800000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd",
+    "thread_id": "aeolus",
+    "dedup_key": "retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd",
+    "queue": "actions",
+    "type": "fyi",
+    "status": "pending",
+    "version": 1,
+    "data_json": "{\"id\":\"retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd\",\"threadId\":\"aeolus\",\"dedupKey\":\"retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"A decision expired\",\"detail\":\"Decide for aeolus\\nAssociated work was stopped; staging cleanup is journaled separately.\"},\"options\":[]}",
+    "expires_at": 1786442400000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06",
+    "thread_id": "aeolus",
+    "dedup_key": "cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06",
+    "queue": "queue",
+    "type": "cleanup_pending",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06\",\"threadId\":\"aeolus\",\"dedupKey\":\"cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-aeolus\"}}",
+    "expires_at": 9007199254740991,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86",
+    "thread_id": "charybdis",
+    "dedup_key": "retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86",
+    "queue": "actions",
+    "type": "fyi",
+    "status": "pending",
+    "version": 1,
+    "data_json": "{\"id\":\"retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86\",\"threadId\":\"charybdis\",\"dedupKey\":\"retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"A decision expired\",\"detail\":\"Decide for charybdis\\nAssociated work was stopped; staging cleanup is journaled separately.\"},\"options\":[]}",
+    "expires_at": 1786442400000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e",
+    "thread_id": "charybdis",
+    "dedup_key": "cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e",
+    "queue": "queue",
+    "type": "cleanup_pending",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e\",\"threadId\":\"charybdis\",\"dedupKey\":\"cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-charybdis\"}}",
+    "expires_at": 9007199254740991,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9",
+    "thread_id": "ithaca",
+    "dedup_key": "cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9",
+    "queue": "queue",
+    "type": "cleanup_pending",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9\",\"threadId\":\"ithaca\",\"dedupKey\":\"cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-ithaca\"}}",
+    "expires_at": 9007199254740991,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "thread_id": "polyphemus",
+    "dedup_key": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "queue": "actions",
+    "type": "choose",
+    "status": "pending",
+    "version": 1,
+    "data_json": "{\"id\":\"dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165\",\"threadId\":\"polyphemus\",\"dedupKey\":\"dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Queued work exhausted its retries\",\"detail\":\"Work work-polyphemus stopped after 3 attempts.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}",
+    "expires_at": 1786442400000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "retired-fdd6b468800fbaf7961a5d7fcff1ba6d073890bbca556378cdede59c694e2c93",
+    "thread_id": "circe",
+    "dedup_key": "retired-fdd6b468800fbaf7961a5d7fcff1ba6d073890bbca556378cdede59c694e2c93",
+    "queue": "actions",
+    "type": "fyi",
+    "status": "pending",
+    "version": 1,
+    "data_json": "{\"id\":\"retired-fdd6b468800fbaf7961a5d7fcff1ba6d073890bbca556378cdede59c694e2c93\",\"threadId\":\"circe\",\"dedupKey\":\"retired-fdd6b468800fbaf7961a5d7fcff1ba6d073890bbca556378cdede59c694e2c93\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"A decision was dropped at the Actions limit\",\"detail\":\"Decide for circe\\nAssociated work was stopped; staging cleanup is journaled separately.\"},\"options\":[]}",
+    "expires_at": 1786442400000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "cleanup-44b5529d66e9520117a4adcdbcb95217516444a0dbc7dbdcb8bed6c29f4967cb",
+    "thread_id": "circe",
+    "dedup_key": "cleanup-44b5529d66e9520117a4adcdbcb95217516444a0dbc7dbdcb8bed6c29f4967cb",
+    "queue": "queue",
+    "type": "cleanup_pending",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"cleanup-44b5529d66e9520117a4adcdbcb95217516444a0dbc7dbdcb8bed6c29f4967cb\",\"threadId\":\"circe\",\"dedupKey\":\"cleanup-44b5529d66e9520117a4adcdbcb95217516444a0dbc7dbdcb8bed6c29f4967cb\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-circe\"}}",
+    "expires_at": 9007199254740991,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47",
+    "thread_id": "scylla",
+    "dedup_key": "expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47",
+    "queue": "actions",
+    "type": "fyi",
+    "status": "pending",
+    "version": 1,
+    "data_json": "{\"id\":\"expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47\",\"threadId\":\"scylla\",\"dedupKey\":\"expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"Queued work expired\",\"detail\":\"Work work-scylla expired before completion; staging cleanup is journaled separately.\"},\"options\":[]}",
+    "expires_at": 1786442400000,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": null,
+    "max_attempts": null,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   },
+   {
+    "id": "cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435",
+    "thread_id": "scylla",
+    "dedup_key": "cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435",
+    "queue": "queue",
+    "type": "cleanup_pending",
+    "status": "ready",
+    "version": 1,
+    "data_json": "{\"id\":\"cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435\",\"threadId\":\"scylla\",\"dedupKey\":\"cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-scylla\"}}",
+    "expires_at": 9007199254740991,
+    "wait_until": null,
+    "run_id": null,
+    "claimed_at": null,
+    "lease_until": null,
+    "attempts": 0,
+    "max_attempts": 3,
+    "blocked_by_item_id": null,
+    "deleted_at": null
+   }
+  ],
+  "inbox_thread_sequences": [
+   {
+    "thread_id": "aeolus",
+    "seq": 8
+   },
+   {
+    "thread_id": "circe",
+    "seq": 10
+   },
+   {
+    "thread_id": "scylla",
+    "seq": 5
+   },
+   {
+    "thread_id": "charybdis",
+    "seq": 9
+   },
+   {
+    "thread_id": "helios",
+    "seq": 4
+   },
+   {
+    "thread_id": "polyphemus",
+    "seq": 11
+   },
+   {
+    "thread_id": "ithaca",
+    "seq": 5
+   },
+   {
+    "thread_id": "laertes",
+    "seq": 5
+   },
+   {
+    "thread_id": "calypso",
+    "seq": 2
+   }
+  ],
+  "inbox_changes": [
+   {
+    "change_id": 1,
+    "thread_id": "aeolus",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"aeolus\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 2,
+    "thread_id": "aeolus",
+    "item_id": "work-aeolus",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-aeolus\",\"item\":{\"id\":\"work-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"work-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-aeolus\"}}}"
+   },
+   {
+    "change_id": 3,
+    "thread_id": "aeolus",
+    "item_id": "work-aeolus",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-aeolus\",\"item\":{\"id\":\"work-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"work-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-aeolus\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 4,
+    "thread_id": "aeolus",
+    "item_id": "work-aeolus",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-aeolus\",\"item\":{\"id\":\"work-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"work-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-aeolus\"}}}"
+   },
+   {
+    "change_id": 5,
+    "thread_id": "aeolus",
+    "item_id": "action-aeolus",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-aeolus\",\"item\":{\"id\":\"action-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"action-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":1,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Decide for aeolus\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 6,
+    "thread_id": "circe",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"circe\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 7,
+    "thread_id": "circe",
+    "item_id": "work-circe",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-circe\",\"item\":{\"id\":\"work-circe\",\"threadId\":\"circe\",\"dedupKey\":\"work-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-circe\"}}}"
+   },
+   {
+    "change_id": 8,
+    "thread_id": "circe",
+    "item_id": "work-circe",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-circe\",\"item\":{\"id\":\"work-circe\",\"threadId\":\"circe\",\"dedupKey\":\"work-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-circe\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 9,
+    "thread_id": "circe",
+    "item_id": "work-circe",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-circe\",\"item\":{\"id\":\"work-circe\",\"threadId\":\"circe\",\"dedupKey\":\"work-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-circe\"}}}"
+   },
+   {
+    "change_id": 10,
+    "thread_id": "circe",
+    "item_id": "action-circe",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-circe\",\"item\":{\"id\":\"action-circe\",\"threadId\":\"circe\",\"dedupKey\":\"action-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Decide for circe\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 11,
+    "thread_id": "circe",
+    "item_id": "action-circe",
+    "seq": 6,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-circe\",\"item\":{\"id\":\"action-circe\",\"threadId\":\"circe\",\"dedupKey\":\"action-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"snoozed\",\"payload\":{\"title\":\"Decide for circe\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}],\"waitUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 12,
+    "thread_id": "scylla",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"scylla\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 13,
+    "thread_id": "scylla",
+    "item_id": "work-scylla",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-scylla\",\"item\":{\"id\":\"work-scylla\",\"threadId\":\"scylla\",\"dedupKey\":\"work-scylla\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-scylla\"}}}"
+   },
+   {
+    "change_id": 14,
+    "thread_id": "charybdis",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"charybdis\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 15,
+    "thread_id": "charybdis",
+    "item_id": "work-charybdis",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-charybdis\",\"item\":{\"id\":\"work-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"work-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-charybdis\"}}}"
+   },
+   {
+    "change_id": 16,
+    "thread_id": "charybdis",
+    "item_id": "work-charybdis",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-charybdis\",\"item\":{\"id\":\"work-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"work-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-charybdis\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 17,
+    "thread_id": "charybdis",
+    "item_id": "action-charybdis",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-charybdis\",\"item\":{\"id\":\"action-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"action-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Decide for charybdis\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 18,
+    "thread_id": "charybdis",
+    "item_id": "work-charybdis",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-charybdis\",\"item\":{\"id\":\"work-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"work-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"blocked\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-charybdis\"},\"blockedByItemId\":\"action-charybdis\"}}"
+   },
+   {
+    "change_id": 19,
+    "thread_id": "helios",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"helios\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 20,
+    "thread_id": "helios",
+    "item_id": "work-helios",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-helios\",\"item\":{\"id\":\"work-helios\",\"threadId\":\"helios\",\"dedupKey\":\"work-helios\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-helios\"}}}"
+   },
+   {
+    "change_id": 21,
+    "thread_id": "helios",
+    "item_id": "schedule-helios",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"schedule-helios\",\"item\":{\"id\":\"schedule-helios\",\"threadId\":\"helios\",\"dedupKey\":\"schedule-helios\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"waitUntil\":1783846800000,\"version\":1,\"queue\":\"queue\",\"status\":\"scheduled\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"execute\",\"payload\":{\"instruction\":\"Herd the cattle of the sun\"}}}"
+   },
+   {
+    "change_id": 22,
+    "thread_id": "polyphemus",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"polyphemus\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 23,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 24,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 25,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"failed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 26,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":4,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 27,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 6,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":5,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":2,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"},\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 28,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 7,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":6,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"failed\",\"attempts\":2,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 29,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 8,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":7,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":2,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 30,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 9,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":8,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":3,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"},\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 31,
+    "thread_id": "polyphemus",
+    "item_id": "work-polyphemus",
+    "seq": 10,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-polyphemus\",\"item\":{\"id\":\"work-polyphemus\",\"threadId\":\"polyphemus\",\"dedupKey\":\"work-polyphemus\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":9,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"failed\",\"attempts\":3,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-polyphemus\"}}}"
+   },
+   {
+    "change_id": 32,
+    "thread_id": "ithaca",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"ithaca\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 33,
+    "thread_id": "ithaca",
+    "item_id": "work-ithaca",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-ithaca\",\"item\":{\"id\":\"work-ithaca\",\"threadId\":\"ithaca\",\"dedupKey\":\"work-ithaca\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-ithaca\"}}}"
+   },
+   {
+    "change_id": 34,
+    "thread_id": "ithaca",
+    "item_id": "work-ithaca",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-ithaca\",\"item\":{\"id\":\"work-ithaca\",\"threadId\":\"ithaca\",\"dedupKey\":\"work-ithaca\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-ithaca\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 35,
+    "thread_id": "ithaca",
+    "item_id": "work-ithaca",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-ithaca\",\"item\":{\"id\":\"work-ithaca\",\"threadId\":\"ithaca\",\"dedupKey\":\"work-ithaca\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-ithaca\"}}}"
+   },
+   {
+    "change_id": 36,
+    "thread_id": "laertes",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"laertes\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 37,
+    "thread_id": "laertes",
+    "item_id": "work-laertes",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-laertes\",\"item\":{\"id\":\"work-laertes\",\"threadId\":\"laertes\",\"dedupKey\":\"work-laertes\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-laertes\"}}}"
+   },
+   {
+    "change_id": 38,
+    "thread_id": "laertes",
+    "item_id": "work-laertes",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-laertes\",\"item\":{\"id\":\"work-laertes\",\"threadId\":\"laertes\",\"dedupKey\":\"work-laertes\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"claimed\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-laertes\"},\"runId\":\"run-fixture\",\"claimedAt\":1783843200000,\"leaseUntil\":1783846800000}}"
+   },
+   {
+    "change_id": 39,
+    "thread_id": "laertes",
+    "item_id": "work-laertes",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-laertes\",\"item\":{\"id\":\"work-laertes\",\"threadId\":\"laertes\",\"dedupKey\":\"work-laertes\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1786435200000,\"version\":3,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"done\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-laertes\"}}}"
+   },
+   {
+    "change_id": 40,
+    "thread_id": "laertes",
+    "item_id": "cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585\",\"item\":{\"id\":\"cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585\",\"threadId\":\"laertes\",\"dedupKey\":\"cleanup-8f7d3fc7ccfe9a2eba7a529fc037dd310e272c18e1b65f55c63125ad548b5585\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-laertes\"}}}"
+   },
+   {
+    "change_id": 41,
+    "thread_id": "calypso",
+    "item_id": null,
+    "seq": 1,
+    "kind": "upsert_thread",
+    "data_json": "{\"kind\":\"upsert_thread\",\"thread\":{\"id\":\"calypso\",\"trustClass\":\"untrusted\",\"source\":\"share\",\"status\":\"open\",\"stateMd\":\"\",\"stakes\":1,\"createdAt\":1783843200000,\"lastSeenAt\":1783843200000}}"
+   },
+   {
+    "change_id": 42,
+    "thread_id": "calypso",
+    "item_id": "work-calypso",
+    "seq": 2,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-calypso\",\"item\":{\"id\":\"work-calypso\",\"threadId\":\"calypso\",\"dedupKey\":\"work-calypso\",\"createdAt\":1783843200000,\"updatedAt\":1783843200000,\"expiresAt\":1783846800000,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-calypso\"}}}"
+   },
+   {
+    "change_id": 43,
+    "thread_id": "aeolus",
+    "item_id": "action-aeolus",
+    "seq": 6,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-aeolus\",\"item\":{\"id\":\"action-aeolus\",\"threadId\":\"aeolus\",\"dedupKey\":\"action-aeolus\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":2,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"expired\",\"payload\":{\"title\":\"Decide for aeolus\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 44,
+    "thread_id": "aeolus",
+    "item_id": "retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd",
+    "seq": 7,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd\",\"item\":{\"id\":\"retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd\",\"threadId\":\"aeolus\",\"dedupKey\":\"retired-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"A decision expired\",\"detail\":\"Decide for aeolus\\nAssociated work was stopped; staging cleanup is journaled separately.\"},\"options\":[]}}"
+   },
+   {
+    "change_id": 45,
+    "thread_id": "aeolus",
+    "item_id": "cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06",
+    "seq": 8,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06\",\"item\":{\"id\":\"cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06\",\"threadId\":\"aeolus\",\"dedupKey\":\"cleanup-68d9284879e2708007810eb2dbc94c4e35eecc95212fe13850f529e406acff06\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-aeolus\"}}}"
+   },
+   {
+    "change_id": 46,
+    "thread_id": "circe",
+    "item_id": "action-circe",
+    "seq": 7,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-circe\",\"item\":{\"id\":\"action-circe\",\"threadId\":\"circe\",\"dedupKey\":\"action-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":3,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Decide for circe\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 47,
+    "thread_id": "helios",
+    "item_id": "schedule-helios",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"schedule-helios\",\"item\":{\"id\":\"schedule-helios\",\"threadId\":\"helios\",\"dedupKey\":\"schedule-helios\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"execute\",\"payload\":{\"instruction\":\"Herd the cattle of the sun\"}}}"
+   },
+   {
+    "change_id": 48,
+    "thread_id": "charybdis",
+    "item_id": "work-charybdis",
+    "seq": 6,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-charybdis\",\"item\":{\"id\":\"work-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"work-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":4,\"runId\":\"run-fixture\",\"queue\":\"queue\",\"status\":\"superseded\",\"attempts\":1,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-charybdis\"}}}"
+   },
+   {
+    "change_id": 49,
+    "thread_id": "charybdis",
+    "item_id": "action-charybdis",
+    "seq": 7,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-charybdis\",\"item\":{\"id\":\"action-charybdis\",\"threadId\":\"charybdis\",\"dedupKey\":\"action-charybdis\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":2,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"expired\",\"payload\":{\"title\":\"Decide for charybdis\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 50,
+    "thread_id": "charybdis",
+    "item_id": "retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86",
+    "seq": 8,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86\",\"item\":{\"id\":\"retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86\",\"threadId\":\"charybdis\",\"dedupKey\":\"retired-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"A decision expired\",\"detail\":\"Decide for charybdis\\nAssociated work was stopped; staging cleanup is journaled separately.\"},\"options\":[]}}"
+   },
+   {
+    "change_id": 51,
+    "thread_id": "charybdis",
+    "item_id": "cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e",
+    "seq": 9,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e\",\"item\":{\"id\":\"cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e\",\"threadId\":\"charybdis\",\"dedupKey\":\"cleanup-5c78d98611a778a12e38c3f06a0c4ef279326ee130086811623cd4269faa4a0e\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-charybdis\"}}}"
+   },
+   {
+    "change_id": 52,
+    "thread_id": "ithaca",
+    "item_id": "cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9\",\"item\":{\"id\":\"cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9\",\"threadId\":\"ithaca\",\"dedupKey\":\"cleanup-7707b94e06f6a21ff4a4e230506514c447881d3b3562ccef41759d601a021dc9\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-ithaca\"}}}"
+   },
+   {
+    "change_id": 53,
+    "thread_id": "polyphemus",
+    "item_id": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "seq": 11,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165\",\"item\":{\"id\":\"dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165\",\"threadId\":\"polyphemus\",\"dedupKey\":\"dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"pending\",\"payload\":{\"title\":\"Queued work exhausted its retries\",\"detail\":\"Work work-polyphemus stopped after 3 attempts.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 54,
+    "thread_id": "circe",
+    "item_id": "action-circe",
+    "seq": 8,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"action-circe\",\"item\":{\"id\":\"action-circe\",\"threadId\":\"circe\",\"dedupKey\":\"action-circe\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1786435200000,\"version\":4,\"queue\":\"actions\",\"type\":\"choose\",\"status\":\"dropped\",\"payload\":{\"title\":\"Decide for circe\",\"detail\":\"Odysseus weighs the course.\"},\"options\":[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]}}"
+   },
+   {
+    "change_id": 55,
+    "thread_id": "circe",
+    "item_id": "retired-fdd6b468800fbaf7961a5d7fcff1ba6d073890bbca556378cdede59c694e2c93",
+    "seq": 9,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"retired-fdd6b468800fbaf7961a5d7fcff1ba6d073890bbca556378cdede59c694e2c93\",\"item\":{\"id\":\"retired-fdd6b468800fbaf7961a5d7fcff1ba6d073890bbca556378cdede59c694e2c93\",\"threadId\":\"circe\",\"dedupKey\":\"retired-fdd6b468800fbaf7961a5d7fcff1ba6d073890bbca556378cdede59c694e2c93\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"A decision was dropped at the Actions limit\",\"detail\":\"Decide for circe\\nAssociated work was stopped; staging cleanup is journaled separately.\"},\"options\":[]}}"
+   },
+   {
+    "change_id": 56,
+    "thread_id": "circe",
+    "item_id": "cleanup-44b5529d66e9520117a4adcdbcb95217516444a0dbc7dbdcb8bed6c29f4967cb",
+    "seq": 10,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"cleanup-44b5529d66e9520117a4adcdbcb95217516444a0dbc7dbdcb8bed6c29f4967cb\",\"item\":{\"id\":\"cleanup-44b5529d66e9520117a4adcdbcb95217516444a0dbc7dbdcb8bed6c29f4967cb\",\"threadId\":\"circe\",\"dedupKey\":\"cleanup-44b5529d66e9520117a4adcdbcb95217516444a0dbc7dbdcb8bed6c29f4967cb\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-circe\"}}}"
+   },
+   {
+    "change_id": 57,
+    "thread_id": "scylla",
+    "item_id": "work-scylla",
+    "seq": 3,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"work-scylla\",\"item\":{\"id\":\"work-scylla\",\"threadId\":\"scylla\",\"dedupKey\":\"work-scylla\",\"createdAt\":1783843200000,\"updatedAt\":1783850400000,\"expiresAt\":1783846800000,\"version\":2,\"queue\":\"queue\",\"status\":\"expired\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"triage\",\"payload\":{\"stagingId\":\"staging-scylla\"}}}"
+   },
+   {
+    "change_id": 58,
+    "thread_id": "scylla",
+    "item_id": "expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47",
+    "seq": 4,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47\",\"item\":{\"id\":\"expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47\",\"threadId\":\"scylla\",\"dedupKey\":\"expired-work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":1786442400000,\"version\":1,\"queue\":\"actions\",\"type\":\"fyi\",\"status\":\"pending\",\"payload\":{\"title\":\"Queued work expired\",\"detail\":\"Work work-scylla expired before completion; staging cleanup is journaled separately.\"},\"options\":[]}}"
+   },
+   {
+    "change_id": 59,
+    "thread_id": "scylla",
+    "item_id": "cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435",
+    "seq": 5,
+    "kind": "upsert_item",
+    "data_json": "{\"kind\":\"upsert_item\",\"itemId\":\"cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435\",\"item\":{\"id\":\"cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435\",\"threadId\":\"scylla\",\"dedupKey\":\"cleanup-626aff498fadbb8b5c2be434ded3a9d44977e2dcd91d65807f4431ca7ef22435\",\"createdAt\":1783850400000,\"updatedAt\":1783850400000,\"expiresAt\":9007199254740991,\"version\":1,\"queue\":\"queue\",\"status\":\"ready\",\"attempts\":0,\"maxAttempts\":3,\"type\":\"cleanup_pending\",\"payload\":{\"stagingId\":\"staging-scylla\"}}}"
+   }
+  ],
+  "inbox_checkpoints": [],
+  "inbox_resolutions": [],
+  "inbox_suppressions": [
+   {
+    "class_key": "action-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd",
+    "evidence_boundary": "action-aeolus",
+    "expires_at": 1783936800000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "created_at": 1783850400000
+   },
+   {
+    "class_key": "action-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86",
+    "evidence_boundary": "action-charybdis",
+    "expires_at": 1786435200000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "created_at": 1783850400000
+   },
+   {
+    "class_key": "action-fdd6b468800fbaf7961a5d7fcff1ba6d073890bbca556378cdede59c694e2c93",
+    "evidence_boundary": "action-circe",
+    "expires_at": 1786435200000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "created_at": 1783850400000
+   },
+   {
+    "class_key": "work-5572fd69cbac8c1db4749a06209fd453f513043d2785e9bfa743bfafc0fe6b47",
+    "evidence_boundary": "work-scylla",
+    "expires_at": 1783936800000,
+    "reraise_condition": "New intake evidence or suppression expiry.",
+    "created_at": 1783850400000
+   }
+  ],
+  "inbox_scheduler_heartbeats": [],
+  "inbox_budget_reservations": [],
+  "inbox_intake_receipts": [],
+  "inbox_interactive_shares": [
+   {
+    "item_id": "work-calypso",
+    "staging_id": "staging-calypso",
+    "principal_id": "odysseus",
+    "session_id": null,
+    "run_id": "run-calypso",
+    "completion_json": null
+   }
+  ],
+  "inbox_share_applications": [],
+  "inbox_completed_tool_calls": [],
+  "inbox_action_contexts": [
+   {
+    "item_id": "action-aeolus",
+    "source_item_id": null,
+    "class_key": "action-f46df489013c1142756158cad1617963d234d321cf8ceed4433273185f3191fd",
+    "evidence_boundary": "action-aeolus",
+    "suppression_until": 1783846800000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "options_json": "[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]",
+    "blocking_escalation": 0
+   },
+   {
+    "item_id": "action-circe",
+    "source_item_id": null,
+    "class_key": "action-fdd6b468800fbaf7961a5d7fcff1ba6d073890bbca556378cdede59c694e2c93",
+    "evidence_boundary": "action-circe",
+    "suppression_until": 1786435200000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "options_json": "[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]",
+    "blocking_escalation": 0
+   },
+   {
+    "item_id": "action-charybdis",
+    "source_item_id": null,
+    "class_key": "action-cc9a1fc2131a8c0ce99bbfa4213fb310a84967b508d966f54165a728bbe0bd86",
+    "evidence_boundary": "action-charybdis",
+    "suppression_until": 1786435200000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "options_json": "[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]",
+    "blocking_escalation": 0
+   },
+   {
+    "item_id": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "source_item_id": "work-polyphemus",
+    "class_key": "action-a2f022f613c3da4bffa482190fb84ffcb1ab3d6acf431c4a2eddf75493b38a0d",
+    "evidence_boundary": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "suppression_until": 1786442400000,
+    "reraise_condition": "New evidence or suppression expiry.",
+    "options_json": "[{\"id\":\"dismiss\",\"label\":\"Dismiss\",\"effect\":{\"kind\":\"dismiss\"}}]",
+    "blocking_escalation": 0
+   }
+  ],
+  "inbox_notice_clients": [],
+  "inbox_notice_episodes": [
+   {
+    "id": "action-aeolus#1",
+    "item_id": "action-aeolus",
+    "thread_id": "aeolus",
+    "ordinal": 1,
+    "started_at": 1783843200000,
+    "ended_at": 1783850400000
+   },
+   {
+    "id": "action-circe#1",
+    "item_id": "action-circe",
+    "thread_id": "circe",
+    "ordinal": 1,
+    "started_at": 1783843200000,
+    "ended_at": 1783843200000
+   },
+   {
+    "id": "action-charybdis#1",
+    "item_id": "action-charybdis",
+    "thread_id": "charybdis",
+    "ordinal": 1,
+    "started_at": 1783843200000,
+    "ended_at": 1783850400000
+   },
+   {
+    "id": "action-circe#2",
+    "item_id": "action-circe",
+    "thread_id": "circe",
+    "ordinal": 2,
+    "started_at": 1783850400000,
+    "ended_at": 1783850400000
+   },
+   {
+    "id": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165#1",
+    "item_id": "dead-letter-4b77836af3e99b5454681a237d0b1c14217c5c72df3f06316ee42c71ac207165",
+    "thread_id": "polyphemus",
+    "ordinal": 1,
+    "started_at": 1783850400000,
+    "ended_at": null
+   }
+  ],
+  "inbox_notice_batches": [],
+  "inbox_notice_constituents": [],
+  "inbox_notice_attempts": [],
+  "inbox_notice_attempt_components": [],
+  "inbox_notice_digests": [],
+  "inbox_notice_coverage": []
+ }
+}
