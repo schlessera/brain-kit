@@ -3423,6 +3423,11 @@ ol.bk-ut-list { list-style: decimal outside; }
 @media (any-pointer: coarse) {
   .bk-google-journal-list { row-gap: 16px; }
 }
+/* An id in a Google journal row, reversible or outward, at the standing lists'
+ * mono size. The inline block keeps an id that fits the line whole, so a draft
+ * id never splits at its hyphen; one longer than the line wraps inside itself,
+ * filling each line rather than stranding its "r-". */
+.bk-google-mono-id { display: inline-block; max-width: 100%; overflow-wrap: anywhere; word-break: break-all; font: 500 11.5px/1.35 "JetBrains Mono", ui-monospace, monospace; }
 
 /* ── Gmail approval cards (#4215, brief of 2026-11-20, M1–M6) ────────────
  * Layout only; every colour is an existing token. The query container is the

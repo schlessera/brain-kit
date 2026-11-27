@@ -54,9 +54,8 @@ describe("GoogleJournalCalls", () => {
     const doc = draw({ calls: [call({ operation: "gmail.draft.save", target: "r-8f2c41d9e0b7a6c5" })] });
     expect(doc.querySelector("li")?.textContent).toBe("Gmail draft save · Allowed · r-8f2c41d9e0b7a6c5");
     const target = doc.querySelector<HTMLElement>("[data-google-journal-target]")!;
-    expect(target.style.fontFamily).toContain("JetBrains Mono");
-    expect(target.style.fontSize).toBe("11.5px");
-    expect(target.style.overflowWrap).toBe("anywhere");
+    // The paint is `.bk-google-mono-id` in tokens.css; the stories measure it.
+    expect(target.className).toBe("bk-google-mono-id");
   });
 
   for (const decision of ["allowed", "approved", "declined", "refused"] as const) {
@@ -94,6 +93,6 @@ describe("GoogleJournalCalls", () => {
     expect(doc.querySelector("li")?.textContent).toBe("Google call calendar.event.create · Allowed");
     const id = doc.querySelector<HTMLElement>("[data-google-operation-id]")!;
     expect(id.textContent).toBe("calendar.event.create");
-    expect(id.style.fontFamily).toContain("JetBrains Mono");
+    expect(id.className).toBe("bk-google-mono-id");
   });
 });
