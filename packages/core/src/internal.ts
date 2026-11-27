@@ -112,3 +112,5 @@ export type {
   ComputeJobInput,
 } from "./lib/ops/compute.js";
 export type { ComputeBuiltin, ResolvedComputeInstance } from "./lib/registry.js";
+
+export { brainReadDefinitions, BRAIN_READ_DEFINITION_VERSION } from "./mcp-read-definitions.js";

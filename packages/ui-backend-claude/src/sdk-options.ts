@@ -1,3 +1,5 @@
+import { createBridgedTurnReservation } from "./brain-tool-reservation.js";
+import { createBrainToolForwarder, startBrainToolWorker } from "./brain-tool-forwarder.js";
 import { HOST_UNUSED_BUILTINS, retainSessionRequestShape } from "./session-request-shape.js";
 import { AGENT_INFERENCE_CREDENTIAL_ENV, INFERENCE_PLACEHOLDER, WORKER_EGRESS_DIR, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
 import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
@@ -76,6 +78,8 @@ export interface ClaudeSdkTurn {
   subscriptionOnly: boolean;
   /** Flag-settings env values the host pinned itself; the settings check accepts exactly these. */
   pinnedSettingsEnv?: Readonly<Record<string, string>>;
+  /** Starts the owned forwarding worker alongside native runtime initialization. */
+  startBrainTools?(): void;
   finishWorker(): Promise<void>;
   sdkInitialized(): void;
   /** The resource limits this turn's workers hit (#1660): so far, and once they have exited. */
@@ -121,6 +125,8 @@ export function firstPartyInferenceUpstream(env: Readonly<Record<string, string 
 }
 
 interface ClaudeSdkTurnOptions {
+  /** Host-only resolved inventory; an absent or failed proof keeps project stdio. */
+  brainBridgeInventory?: "core-only" | "module-tools" | "unavailable";
   identity?: import("@schlessera/brain-ui-sdk/internal").WorkerNoteFacts["identity"];
   backend: ClaudeBackendOptions;
   /** One resolved environment selects both host observation storage and native runtime state. */
@@ -317,7 +323,7 @@ export function turnChildEnvironment(
     ANTHROPIC_UNIX_SOCKET: `${WORKER_EGRESS_DIR}/inference.sock`,
     ANTHROPIC_BASE_URL: options.hostInference.baseUrl ?? "http://localhost",
     ...RELAYED_TURN_TRAFFIC_ENV,
-    // Production non-blocking project MCP startup is not qualified (#4306).
+    // Retained session selection is applied after roster assembly.
     ENABLE_TOOL_SEARCH: "false",
   } : undefined;
   // The relay holds the profile's credential, so the variables it names stay on the host.
@@ -360,10 +366,10 @@ function prepareSandboxNote(
   const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
   // Only the nonpersistent read-only summary keeps its historical prompt text.
   // This rendering plan never becomes the launched sandbox or a write grant.
-  const sandboxNote = [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
-    turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
+  const renderSandboxNote = (temp: typeof turnTempLimits) => [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
+    turnTempLimit(temp.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
     outputStagingLimit()] }, legacySummary), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote(Boolean(options.hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
-  return { sandbox, limits, stateLimits, turnTempLimits, sandboxNote };
+  return { sandbox, limits, stateLimits, turnTempLimits, sandboxNote: renderSandboxNote(turnTempLimits), renderSandboxNote };
 }
 
 /**
@@ -377,7 +383,7 @@ export function assemblePromptContext(
   roster: ClaudeToolRoster,
   sandbox: NonNullable<StartTurnRequest["workerSandbox"]>,
   sandboxNote: string,
-  beforePrepare?: (contextId: string) => void
+  beforePrepare?: (contextId: string) => string | void
 ) {
   const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, requestImageMarkup, proposePolicyChange, queryActivity, turnTempTool } = roster;
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
@@ -409,7 +415,7 @@ export function assemblePromptContext(
     policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
     location: true, mask: true, markup: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true, github: true,
   }, undefined), req.sessionBudgetLimits].filter(Boolean).join("\n\n"), req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}) : candidate;
-  if (context) beforePrepare?.(contextId);
+  if (context) sandboxNote = beforePrepare?.(contextId) ?? sandboxNote;
   const available = (name: string) => toolAvailabilityRefusal({ ...req, workerSandbox: sandbox }, name) === undefined;
   const prepare = context ? () => context.prepare(req.prompt, {
     device: req.client ? describeClient(req.client) : "Device unknown; hardware probe results are withheld until known.",
@@ -436,20 +442,32 @@ function assembleClaudeSdkTurn(
   const roster = computeToolRoster(req, options.allowedTools);
   const { turnTempTool, hosted, allowed } = roster;
   const { inferenceEnv, inheritedEnv, filteredEnv, childEnv, credentialEnv, providerKeys } = turnChildEnvironment(options, envelope);
-  const { sandbox, limits, stateLimits, turnTempLimits, sandboxNote } = prepareSandboxNote(options, envelope, providerKeys, turnTempTool);
+  const { sandbox, limits, stateLimits, turnTempLimits, sandboxNote, renderSandboxNote } = prepareSandboxNote(options, envelope, providerKeys, turnTempTool);
   const mandatory = ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...IN_WORKER_APIFY_TOOLS, ...((hosted || req.autonomous) ? [
       "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
     ] : []), ...(hosted && req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])];
+  const bridgeEligible = hosted && options.brainBridgeInventory === "core-only" && turnTempLimits.allowanceBytes >= 8192;
+  if (hosted && req.sessionId === undefined && !bridgeEligible) {
+    // #4381 supplies the future static module inventory. Until then retain the
+    // original stdio server; this owner diagnostic never enters model inputs.
+    try { log("warn", `brain_bridge_fallback_${options.brainBridgeInventory === "module-tools" ? "module_tools" : options.brainBridgeInventory === "core-only" ? "temp_allowance" : "inventory_unavailable"}: keeping the project brain stdio entry and tool search off.`); }
+    catch { /* Owner diagnostics never change the selected execution path. */ }
+  }
   let retained: ReturnType<typeof retainSessionRequestShape> | undefined;
+  let bridgeReservation: ReturnType<typeof createBridgedTurnReservation> | undefined;
   const { contextId, context, append, prepare } = assemblePromptContext(backend, req, roster, sandbox, sandboxNote, id => {
     // Validate before prepare() persists this turn. Refused retries must leave
     // the saved prompt and pending-turn journal byte-identical.
     retained = retainSessionRequestShape(backend.brainPath, id, req.sessionId !== undefined,
-      [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, "false");
+      [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, bridgeEligible && options.hostInference && firstPartyInferenceUpstream(inheritedEnv) ? "true" : "false", bridgeEligible ? 1 : undefined);
     if (retained.toolSearch === "true") {
       if (!firstPartyInferenceUpstream(inheritedEnv))
         throw new Error("This session's tool search requires its qualified first-party inference upstream.");
-      throw new Error("This session's tool search is not qualified for production MCP startup (#4306).");
+      if (!retained.brainBridge) throw new Error("This session's tool search is not qualified for production MCP startup (#4306).");
+    }
+    if (retained.brainBridge === 1) {
+      bridgeReservation = createBridgedTurnReservation(stateLimits, turnTempLimits);
+      return renderSandboxNote(bridgeReservation.runtimeTemp);
     }
   });
   const subscriptionOnly = profile.billing !== "api";
@@ -525,7 +543,7 @@ function assembleClaudeSdkTurn(
         }
       },
       log: (level, message) => log(level, message),
-    }, { limits: stateLimits, turnTempLimits, startupTiming: req.startupTiming, reportCleanup: notice => req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference, credentialEnv);
+    }, { limits: stateLimits, turnTempLimits: bridgeReservation?.runtimeTemp ?? turnTempLimits, reservation: bridgeReservation?.runtime, startupTiming: req.startupTiming, reportCleanup: notice => req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference, credentialEnv);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (!req.autonomous) addStateRoomWarning(sdkOptions, req, worker);
   /** This turn's answer text so far: what it links in turn temp is promoted, so a purge keeps it. */
@@ -543,6 +561,13 @@ function assembleClaudeSdkTurn(
   // bodies also return model-readable errors instead of acquiring authority.
   let assembledTools: unknown[] | undefined;
   sdkOptions.mcpServers = { "brain-ui": turnMcpServer(backend, req, roster, turnTemp, tools => { assembledTools = tools; }) };
+  const brainTools = retained?.brainBridge === 1 ? createBrainToolForwarder(startBrainToolWorker({
+    brainPath: backend.brainPath, exec: backend.exec ?? ambientExecConfig(), sandbox, startupView: req.workerStartupView, env: childEnv,
+    limits, turnTempLimits, reservation: bridgeReservation?.brain, req, egress: options.hostInference, credentialEnv,
+  }), abortController.signal, error => log("warn", `Sandboxed brain tool forwarding: ${String(error)}`)) : undefined;
+  // An explicit SDK entry overrides the project's brain stdio entry. Other
+  // project MCP servers keep their existing non-blocking startup behavior.
+  if (brainTools) sdkOptions.mcpServers.brain = brainTools.server;
   let selectionPin: string | undefined;
   if (retained) {
     // Retention already refused any incompatible mandatory exclusions. Never
@@ -563,6 +588,7 @@ function assembleClaudeSdkTurn(
   }
   sdkOptions.env = childEnv;
   applyTurnSettings(sdkOptions, envelope, subscriptionOnly, inferenceEnv);
+  if (brainTools) sdkOptions.settings = { ...sdkOptions.settings as object, disabledMcpjsonServers: ["brain"] };
   if (selectionPin !== undefined) {
     sdkOptions.settings = { ...sdkOptions.settings as object,
       env: { ...(sdkOptions.settings as { env?: Record<string, string> }).env, ENABLE_TOOL_SEARCH: selectionPin } };
@@ -578,12 +604,13 @@ function assembleClaudeSdkTurn(
   return {
     options: sdkOptions,
     subscriptionOnly,
+    ...(brainTools ? { startBrainTools: brainTools.start } : {}),
     ...(envelope ? { pinnedSettingsEnv: envelope.pinned }
       : inferenceEnv || selectionPin !== undefined ? { pinnedSettingsEnv: { ...inferenceEnv, ...(selectionPin === undefined ? {} : { ENABLE_TOOL_SEARCH: selectionPin }) } } : {}),
     finishWorker: envelope
       ? () => worker.finish().finally(() => envelope.relay.stop())
       : async () => {
-        await worker.finish();
+        try { await brainTools?.close(); } finally { try { await worker.finish(); } finally { bridgeReservation?.close(); } }
         if (owned) acknowledgeClaudeContext(backend.brainPath, contextId, owned, childEnv);
       },
     workerLimits: { current: worker.limits, settled: worker.settledLimits },

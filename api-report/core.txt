@@ -103,6 +103,7 @@ export "." (./src/index.ts)
 
 export "./internal" (./src/internal.ts)
   type ArchiveResult
+  BRAIN_READ_DEFINITION_VERSION
   BUILTIN_GOVERNANCE_POLICY
   type BrainContext
   COMPUTE_JOB_ID
@@ -175,6 +176,7 @@ export "./internal" (./src/internal.ts)
   archiveDocument
   assembleContext
   assertScratchWritable
+  brainReadDefinitions
   buildTaxonomy
   canonicalFindings
   checkGovernancePolicy
