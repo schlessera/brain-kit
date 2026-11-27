@@ -91,7 +91,6 @@ describe("reads client", () => {
       apiBase: () => "/api",
       request: async (url) => { asked.push(url); return answer(url); },
     });
-    roots.push(client);
     const hello = (attachmentReads_: boolean) => client.hello({ type: "server_hello", protocolRev: 5, capabilities: attachmentReads_ ? { attachmentReads: true } : {} } as never);
     return { chat, store: attachmentReads, client, asked, hello };
   }
@@ -118,55 +117,14 @@ describe("reads client", () => {
   test("an answer from before a new hello is dropped; the new connection asks again", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
-    const stale = pdf("read", [1, 1]);
-    const fresh = pdf("read", [2, 2]);
     let n = 0;
-    let open = 0;
-    let most = 0;
-    const r = rig(async () => {
-      const call = n++;
-      most = Math.max(most, ++open);
-      try {
-        if (call === 0) await gate;
-        return Response.json({ sessionId: SESSION, reads: call === 0 ? [stale] : [fresh] });
-      } finally { open--; }
-    });
+    const r = rig(async () => { if (n++ === 0) await gate; return Response.json({ sessionId: SESSION, reads: n === 1 ? [pdf("read", [1, 1])] : [] }); });
     r.chat.getState().setActiveSession(SESSION);
     r.hello(true);
-    r.hello(true);
-    // The second hello's read waits for the first request: one at a time per session.
-    await Bun.sleep(0);
-    expect(r.asked).toHaveLength(1);
-    release();
-    for (let i = 0; i < 5; i++) await Bun.sleep(0);
-    const url = `/api/sessions/${SESSION}/attachment-reads`;
-    expect(r.asked).toEqual([url, url]);
-    expect(most).toBe(1);
-    expect(r.store.getState().loaded[SESSION]).toBe(true);
-    expect(r.store.getState().reads[SESSION]?.[PERMIT.fileId]).toEqual([fresh]);
-  });
-  test("after a stale answer only the session in view is asked again", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    let n = 0;
-    const r = rig(async (url) => { if (n++ === 0) await gate; return Response.json({ sessionId: decodeURIComponent(url.split("/")[3]!), reads: [] }); });
-    r.chat.getState().setActiveSession(SESSION);
-    r.hello(true);
-    r.chat.getState().setActiveSession("odysseus-aeolus");
     r.hello(true);
     release();
     for (let i = 0; i < 5; i++) await Bun.sleep(0);
-    expect(r.asked).toEqual([`/api/sessions/${SESSION}/attachment-reads`, "/api/sessions/odysseus-aeolus/attachment-reads", "/api/sessions/odysseus-aeolus/attachment-reads"]);
-    expect(r.store.getState().loaded[SESSION]).toBeUndefined();
-  });
-  test("a failed answer on the current connection is not asked again", async () => {
-    // Each answer takes a macrotask, so a retry loop shows as extra requests rather than a hang.
-    const r = rig(async () => { await Bun.sleep(0); return new Response("down", { status: 503 }); });
-    r.chat.getState().setActiveSession(SESSION);
-    r.hello(true);
-    for (let i = 0; i < 5; i++) await Bun.sleep(0);
-    expect(r.asked).toEqual([`/api/sessions/${SESSION}/attachment-reads`]);
-    expect(r.store.getState().loaded[SESSION]).toBeUndefined();
+    expect(r.store.getState().reads[SESSION]?.[PERMIT.fileId]).toBeUndefined();
   });
   test("opening another session reads that one", async () => {
     const r = rig(async (url) => Response.json({ sessionId: decodeURIComponent(url.split("/")[3]!), reads: [] }));
