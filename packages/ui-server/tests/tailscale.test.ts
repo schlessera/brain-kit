@@ -1,18 +1,30 @@
-import { describe, test, expect } from "bun:test";
+import { afterAll, describe, test, expect } from "bun:test";
 import { Hono } from "hono";
-import { tailscaleGuard } from "../src/middleware/tailscale";
+import type { AppEnv } from "../src/app-env";
+import { resolveServerConfig } from "../src/config/env";
+import { createUiDb } from "../src/db/client";
+import { authGuard } from "../src/middleware/auth";
 
-function createApp() {
-  const app = new Hono();
-  // trustProxy: true so these tests exercise the x-forwarded-for path. The
-  // default (proxy trust off) uses the real socket address, which Hono's
-  // app.request() does not provide — see the trust-off suite below.
-  app.use("/api/*", tailscaleGuard({ trustProxy: true }));
+// The Tailscale network check production runs: `authGuard` in tailscale mode.
+const DB = createUiDb(":memory:");
+afterAll(() => DB.close());
+
+function guarded(env: Record<string, string>) {
+  const config = resolveServerConfig(env);
+  const app = new Hono<AppEnv>();
+  app.use("/api/*", authGuard("tailscale", { ...config.auth, host: config.host }, DB));
   app.get("/api/test", (c) => c.json({ ok: true }));
   return app;
 }
 
-describe("tailscaleGuard middleware (trustProxy)", () => {
+function createApp() {
+  // TRUST_PROXY so these tests exercise the x-forwarded-for path. The default
+  // (proxy trust off) uses the real socket address, which Hono's
+  // app.request() does not provide — see the trust-off suite below.
+  return guarded({ TRUST_PROXY: "1" });
+}
+
+describe("authGuard in tailscale mode (trustProxy)", () => {
   const app = createApp();
 
   test("allows requests from Tailscale CGNAT range (100.64-127.x.x.x)", async () => {
@@ -113,14 +125,8 @@ describe("tailscaleGuard middleware (trustProxy)", () => {
   });
 });
 
-describe("tailscaleGuard middleware (proxy trust off)", () => {
-  function createApp() {
-    const app = new Hono();
-    app.use("/api/*", tailscaleGuard({ trustProxy: false }));
-    app.get("/api/test", (c) => c.json({ ok: true }));
-    return app;
-  }
-  const app = createApp();
+describe("authGuard in tailscale mode (proxy trust off)", () => {
+  const app = guarded({});
 
   test("ignores a spoofable x-forwarded-for and blocks (no socket in app.request)", async () => {
     const res = await app.request("/api/test", {

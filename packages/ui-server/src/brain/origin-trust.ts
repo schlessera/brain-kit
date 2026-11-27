@@ -15,9 +15,6 @@ function originProvenance(destination: OriginDestination): TrustProvenance | nul
   if (destination.protocol === "http:" || destination.protocol === "https:") return { kind: "web_origin", origin: { kind: "web_origin", scheme: destination.protocol === "http:" ? "http" : "https", host, port: destination.port }, verifiedBy: "host_transport" };
   return null;
 }
-export function originTrustMatch(trust: OriginTrust | undefined, destination: OriginDestination, capability: TrustMatch["capability"], collectionRevision: string): TrustMatch | null {
-  return originTrustMatchSnapshot(trust?.read(), destination, capability, collectionRevision);
-}
 /** All admission evidence, including an unmatched verdict, uses this same snapshot. */
 export function originTrustMatchSnapshot(p: ReturnType<OriginTrust["read"]> | undefined, destination: OriginDestination, capability: TrustMatch["capability"], collectionRevision: string): TrustMatch | null {
   if (!p) return null;
