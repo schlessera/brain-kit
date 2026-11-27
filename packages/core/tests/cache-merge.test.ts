@@ -9,6 +9,7 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { git, gitResult } from "./git-fixture";
 import { parseHistory } from "../src/lib/stats-history";
 
 const TEMPLATE_ATTRIBUTES = resolve(import.meta.dir, "../../../template/.gitattributes");
@@ -19,13 +20,6 @@ const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
-
-function git(cwd: string, ...args: string[]): { code: number; out: string } {
-  // Signing is off per command (#3485): an environment-scoped GIT_CONFIG_COUNT
-  // outranks the repository-local commit.gpgsign the fixtures set, but not -c.
-  const r = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
-  return { code: r.exitCode, out: r.stdout.toString() + r.stderr.toString() };
-}
 
 /**
  * A repository whose cache holds one line, then two branches that each append
@@ -55,7 +49,7 @@ function divergedRepo(attributes: string | null): string {
 describe("the template's .gitattributes", () => {
   test("a plain git merge keeps both clones' cache lines, with no conflict", () => {
     const root = divergedRepo(readFileSync(TEMPLATE_ATTRIBUTES, "utf8"));
-    const merge = git(root, "merge", "--no-edit", "other");
+    const merge = gitResult(root, "merge", "--no-edit", "other");
     expect(merge.code).toBe(0);
     const lines = readFileSync(join(root, CACHE), "utf8").split("\n").filter(Boolean).sort();
     expect(lines).toEqual(['{"k":"a","v":"base"}', '{"k":"b","v":"from main"}', '{"k":"c","v":"from other"}']);
@@ -63,9 +57,9 @@ describe("the template's .gitattributes", () => {
 
   test("without the attribute the same merge conflicts", () => {
     const root = divergedRepo(null);
-    const merge = git(root, "merge", "--no-edit", "other");
+    const merge = gitResult(root, "merge", "--no-edit", "other");
     expect(merge.code).not.toBe(0);
-    expect(merge.out).toContain(`CONFLICT (content): Merge conflict in ${CACHE}`);
+    expect(merge.stdout).toContain(`CONFLICT (content): Merge conflict in ${CACHE}`);
   });
 });
 
@@ -95,8 +89,8 @@ describe("the stats history (#581)", () => {
 
   test("a plain git merge keeps both clones' lines, and the later recording of a day wins", () => {
     const root = divergedHistory(readFileSync(TEMPLATE_ATTRIBUTES, "utf8"));
-    const merge = git(root, "merge", "--no-edit", "other");
-    expect(merge.code, merge.out).toBe(0);
+    const merge = gitResult(root, "merge", "--no-edit", "other");
+    expect(merge.code, merge.stdout).toBe(0);
     const text = readFileSync(join(root, HISTORY), "utf8");
     expect(text).not.toContain("<<<<<<<");
     expect(text.split("\n").filter(Boolean)).toHaveLength(3);
@@ -106,9 +100,9 @@ describe("the stats history (#581)", () => {
 
   test("without the attribute the same merge conflicts", () => {
     const root = divergedHistory(null);
-    const merge = git(root, "merge", "--no-edit", "other");
+    const merge = gitResult(root, "merge", "--no-edit", "other");
     expect(merge.code).not.toBe(0);
-    expect(merge.out).toContain(`CONFLICT (content): Merge conflict in ${HISTORY}`);
+    expect(merge.stdout).toContain(`CONFLICT (content): Merge conflict in ${HISTORY}`);
   });
 });
 
@@ -175,7 +169,7 @@ describe("brain doctor cache-merge", () => {
       const local = join(root, ".git", "local-attributes");
       writeFileSync(local, ".brain-cache/contexts.jsonl merge=union\n.brain-cache/assets.jsonl merge=union\n.stats-history.jsonl merge=union\n");
       git(root, "config", "core.attributesFile", local);
-      expect(git(root, "check-attr", "merge", "--", ".brain-cache/contexts.jsonl").out).toContain("merge: union");
+      expect(git(root, "check-attr", "merge", "--", ".brain-cache/contexts.jsonl")).toContain("merge: union");
 
       const before = JSON.parse((await runCli(root, ["doctor", "--json"])).stdout) as DoctorOut;
       expect(cacheMerge(before)?.status).toBe("warn");

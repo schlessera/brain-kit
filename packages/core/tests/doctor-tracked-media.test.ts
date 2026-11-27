@@ -8,6 +8,7 @@ import { readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { git, gitResult } from "./git-fixture";
 import { indexedFiles, parseCatFileBatch, type GitRun } from "../src/lib/media";
 
 const temps: string[] = [];
@@ -30,10 +31,9 @@ function repo(files: Record<string, number | string>): string {
   for (const [rel, content] of Object.entries(files)) {
     writeFileSync(join(root, rel), typeof content === "number" ? Buffer.alloc(content, 7) : content);
   }
-  const git = (...args: string[]) => expect(Bun.spawnSync(["git", "-C", root, ...args]).exitCode).toBe(0);
-  git("init", "-q", "-b", "main");
-  git("add", "-A", "--", ".", ":!node_modules");
-  git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture");
+  git(root, "init", "-q", "-b", "main");
+  git(root, "add", "-A", "--", ".", ":!node_modules");
+  git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture");
   return root;
 }
 
@@ -100,9 +100,8 @@ test("a tracked symlink is not weighed by its target", async () => {
   writeFileSync(join(outside, "huge.png"), Buffer.alloc(200_000, 7));
   const root = repo({});
   symlinkSync(join(outside, "huge.png"), join(root, "linked.png"));
-  const git = (...args: string[]) => expect(Bun.spawnSync(["git", "-C", root, ...args]).exitCode).toBe(0);
-  git("add", "linked.png");
-  git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "link");
+  git(root, "add", "linked.png");
+  git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "link");
   const check = await mediaCheck(root);
   expect(check.status).toBe("pass");
   expect(check.detail).not.toContain("linked.png");
@@ -118,22 +117,16 @@ test("an object git cannot read makes the check warn that it is incomplete", asy
 });
 
 // Review round 2: conflicted paths and objects that vanish mid-inspection.
-function gitIn(root: string) {
-  return (...args: string[]) =>
-    Bun.spawnSync(["git", "-C", root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", ...args]);
-}
-
 test("a delete/modify conflict is reported as not inspected, not passed over", async () => {
   const root = repo({ "render.png": 1_000 });
-  const git = gitIn(root);
-  expect(git("checkout", "-q", "-b", "theirs").exitCode).toBe(0);
+  expect(gitResult(root, "checkout", "-q", "-b", "theirs").code).toBe(0);
   writeFileSync(join(root, "render.png"), Buffer.alloc(200_000, 7));
-  expect(git("commit", "-qam", "bigger").exitCode).toBe(0);
-  expect(git("checkout", "-q", "main").exitCode).toBe(0);
-  expect(git("rm", "-q", "render.png").exitCode).toBe(0);
-  expect(git("commit", "-qm", "delete").exitCode).toBe(0);
-  expect(git("merge", "-q", "theirs").exitCode).not.toBe(0);
-  const stages = new TextDecoder().decode(git("ls-files", "-s", "render.png").stdout);
+  expect(gitResult(root, "commit", "-qam", "bigger").code).toBe(0);
+  expect(gitResult(root, "checkout", "-q", "main").code).toBe(0);
+  expect(gitResult(root, "rm", "-q", "render.png").code).toBe(0);
+  expect(gitResult(root, "commit", "-qm", "delete").code).toBe(0);
+  expect(gitResult(root, "merge", "-q", "theirs").code).not.toBe(0);
+  const stages = gitResult(root, "ls-files", "-s", "render.png").stdout;
   expect(stages).toContain(" 3\trender.png");
 
   const check = await mediaCheck(root);
@@ -143,14 +136,13 @@ test("a delete/modify conflict is reported as not inspected, not passed over", a
 
 test("a conflict whose sides differ in size is reported as not inspected too", async () => {
   const root = repo({ "render.png": 1_000 });
-  const git = gitIn(root);
-  expect(git("checkout", "-q", "-b", "theirs").exitCode).toBe(0);
+  expect(gitResult(root, "checkout", "-q", "-b", "theirs").code).toBe(0);
   writeFileSync(join(root, "render.png"), Buffer.alloc(200_000, 7));
-  expect(git("commit", "-qam", "bigger").exitCode).toBe(0);
-  expect(git("checkout", "-q", "main").exitCode).toBe(0);
+  expect(gitResult(root, "commit", "-qam", "bigger").code).toBe(0);
+  expect(gitResult(root, "checkout", "-q", "main").code).toBe(0);
   writeFileSync(join(root, "render.png"), Buffer.alloc(2_000, 9));
-  expect(git("commit", "-qam", "smaller").exitCode).toBe(0);
-  expect(git("merge", "-q", "theirs").exitCode).not.toBe(0);
+  expect(gitResult(root, "commit", "-qam", "smaller").code).toBe(0);
+  expect(gitResult(root, "merge", "-q", "theirs").code).not.toBe(0);
 
   const check = await mediaCheck(root);
   expect(check.status).toBe("warn");
