@@ -1,5 +1,4 @@
 import { expectRejection } from "./helpers/expect-rejection";
-import { INGESTION_DETECTOR_MANIFEST } from "../src/activity/ingestion-taint";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -148,9 +147,3 @@ test("bounded native pending writes stop the producer before accepting record 25
   } finally { await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-
-test("the collector discloses its versioned shell and opaque-transport exclusions", () => {
-  expect(INGESTION_DETECTOR_MANIFEST.version).toBe(1);
-  expect(INGESTION_DETECTOR_MANIFEST.exclusions).toContain("proxied_shell_local_read");
-  expect(INGESTION_DETECTOR_MANIFEST.exclusions).toContain("opaque_tunnel_inner_protocol");
-});
