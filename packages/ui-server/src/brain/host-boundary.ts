@@ -34,6 +34,7 @@ import {
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
   startProviderRelay, relayedProviderKeys, hostProviderCredential, FIRST_PARTY_PROVIDER_RECIPIENTS, type ProviderRelay, type ProviderRelayReceipt,
+  privateStateRefusalOf, registerWorkerPrivateState, type WorkerPrivateStateEvent,
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { markUnpinnedHostWriter, refuseHostFallback, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
@@ -44,7 +45,7 @@ import { moduleRepositoryWorkerAccess, type ModuleRepositoryAccess } from "./mod
 import { resolveWorkspacesMount, resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
 import type { PhaseTimer } from "../activity/turn-lifecycle.js";
-import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
+import { operationalStateMasks, operationalStatePaths, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
 import { prepareMaintenanceGit, prepareMaintenanceGitTargets } from "./maintenance-git.js";
 import { createScratchIgnoreQuery } from "./scratch-mask-query.js";
 
@@ -243,6 +244,15 @@ export interface HostBoundary {
   readonly brainPath: string;
   /** Whether brain execution runs in maintenance workers. */
   isolated(): boolean;
+  /** @internal Unregister this boundary's private-state layout from launch qualification (#4301). */
+  disposePrivateState?(): void;
+  /**
+   * @internal A check boot deferred because a launch was refused for private
+   * state (#4301): `prepare`, `run`, `launch` and `runSync` repeat it first,
+   * until it passes. It returns the refusal while still refused, and throws
+   * the version requirement error once the version is known and fails.
+   */
+  deferPreflight?(check: () => Promise<Error | undefined>): void;
   governed(startupView?: WorkerStartupView): GovernedAvailability;
   /** Qualifies maintenance with a fresh native input lease, then awaits release. */
   prepare(signal?: AbortSignal, startupView?: WorkerStartupView, timing?: PhaseTimer): Promise<GovernedAvailability>;
@@ -297,6 +307,8 @@ export interface HostBoundaryOptions {
   gate?: () => WriterGate | null;
   /** Whether a governed turn has ever started on this brain: the durable record in the UI database. */
   history?: () => boolean;
+  /** Launch-qualification diagnostics for this brain's layout (#4301); never a verdict another launch reads. */
+  privateStateEvents?: (event: WorkerPrivateStateEvent) => void;
   /** The latest ordinary worker host probe the server recorded; absent, the boundary probes once itself. */
   workerHost?: () => WorkerHostProbe | undefined;
   /** Refuse gated work while no gate is attached, instead of running it ungated (the cron runner). */
@@ -462,6 +474,34 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   };
 
   const maskPaths = [...operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths }), ...(options.nativeMaskPaths ?? [])];
+  // Every launch for this brain is qualified against the same layout, resolved per launch (#4301).
+  const stateLayout = { brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths };
+  const disposePrivateState = registerWorkerPrivateState(brain, {
+    roots: () => operationalStatePaths(stateLayout),
+    walk: () => {
+      const refusal = operationalStateRefusal(stateLayout);
+      return refusal ? { reason: refusal.reason as "private_state_in_brain" | "database_in_brain" | "private_state_unverified", detail: refusal.detail } : undefined;
+    },
+    report: event => {
+      if (event.kind === "refused") stateBoundary.lastRefusal = { at: Date.now(), reason: event.reason, ...(event.exposure ? { path: event.exposure.name } : {}) };
+      if (event.kind === "ownership_only") stateBoundary.ownershipOnly = [...new Set(event.entries.map(entry => entry.name))];
+      options.privateStateEvents?.(event);
+    },
+  });
+  // In memory only: what status reports. A launch's result changes nothing for any other turn (#4301).
+  const stateBoundary: { checkedAt: number | null; lastRefusal?: { at: number; reason: string; path?: string }; ownershipOnly?: string[] } = { checkedAt: null };
+  const boundaryStatus = () => ({ stateBoundary: { mode: "walk" as const, ...stateBoundary } });
+  let deferredPreflight: (() => Promise<Error | undefined>) | undefined, preflightRunning = false;
+  /** Repeat a deferred boot check; its own executions skip it. A pass clears it, a version failure keeps it. */
+  async function preflight(): Promise<void> {
+    if (!deferredPreflight || preflightRunning) return;
+    preflightRunning = true;
+    let refused: Error | undefined;
+    try { refused = await deferredPreflight(); }
+    finally { preflightRunning = false; }
+    if (refused) throw refused;
+    deferredPreflight = undefined;
+  }
   /**
    * A credentialed run's own CLI provider relay (#1673), where the host relays
    * providers; the caller stops it once the worker has exited.
@@ -584,14 +624,23 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       scratchIgnoreQuery: createScratchIgnoreQuery({ brainPath: brain, nativeManager: options.nativeManager, lock: outputLock,
         maintenance: { tempLimits: maintenanceTemp, maskPaths, ...(tempDomain ? { tempDomain } : {}) } }) },
     isolated,
+    disposePrivateState,
+    deferPreflight(check) { deferredPreflight = check; },
     governed,
     async prepare(signal, preparedView, timing) {
       signal?.throwIfAborted();
+      try { await preflight(); }
+      catch (error) {
+        const refusal = privateStateRefusalOf(error);
+        if (refusal) return { available: false as const, reason: refusal.reason, detail: refusal.message };
+        throw error;
+      }
       const checkState = (name: string) => {
         const aliasScan = timing ? { scans: 0, entries: 0 } : undefined;
         let end: ReturnType<PhaseTimer> | undefined;
         observeDiagnostic(() => end = timing?.(name));
         const refusal = operationalStateRefusal(layout, aliasScan);
+        stateBoundary.checkedAt = Date.now();
         if (aliasScan) observeDiagnostic(() => end?.annotate?.({ aliasScan }));
         observeDiagnostic(() => end?.());
         return { refusal };
@@ -625,6 +674,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         if (checked.ok) passedMaintenanceProbes.set(maintenanceKey, checked);
         return recheck();
       } catch (error) {
+        // A private-state refusal answers this admission only; nothing is stored (#4301).
+        const refusal = privateStateRefusalOf(error);
+        if (refusal) { endProbe?.(); return { available: false as const, reason: refusal.reason, detail: refusal.message }; }
         if (!(error instanceof WorkerStateError)) throw error;
         signal?.throwIfAborted();
         endProbe?.();
@@ -639,7 +691,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     status: () => {
       const availability = governed();
-      if (!availability.available && availability.reason === "private_state_unverified") return { hostExecution: "worker", ...availability };
+      if (!availability.available && availability.reason === "private_state_unverified") return { hostExecution: "worker", ...availability, ...boundaryStatus() };
       const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain, options));
       let configuredIdentity = false;
       try { configuredIdentity = Boolean(workerIdentityHelper()); } catch { configuredIdentity = true; }
@@ -666,10 +718,11 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         ...(fallback ? { profileFallback: fallback } : unresolvedTypes && !qualifiedProfile ? { profileFallback: "Provider type folder qualification is unresolved in read-only status; each admission resolves it on its checkpoint." } : {}),
         ...identity, ...(qualifiedProfile ? { configurationView: qualifiedProfile === "governed" ? "live" as const : "startup" as const } : {}),
         egress: hasManagedNativeStorage(brain) ? { active: true, detail: `${TURN_EGRESS_ACTIVE} ${options.providerRelay ? PROVIDERS_RELAYED : PROVIDERS_NOT_RELAYED}` }
-          : { active: false, detail: TURN_EGRESS_INACTIVE } };
+          : { active: false, detail: TURN_EGRESS_INACTIVE }, ...boundaryStatus() };
     },
     withGate,
     async run(execution) {
+      await preflight();
       const admissionSignal = execution.admissionSignal
         ? execution.signal ? AbortSignal.any([execution.signal, execution.admissionSignal]) : execution.admissionSignal
         : execution.signal;
@@ -746,6 +799,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       });
     },
     async launch(execution) {
+      await preflight();
       execution.signal?.throwIfAborted();
       const hold = execution.gate === "none" ? null : await holdGate(execution.gate, execution.purpose, execution.signal);
       let hostFallback: boolean;
@@ -857,6 +911,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       return retainExecutionAdmission({ stdout: report?.stream ?? worker.stdout, stderr: worker.stderr, exited, settled, get signalCode() { return signalCode; }, get gitPublication(){return gitPublication;}, kill }, credential);
     },
     async runSync(execution) {
+      await preflight();
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");
       if (!isolated()) {
         if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");

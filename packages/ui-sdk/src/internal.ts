@@ -5,6 +5,8 @@ export { BRAIN_INTERACTION_GUIDANCE, projectConversationGuidance, conversationOr
 export { prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles } from "./server/worker-identity-reader.js";
 export { workerCleanupUnconfirmed, workerIdentityHelper, reportStrandedWorkerCleanup } from "./server/worker-identity.js";
 export { verifiedWorkerIdentity } from "./server/worker-launcher.js";
+export { privateStateRefusalOf, registerWorkerPrivateState, WorkerPrivateStateError } from "./server/worker-private-state.js";
+export type { WorkerPrivateStateEvent, WorkerPrivateStateProvider, WorkerPrivateStateReason } from "./server/worker-private-state.js";
 export { launchAgentWorker, launchAgentWorkerAsync, launchLimits, requireWorkerHost, requireWorkerHostAsync, WorkerResourceLimitError, probeWorkerHost, workerHostBoundary, WorkerHostError, WORKER_SCRATCH, WORKER_STATE } from "./server/worker-launcher.js";
 export { WORKER_EMPTY_HOME } from "./server/worker-xdg.js";
 export type { LaunchedWorker, WorkerLaunch, WorkerHostProbe, WorkerStateHandle } from "./server/worker-launcher.js";

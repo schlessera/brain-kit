@@ -3,6 +3,8 @@ import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe, createWorkerStatusPipeSteps } from "./worker-status.js";
+import { WORKER_NAMESPACE_SEAL } from "./namespace-qualification.js";
+import { privateStateRefusalOf, qualifyWorkerNamespaceSteps, requirePrivateStateProvider } from "./worker-private-state.js";
 import { prepareWorkerIdentity, workerCleanupUnconfirmed, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
 import { chmodSync, chownSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
@@ -764,6 +766,9 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (input.stateBytes !== undefined) argv.push("--size", String(input.stateBytes), "--tmpfs", WORKER_STATE);
   // HOME writes must fail with EROFS without consuming transcript/state space (#2984).
   if (emptyHome) argv.push("--tmpfs", WORKER_EMPTY_HOME, "--remount-ro", WORKER_EMPTY_HOME);
+  // The last mount option: once it is read-only in the sandbox's table,
+  // bubblewrap has built every bind, mask and HOME of this launch (#4301).
+  argv.push("--tmpfs", WORKER_NAMESPACE_SEAL, "--remount-ro", WORKER_NAMESPACE_SEAL);
   // A governed or strict turn worker holds no provider credential its own
   // inference does not need (#1666); the CLI's providers name what is missing.
   argv.push(...workerEnvironmentArgs({ env: input.env, ...(input.credentialEnv ? { credentialEnv: input.credentialEnv } : {}),
@@ -1148,6 +1153,7 @@ export interface GatedWorkerSpawn {
  */
 export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number; stdout: number; stderr: number },
   onSpawn?: (child: ReturnType<typeof Bun.spawn>) => void): WorkerSteps<GatedWorkerSpawn> {
+  requirePrivateStateProvider(realpathSync(input.brainPath), declaresPrivateState(input));
   const status = yield* createWorkerStatusPipeSteps();
   let child: ReturnType<typeof Bun.spawn> | undefined;
   try {
@@ -1164,14 +1170,51 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     status.closeWriter();
     const supervisor = child;
     void child.exited.finally(() => status.close(supervisor));
+    yield* qualifyWorkerNamespaceSteps(pid, realpathSync(input.brainPath), spawnedAt + STATE_SETUP_MS, declaresPrivateState(input));
     status.release();
     return { child, spawnedAt, pid };
   } catch (error) {
     // An unreleased start gate closes only after its sandbox is dead (#3387).
     status.close(child);
     child?.kill("SIGKILL");
+    // A refusal leaves as itself once its sandbox is gone; the caller cleans up after a confirmed exit.
+    if (child && privateStateRefusalOf(error)) yield* awaitWorkerExitSteps(child);
     throw error;
   }
+}
+
+/** Whether a launch names private host paths: then a registered provider must qualify it (#4301). */
+function declaresPrivateState(input: WorkerLaunch): boolean {
+  return Boolean(input.maintenance?.maskPaths?.length || input.sandbox?.maskPaths?.length);
+}
+
+/**
+ * Wait for a spawned launch's outer process, killing it with SIGTERM at the
+ * deadline as `Bun.spawnSync`'s timeout did. `exitCode` is null when a signal
+ * ended it. The synchronous form never returns to the event loop, so it reads
+ * the exit status the kernel keeps for an unreaped child.
+ */
+export function awaitWorkerExitSteps(child: ReturnType<typeof Bun.spawn>, deadline?: number): WorkerSteps<{ exitCode: number | null }> {
+  return workerStep(() => {
+    let signalled = false;
+    for (let wait = 1; ; wait = Math.min(wait * 2, 10)) {
+      let stat: string | undefined;
+      try { stat = readFileSync(`/proc/${child.pid}/stat`, "utf8"); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      if (stat === undefined) {
+        if (child.exitCode !== null || child.signalCode !== null) return { exitCode: child.exitCode };
+        throw new WorkerHostError("the worker's exit status is unavailable");
+      }
+      const fields = stat.slice(stat.lastIndexOf(") ") + 2).split(" ");
+      if (fields[0] === "Z") { const status = Number(fields[49]); return { exitCode: status & 0x7f ? null : (status >> 8) & 0xff }; }
+      if (!signalled && deadline !== undefined && Date.now() >= deadline) { signalled = true; child.kill("SIGTERM"); }
+      Bun.sleepSync(wait);
+    }
+  }, async () => {
+    const timer = deadline === undefined ? undefined : setTimeout(() => child.kill("SIGTERM"), Math.max(0, deadline - Date.now()));
+    try { await child.exited; } finally { clearTimeout(timer); }
+    return { exitCode: child.exitCode };
+  });
 }
 
 /** How close to a worker's death its own memory limit and an OOM kill must be to have caused it. */
@@ -1551,6 +1594,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       areas: (input.sandbox?.areas ?? []).flatMap(area => area.mount.writable ? [{ rel: area.rel,
         worker: input.sandbox?.profile === "governed" ? join(brain, area.rel) : join(WORKER_AREA_ROOT, area.name),
         host: input.areaOutput ? join(input.areaOutput.source, area.rel) : area.mount.path }] : []), maskPaths: input.sandbox?.maskPaths });
+    requirePrivateStateProvider(brain, declaresPrivateState(input));
     pipes = yield* createWorkerPipesSteps();
     const helper = workerIdentityHelper();
     if (!helper) status = yield* createWorkerStatusPipeSteps();
@@ -1631,6 +1675,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     if (input.sandbox?.profile === "governed")
       yield* verifyWorkerFolderMountsSteps(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks,
         identityBroker?.brainView());
+    // Every envelope, before release: no host private state reachable here (#4301).
+    yield* qualifyWorkerNamespaceSteps(pid, brain, deadline, declaresPrivateState(input));
     // Release the gate: the worker's command starts only now.
     // A separate identity opens both keys: the coordinator's gate, then STATE_GATE's line.
     if (identityBroker) { yield* identityBroker.requestSteps("release"); writeSync(pipes.parent[0], STATE_GATE_OPEN); }
@@ -1747,7 +1793,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
         await areaOutput?.cleanup();
         if (!input.preparedOutput) await startupView?.cleanup();
       })().catch((failure: unknown) => { closing = undefined; throw failure; });
-      const failure = new WorkerIdentityCleanupError(`worker_identity_setup_cleanup_unconfirmed: ${String(cleanupFailure)}; original failure: ${String(error)}${detail ? ` (${detail})` : ""}`, close);
+      const failure = Object.assign(new WorkerIdentityCleanupError(`worker_identity_setup_cleanup_unconfirmed: ${String(cleanupFailure)}; original failure: ${String(error)}${detail ? ` (${detail})` : ""}`, close), { cause: error });
       failMaintenanceSetup?.(failure);
       throw failure;
     }

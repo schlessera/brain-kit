@@ -9,7 +9,8 @@
  */
 
 /**
- * A read-only tmpfs `workerCommand` mounts as a launch's last mount option.
+ * A read-only tmpfs `workerCommand` mounts as a launch's last mount option,
+ * on the private `/tmp` tmpfs every envelope has.
  * Its presence in a table, with exactly one row at `/`, means bubblewrap has
  * finished building the sandbox and detached its old root.
  */

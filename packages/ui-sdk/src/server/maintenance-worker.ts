@@ -17,15 +17,16 @@ import { pipeline } from "node:stream/promises";
 import { basename, dirname, join } from "node:path";
 import { prepareNativeMaintenanceIndex, authorizeNativeMaintenanceIndex, finishNativeMaintenanceIndex, prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { createWorkerPipes, createWorkerPipesSteps, fifoStream } from "./worker-pipes.js";
-import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, spawnQualifiedSteps, WorkerHostError, type GatedWorkerSpawn, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
+import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, awaitWorkerExitSteps, launchAgentWorkerSteps, spawnQualifiedSteps, WorkerHostError, type GatedWorkerSpawn, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
 import { WorkerIdentityCleanupError, workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 import { createWorkerStartupView, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
 import { reserveMaintenanceTemp, type MaintenanceTempDomain, type MaintenanceTempKind } from "./maintenance-temp-budget.js";
 import { OUTPUT_STAGING_BYTES_ENV, resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
+import { privateStateRefusalOf } from "./worker-private-state.js";
 import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
-import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, type WorkerSteps } from "./worker-steps.js";
+import { runWorkerStepsAsync, runWorkerStepsSync, type WorkerSteps } from "./worker-steps.js";
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
 export const CREDENTIAL_FREE_ENV = ["PATH", "BRAIN_PATH", "BRAIN_ROOT", "NODE_ENV", "TZ", "LANG", "LC_ALL", "NO_COLOR",
@@ -369,6 +370,8 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       void Promise.all([running.exited, workerStopCompletion(running)]).then(() => {
         try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
       }).catch(() => { /* Unconfirmed cleanup retains ownership. */ });
+      // A private-state refusal's sandbox has already exited: it leaves as itself (#4301).
+      if (privateStateRefusalOf(error)) throw error;
       throw Object.assign(new WorkerIdentityCleanupError("maintenance_worker_launch_cleanup_pending"), { cause: error });
     }
     try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
@@ -439,7 +442,8 @@ export async function probeNativeMaintenanceWorker(brainPath: string, tempLimits
     if (result.exitCode === 0) return { ok: true };
     return { ok: false, requirement: `a credential-free maintenance worker could not start (${result.stderr.trim().slice(0,300) || `exit ${result.exitCode}`})` };
   } catch (error) {
-    if (signal?.aborted || error instanceof WorkerStateError) throw error;
+    // A private-state refusal is not an unavailable host (#4301).
+    if (signal?.aborted || error instanceof WorkerStateError || privateStateRefusalOf(error)) throw error;
     return { ok: false, requirement: `a credential-free maintenance worker could not start (${error instanceof Error ? error.message : String(error)})` };
   } finally { await outputs?.cleanup(); }
 }
@@ -482,7 +486,7 @@ export function* brainGitSteps(brain: string, args: readonly string[], options: 
   try {
     return (yield* runMaintenanceWorkerSteps({ ...options, brainPath: brain, command, ...(parent ? { readPaths: [parent] } : {}), env: { PATH: [dirname(git), "/usr/bin:/bin"].join(":"), GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" },
       credentials: false, tempKind: options.tempKind ?? "git", timeoutMs: options.timeoutMs ?? 10_000 })).exitCode;
-  } catch (error) { if (error instanceof WorkerStateError) throw error; return 127; }
+  } catch (error) { if (error instanceof WorkerStateError || privateStateRefusalOf(error)) throw error; return 127; }
 }
 
 /**
@@ -491,35 +495,6 @@ export function* brainGitSteps(brain: string, args: readonly string[], options: 
  */
 export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs: number }): MaintenanceResult {
   return runWorkerStepsSync(runMaintenanceWorkerSteps(input));
-}
-
-/**
- * Wait for a gated launch's outer process, killing it with SIGTERM at the
- * deadline as `Bun.spawnSync`'s timeout did. `exitCode` is null when a signal
- * ended it. The synchronous form never returns to the event loop, so it reads
- * the exit status the kernel keeps for an unreaped child.
- */
-function awaitExitSteps(child: ReturnType<typeof Bun.spawn>, deadline?: number): WorkerSteps<{ exitCode: number | null }> {
-  return workerStep(() => {
-    let signalled = false;
-    for (let wait = 1; ; wait = Math.min(wait * 2, 10)) {
-      let stat: string | undefined;
-      try { stat = readFileSync(`/proc/${child.pid}/stat`, "utf8"); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-      if (stat === undefined) {
-        if (child.exitCode !== null || child.signalCode !== null) return { exitCode: child.exitCode };
-        throw new WorkerHostError("the maintenance worker's exit status is unavailable");
-      }
-      const fields = stat.slice(stat.lastIndexOf(") ") + 2).split(" ");
-      if (fields[0] === "Z") { const status = Number(fields[49]); return { exitCode: status & 0x7f ? null : (status >> 8) & 0xff }; }
-      if (!signalled && deadline !== undefined && Date.now() >= deadline) { signalled = true; child.kill("SIGTERM"); }
-      Bun.sleepSync(wait);
-    }
-  }, async () => {
-    const timer = deadline === undefined ? undefined : setTimeout(() => child.kill("SIGTERM"), Math.max(0, deadline - Date.now()));
-    try { await child.exited; } finally { clearTimeout(timer); }
-    return { exitCode: child.exitCode };
-  });
 }
 
 /** @internal The stepped form of `runMaintenanceWorkerSync`, for a caller that drives it inside its own steps. */
@@ -539,10 +514,10 @@ export function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeout
     let gated: GatedWorkerSpawn;
     // The payload starts only once the host releases its start gate (#4301).
     try { gated = yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] }, child => { spawned = child; }); }
-    catch (error) { if (spawned) yield* awaitExitSteps(spawned); throw error; }
+    catch (error) { if (spawned) yield* awaitWorkerExitSteps(spawned); throw error; }
     pipes.closeChild();
     // The caller's deadline counts from the spawn, as it did for spawnSync.
-    const { exitCode } = yield* awaitExitSteps(gated.child, gated.spawnedAt + input.timeoutMs);
+    const { exitCode } = yield* awaitWorkerExitSteps(gated.child, gated.spawnedAt + input.timeoutMs);
     pipes.closeInput();
     return { stdout: readFileSync(pipes.parent[1], "utf8"), stderr: readFileSync(pipes.parent[2], "utf8"),
       exitCode: exitCode ?? 1, killed: exitCode === null };

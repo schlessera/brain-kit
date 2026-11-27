@@ -78,7 +78,9 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
   /** The CLI provider relay for credentialed maintenance (#1673); only with `nativeManager`. */
   providerRelay?: import("./host-boundary.js").HostBoundaryOptions["providerRelay"];
   maintenanceTemp?: WorkerStateLimits;
-  privateStatePaths?: OperationalStateLayout["privateStatePaths"]; profile?: "governed" | "strict"; requireGate?: boolean; workerHost?: () => WorkerHostProbe | undefined }): HostExecution {
+  privateStatePaths?: OperationalStateLayout["privateStatePaths"]; profile?: "governed" | "strict"; requireGate?: boolean; workerHost?: () => WorkerHostProbe | undefined;
+  /** Launch-qualification diagnostics (#4301). */
+  privateStateEvents?: import("./host-boundary.js").HostBoundaryOptions["privateStateEvents"] }): HostExecution {
   assertOperationalStateOutsideBrain(options);
   let gate: WriterGate | null = null;
   let manifests: GovernedManifests | null = null;
@@ -101,6 +103,7 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
     ...(options.exec ? { exec: options.exec } : {}), ...(options.home ? { home: options.home } : {}),
     ...(options.log ? { log: options.log } : {}), ...(options.requireGate ? { requireGate: true } : {}),
     ...(options.workerHost ? { workerHost: options.workerHost } : {}),
+    ...(options.privateStateEvents ? { privateStateEvents: options.privateStateEvents } : {}),
     gate: () => gate, history: () => manifests ? manifests.hasHistory() : history });
   return {
     boundary,
@@ -138,6 +141,7 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
       return results;
     },
     release() {
+      boundary.disposePrivateState?.();
       early?.close();
       early = undefined;
       // A file-backed quarantine beside the database is the owner's and stays.

@@ -1399,6 +1399,10 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   alias check could not finish. `OperationalStateAliasVerificationUnavailable`
   identifies its retained status diagnostic and persistent boot refusal. Both
   are registered so reviewed diagnostics preserve their named causes.
+  `private_state_exposed` (#4301) identifies a turn refused because a launched
+  worker's mount table made host private state reachable; its wire code is
+  `PRIVATE_STATE_EXPOSED`. The refusal happens before the payload starts and
+  clears with the alias, with no restart.
   `input_safety_unavailable` identifies refusal because the runtime's input
   collector is unqualified or unavailable, including externally configured Pi
   extensions. It is a registered host safety failure, not a provider error or

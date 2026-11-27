@@ -180,6 +180,11 @@ function statePaths(input: OperationalStateLayout): StatePath[] {
     ...(input.privateStatePaths ?? [])];
 }
 
+/** Every state path of a layout, resolved now: the roots launch qualification judges (#4301). */
+export function operationalStatePaths(input: OperationalStateLayout): { setting: string; path: string }[] {
+  return statePaths(input).map(entry => ({ setting: entry.setting, path: statePath(entry) }));
+}
+
 /** Keep the configured directory masks and also cover resolved targets and private siblings. */
 export function operationalStateMasks(input: OperationalStateLayout): string[] {
   const masks = new Set<string>();

@@ -1240,6 +1240,31 @@ refuses that governed or strict turn with `PRIVATE_STATE_UNVERIFIED` and failure
 class `private_state_unverified`; status advertises no strict fallback. The next
 check recovers automatically once verification succeeds. Direct host reads and
 native checkpoint operations retain their existing checks.
+The additive `private_state_exposed` reason (#4301) means a launched worker's
+own mount table made host private state reachable: a state root, a directory
+above one or part of one is live at a name the launch's UID can open. The host
+reads that table while the sandbox's start gate is closed, so the payload never
+runs; the launch function throws a typed refusal with that reason. It refuses
+only that launch, and the turn whose admission probe it was, for governed and
+strict alike; status advertises no strict fallback for it. Nothing is stored:
+the next launch is qualified again, so removing or masking the alias clears it
+with no restart. Owner-only state that the sandbox's UIDs do not own is reported,
+not refused. An exposure never refuses boot.
+The authenticated `governed` status gains an optional `stateBoundary` object
+(#4301): `{ mode: "boundary" | "walk", reason?, checkedAt, lastRefusal?: { at,
+reason, path? }, ownershipOnly?: string[] }`. `mode: "walk"` means turn
+admission runs the full alias walk, as every host does today; `checkedAt` is
+the last admission check in epoch milliseconds, or `null` before the first.
+`lastRefusal` is the last launch this process refused for private state, with
+the live name in `path`; `ownershipOnly` lists live names reported but
+released because the sandbox's UIDs cannot open them. Both are diagnostics read
+by nothing but status. The optional authenticated status field
+`runtime.privateStateLastExposure` retains the last refused launch across
+restart: `{ at, reason: "private_state_exposed", setting, path, row, scope:
+"launch" }`, where `path` is the live name and `row` the mount row. It is
+written off the launch path; a failed write never changes a launch.
+`runtime.operationalStateLastFailure` keeps its type and meaning: an exposure is
+never written to it.
 The authenticated status field `runtime.operationalStateLastFailure` retains
 the last incomplete check across recovery and restart: `{ at,
 errorClass: "OperationalStateAliasVerificationUnavailable", callSite:
