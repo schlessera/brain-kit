@@ -8,7 +8,7 @@ import { DEFAULT_ROOTS, testArgv } from "../scripts/test";
 import { planChecks, workspaces } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
 import { localUnitWorkerCount } from "../scripts/unit-workers";
-import { copyScriptClosure, TEST_RUNNER_INPUTS } from "./helpers/script-closure";
+import { copyScriptClosure, TEST_RUNNER_ENTRY, TEST_RUNNER_INPUTS } from "./helpers/script-closure";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -429,7 +429,7 @@ function importFixture() {
   const dir = fixture();
   const root = join(import.meta.dir, "..");
   mkdirSync(join(dir, "scripts"));
-  copyScriptClosure(dir, ["scripts/test.ts"], TEST_RUNNER_INPUTS);
+  copyScriptClosure(dir, [TEST_RUNNER_ENTRY], TEST_RUNNER_INPUTS);
   mkdirSync(join(dir, "packages/core/tests"), { recursive: true });
   cpSync(join(root, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"));
   mkdirSync(join(dir, "packages/fixture/src"), { recursive: true });

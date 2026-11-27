@@ -17,6 +17,9 @@ import ts from "typescript";
 
 const REPO = join(import.meta.dir, "../..");
 
+/** The test runner's entry point, the one most fixtures copy. */
+export const TEST_RUNNER_ENTRY = "scripts/test.ts";
+
 /** A file a command needs that no import names, and why. */
 export interface ScriptInput { file: string; reason: string }
 
