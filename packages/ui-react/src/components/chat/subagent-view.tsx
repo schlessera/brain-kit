@@ -1,6 +1,6 @@
 import { useMemo, useState, type Ref } from "react";
 import { IconButton } from "@schlessera/brain-ui-kit";
-import { ArrowLeft, Bot, ChevronRight } from "lucide-react";
+import { ArrowLeft, Bot, ChevronRight } from "../icons.js";
 import { motion } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";

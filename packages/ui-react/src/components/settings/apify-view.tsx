@@ -176,6 +176,7 @@ function Limits({ read, onOpenPolicy, headings }: ApifyViewProps) {
       {([["Per run", usd(limits.run_usd)], ["Per turn", usd(limits.turn_usd)], ["Per conversation", usd(limits.session_usd)], ["Per UTC day, this account", usd(limits.day_usd)],
         ["Runs per turn", String(limits.max_runs_per_turn)], ["Requests per turn", String(limits.max_requests_per_turn)], ["Runs at once", String(limits.max_concurrent_runs)],
         ["Longest run", `${Math.round(limits.max_runtime_seconds / 60)} min`], ["Result items", String(limits.max_result_items)],
+        // Not the shared `formatBytes` rule (#4735): one configured limit, in whole kilobytes beside minutes and days.
         ["Result size", `${Math.round(limits.max_result_bytes / 1024)} KB`], ["Results kept", `${Math.round(limits.max_retention_seconds / 86400)} days`]] as const)
         .map(([name, value]) => <div key={name} className="contents"><dt className="text-muted-foreground">{name}</dt><dd className="text-right font-mono">{value}</dd></div>)}
     </dl> : <p className="text-sm">No Apify limits are set, so no run can start. Catalog search still follows its own setting.</p>}

@@ -9,6 +9,7 @@ import { ApiRequestError } from "../../lib/api-client.js";
 import { isEditableTarget, singleKey } from "../../lib/single-key.js";
 import { ImageViewer } from "../images/image-viewer.js";
 import type { HygieneController } from "./hygiene-review.js";
+import { formatBytes } from "../../lib/format-bytes.js";
 
 /**
  * A media finding in hygiene review (#2782): the file with a bounded preview,
@@ -48,11 +49,6 @@ const MIMES: Record<string, string> = {
 };
 const NOUN: Record<Kind, string> = { image: "image", video: "video", audio: "audio", pdf: "document", none: "file" };
 
-function mediaSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
-}
 const baseName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const extension = (path: string) => {
   const name = baseName(path), dot = name.lastIndexOf(".");
@@ -152,18 +148,18 @@ function MediaFrame({ path, bytes, large, scratch, probe, name, frameButton }: {
     </div>
   );
   if (failed) return tile("Couldn't load preview");
-  if (overCap) return tile(`${label} · ${mediaSize(bytes)} · Too large to preview here`);
-  if (kind === "none") return tile(`${label} · ${mediaSize(bytes)} · No preview here`);
+  if (overCap) return tile(`${label} · ${formatBytes(bytes)} · Too large to preview here`);
+  if (kind === "none") return tile(`${label} · ${formatBytes(bytes)} · No preview here`);
   if (kind === "pdf")
-    return tile(`${label} · ${mediaSize(bytes)}`, (
+    return tile(`${label} · ${formatBytes(bytes)}`, (
       <TextButton label="Open in Files" onClick={() => {
         root.stores.ui.getState().openPanel("files");
         void root.stores.file.getState().openFile(path);
       }} />
     ));
   if (deferred && !loaded)
-    return tile(`${label} · ${mediaSize(bytes)}${scratch ? " · scratch" : ""}`, (
-      <Button tone="ghost" size="md" block={false} reach label={large ? `Load preview (${mediaSize(bytes)})` : "Load preview"}
+    return tile(`${label} · ${formatBytes(bytes)}${scratch ? " · scratch" : ""}`, (
+      <Button tone="ghost" size="md" block={false} reach label={large ? `Load preview (${formatBytes(bytes)})` : "Load preview"}
         ariaLabel={`Load preview of ${name}`} onClick={() => setLoaded(true)} />
     ));
   if (kind === "video")
@@ -237,7 +233,7 @@ function PlanLines({ row, plan, name, source }: { row: Row; plan: HygieneMediaPl
     out.push(line("from", `${row === "media-keep-copy" ? "copy " : ""}${source}`, { color: color.ink }));
     out.push(line("to", `→ ${plan.destination} · new file · destination free`, { color: color.ink }));
   } else out.push(line("from", source, { color: color.ink }));
-  if (plan.copy) out.push(line("sha", `sha ${plan.copy.sha256.slice(0, 7)} · ${mediaSize(plan.copy.bytes)} · checked after copy`));
+  if (plan.copy) out.push(line("sha", `sha ${plan.copy.sha256.slice(0, 7)} · ${formatBytes(plan.copy.bytes)} · checked after copy`));
   for (const [i, r] of plan.rewrites.entries()) {
     out.push(line(`rw${i}`, `${r.note}:${r.line}`));
     out.push(line(`rb${i}`, `− ${r.before}`, { color: "var(--bk-red-ink)" }));
@@ -259,16 +255,16 @@ function PlanLines({ row, plan, name, source }: { row: Row; plan: HygieneMediaPl
   } else if (row !== "media-delete" && plan.resultClass === "TRACK") out.push(line("tracked", "already tracked · no config change"));
   for (const m of [plan.matches?.track, plan.matches?.ignore ?? undefined]) {
     if (!m) continue;
-    out.push(line(`m${m.pattern}`, `${m.anyFolder ? "Matches in any folder" : "Matches"}: ${m.largest.map((f) => `${f.path}${f.bytes !== null ? ` ${mediaSize(f.bytes)}` : ""}`).join(" · ")}${m.count > m.largest.length ? ` · ${m.count - m.largest.length} more` : ""}`));
+    out.push(line(`m${m.pattern}`, `${m.anyFolder ? "Matches in any folder" : "Matches"}: ${m.largest.map((f) => `${f.path}${f.bytes !== null ? ` ${formatBytes(f.bytes)}` : ""}`).join(" · ")}${m.count > m.largest.length ? ` · ${m.count - m.largest.length} more` : ""}`));
     out.push(line(`f${m.pattern}`, m.anyFolder ? `Future files named ${m.pattern} anywhere will be committed by sync.` : "Future matching files will be committed by sync."));
   }
   if (row === "media-keep-copy") {
-    out.push(line("two", `two copies remain · +${mediaSize(bytes)} on disk`));
+    out.push(line("two", `two copies remain · +${formatBytes(bytes)} on disk`));
     out.push(line("orig", plan.links.state === "linked"
       ? `original stays in scratch while ${plan.links.conversations} conversation${plan.links.conversations === 1 ? "" : "s"} link it; it can be pruned after they're gone`
       : "original stays in scratch under its current pins"));
   }
-  if (row !== "media-delete" && plan.resultClass === "TRACK") out.push(line("git", `next sync commits ${mediaSize(bytes)} to Git history`));
+  if (row !== "media-delete" && plan.resultClass === "TRACK") out.push(line("git", `next sync commits ${formatBytes(bytes)} to Git history`));
   if (plan.captureBytes > 0 || row === "media-keep-copy") out.push(line("undo", "Undo keeps rollback data, which may be cleared early when space is needed"));
   if (row === "media-move" || row === "media-delete") out.push(line("outside", "Links from outside this brain (sites, other apps, chat history) can't be updated."));
   void name;
@@ -484,7 +480,7 @@ export function MediaFinding({ item, controller: c }: { item: InboxActionItem; c
   const dims = probeLine(probe);
   const refs = (options.get("media-delete") ?? options.get("media-persist"))?.media?.references;
   const facts: Array<[string, string]> = [
-    ["type", `${typeLabel(f.path)} · ${detail ? mediaSize(detail.bytes) : "size unknown"}${large ? " · LARGE" : ""}`],
+    ["type", `${typeLabel(f.path)} · ${detail ? formatBytes(detail.bytes) : "size unknown"}${large ? " · LARGE" : ""}`],
     ["git", scratch ? "scratch · not persisted" : shared ? "share staging · not persisted" : "untracked · not persisted"],
     ...(scratch ? [["linked", linkState === "unknown" ? "can't be checked right now" : `${n} conversation${n === 1 ? "" : "s"} (scratch pins)`] as [string, string]] : []),
     ["used by", refs ? (!refs.complete ? "not fully checked" : refs.count === 0 ? "no notes" : `${refs.count} reference${refs.count === 1 ? "" : "s"}`) : "unknown"],

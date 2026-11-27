@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { useEffect, useRef } from "react";
-import { TriangleAlert } from "lucide-react";
+import { TriangleAlert } from "../icons.js";
 import { EmptyState, ScreenHeader, TextButton } from "@schlessera/brain-ui-kit";
 
 import { graphServerUnavailable, useGraphStore, type DiscoveryColorBy, type GraphMode } from "../../stores/graph-store.js";

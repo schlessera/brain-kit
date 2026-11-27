@@ -1,5 +1,5 @@
 import { Button, Callout } from "@schlessera/brain-ui-kit";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2 } from "../icons.js";
 import type { ReactNode, RefObject } from "react";
 import { useId } from "react";
 import { Kbd } from "../layout/kbd.js";

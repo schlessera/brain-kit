@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { IconButton, TextButton, type IconButtonProps } from "@schlessera/brain-ui-kit";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy } from "../icons.js";
 
 /**
  * The overlay placement: top right of a `group/copy` ancestor. A fine pointer

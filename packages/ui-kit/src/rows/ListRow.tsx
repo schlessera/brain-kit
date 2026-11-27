@@ -88,17 +88,6 @@ export interface ListRowProps {
   onClick?: () => void;
 }
 
-/** Icon and value tones are ink: text, glyphs and borders. */
-const TONES: Record<Tone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 export function ListRow(p: ListRowProps) {
   if (p.density === "pill") return <PillRow {...p} />;
   return <StandardRow {...p} />;
@@ -107,7 +96,7 @@ export function ListRow(p: ListRowProps) {
 function StandardRow(p: ListRowProps) {
   const v = p.variant || "group";
   const titleId = useId();
-  const tone = TONES[p.iconTone || "neutral"] || TONES.neutral;
+  const tone = (accent[p.iconTone || "neutral"] ?? accent.neutral).ink;
   const selected = p.selected === true;
   const act = Boolean(p.onClick);
 
@@ -158,7 +147,7 @@ function StandardRow(p: ListRowProps) {
   const valueStyle: CSSProperties = {
     flex: "none",
     font: p.valueMono !== false ? `500 10.5px/1 ${font.mono}` : `600 11px/1 ${font.body}`,
-    color: TONES[p.valueTone || "neutral"] || color.inkMute,
+    color: accent[p.valueTone || "neutral"]?.ink || color.inkMute,
   };
 
   // A role="button" that cannot be operated from the keyboard is worse than no
@@ -208,7 +197,7 @@ function StandardRow(p: ListRowProps) {
  */
 function PillRow(p: ListRowProps) {
   const act = Boolean(p.onClick);
-  const tone = TONES[p.iconTone || "neutral"] || TONES.neutral;
+  const tone = (accent[p.iconTone || "neutral"] ?? accent.neutral).ink;
   // The box itself is `.bk-pill` in `tokens.css`, shared with the strip's
   // summaries; only the hover value is per-element, as for every `.bk-row`.
   const box = { "--hv-bg": act ? color.raised : color.surface } as CSSProperties;
@@ -234,7 +223,7 @@ function PillRow(p: ListRowProps) {
       <span className="bk-pill-text">
         <span className="bk-pill-title" data-pill-title="" title={p.title}>{p.title}</span>
         {p.value ? (
-          <span className="bk-pill-value" data-pill-value="" style={{ color: TONES[p.valueTone || "neutral"] || color.inkMute }}>
+          <span className="bk-pill-value" data-pill-value="" style={{ color: accent[p.valueTone || "neutral"]?.ink || color.inkMute }}>
             {p.value}
           </span>
         ) : null}

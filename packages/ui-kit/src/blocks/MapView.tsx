@@ -196,29 +196,7 @@ export interface MapViewProps {
   framed?: boolean;
 }
 
-/** A pin is a 10px disc: the `mark` role, which is the step a darkened accent
- * would need on paper. */
-const MARKS: Record<Tone, string> = {
-  amber: accent.amber.mark,
-  gold: accent.gold.mark,
-  teal: accent.teal.mark,
-  purple: accent.purple.mark,
-  blue: accent.blue.mark,
-  red: accent.red.mark,
-  neutral: accent.neutral.mark,
-};
-
 /** A path is a 2px stroke, also a mark. */
-/** A numbered badge is a solid disc that takes `on-fill` text on top. */
-const FILLS: Record<Tone, string> = {
-  amber: accent.amber.fill,
-  gold: accent.gold.fill,
-  teal: accent.teal.fill,
-  purple: accent.purple.fill,
-  blue: accent.blue.fill,
-  red: accent.red.fill,
-  neutral: accent.neutral.fill,
-};
 
 const RINGS: Record<Tone, string> = {
   amber: token("map-pin-ring-amber"),
@@ -716,7 +694,7 @@ export function MapView(p: MapViewProps) {
     points: (path.coords || [])
       .map((c) => `${px(Number(c[0])).toFixed(1)},${py(Number(c[1])).toFixed(1)}`)
       .join(" "),
-    stroke: MARKS[path.tone || "teal"] || MARKS.teal,
+    stroke: (accent[path.tone || "teal"] ?? accent.teal).mark,
     width: path.width || 2,
     single: path.coords?.length === 1 && src.some(pin => pin.marker),
   }));
@@ -852,7 +830,7 @@ export function MapView(p: MapViewProps) {
             const endX = Math.max(box.x, Math.min(pin.x, box.x + box.width));
             const endY = Math.max(box.y, Math.min(pin.y, box.y + box.height));
             return <line key={`tether${i}`} data-map-tether x1={pin.x} y1={pin.y} x2={endX} y2={endY}
-              stroke={MARKS[pin.tone] || MARKS.amber} strokeWidth={1} vectorEffect="non-scaling-stroke" />;
+              stroke={(accent[pin.tone] ?? accent.amber).mark} strokeWidth={1} vectorEffect="non-scaling-stroke" />;
           }) : null}
         </svg>
         {gridLabels.map((lab, i) => (
@@ -861,7 +839,7 @@ export function MapView(p: MapViewProps) {
           </span>
         ))}
         {placed.map((pin, i) => {
-          const c = MARKS[pin.tone] || MARKS.amber;
+          const c = (accent[pin.tone] ?? accent.amber).mark;
           const x = pin.x;
           if (numbered) {
             // A badge is centred on its coordinate: it has no label to lead,
@@ -886,7 +864,7 @@ export function MapView(p: MapViewProps) {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  background: FILLS[pin.tone] || FILLS.amber,
+                  background: (accent[pin.tone] ?? accent.amber).fill,
                   color: color.onFill,
                   font: `700 10px/1 ${font.mono}`,
                   whiteSpace: "nowrap",

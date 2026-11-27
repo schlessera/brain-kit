@@ -30,6 +30,7 @@ import { Callout, Receipt, Surface, color, font, type ReceiptRow } from "@schles
 import type { ImageMaskPayload, ToolCallView } from "@schlessera/brain-ui-sdk/client";
 import { useBrainUiRoot } from "../../../root-context.js";
 import { ClampedPre } from "../tool-views.js";
+import { formatBytes } from "../../../lib/format-bytes.js";
 
 /** A normalised rectangle over the source image: every value in 0..1. */
 interface MaskRegion {
@@ -47,12 +48,6 @@ export const MASK_NOT_RENDERED = "mask not rendered";
 
 /** The kit's image placeholder: raised stripes on the surface, no pixels. */
 const HATCH = `repeating-linear-gradient(135deg,${color.raised} 0 6px,var(--bk-hatch-stripe) 6px 12px)`;
-
-function bytesLabel(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
-}
 
 /** The mask file exists with content: the handler reports the PNG's byte length. */
 function hasMaskBytes(payload: Pick<ImageMaskPayload, "bytes">): boolean {
@@ -151,7 +146,7 @@ export function maskReceiptRows(payload: ImageMaskPayload, region?: MaskRegion):
     rows.push({ k: "region", v: REGION_NOT_RECORDED, tone: "gold" });
   }
   rows.push({ k: "source", v: payload.imagePath });
-  rows.push({ k: "mask", v: `${payload.maskPath} · ${bytesLabel(payload.bytes)}` });
+  rows.push({ k: "mask", v: `${payload.maskPath} · ${formatBytes(payload.bytes)}` });
   return rows;
 }
 

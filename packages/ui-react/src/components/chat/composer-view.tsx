@@ -4,7 +4,7 @@ import { FileChip } from "./file-chip.js";
 import type { PendingTrack } from "../../lib/track-uploads.js";
 import type { QueuedFile } from "../../lib/attachment-queue.js";
 import type { AttachmentFile } from "@schlessera/brain-ui-sdk/protocol";
-import { X } from "lucide-react";
+import { X } from "../icons.js";
 import { useId } from "react";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import type { ClipboardEvent, DragEvent, KeyboardEvent, ReactNode, RefObject } from "react";
@@ -240,7 +240,7 @@ export function ComposerView(p: ComposerViewProps) {
           if (button && button !== document.activeElement) event.preventDefault();
         }}>
           <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.captureNotice} /></div>
-          {p.onDismissCaptureNotice && <Button label="Dismiss" ariaLabel="Dismiss capture notice" tone="quiet" size="sm" block={false} reach onClick={p.onDismissCaptureNotice} />}
+          {p.onDismissCaptureNotice && <span data-capture-dismiss="" className="contents"><Button label="Dismiss" ariaLabel="Dismiss capture notice" tone="quiet" size="sm" block={false} reach onClick={p.onDismissCaptureNotice} /></span>}
         </div>
       )}
       {p.uploadNotice && (
