@@ -63,7 +63,7 @@ The same change added `broken-link` warnings to the audit. They come from the
 `links` rows the indexer wrote with no target (`findBrokenLinks`,
 `packages/core/src/lib/auditor.ts:619-631`), and the indexer resolves each
 link with the resolver and alias fallback `brain validate` uses
-(`function rebuildLinks`, `packages/core/src/lib/indexer/persist.ts:293-313`).
+(`function rebuildLinks`, `packages/core/src/lib/indexer/persist.ts:299-312`).
 The message comes from one describer that both commands call
 (`createUnresolvedLinkDescriber`,
 `packages/core/src/lib/indexer/links.ts:111-123`). A second resolver in the

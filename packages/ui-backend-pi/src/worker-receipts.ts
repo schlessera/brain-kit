@@ -12,7 +12,7 @@ import { createTurnTempPromoter, sessionReplay, WORKER_SCRATCH, type WorkerSandb
 
 import type { CreatePiBackendOptions } from "./backend-options.js";
 import type { createPiBridgeTools } from "./bridge-tools.js";
-import { savePiSession } from "./session-storage.js";
+import { appendPiSession, savePiSession } from "./session-storage.js";
 import type { TurnContext } from "./turn-context.js";
 import { PI_WORKER_STATE } from "./worker-protocol.js";
 
@@ -58,6 +58,16 @@ export function createPiWorkerReceipts(options: PiWorkerReceiptOptions): PiWorke
   const display = sessionReplay(sessionDir, brainPath, sessionId);
   const applications = new Map<string, PiApplicationReceipt>();
   let latestEntries: Record<string, unknown>[] = [];
+  /** What each receipt last retained, so an unchanged one is not written again (#4855). */
+  const retained = new Map<string, { receipt: PiApplicationReceipt; anchor: string | null | undefined; output: string; isError: boolean }>();
+  /**
+   * What the session file holds after this turn's last save, by identity, and
+   * its size (#4856). It can differ from `latestEntries`: it includes a
+   * recovered result. Undefined until the first save, and after a failed one.
+   */
+  let saved: { entries: readonly unknown[]; bytes: number } | undefined;
+  /** Recovered results by call id: a later recovery reuses the same entry. */
+  const recovered = new Map<string, Record<string, unknown>>();
   function persist(recoverMissing = false): void {
     if (autonomous) return;
     // Receipt ownership survives even when no runtime call or snapshot exists.
@@ -73,26 +83,40 @@ export function createPiWorkerReceipts(options: PiWorkerReceiptOptions): PiWorke
           ?? entries?.findLast(entry => entry.type === "message");
         receipt.anchor = typeof prior?.id === "string" ? prior.id : null;
       }
-      display.retainReceipt({ id, name: receipt.name, input: receipt.input, anchor: receipt.anchor, turnId: replayTurnId,
-        output: receipt.output?.content.filter(part => part.type === "text").map(part => part.text).join("") ?? JSON.stringify(receipt.result),
-        isError: !receipt.result.ok });
+      const output = receipt.output?.content.filter(part => part.type === "text").map(part => part.text).join("") ?? JSON.stringify(receipt.result);
+      const isError = !receipt.result.ok, last = retained.get(id);
+      if (last?.receipt === receipt && last.anchor === receipt.anchor && last.output === output && last.isError === isError) continue;
+      display.retainReceipt({ id, name: receipt.name, input: receipt.input, anchor: receipt.anchor, turnId: replayTurnId, output, isError });
+      // Recorded only once written: a failed write is attempted again next time.
+      retained.set(id, { receipt, anchor: receipt.anchor, output, isError });
     }
     if (!latestEntries.some(entry => entry.type === "message")) return;
-    const saved = [...latestEntries];
+    const next = [...latestEntries];
     if (recoverMissing) for (const [id, receipt] of applications) {
-      const called = saved.some(entry => !resumedIds.has(entry.id) && entry.type === "message" && (entry.message as any)?.role === "assistant"
+      const called = next.some(entry => !resumedIds.has(entry.id) && entry.type === "message" && (entry.message as any)?.role === "assistant"
         && (entry.message as any).content.some((part: any) => part.type === "toolCall" && part.id === id));
-      const answered = saved.some(entry => !resumedIds.has(entry.id) && entry.type === "message" && (entry.message as any)?.role === "toolResult"
+      const answered = next.some(entry => !resumedIds.has(entry.id) && entry.type === "message" && (entry.message as any)?.role === "toolResult"
         && (entry.message as any).toolCallId === id);
       if (!called || answered) continue;
       // The installed Pi adapter repairs orphaned calls with "No result provided".
       // Preserve the committed effect instead, only after the runtime has exited.
-      saved.push({ type: "message", id: randomUUID(), parentId: saved.at(-1)?.id ?? null,
+      let result = recovered.get(id);
+      if (!result) recovered.set(id, result = { type: "message", id: randomUUID(), parentId: next.at(-1)?.id ?? null,
         timestamp: new Date().toISOString(), message: { role: "toolResult", toolCallId: id, toolName: receipt.name,
           content: receipt.output?.content ?? [{ type: "text", text: JSON.stringify(receipt.result) }],
           isError: !receipt.result.ok, timestamp: Date.now() } });
+      next.push(result);
     }
-    savePiSession(sessionDir, sessionId, saved);
+    // The file grows by lines only while the list extends what it holds;
+    // anything else rewrites it whole, as before (#4856).
+    const held = saved;
+    if (held && held.entries.length <= next.length && held.entries.every((entry, index) => next[index] === entry)) {
+      if (held.entries.length === next.length) return;
+      const bytes = appendPiSession(sessionDir, sessionId, held.bytes, next.slice(held.entries.length));
+      if (bytes !== undefined) { saved = { entries: next, bytes }; return; }
+    }
+    saved = undefined; // A failed rewrite leaves the file unknown: the next save rewrites it.
+    saved = { entries: next, bytes: savePiSession(sessionDir, sessionId, next) };
   }
 
   /**

@@ -14,7 +14,7 @@ import { createSessionResources } from "./session-resources.js";
 import { createSessionRuntime } from "./native-session-runtime.js";
 import { toolLockFromKeyed } from "./tools.js";
 import { createPiBridgeTools } from "./bridge-tools.js";
-import { PI_WORKER_STATE, PiInputSafetyUnavailableError, SessionTooLargeError, pipeMessages, sendPipe, safetyResultInput, type PiWorkerMessage } from "./worker-protocol.js";
+import { PI_PIPE_MAX_BYTES, PI_WORKER_STATE, PiInputSafetyUnavailableError, SessionTooLargeError, appendedFrameBytes, pipeMessages, sendPipe, safetyResultInput, type PiWorkerMessage } from "./worker-protocol.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv, SessionToolkit } from "./backend-options.js";
 import { discoversPiExtensions } from "./extension-inspection.js";
 
@@ -64,10 +64,32 @@ function rpc(method: Extract<PiWorkerMessage, { type: "rpc" }>["method"], toolNa
 }
 let renderedAppend: string | undefined;
 let snapshotFailed = false;
+/**
+ * The transcript the host holds (#4856): the header and entries already sent,
+ * by identity, and the size a whole snapshot frame of them has. Undefined
+ * until this turn's first transcript frame.
+ */
+let sent: { header: unknown; entries: unknown[]; bytes: number } | undefined;
+/**
+ * Sends the transcript: whole for the turn's first frame and whenever the
+ * manager's list no longer extends what was sent (upstream branching can
+ * rebuild it from the same entries in another order), otherwise only the
+ * entries appended since. No new entry sends no frame.
+ */
 function snapshot(): boolean {
   if (snapshotFailed) return false;
   try {
-    if (manager) send({ type: "snapshot", entries: [manager.getHeader(), ...manager.getEntries()] });
+    if (!manager) return true;
+    const header = manager.getHeader(), entries = manager.getEntries();
+    if (sent && header === sent.header && entries.length >= sent.entries.length && sent.entries.every((entry, index) => entries[index] === entry)) {
+      if (entries.length === sent.entries.length) return true;
+      const added = entries.slice(sent.entries.length), bytes = sent.bytes + appendedFrameBytes(added);
+      if (bytes > PI_PIPE_MAX_BYTES) throw new SessionTooLargeError();
+      send({ type: "transcript_append", base: sent.entries.length + 1, entries: added });
+      sent = { header, entries, bytes };
+    } else {
+      sent = { header, entries, bytes: send({ type: "snapshot", entries: [header, ...entries] }) };
+    }
     return true;
   } catch (error) {
     if (!(error instanceof SessionTooLargeError)) throw error;
@@ -219,9 +241,15 @@ async function initialize(init: Init): Promise<void> {
   session = opened.session;
   session.subscribe(event => {
     if (snapshotFailed) return;
-    if (event.type === "message_end" || event.type === "tool_execution_start" || event.type === "tool_execution_end" || event.type === "auto_retry_start"
-      || event.type === "message_update" && ["text_delta", "thinking_delta"].includes(event.assistantMessageEvent.type)) {
+    if (event.type === "message_end" || event.type === "tool_execution_start" || event.type === "tool_execution_end" || event.type === "auto_retry_start") {
       send({ type: "event", event });
+    } else if (event.type === "message_update") {
+      // The host reads a delta's text only. The upstream event also carries the
+      // whole answer so far, twice (`message`, `partial`), and must not cross.
+      const { assistantMessageEvent: update } = event;
+      if (update.type === "text_delta" || update.type === "thinking_delta") {
+        send({ type: "event", event: { type: "message_update", assistantMessageEvent: { type: update.type, delta: update.delta } } });
+      }
     }
     // pi's internal subscriber appends before this subscriber is called.
     if (event.type === "entry_appended") snapshot();

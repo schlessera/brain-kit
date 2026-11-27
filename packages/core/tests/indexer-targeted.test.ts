@@ -6,6 +6,7 @@ import type { Database } from "bun:sqlite";
 import { openDatabase } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
+import { countExecutions } from "./statement-counter";
 
 // Targeted runs (#2835) read only the named paths, yet must leave the index a
 // fresh build of the same Markdown would: every row, the link graph, the
@@ -110,6 +111,41 @@ describe("targeted index runs (#2835)", () => {
     write(root, "notes/stray.txt.md", "---\ntitle: Stray\n---\nNo type.\n");
     await indexAll(db, { ...options(root), paths: ["notes/telemachus.md", "notes/stray.txt.md", "notes/never-written.md"] });
     expect(partitions(snapshot(db))).toEqual(await fresh(root, "fresh-2"));
+  });
+
+  test("a one-file targeted run executes as many statements on 200 notes as on 20", async () => {
+    const executions = async (size: number) => {
+      const files: Record<string, string> = {};
+      for (let i = 0; i < size; i++) files[`notes/n${String(i).padStart(3, "0")}.md`] = note(`Note ${i}`, `Body of note ${i}.`, `aliases: [Alias ${i}]\n`);
+      const root = brain(files);
+      const db = open(root, "brain");
+      await indexAll(db, options(root));
+      write(root, "notes/n007.md", note("Note 7", "Body of note 7, edited.", "aliases: [Alias 7]\n"));
+      const counter = countExecutions(db);
+      try {
+        const stats = await indexAll(db, { ...options(root), paths: ["notes/n007.md"] });
+        expect(stats.updated).toBe(1);
+      } finally {
+        counter.restore();
+      }
+      return counter.count();
+    };
+    const small = await executions(20);
+    expect(await executions(200)).toBe(small);
+  });
+
+  test("a named file resolves a link through an alias of a file it did not name", async () => {
+    const root = brain({
+      "notes/calypso.md": note("Calypso", "Keeps Odysseus on her island.", "aliases: [Nymph of Ogygia]\n"),
+      "notes/raft.md": note("Raft", "Built on Ogygia."),
+    });
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    write(root, "notes/raft.md", note("Raft", "Built on Ogygia; [[Nymph of Ogygia]] helped."));
+    await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
+    const after = partitions(snapshot(db));
+    expect(after.links).toEqual([{ source: "notes/raft.md", target: "Nymph of Ogygia", resolved: "notes/calypso.md" }]);
+    expect(after).toEqual(await fresh(root, "fresh"));
   });
 
   test("an index without markdown is built completely, whatever paths were named", async () => {
