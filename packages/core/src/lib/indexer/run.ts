@@ -223,7 +223,8 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
     parsed,
     existingDocs,
     markdownOnDisk,
-    assetsOnDisk
+    assetsOnDisk,
+    targeted ? new Set(options.paths) : undefined
   );
 
   await dropIneligibleVectors(run);

@@ -5,7 +5,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import type { Database } from "bun:sqlite";
+import { Database } from "bun:sqlite";
 import * as fs from "fs";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, relative } from "path";
@@ -215,7 +215,8 @@ describe("write operations index only the paths they change", () => {
     root = makeTempBrain();
     for (let n = 1; n <= 30; n++) {
       const name = String(n).padStart(2, "0");
-      writeFileSync(join(root, `notes/log-${name}.md`), `---\ntitle: Ship's log ${name}\ntype: note\n---\n\nDay ${name} at sea.\n`);
+      const day = n === 8 ? "The crew eat the lotus and forget home." : `Day ${name} at sea.`;
+      writeFileSync(join(root, `notes/log-${name}.md`), `---\ntitle: Ship's log ${name}\ntype: note\n---\n\n${day}\n`);
     }
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
     brain = await initContext({ root });
@@ -275,6 +276,7 @@ describe("write operations index only the paths they change", () => {
     expect(kept.result.moved).toBe(false);
     expect(kept.reads).toEqual([inPlace]);
     expect(row(db, inPlace)?.status).toBe("archived");
+    expect(await found("lotus")).toEqual([inPlace]);
 
     const from = "projects/active/sail-repairs/materials.md";
     const moved = await markdownReads(() => archiveWithReindex(deps(), { path: from, dryRun: false }));
@@ -283,6 +285,37 @@ describe("write operations index only the paths they change", () => {
     expect(moved.reads).toEqual([moved.result.path, from].sort());
     expect(row(db, from)).toBeNull();
     expect(row(db, moved.result.path)?.status).toBe("archived");
+    expect(await found("sealant")).toEqual([moved.result.path]);
+  });
+
+  test("a targeted write keeps a row another run committed after its scan", async () => {
+    // Another process indexes a new note while this write's run is between
+    // its scan and its persist: the parse read of the updated note is that
+    // moment.
+    const target = "notes/log-13.md";
+    const other = "notes/written-alongside.md";
+    writeFileSync(join(root, other), "---\ntitle: Written alongside\ntype: note\n---\n\nThe Sirens sing from the meadow.\n");
+    const original = fs.readFileSync;
+    let reads = 0;
+    const spy = spyOn(fs, "readFileSync").mockImplementation(((path: unknown, ...rest: unknown[]) => {
+      if (typeof path === "string" && path.endsWith(target) && ++reads === 2) {
+        const second = new Database(brain.dbPath);
+        try {
+          second.prepare("INSERT INTO documents (path, title, type, created, updated, content, indexed_at, asset_type) VALUES (?, ?, 'note', '2026-07-12', '2026-07-12', '', ?, 'markdown')")
+            .run(other, "Written alongside", new Date().toISOString());
+        } finally {
+          second.close();
+        }
+      }
+      return (original as (...a: unknown[]) => unknown)(path, ...rest);
+    }) as typeof fs.readFileSync);
+    try {
+      await updateDocumentFields(deps(), { path: target, summary: "The Sirens' meadow" });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(reads).toBe(2);
+    expect(row(db, other)).not.toBeNull();
   });
 
   test("a write keeps the cached context of a note on disk that the index does not hold yet", async () => {
