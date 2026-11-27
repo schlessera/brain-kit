@@ -21,11 +21,11 @@ interface Shown {
   unshown: number;
   /** The earliest shown end still ahead when the answer arrived, in host time. */
   nextEnd: number | null;
-  /** The read whose answer listed an end already past that no earlier answer had: one reconcile read follows it. */
-  reconcile: number | null;
+  /** When the reconcile read for ends already past is due, on this device's clock; null when none is pending. */
+  reconcileAt: number | null;
 }
 
-const NONE: Omit<Shown, "state"> = { grants: [], unshown: 0, nextEnd: null, reconcile: null };
+const NONE: Omit<Shown, "state"> = { grants: [], unshown: 0, nextEnd: null, reconcileAt: null };
 
 /**
  * A restricted chat's Gmail allowances (#4212): the container for the kit's
@@ -75,10 +75,18 @@ export function GoogleAllowancesPanel({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState<string | null>(null);
   const writes = useChatStore(s => completedAllowanceWrites(s.buffers[sessionId]?.messages));
   const seenWrites = useRef(writes);
-  /** Every end already past when an answer listed it, this appearance: each is reconciled once. */
+  /** Every end already past whose reconcile read has run, this appearance: each is reconciled once. */
   const reconciled = useRef(new Set<number>());
+  /**
+   * The reconcile read still to run: when it is due and the ends it settles.
+   * An answer that lists the same ends before then keeps the deadline; only
+   * the read itself marks them reconciled, so a failure or an unmount never
+   * counts as one.
+   */
+  const pending = useRef<{ at: number; ends: number[] } | null>(null);
 
   function fail(err: unknown) {
+    pending.current = null;
     const failure = standingFailure(err, HIDE);
     if (failure === "hidden") { setShown(null); setError(null); }
     else setShown({ state: failure, ...NONE });
@@ -91,9 +99,9 @@ export function GoogleAllowancesPanel({ sessionId }: { sessionId: string }) {
       if (generation !== lifetime.current || read !== reads.current) return;
       const { grants, unshown, nextEnd, pastEnds } = allowanceGrants(allowances, Date.now());
       const fresh = pastEnds.filter(end => !reconciled.current.has(end));
-      for (const end of fresh) reconciled.current.add(end);
-      const reconcile = fresh.length > 0 ? read : null;
-      setShown(was => (was === null && grants.length === 0 && unshown === 0 ? null : { state: "ready", grants, unshown, nextEnd, reconcile }));
+      pending.current = fresh.length === 0 ? null : { at: pending.current?.at ?? Date.now() + EXPIRY_GRACE_MS, ends: fresh };
+      const reconcileAt = pending.current?.at ?? null;
+      setShown(was => (was === null && grants.length === 0 && unshown === 0 ? null : { state: "ready", grants, unshown, nextEnd, reconcileAt }));
     } catch (err) {
       if (generation !== lifetime.current || read !== reads.current) return;
       fail(err);
@@ -103,6 +111,7 @@ export function GoogleAllowancesPanel({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     const generation = ++lifetime.current;
     reconciled.current = new Set();
+    pending.current = null;
     setShown(null);
     setBusy(null);
     setError(null);
@@ -137,17 +146,21 @@ export function GoogleAllowancesPanel({ sessionId }: { sessionId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextEnd]);
 
-  // Once, just after an answer that listed an end already past for the first
-  // time. If the host still lists it, its clock runs behind this device's:
+  // Once, just after the first answer that listed an end already past. If the
+  // host still lists it after that read, its clock runs behind this device's:
   // nothing more is scheduled for that end, and the other reads remain.
-  const reconcile = shown?.state === "ready" ? shown.reconcile : null;
+  const reconcileAt = shown?.state === "ready" ? shown.reconcileAt : null;
   useEffect(() => {
-    if (reconcile === null) return;
+    if (reconcileAt === null) return;
     const generation = lifetime.current;
-    const timer = setTimeout(() => void load(generation), EXPIRY_GRACE_MS);
+    const timer = setTimeout(() => {
+      for (const end of pending.current?.ends ?? []) reconciled.current.add(end);
+      pending.current = null;
+      void load(generation);
+    }, Math.max(0, reconcileAt - Date.now()));
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reconcile]);
+  }, [reconcileAt]);
 
   async function revoke(cardId: string) {
     if (busy !== null) return;

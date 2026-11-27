@@ -829,6 +829,66 @@ describe("a restricted chat: Gmail allowances", () => {
     });
   });
 
+  test("GOOGLE_CHAT_RECONCILE_KEEPS_DEADLINE: an earlier answer listing the same past end does not cancel its reconcile read", async () => {
+    await onControlledTime(async time => {
+      const c = chat();
+      const row = allowance("card-boundary", "gmail.modify", "star", 40, NOW - 100);
+      await last(ALLOWANCES_PATH).answer({ allowances: [row] });
+      expect(time.dueTimes()).toEqual([NOW + EXPIRY_GRACE]);
+      await time.advance(100);
+      await pageBecomes("visible");
+      await last(ALLOWANCES_PATH).answer({ allowances: [row] });
+      expect(time.dueTimes(), "the same deadline, not a new one").toEqual([NOW + EXPIRY_GRACE]);
+      expect(revokes(c.list()!)).toEqual(["Revoke Star"]);
+      await time.advance(EXPIRY_GRACE - 100);
+      expect(log(), "the reconcile read still runs").toEqual([READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES]);
+    });
+  });
+
+  test("GOOGLE_CHAT_RECONCILE_MANY_ONCE: every past end in one answer is settled by the same single read", async () => {
+    await onControlledTime(async time => {
+      chat();
+      const rows = [allowance("card-one", "gmail.modify", "star", 40, NOW - 100), allowance("card-two", "gmail.modify", "archive", 30, NOW - 200)];
+      await last(ALLOWANCES_PATH).answer({ allowances: rows });
+      await time.advance(EXPIRY_GRACE);
+      await last(ALLOWANCES_PATH).answer({ allowances: rows });
+      expect(time.dueTimes(), "both ends already had their one read").toEqual([]);
+      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
+    });
+  });
+
+  test("GOOGLE_CHAT_RECONCILE_AFTER_FAILURE: a failed read never counts as the reconcile read", async () => {
+    await onControlledTime(async time => {
+      const c = chat();
+      const row = allowance("card-boundary", "gmail.modify", "star", 40, NOW - 100);
+      await last(ALLOWANCES_PATH).answer({ allowances: [row] });
+      await pageBecomes("visible");
+      await last(ALLOWANCES_PATH).answer({ error: "no" }, 500);
+      expect(c.list()?.getAttribute("data-google-allowances")).toBe("failed");
+      expect(time.dueTimes(), "the failed state schedules nothing").toEqual([]);
+      await time.advance(5_000);
+      fireEvent.click(within(c.list()!).getByRole("button", { name: "Try again" }));
+      await last(ALLOWANCES_PATH).answer({ allowances: [row] });
+      expect(time.dueTimes(), "the end is still owed its reconcile read").toEqual([time.now() + EXPIRY_GRACE]);
+      await time.advance(EXPIRY_GRACE);
+      expect(log().length).toBe(4);
+    });
+  });
+
+  test("GOOGLE_CHAT_REVOKE_401_SUPERSEDES_READ: a 401 revoke discards an older read; a later read recovers", async () => {
+    const c = chat();
+    await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
+    await pageBecomes("visible");
+    const older = last(ALLOWANCES_PATH);
+    fireEvent.click(within(c.list()!).getByRole("button", { name: "Revoke Save drafts" }));
+    await last(REVOKE_ALLOWANCE_PATH).answer({ error: "no" }, 401);
+    await older.answer({ allowances: ALLOWANCES });
+    expect(c.list()).toBeNull();
+    await pageBecomes("visible");
+    await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES.slice(0, 2) });
+    expect(revokes(c.list()!)).toEqual(["Revoke Archive and Mark as read"]);
+  });
+
   for (const [timer, rows, dueAt] of [
     ["the expiry timer", () => ALLOWANCES, UNTIL_1802 + EXPIRY_GRACE],
     ["the reconcile timer", () => [allowance("card-stale", "gmail.modify", "star", 40, NOW - 60_000)], NOW + EXPIRY_GRACE],
