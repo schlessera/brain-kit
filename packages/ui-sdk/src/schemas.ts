@@ -771,7 +771,7 @@ export const hygieneMediaReceiptSchema = z.strictObject({
   copySha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   undo: z.strictObject({ available: z.boolean(), reason: z.string().max(4096).optional(), path: mediaPath.optional() }),
 }) satisfies z.ZodType<HygieneMediaReceipt>;
-export const hygieneOutcomeSchema = z.strictObject({ version: z.literal(1), status: z.enum(["applying", "fixed", "stale", "refused", "check_failed", "still_detected", "not_detected", "undone", "dismissed", "snoozed", "superseded", "deferred", "kept"]), supersededBy: id.optional(), reason: z.string().max(4096).optional(), code: z.string().max(4096).optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(), fieldError: z.strictObject({ field: id, message: z.string().max(4096) }).optional(), media: hygieneMediaReceiptSchema.optional() });
+export const hygieneOutcomeSchema = z.strictObject({ version: z.literal(1), status: z.enum(["applying", "fixed", "stale", "refused", "check_failed", "still_detected", "not_detected", "undone", "dismissed", "snoozed", "superseded", "deferred", "kept"]), supersededBy: id.optional(), reason: z.string().max(4096).optional(), code: z.string().max(4096).optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(), fieldError: z.strictObject({ field: id, message: z.string().max(4096) }).optional(), media: hygieneMediaReceiptSchema.optional() }) satisfies z.ZodType<NonNullable<HygieneAction["outcome"]>>;
 export const hygieneActionSchema = z.strictObject({ findingId: id, fingerprint: id, finding: z.record(z.string(), z.unknown()), outcome: hygieneOutcomeSchema.optional() }) satisfies z.ZodType<HygieneAction>;
 export const hygieneReviewStateSchema = z.strictObject({ version: z.literal(1), status: z.enum(["idle", "active", "paused", "complete", "blocked"]), position: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, pendingActionId: id.optional(), pauseReason: z.strictObject({ kind: z.literal("actions-limit"), retiredActionId: id, retirementReceiptId: id }).optional(), counts: z.strictObject({ eligibleRemaining: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, nextSnoozeDueAt: z.string().nullable(), informationalNotShown: inboxSeq, kept: inboxSeq.default(0) }).optional(), blocker: z.record(z.string(), z.unknown()).optional(),
   // Additive in #2780: a row stored before these fields parses with their defaults.
@@ -1490,7 +1490,7 @@ export const sessionWorkerProfileSchema = z.object({
   actualProfile: z.enum(["governed", "strict"]).optional(),
   origin: z.enum(["interactive", "voice"]),
   limits: z.array(z.object({ name: z.string(), value: z.string(), onHit: z.string().optional() })),
-});
+}) satisfies z.ZodType<import("./protocol.js").SessionWorkerProfile>;
 
 export const serverSessionInfoSchema = z.looseObject({
   type: z.literal("session_info"),
@@ -2088,7 +2088,7 @@ export const dialogueEvidenceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("request"), turnId: id, requestId: id.optional() }),
   z.object({ kind: z.literal("backend"), turnId: id, start: conversationSequence, end: conversationSequence, digest: z.string().regex(/^[a-f0-9]{64}$/), text: z.string().max(2000) }),
 ]).refine(e => e.kind !== "voice" || (e.event.kind === "input_fragment" ? (e.event.certainty === "known") === (e.event.confidence !== undefined)
-  : e.event.kind !== "unassigned_input_fragment" || !!e.event.sessionInterval !== !!e.event.timing), "Invalid dialogue evidence certainty or timing") as z.ZodType<DialogueEvidence>;
+  : e.event.kind !== "unassigned_input_fragment" || !!e.event.sessionInterval !== !!e.event.timing), "Invalid dialogue evidence certainty or timing") satisfies z.ZodType<DialogueEvidence>;
 export const dialogueRecordSchema = z.object({ sequence: conversationEpoch, identity: z.string().min(1).max(2048), evidence: dialogueEvidenceSchema }) satisfies z.ZodType<DialogueRecord>;
 export const dialoguePageSchema = z.object({ cursor:z.string().max(2048).optional(), ownerId: id, sessionId: id.optional(), generation: conversationEpoch,
   through: conversationSequence, records: z.array(dialogueRecordSchema).max(200), before: conversationSequence.optional(),
@@ -2222,7 +2222,7 @@ const serverScopeDecisionReceiptSchema = z.looseObject({ type: z.literal("scope_
   state: z.enum(["accepted", "pending", "answered_elsewhere", "ended_before_answer", "refused", "failed"]), reason: z.string().optional() }) satisfies z.ZodType<import("./protocol.js").ServerScopeDecisionReceipt>;
 export const serverTurnJournalSchema = z.looseObject({
   type: z.literal("turn_journal"), sessionId: id, turnId: id, journal: turnJournalSummarySchema,
-});
+}) satisfies z.ZodType<import("./protocol.js").ServerTurnJournal>;
 
 export const serverMessageSchema = z.discriminatedUnion("type", [
   serverScopeDecisionReceiptSchema,
