@@ -226,6 +226,10 @@ export "./internal/index-location" (./src/index-location.ts)
   LEGACY_INDEX_FAMILY
   indexDbPath
 
+export "./internal/module-settings-fields" (./src/module-settings-fields.ts)
+  type ModuleSettingsField
+  type ModuleSettingsOption
+
 export "./internal/protected-paths" (./src/protected-paths.ts)
   PROTECTED_ENV_PREFIX
   PROTECTED_TIER_A

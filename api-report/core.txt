@@ -971,7 +971,7 @@ signatures (every public export and the types it is made of)
             plan(root: string, config: C): ModuleSettingsMigrationPlan;
         };
     }
-  ModuleSettingsField (packages/core/src/lib/module-settings-types.ts)
+  ModuleSettingsField (packages/common/src/module-settings-fields.ts)
     export interface ModuleSettingsField {
         key: string;
         kind?: "text" | "number" | "toggle" | "choice" | "multichoice" | "tags" | "weights" | "record" | "list" | "variant";
@@ -1019,7 +1019,7 @@ signatures (every public export and the types it is made of)
         }>;
         details: Record<string, unknown>;
     }
-  ModuleSettingsOption (packages/core/src/lib/module-settings-types.ts)
+  ModuleSettingsOption (packages/common/src/module-settings-fields.ts)
     export interface ModuleSettingsOption {
         value: string;
         label: string;
