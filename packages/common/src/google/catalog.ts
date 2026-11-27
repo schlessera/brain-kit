@@ -159,8 +159,11 @@ export interface GoogleError {
 
 /** C0/C1 controls and the Unicode line and paragraph separators: never in a one-line value. */
 const NOT_ONE_LINE = /[\p{Cc}\u2028\u2029]/u;
+/** With Unicode matching, paired surrogates are astral code points, not Cs. */
+const UNPAIRED_SURROGATE = /\p{Cs}/u;
 
 const oneLine = (max: number) => z.string().min(1).max(max)
+  .refine(value => !UNPAIRED_SURROGATE.test(value), "must not hold unpaired UTF-16 surrogates")
   .refine(value => !NOT_ONE_LINE.test(value), "must be one line without control characters")
   .refine(value => value.trim().length > 0, "must not be blank");
 
@@ -180,6 +183,7 @@ const recipients = z.array(mailbox).min(1).max(GMAIL_LIMITS.recipientsPerField);
 const subject = oneLine(GMAIL_LIMITS.subjectChars)
   .refine(value => !BIDI_CONTROL.test(value), "must not hold bidirectional embedding, override or isolate characters");
 const body = z.string().max(GMAIL_LIMITS.draftBodyChars)
+  .refine(value => !UNPAIRED_SURROGATE.test(value), "must not hold unpaired UTF-16 surrogates")
   .refine(value => !BODY_CONTROL.test(value), "must be plain text the send card can show (no control or bidirectional embedding, override or isolate characters)")
   .describe("The plain-text body. No HTML, no attachments.");
 
