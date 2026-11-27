@@ -795,27 +795,63 @@ describe("local graph and graph meta cost (#4789)", () => {
     }
   });
 
+  // Out-links whose target text sorts opposite to the target ids, and
+  // in-links inserted in descending source order: neither the links primary
+  // key nor idx_links_target_id yields ascending ids by itself.
+  const LEDGER = 1600;
+  function seedReversedLedger(db: Database): void {
+    const entries: Doc[] = [];
+    for (let i = 0; i < LEDGER; i++) {
+      entries.push({ id: 100 + i, path: `ledger/entry-${String(LEDGER - 1 - i).padStart(4, "0")}.md`, title: `Ledger ${i}`, type: "note", updated: "2015-07-12", asset: "markdown" });
+    }
+    insertDocs(db, [VOYAGE[0], VOYAGE[2], ...entries]);
+    const link = db.query("INSERT INTO links (source_id, target, target_id) VALUES (?, ?, ?)");
+    for (const entry of entries) link.run(1, entry.path, entry.id);
+    for (let i = LEDGER - 1; i >= 0; i--) link.run(100 + i, "crew/penelope.md", 3);
+  }
+
   test("neighbours are visited in id order even where link text and row order disagree with it", () => {
-    // Out-links whose target text sorts opposite to the target ids, and
-    // in-links inserted in descending source order: neither the links
-    // primary key nor idx_links_target_id yields ascending ids by itself.
-    const LEDGER = 1600;
-    const reversed = brain((db) => {
-      const entries: Doc[] = [];
-      for (let i = 0; i < LEDGER; i++) {
-        entries.push({ id: 100 + i, path: `ledger/entry-${String(LEDGER - 1 - i).padStart(4, "0")}.md`, title: `Ledger ${i}`, type: "note", updated: "2015-07-12", asset: "markdown" });
-      }
-      insertDocs(db, [VOYAGE[0], VOYAGE[2], ...entries]);
-      const link = db.query("INSERT INTO links (source_id, target, target_id) VALUES (?, ?, ?)");
-      for (const entry of entries) link.run(1, entry.path, entry.id);
-      for (let i = LEDGER - 1; i >= 0; i--) link.run(100 + i, "crew/penelope.md", 3);
-    });
+    const reversed = brain(seedReversedLedger);
     const out = ok(queries.readGraphNeighborhood({ brainPath: reversed, center: "crew/odysseus.md", direction: "out" }));
     expect(out.truncated).toBe(true);
     expect(ids(out.nodes).sort((a, b) => a - b)).toEqual([1, ...Array.from({ length: 1499 }, (_, i) => 100 + i)]);
     const inbound = ok(queries.readGraphNeighborhood({ brainPath: reversed, center: "crew/penelope.md", direction: "in" }));
     expect(inbound.truncated).toBe(true);
     expect(ids(inbound.nodes).sort((a, b) => a - b)).toEqual([3, ...Array.from({ length: 1499 }, (_, i) => 100 + i)]);
+  });
+
+  /** A supported schema 8 layout: the graph tables, but no idx_links_target_id. */
+  const BEFORE_V9 = "DROP INDEX idx_links_target_id; UPDATE index_metadata SET value = '8' WHERE key = 'schema_version';";
+
+  test("without idx_links_target_id a neighborhood loads links once instead of looking up each node's in-links (#4878)", () => {
+    const cases: [string, (db: Database) => void, string][] = [
+      ["voyage", seedVoyage, "crew/penelope.md"],
+      ["reversed ledger", seedReversedLedger, "crew/odysseus.md"],
+    ];
+    for (const [name, seed, center] of cases) {
+      const current = brain(seed);
+      const before = brain(seed);
+      edit(before, BEFORE_V9);
+      expect(ok(queries.readGraphMeta({ brainPath: before })).schemaVersion, name).toBe(8);
+      const edgeSql = cli(before, (db) => new GraphReader(db, UI_GRAPH_PROFILE).edgeSql);
+      for (const direction of ["both", "in", "out"] as const) {
+        for (const depth of [1, 2, 3]) {
+          const label = `${name} ${direction} ${depth}`;
+          let scene: unknown;
+          const statements = statementsDuring(() => {
+            scene = ok(queries.readGraphNeighborhood({ brainPath: before, center, depth, direction }));
+          });
+          if (direction === "out") {
+            // No in-links to follow: the walk keeps its primary-key lookups.
+            expect(statements.filter((sql) => sql === edgeSql), label).toEqual([]);
+          } else {
+            expect(statements.filter((sql) => /l\.target_id = \?/.test(sql)), label).toEqual([]);
+            expect(statements.filter((sql) => sql === edgeSql), label).toHaveLength(1);
+          }
+          expect(scene, label).toEqual(ok(queries.readGraphNeighborhood({ brainPath: current, center, depth, direction })));
+        }
+      }
+    }
   });
 
   test("a truncated UI neighborhood keeps the first nodes in the pinned visiting order", () => {

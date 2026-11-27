@@ -265,18 +265,34 @@ export class GraphReader {
    * in-neighbours, ascending by source id: the order the CLI's sorted edge
    * list gives. When the reader has not loaded the whole structure, each
    * frontier node is expanded by an indexed lookup instead of loading it.
+   * Before schema 9 `links` has no `idx_links_target_id`, and a read-only
+   * connection never adds it, so each in-link lookup would scan the table:
+   * a walk with in-neighbours then loads the structure once instead, in the
+   * same visiting order.
    */
   neighborhood(center: number, depth?: number, direction?: GraphDirection): Walk {
     const maxDepth = clamp(depth ?? 1, 1, MAX_NEIGHBORHOOD_DEPTH);
     const toward = direction ?? "both";
     const budget = this.profile.neighborhoodNodes;
     if (this.structure) return this.walk(center, toward, maxDepth, budget);
+    if (toward !== "out" && !this.hasInboundIndex()) {
+      const structure = this.links();
+      return breadthFirst(center, maxDepth, budget, (id) => [
+        ...(toward !== "in" ? ascending(structure.out.get(id)) : []),
+        ...ascending(structure.in.get(id)),
+      ]);
+    }
     const out = this.db.query<{ id: number }, [number]>(this.outNeighborSql);
     const inbound = this.db.query<{ id: number }, [number]>(this.inNeighborSql);
     return breadthFirst(center, maxDepth, budget, (id) => [
       ...(toward !== "in" ? out.all(id).map((row) => row.id) : []),
       ...(toward !== "out" ? inbound.all(id).map((row) => row.id) : []),
     ]);
+  }
+
+  /** Whether `links` has the index `inNeighborSql` searches (schema 9 and later). */
+  private hasInboundIndex(): boolean {
+    return this.db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_links_target_id'").get() !== null;
   }
 
   /** Depth 1..8, default 8. */
@@ -419,6 +435,11 @@ function breadthFirst(start: number, maxDepth: number, budget: number, neighbors
     frontier = next;
   }
   return { distances, truncated };
+}
+
+/** A copy of `ids` in ascending order. */
+function ascending(ids: number[] | undefined): number[] {
+  return ids ? [...ids].sort((a, b) => a - b) : [];
 }
 
 function push(map: Map<number, number[]>, key: number, value: number): void {
