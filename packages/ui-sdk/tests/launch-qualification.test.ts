@@ -299,7 +299,8 @@ describe("review round 1: the start gate never releases a launch its caller gave
 describe("review round 1: one registry and one refusal per process (F11-F13)", () => {
   test("F12: another loaded copy of the SDK sees the same providers and its refusals are recognised", async () => {
     const f = await fixture();
-    const copy = await import("../src/server/worker-private-state.ts?another-copy") as typeof import("../src/server/worker-private-state");
+    const copyPath = "../src/server/worker-private-state.ts?another-copy";
+    const copy = await import(copyPath) as typeof import("../src/server/worker-private-state");
     expect(copy.registerWorkerPrivateState === registerWorkerPrivateState, "SEPARATE_MODULE_INSTANCE").toBe(false);
     expect(copy.workerPrivateStateProviders(f.brain).length, "F12_SHARED_REGISTRY").toBe(1);
     const foreign = new copy.WorkerPrivateStateError("private_state_exposed", "turn journal is reachable at /opt/aeolus");
