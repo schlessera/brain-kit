@@ -44,7 +44,7 @@ test("a declared length too long for a double gets each route's over-limit answe
   };
   const multipart = { "content-type": "multipart/form-data; boundary=ithaca" };
   const audio = { "content-type": "audio/webm;codecs=opus", "content-sha256": createHash("sha256").update("{}").digest("hex") };
-  const rows: Array<[string, () => Promise<Response>, { status: number; body: unknown }]> = [
+  const rows: Array<[string, () => Response | Promise<Response>, { status: number; body: unknown }]> = [
     ["JSON route", () => t.app.fetch(declared("POST", "/api/storage/scans", JSON_HEADERS)), { status: 413, body: { error: "Request body too large" } }],
     ["drafts", () => t.app.fetch(declared("POST", "/api/drafts/draft-ithaca/bind", JSON_HEADERS, JSON.stringify({ sessionId: "fixture-session" }))),
       { status: 400, body: { error: "DRAFT_INVALID", message: "The body is too large." } }],

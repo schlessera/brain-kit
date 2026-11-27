@@ -177,9 +177,9 @@ test("the candidate read searches the ready index and never scans the inbox", ()
     const steps = queryPlan(db, candidates!);
     // The one scan is of the due triage items, which holds no settled thread (#4897).
     expect(steps.filter(step => step.startsWith("SCAN "))).toEqual(["SCAN d USING COVERING INDEX inbox_cleanup_due_thread"]);
-    expect(steps.filter(step => /^SEARCH inbox_items /.test(step)).every(step => step.includes("USING INDEX inbox_items_ready"))).toBe(true);
+    expect(steps.filter(step => step.startsWith("SEARCH inbox_items ")).every(step => step.includes("USING INDEX inbox_items_ready"))).toBe(true);
     // Finished work is read only from the threads of those due items.
-    expect(steps.filter(step => /^SEARCH i /.test(step))).toEqual(["SEARCH i USING INDEX inbox_items_thread (thread_id=?)"]);
+    expect(steps.filter(step => step.startsWith("SEARCH i "))).toEqual(["SEARCH i USING INDEX inbox_items_thread (thread_id=?)"]);
   } finally { db.close(); }
 });
 
