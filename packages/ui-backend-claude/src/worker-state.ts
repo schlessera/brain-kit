@@ -9,7 +9,7 @@ import { constants, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, open
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { BackendRequestError, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
+import { BackendRequestError, isSessionUuid, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { recoveredWorkerFile, recoveredWorkerFiles, sessionReplay, mib, resolveWorkerStateLimits, WORKER_STATE_BYTES_ENV, WorkerHostError, type WorkerNoteLimit, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { processStateLedger, type Reservation, type StateLedger } from "./worker-state-budget.js";
@@ -46,7 +46,7 @@ export function workerStateSaveFailure(error: unknown): TurnFailure {
       + " Some files may already have been saved. Retry the request if needed; retrying does not recover the unsaved state." };
 }
 
-export const isSessionId = (id: string): boolean => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id);
+export const isSessionId: (id: string) => boolean = isSessionUuid;
 export function validateSessionId(id: string): void {
   if (!isSessionId(id)) throw new WorkerHostError("invalid resumed session id; expected a UUID");
 }

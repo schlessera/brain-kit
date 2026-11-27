@@ -1,4 +1,5 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { textOfParts } from "@schlessera/brain-ui-sdk/server";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/server";
 
 /**
@@ -44,10 +45,5 @@ export function mapPiEvent(ev: AgentSessionEvent): ServerMessage[] {
 
 /** Extract the text of a pi AgentToolResult's content parts. */
 function toolResultText(result: unknown): string {
-  const content = (result as { content?: Array<{ type: string; text?: string }> })?.content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((part) => part.type === "text" && typeof part.text === "string")
-    .map((part) => part.text as string)
-    .join("");
+  return textOfParts((result as { content?: unknown })?.content, "");
 }

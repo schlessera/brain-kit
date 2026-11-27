@@ -56,8 +56,8 @@ test("fixture declarations contribute choices and on/off defaults without editin
   cpSync(join(import.meta.dir, "../src"), source, { recursive: true });
   const policyPath = join(source, "boards.ts");
   writeFileSync(policyPath, readFileSync(policyPath, "utf8").replace("export const JOB_BOARDS = [", `export const JOB_BOARDS = [
-  { source: "fixture-on", defaultSelected: true },
-  { source: "fixture-off", defaultSelected: false, caveat: "Fixture needs explicit selection" },`));
+  { source: "fixture-on", label: "Fixture on", needsBrowser: false, defaultSelected: true },
+  { source: "fixture-off", label: "Fixture off", needsBrowser: false, defaultSelected: false, caveat: "Fixture needs explicit selection" },`));
   const registryPath = join(source, "scrape.ts");
   writeFileSync(registryPath, readFileSync(registryPath, "utf8").replace("= {\n  remoteok:", `= {
   "fixture-on": () => Object.assign(new RemoteOKAdapter(), { source: "fixture-on" }),
