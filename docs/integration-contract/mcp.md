@@ -190,9 +190,25 @@ which validates the scope (`parseContextScope`,
   leaves it out. The scope only narrows: it never makes readable what the
   index, policy or provider masks leave out.
 - **Coverage.** A scoped call returns `coverage`: `{ exhaustive: false,
-  include, exclude, excerpts: [{ path, lane, form }], omitted: [{ path, reason
+  include, exclude, excerpts: [{ path, lane, form, lines? }], omitted: [{ path, reason
   }], omittedMore, budgetExhausted }`. `lane` is `identity`, `focus`, `search`
   or `related`; `form` is `whole`, `cut`, `section`, `snippet` or `summary`.
+  `lines` (additive in 0.45.0, #3683) is present only on a `search` excerpt
+  widened to a folded chunk's span: a hit whose best chunk is made of whole
+  sections, a short one merged into its neighbour, and whose match no single
+  section holds becomes every section of that chunk, in source order, taken
+  whole or not at all. The span is read from the source lines the index
+  recorded for the chunk ([schema 17](frontmatter.md)), never inferred: it
+  widens only when those lines are exactly a run of whole sections. A piece
+  of a section the indexer split over several chunks records no lines and
+  keeps its snippet, and so does a chunk whose index predates the lines. Any
+  search hit whose file changed since the last index run (its SHA-256 is not
+  the indexed one) keeps its snippet: no text the index has not seen is
+  shown for it. `lines` is `[start, end]`, the 1-based
+  file lines from the span's first heading (or first line) to its last line.
+  `budgetExhausted` is true when an in-scope candidate was cut or left out for
+  lack of budget, including a hit that kept its snippet because its section
+  or span did not fit.
   `reason` is `budget` (an in-scope candidate with no room), `unavailable`
   (named or canonical but not indexed, missing, unreadable or outside the
   root), `not_ranked` (an exactly included path the query did not select) or

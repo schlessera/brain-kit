@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { WriteRefusedError } from "../src/lib/safe-path.js";
-import { SCRATCH_DIR, ensureScratch, isWriteRefusal, writeScratchFile } from "../src/lib/scratch.js";
+import { SCRATCH_DIR, isWriteRefusal, scratchDir, scratchIgnored, writeScratchFile } from "../src/lib/scratch.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -17,7 +17,8 @@ function scratchRoot(): string {
   const init = Bun.spawnSync(["git", "init", "-q", root], { stderr: "pipe" });
   expect(init.exitCode).toBe(0);
   fs.writeFileSync(join(root, ".gitignore"), `${SCRATCH_DIR}/\n`);
-  ensureScratch(root);
+  scratchDir(root);
+  expect(scratchIgnored(root)).toBe(true);
   return root;
 }
 

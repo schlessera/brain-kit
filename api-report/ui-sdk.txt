@@ -1576,6 +1576,7 @@ export "./internal" (./src/internal.ts)
   createCleanupReconciler
   createLimitTracker
   createNativeBrainManagerClient
+  createPrivateSocketDirectory
   createSessionRetirement
   createStateLedger
   createTurnTempPressure
@@ -1672,6 +1673,7 @@ export "./internal" (./src/internal.ts)
   safetyRecordSchema
   sameAuthority
   sameSafetyAdmission
+  securePrivateSocket
   sessionPromptContext
   sessionPromptContextLocation
   sessionReplay
@@ -11469,7 +11471,7 @@ signatures (every public export and the types it is made of)
             message: string;
         }>;
     }
-  ModuleSettingsField (packages/ui-sdk/src/module-settings.ts)
+  ModuleSettingsField (packages/common/src/module-settings-fields.ts)
     export interface ModuleSettingsField {
         key: string;
         kind?: "text" | "number" | "toggle" | "choice" | "multichoice" | "tags" | "weights" | "record" | "list" | "variant";
@@ -11521,7 +11523,7 @@ signatures (every public export and the types it is made of)
         warnings?: string[];
         paths: string[];
     }
-  ModuleSettingsOption (packages/ui-sdk/src/module-settings.ts)
+  ModuleSettingsOption (packages/common/src/module-settings-fields.ts)
     export interface ModuleSettingsOption {
         value: string;
         label: string;

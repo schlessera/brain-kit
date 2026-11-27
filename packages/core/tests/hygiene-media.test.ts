@@ -13,6 +13,7 @@ import { canonicalFindings, HygieneRefusal, mediaReviewCounts, readHygieneLog, r
 import { DEFAULT_MEDIA_POLICY, type MediaPolicy } from "../src/lib/media";
 import { mediaCandidates, mediaInventory, readScratchPins } from "../src/lib/media-inventory";
 import { assess } from "../src/lib/sync/assess";
+import { git } from "./git-fixture";
 
 const NOW = new Date("2026-07-12T09:00:00Z");
 const LOOM = "photos/penelope-loom.png";
@@ -24,10 +25,6 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function git(cwd: string, ...args: string[]): void {
-  const r = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", cwd, ...args]);
-  if (r.exitCode !== 0) throw new Error(r.stderr.toString());
-}
 function put(root: string, path: string, text: string): void {
   mkdirSync(dirname(join(root, path)), { recursive: true });
   writeFileSync(join(root, path), text);

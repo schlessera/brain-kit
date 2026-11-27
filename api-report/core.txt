@@ -106,7 +106,6 @@ export "./internal" (./src/internal.ts)
   BRAIN_READ_DEFINITION_VERSION
   BUILTIN_GOVERNANCE_POLICY
   type BrainContext
-  COMPUTE_JOB_ID
   COMPUTE_PROVIDERS
   COMPUTE_TOOL_NAMES
   type CollectStatsOptions
@@ -139,16 +138,13 @@ export "./internal" (./src/internal.ts)
   type ComputeRunRequest
   type ComputeService
   type ComputeServiceOptions
-  ComputeStateError
   type ContextCoverage
   type ContextScopeInput
   type EffectiveGovernancePolicy
   type FrontmatterValue
-  GEMINI_FLASH_MODEL
   GOVERNANCE_POLICY_PATH
   type GovernancePolicyCheck
   type GovernancePolicyInput
-  GovernancePolicySchema
   type HygieneCandidate
   type HygieneFinding
   type HygieneLogEntry
@@ -172,41 +168,26 @@ export "./internal" (./src/internal.ts)
   type SearchOptions
   type SearchResponse
   type ValidationIssue
-  WriteRefusedError
   archiveDocument
   assembleContext
-  assertScratchWritable
   brainReadDefinitions
   buildTaxonomy
   canonicalFindings
   checkGovernancePolicy
-  collectModuleRenderers
-  collectStats
-  computeBrainKey
   computeHealthInput
   computeJobInput
-  computeJobView
   computeRequestInput
   coverageNote
-  createComputeDriver
   createComputeOps
   createComputeService
   emptyContextCoverage
   estimateTokens
-  geminiCompletions
-  getContext
   getMarkdownFiles
   hybridSearch
   indexAll
-  inertGeneratedText
   ingest
   initContext
-  isInScratch
   isIsoDate
-  isWriteRefusal
-  jobOutput
-  jobSettled
-  loadComputePackage
   loadVecSupport
   openDatabase
   parseGovernancePolicy
@@ -218,17 +199,11 @@ export "./internal" (./src/internal.ts)
   rerankSetup
   resolveCompletionProvider
   resolveComputeInstance
-  resolveComputeStateDir
   resolveEmbeddingProvider
   resolveGovernancePolicy
-  resolveWritable
   reviewUrgency
-  rewriteGeneratedRegion
-  runRegistry
   safeResolve
-  scratchName
   selectHygieneNext
-  splitFrontmatterBlock
   updateDocument
   writeFileSafely
   writeScratchFile
@@ -1002,7 +977,7 @@ signatures (every public export and the types it is made of)
             plan(root: string, config: C): ModuleSettingsMigrationPlan;
         };
     }
-  ModuleSettingsField (packages/core/src/lib/module-settings-types.ts)
+  ModuleSettingsField (packages/common/src/module-settings-fields.ts)
     export interface ModuleSettingsField {
         key: string;
         kind?: "text" | "number" | "toggle" | "choice" | "multichoice" | "tags" | "weights" | "record" | "list" | "variant";
@@ -1050,7 +1025,7 @@ signatures (every public export and the types it is made of)
         }>;
         details: Record<string, unknown>;
     }
-  ModuleSettingsOption (packages/core/src/lib/module-settings-types.ts)
+  ModuleSettingsOption (packages/common/src/module-settings-fields.ts)
     export interface ModuleSettingsOption {
         value: string;
         label: string;
@@ -1204,7 +1179,7 @@ signatures (every public export and the types it is made of)
         brainPath: string;
     }
   SCHEMA_VERSION (packages/core/src/lib/db.ts)
-    const SCHEMA_VERSION: 16;
+    const SCHEMA_VERSION: 17;
   SCRATCH_DIR (packages/core/src/lib/scratch.ts)
     const SCRATCH_DIR: ".brain/scratch";
   STORAGE_ATTACHMENT_LIMITS (packages/core/src/lib/storage-attachments.ts)

@@ -34,7 +34,6 @@ let inProcessCall: string[] | null = null;
 export async function runCliInProcess(root: string, args: string[], env: Record<string, string> = {}): Promise<CliResult> {
   // Loaded on first use, so a file that only spawns the bin does not load the CLI.
   const { runBrainCli } = await import("../src/cli/main");
-  const { setContext } = await import("../src/lib/context");
   if (inProcessCall !== null) {
     throw new Error(
       `runCliInProcess(${JSON.stringify(args)}) started while runCliInProcess(${JSON.stringify(inProcessCall)}) is still running; await each call before the next`
@@ -67,7 +66,6 @@ export async function runCliInProcess(root: string, args: string[], env: Record<
   ];
   const saved = replaced.map(([owner, key]) => [owner, key, Object.getOwnPropertyDescriptor(owner, key)] as const);
   const savedEnv = { ...process.env };
-  const previousContext = setContext(null);
   try {
     const target = { ...keylessEnv(root), ...env };
     for (const key of Object.keys(process.env)) if (!(key in target)) delete process.env[key];
@@ -87,7 +85,6 @@ export async function runCliInProcess(root: string, args: string[], env: Record<
     }
     for (const key of Object.keys(process.env)) if (!(key in savedEnv)) delete process.env[key];
     Object.assign(process.env, savedEnv);
-    setContext(previousContext);
     inProcessCall = null;
   }
 }

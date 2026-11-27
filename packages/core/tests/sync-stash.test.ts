@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import { reconcileStashes } from "../src/lib/sync/stash.js";
 import { mergeFileMarkers } from "./sync-fixture";
+import { git } from "./git-fixture";
 
 const dirs: string[] = [];
 /** Fixture commits never sign, whatever ambient or environment-scoped configuration says (#3485). */
@@ -26,11 +27,6 @@ function run(cwd: string, ...args: string[]): { out: string; code: number } {
   return { out: (result.stdout.toString() + result.stderr.toString()).trim(), code: result.exitCode ?? 0 };
 }
 
-function git(cwd: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", ...UNSIGNED, "-C", cwd, ...args]);
-  if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
-  return result.stdout.toString().trim();
-}
 
 /** A repository with one commit, a local empty hooks directory, and Odysseus as its author. */
 function repo(files: Record<string, string>): string {

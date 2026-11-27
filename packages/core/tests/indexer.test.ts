@@ -29,6 +29,7 @@ import { createEnrichment, type Enrichment } from "../src/lib/enrichment";
 // gracefully when the extension cannot load. One probe, in vec-fixture.ts.
 import { vecAvailable } from "./vec-fixture";
 import { makeTempBrain, runCli } from "./cli-harness";
+import { git } from "./git-fixture";
 
 // In-process integration tests for the incremental indexer. The port takes
 // `root` + `taxonomy` as parameters (the reference brain used module-level
@@ -1955,10 +1956,6 @@ describe("assets git ignores are not indexed (#433)", () => {
   });
 
   test("assets a submodule ignores are left out too", () => {
-    const git = (cwd: string, ...args: string[]) => {
-      const r = Bun.spawnSync(["git", "-C", cwd, "-c", "protocol.file.allow=always", ...args], { stderr: "pipe" });
-      expect(r.exitCode).toBe(0);
-    };
     const identity = ["-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false"];
     const sub = makeCorpus({ ".gitignore": "hidden.png\n", "README.txt": "photo archive\n" });
     git(sub, "init", "-q");
@@ -1966,7 +1963,7 @@ describe("assets git ignores are not indexed (#433)", () => {
     git(sub, ...identity, "commit", "-qm", "sub");
 
     const root = gitCorpus({ "notes/alpha.md": md("Alpha", "alpha content") }, "");
-    git(root, "submodule", "add", "-q", sub, "vendor/photos");
+    git(root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "vendor/photos");
     writeFileSync(join(root, "vendor/photos/hidden.png"), FAKE_PNG);
     writeFileSync(join(root, "vendor/photos/kept.png"), Buffer.concat([FAKE_PNG, Buffer.from([0x02])]));
 

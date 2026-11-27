@@ -198,11 +198,13 @@ export function queuedBytes(turn: Pick<RunningTurn, "queue">): number {
 }
 
 /**
- * One RUNNING session slot. `abortController`/`timeoutHandle` belong to the
- * turn currently executing; a queued follow-up runs as the next turn in the
- * same slot (same sessionId) after the current one resolves.
+ * The members of a {@link RunningTurn} that belong to the turn currently
+ * executing in its slot, not to the slot. What each turn boundary does to
+ * every one of them is written in `session-run/turn-state.ts`; a new member
+ * does not compile until the boundary that takes the next request off the
+ * queue says whether it is reset or carried.
  */
-export interface RunningTurn {
+export interface TurnFields {
   shareId?: string;
   /** Chat correlation for the current turn; replaced on dequeue. */
   requestId?: string;
@@ -231,24 +233,10 @@ export interface RunningTurn {
   isManualRetry?: boolean;
   /** Activity recorder for the CURRENT turn, once startup reaches the backend. */
   recorder?: TurnRecorder;
-  /**
-   * Cancelling actors accepted before the recorder exists (while billing is
-   * resolving). Drained into immutable activity events at recorder creation.
-   */
-  pendingCancellationPrincipalIds: string[];
-  sessionId: string | null; // null until session_info resolves it (new session)
   /** Host-minted id of the CURRENT turn in this slot; re-minted per queued follow-up. */
   turnId: string;
-  providerId: string | null;
-  /**
-   * The session's fixed output speed (#4310): the new session's choice, or
-   * the speed a resumed session started with. Null predates the choice.
-   */
-  outputSpeed?: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed | null;
-  backend: AgentBackend;
   abortController: AbortController;
   timeoutHandle: ReturnType<typeof setTimeout>;
-  queue: QueuedFollowUp[];
   /**
    * The entry taken off `queue` to run next, until its turn reaches the
    * backend (#1002). Routing and billing are awaited in between, and the
@@ -256,7 +244,6 @@ export interface RunningTurn {
    * inside it must still see the pill.
    */
   handingOver?: QueuedFollowUp;
-  cancelled: boolean;
   /**
    * The turn the host's hard elapsed-time limit ended (#3356). Set by the
    * timeout itself, never inferred from an aborted signal, so a cancel or a
@@ -279,6 +266,29 @@ export interface RunningTurn {
    * Reset when a queued follow-up becomes the next turn.
    */
   lastResult: "success" | "error" | "cancelled" | null;
+}
+
+/**
+ * One RUNNING session slot. `abortController`/`timeoutHandle` belong to the
+ * turn currently executing; a queued follow-up runs as the next turn in the
+ * same slot (same sessionId) after the current one resolves.
+ */
+export interface RunningTurn extends TurnFields {
+  /**
+   * Cancelling actors accepted before the recorder exists (while billing is
+   * resolving). Drained into immutable activity events at recorder creation.
+   */
+  pendingCancellationPrincipalIds: string[];
+  sessionId: string | null; // null until session_info resolves it (new session)
+  providerId: string | null;
+  /**
+   * The session's fixed output speed (#4310): the new session's choice, or
+   * the speed a resumed session started with. Null predates the choice.
+   */
+  outputSpeed?: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed | null;
+  backend: AgentBackend;
+  queue: QueuedFollowUp[];
+  cancelled: boolean;
   /**
    * Live follow-ups handed to the backend whose delivery has not settled. A
    * refused one rejoins the queue (#1063), so the slot lets them settle

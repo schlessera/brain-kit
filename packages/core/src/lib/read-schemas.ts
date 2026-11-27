@@ -30,6 +30,7 @@ export const contextCoverageSchema = z.object({
       path: z.string(),
       lane: z.enum(["identity", "focus", "search", "related"]),
       form: z.enum(["whole", "cut", "section", "snippet", "summary"]),
+      lines: z.tuple([z.number().int().min(1), z.number().int().min(1)]).optional(),
     })
   ),
   omitted: z.array(z.object({ path: z.string(), reason: z.enum(["budget", "unavailable", "not_ranked", "excluded"]) })),

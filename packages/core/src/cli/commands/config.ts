@@ -80,6 +80,7 @@ function getPath(obj: unknown, path: string): unknown {
 
 export const configCommand: CoreCommand = {
   summary: "Validate config / read effective taxonomy and config values",
+  flags: { boolean: ["dry-run"], value: ["expect-approval", "expect-sha"] },
   helpBlock: HELP,
   async run(args, cli): Promise<number | void> {
     const { args: pos, flags } = parseArgs(args);

@@ -1,51 +1,31 @@
 import ts from "typescript";
 
+import { literalObject, literalProperties, parseConfigLiteral, unwrap, type RefuseConfigLiteral } from "./config-literal.js";
+
 function refuse(reason: string): never {
   throw new Error(`${reason}; no changes made. Set the module's enabled boolean manually in a literal config entry, then retry.`);
 }
 
-function unwrap(node: ts.Expression): ts.Expression {
-  while (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) ||
-    ts.isSatisfiesExpression(node) || ts.isNonNullExpression(node)) node = node.expression;
-  return node;
-}
-
-function object(node: ts.Expression): ts.ObjectLiteralExpression {
-  const value = unwrap(node);
-  if (!ts.isObjectLiteralExpression(value)) refuse("The module config uses dynamic construction");
-  return value;
-}
-
-function properties(node: ts.ObjectLiteralExpression): Map<string, ts.PropertyAssignment> {
-  const found = new Map<string, ts.PropertyAssignment>();
-  for (const p of node.properties) {
-    if (!ts.isPropertyAssignment(p) || !(ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name))) {
-      refuse("Spreads, computed keys or shorthand in the toggle target require explicit review");
-    }
-    if (found.has(p.name.text)) refuse(`Duplicate config property ${JSON.stringify(p.name.text)}`);
-    found.set(p.name.text, p);
+/** The shared front end's refusals in this editor's words. Invalid JSON stays the parser's own SyntaxError. */
+const refuseLiteral: RefuseConfigLiteral = (refusal) => {
+  switch (refusal.reason) {
+    case "invalid-json": throw refusal.error;
+    case "syntax": return refuse("Config syntax is invalid");
+    case "no-default-literal": return refuse("A direct default-exported config literal is required");
+    case "not-define-config": return refuse("Only a direct defineConfig literal is supported");
+    case "not-object": return refuse("The module config uses dynamic construction");
+    case "not-assignment": return refuse("Spreads, computed keys or shorthand in the toggle target require explicit review");
+    case "duplicate": return refuse(`Duplicate config property ${JSON.stringify(refusal.key)}`);
   }
-  return found;
-}
+};
+
+const object = (node: ts.Expression) => literalObject(node, "the module config", refuseLiteral);
+const properties = (node: ts.ObjectLiteralExpression) => literalProperties(node, "the module config", refuseLiteral);
 
 /** Edit only the reserved flag; never serialize the brain's executable logic. */
 export function planModuleFlag(source: string, format: "ts" | "json", key: string, enabled: boolean): string {
-  if (format === "json") JSON.parse(source);
-  const prefix = format === "json" ? "export default " : "";
-  const input = prefix + source;
-  const file = ts.createSourceFile("brain.config.ts", input, ts.ScriptTarget.Latest, true);
-  const diagnostics = ts.transpileModule(input, { reportDiagnostics: true }).diagnostics ?? [];
-  if (diagnostics.some((d) => d.category === ts.DiagnosticCategory.Error)) refuse("Config syntax is invalid");
-  const exports = file.statements.filter(ts.isExportAssignment);
-  if (exports.length !== 1 || exports[0]!.isExportEquals) refuse("A direct default-exported config literal is required");
-  let expression = unwrap(exports[0]!.expression);
-  if (ts.isCallExpression(expression)) {
-    if (!ts.isIdentifier(expression.expression) || expression.expression.text !== "defineConfig" || expression.arguments.length !== 1) {
-      refuse("Only a direct defineConfig literal is supported");
-    }
-    expression = expression.arguments[0]!;
-  }
-  const modules = properties(object(expression)).get("modules");
+  const { file, input, prefix, root } = parseConfigLiteral(source, format, refuseLiteral);
+  const modules = properties(root).get("modules");
   if (!modules) refuse("No modules literal exists");
   const entry = properties(object(modules.initializer)).get(key);
   if (!entry) refuse("The module has no literal config entry");

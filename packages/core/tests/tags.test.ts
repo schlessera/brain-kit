@@ -15,6 +15,7 @@ import { initContext } from "../src/lib/context";
 import { openDatabase } from "../src/lib/db";
 import type { TagsConfig } from "../src/lib/config";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { gitResult } from "./git-fixture";
 
 const brains: string[] = [];
 afterAll(() => brains.forEach(cleanup));
@@ -228,15 +229,14 @@ describe("brain tags --apply", () => {
     expect(code).toBe(0);
     return JSON.parse(stdout);
   }
+  // The shared runner's environment, with this file's own failure message,
+  // which the next test asserts.
   const git = (root: string, ...args: string[]) => {
-    // Signing is irrelevant to disposable fixtures; leave the host policy alone.
-    const result = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], {
-      cwd: root, stdout: "pipe", stderr: "pipe",
-    });
-    if (result.exitCode !== 0) {
-      throw new Error(`fixture git ${args.join(" ")} exited ${result.exitCode}: ${result.stderr.toString()}`);
+    const result = gitResult(root, ...args);
+    if (result.code !== 0) {
+      throw new Error(`fixture git ${args.join(" ")} exited ${result.code}: ${result.stderr}`);
     }
-    return result.stdout.toString();
+    return result.stdout;
   };
 
   // Two byte-identical documents: gray-matter's own cache would hand both the

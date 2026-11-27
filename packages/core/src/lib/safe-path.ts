@@ -97,7 +97,8 @@ export function brainRelativeArgument(root: string, arg: string): string {
  * that do not belong in the knowledge base. That space is now the brain's own
  * scratch area (`SCRATCH_DIR`, #310): inside the root, so the UI can open
  * what lands there, and gitignored and pruned, so it is never canonical. A
- * write into it goes through `ensureScratch`.
+ * write into it goes through `writeScratchFile`, after the
+ * `assertScratchWritable` pre-flight.
  */
 export function resolveWritable(root: string, relPath: string): string | null {
   return safeResolve(root, relPath);
