@@ -23,7 +23,7 @@ let sessions = 0, transcribed = 0;
 const speech: SpeechProvider = {
   id: "fixture-speech",
   capabilities: { streaming: true, interimResults: false, endpointing: false, keyterms: false },
-  createSession: async () => { sessions++; return { url: "wss://speech.example/listen" }; },
+  createSession: async () => { sessions++; return { url: "wss://speech.example/listen", expiresAt: Date.now() + 60_000 }; },
   transcribeRecording: async () => { transcribed++; return { text: "Odysseus reaches Ithaca." }; },
 };
 
@@ -82,7 +82,7 @@ const rows: Row[] = [
 ];
 
 /** The row's request, padded with trailing whitespace to exactly one byte over the cap. */
-function oversized(row: Row): Uint8Array {
+function oversized(row: Row): Uint8Array<ArrayBuffer> {
   const json = JSON.stringify(row.body);
   return new TextEncoder().encode(json + " ".repeat(CAP + 1 - Buffer.byteLength(json)));
 }
