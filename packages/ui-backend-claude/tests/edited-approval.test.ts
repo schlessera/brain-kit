@@ -30,7 +30,6 @@ import type {
   PermissionRequest,
 } from "@schlessera/brain-ui-sdk/server";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
-import { resetRtkProbe } from "../../ui-sdk/src/server/rtk.js";
 
 import { createClaudeBackend } from "../src/backend";
 import { MUTATING_TOOL_MATCHER } from "../src/tool-policy";
@@ -342,11 +341,9 @@ describe("the rtk rewrite does not race a confirmation", () => {
     chmodSync(binary, 0o755);
     const previousPath = process.env.PATH;
     process.env.PATH = `${directory}:${previousPath ?? ""}`;
-    resetRtkProbe();
     return () => {
       if (previousPath === undefined) delete process.env.PATH;
       else process.env.PATH = previousPath;
-      resetRtkProbe();
       rmSync(directory, { recursive: true, force: true });
     };
   }

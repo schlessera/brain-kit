@@ -47,7 +47,7 @@ test.skipIf(!native)("startTurn claims, then awaits its real host probe with the
   }) as unknown as typeof query;
   try {
     const backend = createClaudeBackend({ brainPath: f.brain, profiles, queryFn, log: () => {} });
-    const workerSandbox = prepareWorkerSandbox(f.brain, { home: f.home, profile: "governed", areas: [] });
+    const workerSandbox = prepareWorkerSandbox(f.brain, { profile: "governed", areas: [] });
     const preparations = [spyOn(internal, "prepareWorkerSandbox"), spyOn(internal, "prepareWorkerSandboxAsync")];
     try {
       await backend.startTurn({ prompt: "Return to Ithaca", signal: new AbortController().signal, workerSandbox,
@@ -77,7 +77,7 @@ test.skipIf(!native)("a Claude worker's real probe and launch each run with the 
   const clock = ticker();
   const probe = measured("requireWorkerHostAsync", clock), launch = measured("launchAgentWorkerAsync", clock);
   let started = false;
-  const sandbox = prepareWorkerSandbox(f.brain, { home: f.home, profile: "governed", areas: [] });
+  const sandbox = prepareWorkerSandbox(f.brain, { profile: "governed", areas: [] });
   const spawner = createWorkerSpawn(f.brain, {}, new AbortController().signal, undefined, sandbox, undefined, undefined, {}, undefined,
     () => { started = true; });
   try {
@@ -104,7 +104,7 @@ test.skipIf(!native)("a started worker's failed lifecycle stays handled until th
   const unhandled: unknown[] = [];
   const record = (reason: unknown) => { unhandled.push(reason); };
   process.on("unhandledRejection", record);
-  const sandbox = prepareWorkerSandbox(f.brain, { home: f.home, profile: "governed", areas: [] });
+  const sandbox = prepareWorkerSandbox(f.brain, { profile: "governed", areas: [] });
   const spawner = createWorkerSpawn(f.brain, {}, new AbortController().signal, undefined, sandbox, undefined, undefined, {}, undefined,
     () => { throw new Error("Odysseus scope freezer refused"); });
   try {
@@ -126,7 +126,7 @@ test.skipIf(!native)("a started worker's failed lifecycle stays handled until th
 test.skipIf(!native)("a turn abort leaves a running worker to the SDK's own close, as the synchronous spawn did (#2824)", async () => {
   const f = fixture();
   const turn = new AbortController();
-  const sandbox = prepareWorkerSandbox(f.brain, { home: f.home, profile: "governed", areas: [] });
+  const sandbox = prepareWorkerSandbox(f.brain, { profile: "governed", areas: [] });
   const spawner = createWorkerSpawn(f.brain, {}, turn.signal, undefined, sandbox);
   try {
     // The SDK's close ends the runtime's input and only later signals it: that grace lets the runtime finish its last request.
@@ -215,7 +215,8 @@ test("Claude resolves one SDK environment per turn while XDG planning receives n
   const probe = spyOn(workerHostBoundary, "probeAsync").mockResolvedValue({ ok: true });
   const homes: { prepared?: string; sdk?: string }[] = [];
   const prepare = spyOn(internal, "prepareWorkerSandboxAsync").mockImplementation(async (brain, options) => {
-    homes.push({ prepared: options?.home });
+    // The option no longer exists; a caller passing it anyway would still show here.
+    homes.push({ prepared: (options as { home?: string } | undefined)?.home });
     return { brain, restricted: false, areas: [], scratchAliasesRemoved: [], home: { mode: "xdg" } };
   });
   const queryFn = (({ options }: Parameters<typeof query>[0]) => {

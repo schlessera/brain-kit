@@ -52,7 +52,7 @@ function tree(dir: string, prefix = ""): string[] {
 
 /** Runs a real worker with a size-limited turn temp; resolves once it has exited, with its output. */
 async function run(f: ReturnType<typeof fixture>, program: string, extra: { stateBytes?: number } = {}) {
-  const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+  const sandbox = prepareWorkerSandbox(f.brain);
   const worker = launchAgentWorker({ brainPath: f.brain, command: [process.execPath, "-e", program], env: { HOME: f.home },
     sandbox, turnTempBytes: ALLOWANCE, ...extra });
   cleanups.push(() => { worker.turnTemp?.close(); worker.state?.close(); });
@@ -228,7 +228,7 @@ describe("turn temp (#1655, #1703)", () => {
       fs.renameSync(${JSON.stringify(WORKER_STATE)} + "/transcript.jsonl.tmp", ${JSON.stringify(WORKER_STATE)} + "/transcript.jsonl");
       // Wait until the server has read: the state mount only exists while the namespace lives.
       await Bun.stdin.text();`;
-    const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+    const sandbox = prepareWorkerSandbox(f.brain);
     const worker = launchAgentWorker({ brainPath: f.brain, command: [process.execPath, "-e", program], env: { HOME: f.home },
       sandbox, turnTempBytes: ALLOWANCE, stateBytes: 4 * 1024 * 1024 });
     cleanups.push(() => { worker.kill("SIGKILL"); worker.turnTemp?.close(); worker.state?.close(); });
@@ -342,7 +342,7 @@ describe("turn temp (#1655, #1703)", () => {
 
   test.skipIf(!LINUX)("the launch mounts /tmp at exactly the allowance, with scratch inside it and no home overlay", () => {
     const f = fixture();
-    const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+    const sandbox = prepareWorkerSandbox(f.brain);
     const argv = workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox, turnTempBytes: ALLOWANCE });
     const at = argv.indexOf("--size");
     expect(argv.slice(at, at + 4)).toEqual(["--size", String(ALLOWANCE), "--tmpfs", "/tmp"]);

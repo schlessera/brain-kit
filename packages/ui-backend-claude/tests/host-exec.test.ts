@@ -61,7 +61,7 @@ test("Claude factory/module turns carry host exec to runtime probe and SDK worke
         if (exec === undefined) process.env.BRAIN_UI_EXEC_WRAPPER = c.path;
         const frames: unknown[] = [];
         await backend.startTurn({ prompt: "Return to Ithaca", signal: new AbortController().signal,
-          workerSandbox: worker.prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] }),
+          workerSandbox: worker.prepareWorkerSandbox(brain, { profile: "governed", areas: [] }),
           bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) } });
         const expected = exec === undefined ? c.path : exec.wrapper;
         expect(commands.at(-1), exec === undefined ? "OMITTED_HOST_EXEC_REMAINS_LIVE" : "SDK_WORKER_HOST_ARGV").toEqual([

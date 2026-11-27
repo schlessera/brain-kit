@@ -95,7 +95,7 @@ for (const allowChild of [false, true]) {
     };
     const controller = new AbortController();
     const deadline = setTimeout(() => controller.abort(), 20000);
-    const worker = createMeasurementWorkerFixture(cwd, home);
+    const worker = createMeasurementWorkerFixture(cwd);
     try {
         const profile: InferenceProfile = { id: "fixture", label: "Fixture", model: "claude-sonnet-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({ ...CLEARED_API_CREDENTIALS,
                 ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
