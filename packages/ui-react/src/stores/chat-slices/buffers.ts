@@ -93,29 +93,49 @@ export function createChatSliceContext(set: ChatSet, get: ChatGet): ChatSliceCon
     fn: (chat: SessionChat) => Partial<SessionChat>,
     createIfMissing = false
   ): void {
-    function updated(chat: SessionChat): SessionChat {
-      const next = { ...chat, ...fn(chat), lastTouched: Date.now() };
-      if (!next.journals) return next;
-      const last = new Map<string, number>();
-      next.messages.forEach((message, index) => { const id = message.turnId ?? message.streamTurnId; if (message.role === "assistant" && id) last.set(id, index); });
-      next.messages = next.messages.map((message, index) => {
-        const id = message.turnId ?? message.streamTurnId, receipt = id && next.journals?.[id];
-        if (!receipt || last.get(id!) !== index || message.journal === receipt) return message;
-        return { ...message, journal: receipt, journalLive: true };
-      });
+    // The updated buffer, or null when the call changes nothing: then the
+    // store is left as it is and nobody is notified (#4739). A journal
+    // restamp still owed is a change.
+    function updated(chat: SessionChat): SessionChat | null {
+      const patch = fn(chat);
+      let changed = (Object.keys(patch) as (keyof SessionChat)[]).some((field) => !Object.is(patch[field], chat[field]));
+      const next = { ...chat, ...patch };
+      if (next.journals) {
+        const last = new Map<string, number>();
+        next.messages.forEach((message, index) => { const id = message.turnId ?? message.streamTurnId; if (message.role === "assistant" && id) last.set(id, index); });
+        let restamped = false;
+        const messages = next.messages.map((message, index) => {
+          const id = message.turnId ?? message.streamTurnId, receipt = id && next.journals?.[id];
+          if (!receipt || last.get(id!) !== index || message.journal === receipt) return message;
+          restamped = true;
+          return { ...message, journal: receipt, journalLive: true };
+        });
+        if (restamped) {
+          next.messages = messages;
+          changed = true;
+        }
+      }
+      if (!changed) return null;
+      next.lastTouched = Date.now();
       return next;
     }
     set((state) => {
       if (key === null) {
+        // A missing draft is created even by a call that changes nothing.
         const draft = state.draft ?? emptyChat();
-        return { draft: updated(draft) };
+        const next = updated(draft);
+        if (!next) return state.draft ? state : { draft };
+        return { draft: next };
       }
-      const existing = state.buffers[key] ?? (createIfMissing ? emptyChat() : undefined);
+      const current = state.buffers[key];
+      const existing = current ?? (createIfMissing ? emptyChat() : undefined);
       if (!existing) return state;
+      const next = updated(existing) ?? (current ? null : existing);
+      if (!next) return state;
       return {
         buffers: {
           ...state.buffers,
-          [key]: updated(existing),
+          [key]: next,
         },
       };
     });
@@ -132,8 +152,10 @@ export function createChatSliceContext(set: ChatSet, get: ChatGet): ChatSliceCon
       let index = chat.messages.findLastIndex((m) => m.role === "assistant" && m.toolCalls.some((t) => t.id === toolUseId));
       if (index === -1) index = chat.messages.findLastIndex((m) => m.role === "assistant");
       if (index === -1) return {};
+      const message = fn(chat.messages[index]!);
+      if (message === chat.messages[index]) return {};
       const msgs = [...chat.messages];
-      msgs[index] = fn(msgs[index]!);
+      msgs[index] = message;
       return { messages: msgs };
     });
   }
@@ -145,7 +167,7 @@ export function createChatSliceContext(set: ChatSet, get: ChatGet): ChatSliceCon
     extra?: (chat: SessionChat) => Partial<SessionChat>
   ): void {
     mutateBuffer(key, (chat) => {
-      const msgs = [...chat.messages];
+      const msgs = chat.messages;
       // The last ASSISTANT message, not the last message.
       //
       // A follow-up sent mid-stream appends a user message to the end of the
@@ -163,9 +185,12 @@ export function createChatSliceContext(set: ChatSet, get: ChatGet): ChatSliceCon
         }
       }
       let out: Partial<SessionChat> = {};
-      if (index !== -1) {
-        msgs[index] = fn(msgs[index]);
-        out = { messages: msgs };
+      const message = index === -1 ? undefined : fn(msgs[index]);
+      // Copied only once a message changed (#4739).
+      if (message && message !== msgs[index]) {
+        const next = [...msgs];
+        next[index] = message;
+        out = { messages: next };
       }
       return extra ? { ...out, ...extra(chat) } : out;
     });
