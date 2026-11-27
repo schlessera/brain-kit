@@ -133,8 +133,14 @@ export interface EgressProxyOptions {
    * anything but `true`, refuses.
    */
   taint?: { allow: readonly string[]; tainted(connectionId?: string): boolean;
-    /** `destination`: the connection asking, so a host grant scoped to one origin or connection can tell (#3595). */
-    contacted(host: string, destination?: { port: number; method: string; protocol: string; connectionId: string }): boolean;
+    /**
+     * `destination`: the connection asking, so a host grant scoped to one
+     * origin or connection can tell (#3595). `generation` is the grant
+     * generation `generation()` reported when the connection was created.
+     */
+    contacted(host: string, destination?: { port: number; method: string; protocol: string; connectionId: string; managedReference: boolean; generation: number }): boolean;
+    /** The host's current grant generation, read once as each connection is created (#3595). */
+    generation?(): number;
     /** Immutable evidence/authority marker; excludes inputs admitted under this exact shared card. */
     approvalRevision?(connectionId?: string, kind?: "network" | "outward"): string;
     recipient?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): boolean | Extract<EgressRecipientAuthority,{kind:"rule"}>["admission"];
@@ -335,6 +341,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   function operation(method: string, url: URL, relay?: "inference" | "provider" | "reference") {
     const inference = relay === "inference", provider = relay === "provider", managedReference = relay === "reference";
     const connectionId = crypto.randomUUID();
+    // Grants committed after this moment are not this connection's (#3595).
+    const generation = options.taint?.generation?.() ?? 0;
     let snapshot: AdmissionSafetySnapshot | undefined;
     const started = performance.now();
     const marks: Partial<Record<InferenceTimingMark | "loopLagMaxMs", number>> = {};
@@ -441,7 +449,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       catch { finish("denied","egress_unavailable"); }
     };
     const recipient = { host, port, method, protocol: url.protocol, managedReference };
-    const asking = { port, method, protocol: url.protocol, connectionId };
+    const asking = { port, method, protocol: url.protocol, connectionId, managedReference, generation };
     // Checked again after an approval wait, during which another connection may taint the session.
     // Inference/provider relays retain G5. Managed references retain ordinary
     // G6 recipient narrowing; repository trust never grants outbound authority.

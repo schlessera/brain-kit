@@ -51,6 +51,6 @@ export function replyToToolApproval(root: BrainUiRoot, sessionId: string | null,
     ? send({ type: "tool_approval", toolUseId, ...(always && offersAlwaysAllow(pending) ? { always: true } : {}), ...(scope ? { networkScope: scope } : {}), channel: "card" })
     : send({ type: "tool_denial", toolUseId, message: "Denied by user", channel: "card" });
   // Preserve main's refused-send recovery: only accepted dispatch settles locally.
-  if (sent) chat.resolveToolApproval(sessionId, toolUseId, approved, scope);
+  if (sent) chat.resolveToolApproval(sessionId, toolUseId, approved);
   return sent;
 }

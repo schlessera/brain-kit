@@ -2948,8 +2948,12 @@ rest of the session. A scope the request did not offer narrows to `once`, and
 answers its plain Allow, and a keyboard allow, with the narrowest one. A
 re-delivered card carries the same offer. `tool_resolution` carries the
 granted `networkScope`, published only after an `origin` or `session` grant
-has committed; a grant that cannot commit, or whose connection has ended,
-expires the card with `grant_storage_failed` and grants nothing.
+has committed inside the card's settlement; a grant that cannot commit, or
+whose connection has ended, expires the card with `grant_storage_failed` and
+grants nothing. A client names a scope only from a granted
+`tool_resolution`, and clears it on any other outcome. A wider grant covers
+only connections that start after it. A managed GitHub acquisition's card
+offers no `network`, and no grant covers one.
 Clients validate the offer (`serverToolApprovalRequestSchema`); one that fails
 it is dropped, and the card keeps its single Allow.
 

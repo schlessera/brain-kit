@@ -481,3 +481,31 @@ test("#4351: a refused occurrence write on a gapped turn is never a tolerated lo
     expect(untrustedHits).toBe(0);
   } finally { untrusted.stop(true); await f.close(); }
 });
+test("#4351: another write's failure after the card's own loss still withdraws the answered card", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  const original = f.writes.firstTaint;
+  try {
+    f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();
+    // The connection's own write is lost first; then, while the flag is set,
+    // an independent input's reservation fails and leaves no pending row.
+    f.db.exec("CREATE TRIGGER ithaca_permanent_gap BEFORE INSERT ON governance_events WHEN NEW.kind='taint' AND json_extract(NEW.payload,'$.source')='egress_connection' BEGIN SELECT RAISE(FAIL,'Odysseus store unavailable'); END");
+    f.db.exec("CREATE TABLE odysseus_flag(on_ INTEGER)");
+    f.db.exec("CREATE TRIGGER ithaca_reserve_gap BEFORE INSERT ON safety_pending WHEN EXISTS(SELECT 1 FROM odysseus_flag) BEGIN SELECT RAISE(FAIL,'Odysseus store unavailable'); END");
+    f.decide(async () => ({ behavior: "allow" }));
+    f.writes.firstTaint = async (...args) => {
+      const result = await original(...args);
+      if (args[0].payload.source === "egress_connection") {
+        f.db.exec("INSERT INTO odysseus_flag VALUES (1)");
+        try { await f.taint(); } finally { f.db.exec("DELETE FROM odysseus_flag"); }
+      }
+      return result;
+    };
+    const status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+    await f.proxy.settled();
+    expect(status, "LATER_FAILURE_AFTER_OWN_LOSS_WITHDRAWS_THE_CARD").toBe(403);
+    expect(queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })[0]?.payload).toMatchObject({ reason: "safety_changed", dispatched: false });
+    expect(untrustedHits).toBe(0);
+  } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_permanent_gap; DROP TRIGGER IF EXISTS ithaca_reserve_gap"); untrusted.stop(true); await f.close(); }
+});

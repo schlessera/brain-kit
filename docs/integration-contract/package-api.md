@@ -6393,10 +6393,11 @@ loss stops neither its operation nor the turn. A source-trusted input still
 needs its durable occurrence, and any other lost write, including a refused
 write such as a full recording queue, a lost connection audit or any loss
 outside a permanent gap, keeps its containment. The tolerated result names
-the lost write's reservation, and the collection's failure cause keeps it.
-An answered Network card treats its own operation's tolerated loss as its own
-input: neither that reservation nor a collection failure it alone caused
-withdraws the card. Any other new recording failure still does.
+the lost write's reservation, and the collection's failure cause lists every
+contained loss by its reservation, earlier or later. An answered Network card
+treats its own operation's tolerated loss as its own input: neither that
+reservation nor a collection failure whose every listed loss is its own
+withdraws the card. Any other recording failure still does.
 
 Network approval markers exclude only the approved operation’s own occurrence
 and, when it creates the turn’s first collection, that same collection-start

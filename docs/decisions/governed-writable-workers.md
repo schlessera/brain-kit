@@ -4650,27 +4650,39 @@ tunnel's payload. A scope the card did not offer narrows to once
 (`handleToolApproval`, `packages/ui-server/src/ws/handlers/tool-permission.ts:127-133`).
 A missing scope keeps the legacy hostname/session answer, so old clients are
 unchanged. An origin or session grant commits as the session's own
-`network_grant` record before the connection is admitted, and before the
-host publishes the granted outcome. It grants nothing when that write fails,
-when the recorder cannot show the committed row, when the turn has stopped
-or when no connection still waits on the card; the card then expires
-(`const commitGrant`, `packages/ui-server/src/brain/turn-egress.ts:315-326`;
-`handleToolApproval`, `packages/ui-server/src/ws/handlers/tool-permission.ts:127-145`).
-Later turns of the same chat session read it back, and only a record this
-version validates grants anything (`networkGrants`,
-`packages/ui-server/src/governance/session-taint.ts:61-79`). A one-time
-answer allows only the connection whose card it was; a concurrent connection
-to the same destination asks for itself (`const approveTainted`,
-`packages/ui-server/src/brain/turn-egress.ts:327-361`). A wider answer covers
-only connections that start afterwards: cards already open for other
-destinations stay open (maintainer ruling on #3595, 2026-11-27). No scoped
-connection becomes a contacted host, in this turn or from its record, so
-neither once nor an origin grant widens to the host. Wider grants skip only
-the taint-specific question; deny, `allowlist` mode, the byte ceiling and
+`network_grant` record synchronously, inside the section that settles its
+card: after the card revalidates and before the host publishes the granted
+outcome, with no wait between the three (`settleApproval`,
+`packages/ui-server/src/ws/turns.ts:858-892`). The grant counts only once the
+session's own reader finds it (`const commitGrant`,
+`packages/ui-server/src/brain/turn-egress.ts:330-342`). It grants nothing when
+the write fails, when the stored row is not one this version reads back as
+that grant, when the turn has stopped or when no connection still waits on
+the card; the card then expires with `grant_storage_failed`. A request that
+cannot commit a grant allows only its own connection. Later turns of the
+same chat session read the grant back, and only a record this version
+validates grants anything (`networkGrants`,
+`packages/ui-server/src/governance/session-taint.ts:61-79`). A one-time answer
+allows only the connection whose card it was; a concurrent connection to the
+same destination asks for itself (`const approveTainted`,
+`packages/ui-server/src/brain/turn-egress.ts:343-379`). A wider answer covers
+only connections that start afterwards: each connection carries the grant
+generation current when it began, and uses a grant only if it is the answer
+to its own card or was committed by then (`grantScope`,
+`packages/ui-server/src/brain/turn-egress.ts:165-172`). Cards already open for
+other destinations, and connections still on their way to a card, keep
+their own question (maintainer ruling on #3595, 2026-11-27). A managed
+GitHub acquisition's card offers no scope, its answer covers that
+acquisition alone, and no origin or session grant ever covers a managed
+acquisition (maintainer ruling on #3595, 2026-11-27). No scoped connection
+becomes a contacted host, in this turn or from its record, so neither once
+nor an origin grant widens to the host. Wider grants skip only the
+taint-specific question; deny, `allowlist` mode, the byte ceiling and
 outward approvals are unchanged, and a voice turn never uses a grant made
 on a typed one. Autonomous turns have no turn proxy. Keyboard allow is the
-narrowest choice, whatever order a frame lists the scopes in. No permanent
-policy write is implied.
+narrowest choice, whatever order a frame lists the scopes in. A client
+names a scope only from the host's granted outcome, and clears it on any
+other. No permanent policy write is implied.
 
 <a id="extraction-heuristics"></a>
 

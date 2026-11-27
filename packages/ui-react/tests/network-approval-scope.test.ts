@@ -41,12 +41,13 @@ test("the card keeps the host's offer, also when the host re-delivers it", () =>
 });
 
 for (const [asked, sent] of [[undefined, "once"], ["once", "once"], ["origin", "origin"], ["session", "session"]] as const)
-  test(`the transcript reply for ${asked ?? "a bare Allow"} sends ${sent} and keeps it for the receipt`, () => {
+  test(`the transcript reply for ${asked ?? "a bare Allow"} sends ${sent}, and names no scope before the host grants it`, () => {
     card();
     const replies: ClientMessage[] = [];
     expect(replyToToolApproval(defaultRoot, SID, message => { replies.push(message); return true; }, TOOL, true, undefined, asked)).toBe(true);
     expect(replies, "TRANSCRIPT_REPLY_CARRIES_SCOPE").toEqual([{ type: "tool_approval", toolUseId: TOOL, networkScope: sent, channel: "card" }]);
-    expect(tool()).toMatchObject({ status: "approved", approvalNetworkScope: sent });
+    expect(tool()).toMatchObject({ status: "approved" });
+    expect(tool(), "SCOPE_RECEIPT_ONLY_FROM_HOST_OUTCOME").not.toHaveProperty("approvalNetworkScope");
   });
 
 test("a card the host offered only once never replies wider, and a card without an offer replies as before", () => {
@@ -62,12 +63,12 @@ test("a card the host offered only once never replies wider, and a card without 
   expect(replies, "UNSCOPED_CARD_REPLIES_AS_BEFORE").toEqual([{ type: "tool_approval", toolUseId: TOOL, channel: "card" }]);
 });
 
-test("the Actions card's outcome names the scope it sends", () => {
+test("the Actions card sends the chosen scope and claims none before the host grants it", () => {
   card();
-  expect(approvalOutcome(tool(), TOOL, true, false, "origin"), "ACTIONS_RECEIPT_NAMES_SCOPE").toMatchObject({
-    networkScope: "origin", receipt: { text: "Allowed this origin for this session" },
+  expect(approvalOutcome(tool(), TOOL, true, false, "origin"), "ACTIONS_SEND_CLAIMS_NO_SCOPE").toMatchObject({
+    networkScope: "origin", receipt: { text: "Allowed" },
     frame: { type: "tool_approval", toolUseId: TOOL, networkScope: "origin", channel: "card" } });
-  expect(approvalOutcome(tool(), TOOL, true).receipt.text, "ACTIONS_BARE_ALLOW_IS_ONCE").toBe("Allowed once");
+  expect(approvalOutcome(tool(), TOOL, true).frame, "ACTIONS_BARE_ALLOW_IS_ONCE").toMatchObject({ networkScope: "once" });
   expect(approvalOutcome(tool(), TOOL, false).frame).toEqual({ type: "tool_denial", toolUseId: TOOL, message: "Denied by user", channel: "card" });
   expect(approvalOutcome(undefined, TOOL, true, false, "session").frame, "VANISHED_CARD_OFFERS_NOTHING").toEqual({ type: "tool_approval", toolUseId: TOOL, channel: "card" });
 });
@@ -88,7 +89,7 @@ test("a frame listing wider scopes first still makes Allow the narrowest", () =>
   replyToToolApproval(defaultRoot, SID, message => { replies.push(message); return true; }, TOOL, true);
   expect(replies[0], "BARE_ALLOW_IS_NARROWEST_WHATEVER_THE_ORDER").toMatchObject({ networkScope: "once" });
   expect(networkScopes(tool()!)).toEqual(["once", "origin", "session"]);
-  expect(approvalOutcome(tool(), TOOL, true).receipt.text).toBe("Allowed once");
+  expect(approvalOutcome(tool(), TOOL, true).frame).toMatchObject({ networkScope: "once" });
 });
 
 test("the Actions card names the transport, so HTTP and CONNECT origins read differently", () => {
@@ -100,6 +101,15 @@ test("the host's granted scope lands on the card, also when another client answe
   card();
   handleServerMessage({ type: "tool_resolution", sessionId: SID, turnId: "turn-aeaea", toolUseId: TOOL, outcome: "granted", networkScope: "origin" } as ServerMessage);
   expect(tool()?.approvalNetworkScope, "HOST_SCOPE_REACHES_THE_TRANSCRIPT").toBe("origin");
-  handleServerMessage({ type: "tool_resolution", sessionId: SID, turnId: "turn-aeaea", toolUseId: TOOL, outcome: "expired" } as ServerMessage);
-  expect(tool()?.approvalNetworkScope).toBe("origin");
+});
+
+for (const outcome of ["expired", "denied"] as const) test(`a wider answer the host ${outcome} shows no scope receipt`, () => {
+  card();
+  replyToToolApproval(defaultRoot, SID, () => true, TOOL, true, undefined, "session");
+  handleServerMessage({ type: "tool_resolution", sessionId: SID, turnId: "turn-aeaea", toolUseId: TOOL, outcome, reason: "The network grant could not be recorded." } as ServerMessage);
+  expect(tool(), "REFUSED_GRANT_SHOWS_NO_SCOPE_RECEIPT").not.toHaveProperty("approvalNetworkScope");
+  // A later outcome that is not a grant clears one the host had reported.
+  handleServerMessage({ type: "tool_resolution", sessionId: SID, turnId: "turn-aeaea", toolUseId: TOOL, outcome: "granted", networkScope: "session" } as ServerMessage);
+  handleServerMessage({ type: "tool_resolution", sessionId: SID, turnId: "turn-aeaea", toolUseId: TOOL, outcome } as ServerMessage);
+  expect(tool()).not.toHaveProperty("approvalNetworkScope");
 });

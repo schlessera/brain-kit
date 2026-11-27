@@ -210,7 +210,7 @@ export interface ToolCall {
    * (#3595). Present, the card offers them in place of its single Allow.
    */
   approvalNetwork?: NetworkApprovalOffer;
-  /** The scope this client granted on the card (#3595), for its receipt. */
+  /** The scope the host's granted outcome gave this card (#3595), for its receipt. */
   approvalNetworkScope?: NetworkApprovalScope;
   /**
    * The host re-delivered this pending approval after the transcript was
@@ -506,9 +506,9 @@ export interface ChatState {
     network?: NetworkApprovalOffer
   ) => void;
   applyVoicePermission: (receipt: VoicePermissionReceipt) => void;
-  resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean, networkScope?: NetworkApprovalScope) => void;
-  /** The scope the host says a Network card was granted with (#3595), whichever client answered it. */
-  noteNetworkScope: (key: ChatKey, toolUseId: string, networkScope: NetworkApprovalScope) => void;
+  resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
+  /** The scope the host's settled outcome granted a Network card (#3595), whichever client answered; undefined clears it. */
+  noteNetworkScope: (key: ChatKey, toolUseId: string, networkScope: NetworkApprovalScope | undefined) => void;
   /**
    * Make restored approval cards read-only, each with the host fact that
    * closed it (#1072, D52 §4 R3). Only a restored card that is not already

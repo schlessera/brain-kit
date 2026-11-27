@@ -58,9 +58,9 @@ export const connectionFrameHandlers = {
   dialogue_history: (msg, context) => context.conversation(msg),
   tool_resolution: (msg, context) => {
     context.conversation(msg);
-    // The host's granted Network scope (#3595) lands on its card's receipt,
-    // also when another client answered it.
-    if (msg.outcome === "granted" && msg.networkScope) context.state.noteNetworkScope(msg.sessionId ?? context.key, msg.toolUseId, msg.networkScope);
+    // Only the host's granted outcome names a Network scope (#3595), also
+    // when another client answered; any other outcome clears it.
+    context.state.noteNetworkScope(msg.sessionId ?? context.key, msg.toolUseId, msg.outcome === "granted" ? msg.networkScope : undefined);
   },
   conversation_opened: (msg, context) => context.conversation(msg),
   conversation_closed: (msg, context) => context.conversation(msg),

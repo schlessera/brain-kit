@@ -6,11 +6,11 @@ import { requestToolPermission, type BackendActivityEvent, type BackendBridge } 
 import type { NetworkApprovalOffer, NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { occurrence, type Occurrence } from "../governance/occurrence.js";
-import type { GovernanceEventInput } from "../governance/events.js";
+import { recordGovernanceEvent, type GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, networkGrants, networkOriginKey, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
 import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
-import { safetyProjection, safetyEvidenceSequence, safetyFailureReservation } from "../governance/safety-store.js";
+import { safetyProjection, safetyEvidenceSequence, safetyFailureLosses } from "../governance/safety-store.js";
 import { STORAGE_SETTLEMENT_MS } from "../db/settlement.js";
 import { settleTurnSessionBinding, type SessionBindingRefusal } from "../ws/bridge-session-binding.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
@@ -147,16 +147,28 @@ export async function prepareTurnEgress(options: {
   // The session's explicit wider Network grants (#3595), then each one this
   // turn commits. `scoped`: the scope that admitted a connection, which
   // keeps its host out of `contacted` and names the scope on its record.
-  const grants = db ? networkGrants(db, options.sessionId()) : { session: false, origins: new Set<string>() };
+  // Each grant keeps the generation it was committed in: those the session
+  // held when this proxy started are 0, and each commit here advances it.
+  // A connection uses a grant only if it existed when the connection began.
+  const held = db ? networkGrants(db, options.sessionId()) : { session: false, origins: new Set<string>() };
+  const grants = { generation: 0, session: held.session ? 0 : undefined as number | undefined,
+    origins: new Map<string, number>([...held.origins].map(key => [key, 0])) };
   const scoped = new Map<string, NetworkApprovalScope>();
   const networkOrigin = (destination: { host: string; port: number; method: string }) =>
     ({ transport: destination.method === "CONNECT" ? "connect" as const : "http" as const, host: destination.host, port: destination.port });
-  /** The wider grant that covers this destination, if any. A one-time answer covers its own connection only. */
-  const grantScope = (destination: { host: string; port: number; method: string }, connectionId?: string): NetworkApprovalScope | undefined => {
-    // Voice has no grant surface, and an approval given elsewhere never widens it.
-    if (options.origin !== "interactive") return undefined;
-    if (connectionId && scoped.get(connectionId) === "once") return "once";
-    return grants.session ? "session" : grants.origins.has(networkOriginKey(networkOrigin(destination))) ? "origin" : undefined;
+  /**
+   * The wider grant that covers this connection, if any (#3595): the answer
+   * to its own card, or a grant committed before the connection began.
+   * Voice and managed acquisitions are never covered by a grant: voice has
+   * no grant surface, and a managed acquisition always asks.
+   */
+  const grantScope = (destination: { host: string; port: number; method: string; managedReference: boolean }, connectionId: string, generation: number): NetworkApprovalScope | undefined => {
+    if (options.origin !== "interactive" || destination.managedReference) return undefined;
+    const own = scoped.get(connectionId);
+    if (own) return own;
+    if (grants.session !== undefined && grants.session <= generation) return "session";
+    const origin = grants.origins.get(networkOriginKey(networkOrigin(destination)));
+    return origin !== undefined && origin <= generation ? "origin" : undefined;
   };
   const collectionEpoch = (db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId) as {id:string}|null)?.id??crypto.randomUUID();
   const exposures = new Map<string, Occurrence>();
@@ -296,9 +308,11 @@ export async function prepareTurnEgress(options: {
       // An uninstrumented turn was already unknown before its first record.
       // Creating its sole incomplete epoch is metadata of this same input.
       const coverage=state.coverage.epochs.length===1&&starts.has(state.coverage.epochs[0]!.id)&&state.coverage.state==="incomplete"?"unknown":state.coverage.state;
-      // The card's own tolerated loss failed its collection: that failure is
-      // its own input. Any other active failure still counts (#4351).
-      const ownFailure=!!group?.lost.size&&state.reasons.includes("recording_failed")&&group.lost.has(safetyFailureReservation(db,options.turnId,options.sessionId())??"");
+      // The card's own tolerated losses failed its collection: that failure
+      // is its own input only while every contained loss is one of them. Any
+      // other loss, earlier or later, still counts (#4351).
+      const losses=group?.lost.size&&state.reasons.includes("recording_failed")?safetyFailureLosses(db,options.turnId,options.sessionId()):[];
+      const ownFailure=losses.length>0&&losses.every(loss=>group!.lost.has(loss));
       const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved" && !(ownFailure && reason === "recording_failed")), safetyEvidenceSequence(db, options.turnId, options.sessionId(), [...inputs],[...starts]),
         options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
         writes?.recordingAvailable?.(options.turnId, options.sessionId(),excludedPending) ?? safety?.recordingAvailable,callGeneration]);
@@ -308,20 +322,22 @@ export async function prepareTurnEgress(options: {
   type NetworkDecision = { answer: NetworkAnswer; scope?: NetworkApprovalScope };
   const asking = new Map<string, {decision:Promise<NetworkDecision>;group:ApprovalGroup;owner?:string;signals:Set<AbortSignal>}>();
   /**
-   * Commits an origin or session grant before any connection uses it
-   * (#3595): only while a connection still waits on the card and its turn
-   * runs, and only once the record is durable. Otherwise it grants nothing.
+   * Commits an origin or session grant (#3595), synchronously, inside the
+   * section that settles its card: only while a connection still waits on
+   * the card and its turn runs. The grant is what the session's own reader
+   * then finds (`networkGrants`); anything else grants nothing.
    */
-  const commitGrant = async (scope: "origin" | "session", origin: ReturnType<typeof networkOrigin>, toolUseId: string, waiting: () => boolean): Promise<boolean> => {
-    if (!options.record || !db || options.controller.signal.aborted || !waiting()) return false;
+  const commitGrant = (scope: "origin" | "session", origin: ReturnType<typeof networkOrigin>, toolUseId: string, waiting: () => boolean): boolean => {
+    const sessionId = options.sessionId();
+    if (!db || !sessionId || options.controller.signal.aborted || !waiting()) return false;
     try {
-      const result = await options.record({ ...base(), kind: "network_grant", payload: scope === "session" ? { scope, toolUseId } : { scope, toolUseId, ...origin } });
-      if (result === false || result && typeof result === "object" && "recorded" in result && result.recorded === false
-        && !("id" in result && typeof result.id === "number" && result.id > 0)) return false;
-      // A recorder may resolve without a result: only the committed row counts.
-      if (!db.query("SELECT 1 FROM governance_events WHERE kind='network_grant' AND json_extract(payload,'$.toolUseId')=?").get(toolUseId)) return false;
+      recordGovernanceEvent(db, { ...base(), sessionId, kind: "network_grant", payload: scope === "session" ? { scope, toolUseId } : { scope, toolUseId, ...origin } });
+      const stored = networkGrants(db, sessionId);
+      if (scope === "session" ? !stored.session : !stored.origins.has(networkOriginKey(origin))) return false;
     } catch { return false; }
-    if (scope === "session") grants.session = true; else grants.origins.add(networkOriginKey(origin));
+    const generation = ++grants.generation;
+    if (scope === "session") grants.session ??= generation;
+    else if (!grants.origins.has(networkOriginKey(origin))) grants.origins.set(networkOriginKey(origin), generation);
     return true;
   };
   const approveTainted = async (destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?:string, replacement=false): Promise<NetworkAnswer> => {
@@ -329,22 +345,24 @@ export async function prepareTurnEgress(options: {
     let pending = asking.get(key);
     if (!pending) {
       const origin = networkOrigin(destination);
-      const network: NetworkApprovalOffer = { ...origin, scopes: ["once", "origin", "session"] };
       const toolUseId = crypto.randomUUID();
       const signals = new Set<AbortSignal>();
-      // One commit per card, shared by the host's answer handler, which
-      // commits before it publishes the outcome, and this card's own wait.
-      let committing: Promise<boolean> | undefined;
+      // One commit per card, shared by the host's settlement, which commits
+      // before it publishes the outcome, and this card's own wait.
+      let committed: boolean | undefined;
       const commitNetworkScope = (scope: "origin" | "session") =>
-        committing ??= commitGrant(scope, origin, toolUseId, () => [...signals].some(waiting => !waiting.aborted));
+        committed ??= commitGrant(scope, origin, toolUseId, () => [...signals].some(waiting => !waiting.aborted));
+      // A managed acquisition's card stays binary: its answer covers that
+      // acquisition alone, never a worker connection (#3595).
+      const scopes = destination.managedReference ? {} : { network: { ...origin, scopes: ["once", "origin", "session"] } satisfies NetworkApprovalOffer, commitNetworkScope };
       const decision = requestToolPermission(options.bridge, { toolUseId, toolName: "Network", kind: "command",
-        input: { ...destination, target: networkAuthority(destination) }, network, commitNetworkScope,
+        input: { ...destination, target: networkAuthority(destination) }, ...scopes,
         description: (replacement ? "New safety evidence arrived while the previous request was waiting. " : "") + taintedDestinationDescription(destination, firstTaint()?.source ?? null),
       }).then(async (decision): Promise<NetworkDecision> => {
         if (decision.behavior !== "allow") return { answer: options.networkRefusal?.(toolUseId) ?? false };
         // A wider grant commits before any connection relies on it.
         const scope = decision.networkScope;
-        if ((scope === "origin" || scope === "session") && !await commitNetworkScope(scope)) return { answer: "unconfirmed" };
+        if ((scope === "origin" || scope === "session") && !commitNetworkScope(scope)) return { answer: "unconfirmed" };
         return { answer: true, ...(scope ? { scope } : {}) };
       }, () => ({ answer: "unconfirmed" as const })).finally(() => asking.delete(key));
       pending={decision,group:{members:new Set(),occurrences:new Set(),starts:new Set(),lost:new Set()},signals,...(connectionId?{owner:connectionId}:{})};
@@ -418,12 +436,13 @@ export async function prepareTurnEgress(options: {
     // An `allow` from the extraction classifier relaxes this check, and only
     // this one, while the readable call naming the host is in progress. An
     // explicit wider Network grant covers its destinations (#3595).
-    contacted: (host: string, destination?: { port: number; method: string; protocol: string; connectionId: string }) => {
+    contacted: (host: string, destination?: { port: number; method: string; protocol: string; connectionId: string; managedReference: boolean; generation: number }) => {
       if (contacted.has(host) || extraction?.relaxes(host) === true) return true;
-      const scope = destination ? grantScope({ host, ...destination }, destination.connectionId) : undefined;
+      const scope = destination ? grantScope({ host, ...destination }, destination.connectionId, destination.generation) : undefined;
       if (scope && !scoped.has(destination!.connectionId)) scoped.set(destination!.connectionId, scope);
       return scope !== undefined;
     },
+    generation: () => grants.generation,
     // A refusal names what tainted the session, as the card does (#3431).
     cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
     // Voice has no grant surface; it keeps refusing without a card (#3430).

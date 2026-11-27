@@ -219,10 +219,9 @@ for (const failure of ["deny", "failed record", "cancelled"] as const) test(`a $
   const aeaea = island("Aeaea", hits);
   const { bridge, cards } = cardBridge();
   const controller = new AbortController();
-  let proxy = await turn(db, bridge, { controller, record: event => {
-    if (failure === "failed record" && event.kind === "network_grant") throw new Error("Odysseus grant store unavailable");
-    return recordGovernanceEvent(db, event);
-  } });
+  // The grant's own store refuses it: the write fails in its transaction.
+  if (failure === "failed record") db.exec("CREATE TRIGGER ithaca_grant_store BEFORE INSERT ON governance_events WHEN NEW.kind='network_grant' BEGIN SELECT RAISE(FAIL,'Odysseus grant store unavailable'); END");
+  let proxy = await turn(db, bridge, { controller });
   try {
     const first = get(proxy.socketPath, aeaea.url.href).catch(() => 0);
     await raised(cards.next(), first);
@@ -232,7 +231,7 @@ for (const failure of ["deny", "failed record", "cancelled"] as const) test(`a $
     expect(grantRows(db), "UNGRANTED_ANSWER_COMMITS_NO_GRANT").toEqual([]);
     expect(hits).toEqual([]);
     await proxy.settled(); proxy.stop();
-    if (failure === "failed record") expect(connections(db).at(-1)).toMatchObject({ reason: "network_approval_unconfirmed" });
+    if (failure === "failed record") { expect(connections(db).at(-1)).toMatchObject({ reason: "network_approval_unconfirmed" }); db.exec("DROP TRIGGER ithaca_grant_store"); }
     proxy = await turn(db, bridge);
     const later = get(proxy.socketPath, aeaea.url.href);
     await raised(cards.next(), later, "UNGRANTED_ANSWER_ASKS_AGAIN");
@@ -288,23 +287,24 @@ test("a wider answer for a connection that already closed grants nothing, while 
   } finally { cards.answer({ behavior: "deny", message: "cleanup" }); proxy.stop(); aeaea.stop(true); db.close(); }
 });
 
-test("a recorder that resolves without committing the grant grants nothing", async () => {
+test("the grant is what the session's own reader grants: a stored row it refuses grants nothing", async () => {
   const db = sessions(); const hits: string[] = [];
   const aeaea = island("Aeaea", hits);
   const { bridge, cards } = cardBridge();
-  // A governance-only recorder logs its own failure and resolves without a result.
-  let proxy = await turn(db, bridge, { record: event => event.kind === "network_grant" ? undefined : recordGovernanceEvent(db, event) });
+  // The row lands, but as a version the reader does not understand.
+  db.exec("CREATE TRIGGER ithaca_grant_version AFTER INSERT ON governance_events WHEN NEW.kind='network_grant' BEGIN UPDATE governance_events SET schema_version=2 WHERE id=NEW.id; END");
+  let proxy = await turn(db, bridge);
   try {
     const first = get(proxy.socketPath, aeaea.url.href);
     await raised(cards.next(), first);
     cards.answer({ behavior: "allow", networkScope: "origin" });
-    expect(await first, "UNCONFIRMED_GRANT_ADMITS_NOTHING").toBe(403);
+    expect(await first, "GRANT_ROW_IS_WHAT_THE_READER_GRANTS").toBe(403);
     expect(hits).toEqual([]);
     await proxy.settled(); proxy.stop();
     expect(connections(db).at(-1)).toMatchObject({ reason: "network_approval_unconfirmed" });
     proxy = await turn(db, bridge);
     const later = get(proxy.socketPath, aeaea.url.href);
-    await raised(cards.next(), later, "UNCONFIRMED_GRANT_ASKS_AGAIN");
+    await raised(cards.next(), later, "REFUSED_ROW_ASKS_AGAIN");
     cards.answer({ behavior: "deny", message: "Penelope declines" });
     expect(await later).toBe(403);
   } finally { cards.answer({ behavior: "deny", message: "cleanup" }); proxy.stop(); aeaea.stop(true); db.close(); }
@@ -343,4 +343,76 @@ test("only a stored grant this version understands is read back as one", () => {
     insert(1, { scope: "origin", toolUseId: "card-ok", transport: "connect", host: "aeaea.invalid", port: 443 });
     expect(networkGrants(db, "ithaca").origins.size).toBe(1);
   } finally { db.close(); }
+});
+
+/** A managed GitHub acquisition through the turn proxy; resolves whether it was admitted. */
+const managed = (proxy: Awaited<ReturnType<typeof turn>>) => {
+  const op = proxy.managedReference(new URL("https://github.com/"), new AbortController().signal);
+  return { admitted: op.admit().finally(() => op.finish("denied")) };
+};
+const grantRow = (db: Db, payload: Record<string, unknown>) => recordGovernanceEvent(db, { kind: "network_grant", turnId: "turn-ithaca-earlier", sessionId: "ithaca",
+  actor: "interactive", model: null, profile: "governed", payload: { toolUseId: `card-${crypto.randomUUID()}`, ...payload } as never });
+
+test("a managed acquisition's card offers no scope, and its answer never covers a worker tunnel", async () => {
+  const db = sessions();
+  const { bridge, cards } = cardBridge();
+  const proxy = await turn(db, bridge);
+  try {
+    const acquisition = managed(proxy);
+    const card = await raised(cards.next(), acquisition.admitted, "MANAGED_ACQUISITION_ASKS");
+    expect(card?.network, "MANAGED_CARD_OFFERS_NO_SCOPE").toBeUndefined();
+    cards.answer({ behavior: "allow", networkScope: "origin" });
+    await acquisition.admitted;
+    expect(grantRows(db)).toEqual([]);
+    const worker = tunnel(proxy.socketPath, "github.com:443").catch(() => 0);
+    const next = await raised(cards.next(), worker, "MANAGED_ANSWER_NEVER_GRANTS_A_TUNNEL");
+    expect(next?.network).toMatchObject({ transport: "connect", host: "github.com", port: 443 });
+    cards.answer({ behavior: "deny", message: "Penelope declines" });
+    await worker;
+  } finally { cards.answer({ behavior: "deny", message: "cleanup" }); proxy.stop(); db.close(); }
+});
+
+for (const grant of ["tunnel origin", "session"] as const) test(`a ${grant} grant never covers a managed acquisition`, async () => {
+  const db = sessions();
+  grantRow(db, grant === "session" ? { scope: "session" } : { scope: "origin", transport: "connect", host: "github.com", port: 443 });
+  const { bridge, cards } = cardBridge();
+  const proxy = await turn(db, bridge);
+  try {
+    const acquisition = managed(proxy);
+    await raised(cards.next(), acquisition.admitted, grant === "session" ? "SESSION_GRANT_EXCLUDES_MANAGED_ACQUISITION" : "TUNNEL_ORIGIN_GRANT_EXCLUDES_MANAGED_ACQUISITION");
+    cards.answer({ behavior: "deny", message: "Penelope declines" });
+    expect(await acquisition.admitted).toBe(false);
+  } finally { cards.answer({ behavior: "deny", message: "cleanup" }); proxy.stop(); db.close(); }
+});
+
+test("a grant committed while a connection is already under way never covers it", async () => {
+  const db = sessions(); const hits: string[] = [];
+  const aeaea = island("Aeaea", hits), ogygia = island("Ogygia", hits, "127.0.0.3");
+  const { bridge, cards } = cardBridge();
+  // The host's admission view: one held recording wait, for the next
+  // connection to start admission, keeps it before its taint check.
+  const gate = Promise.withResolvers<void>(); let holdNext = false;
+  const snapshot = { evidenceRevision: "1", trustRevision: "1", authorityEpoch: "1", scope: "ithaca", policyHash: null, restricted: true, recordingAvailable: true, authorityCurrent: true };
+  (bridge as { admissionSafety?: unknown }).admissionSafety = { read: () => snapshot, subscribe: () => () => {},
+    *pendingRecording() { if (holdNext) { holdNext = false; yield gate.promise; } } };
+  const proxy = await turn(db, bridge);
+  try {
+    holdNext = true;
+    const early = get(proxy.socketPath, ogygia.url.href);
+    await Bun.sleep(50);
+    expect(cards.requests, "EARLY_CONNECTION_HELD_BEFORE_ITS_CARD").toHaveLength(0);
+    const granting = get(proxy.socketPath, aeaea.url.href);
+    await raised(cards.next(), granting, "LATER_CONNECTION_ASKS");
+    cards.answer({ behavior: "allow", networkScope: "session" });
+    expect(await granting).toBe(200);
+    expect(networkGrants(db, "ithaca").session).toBe(true);
+    // The early connection began before that grant: it asks for itself.
+    const card = cards.next();
+    gate.resolve();
+    const asked = await Promise.race([card.then(() => "asked" as const), early.then(() => "settled" as const)]);
+    expect(asked, "GRANT_EXCLUDES_CONNECTION_STARTED_BEFORE_IT").toBe("asked");
+    cards.answer({ behavior: "deny", message: "Calypso declines" });
+    expect(await early).toBe(403);
+    expect(hits).toEqual(["Aeaea"]);
+  } finally { gate.resolve(); cards.answer({ behavior: "deny", message: "cleanup" }); proxy.stop(); aeaea.stop(true); ogygia.stop(true); db.close(); }
 });

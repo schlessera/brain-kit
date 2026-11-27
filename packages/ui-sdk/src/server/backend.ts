@@ -155,10 +155,11 @@ export interface PermissionRequest {
   network?: import("../protocol.js").NetworkApprovalOffer;
   /**
    * @internal Host-only: durably commits an origin or session grant for this
-   * card (#3595). The host's answer handler awaits it before publishing a
-   * granted outcome; false grants nothing. Never serialized or client authority.
+   * card (#3595), synchronously. The host calls it while it settles the
+   * card, after revalidation and before publishing the outcome; false grants
+   * nothing. Never serialized or client authority.
    */
-  commitNetworkScope?(scope: "origin" | "session"): Promise<boolean>;
+  commitNetworkScope?(scope: "origin" | "session"): boolean;
 }
 
 export interface AskUserResult {

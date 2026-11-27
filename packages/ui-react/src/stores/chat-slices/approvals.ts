@@ -119,7 +119,7 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
       }) })) }));
     },
 
-    resolveToolApproval: (key, toolUseId, approved, networkScope) =>
+    resolveToolApproval: (key, toolUseId, approved) =>
       mutateToolHolder(key, toolUseId, (last) => ({
         ...last,
         toolCalls: last.toolCalls.map((t) =>
@@ -127,7 +127,6 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
             ? {
               ...t,
               status: approved ? ("approved" as const) : ("denied" as const),
-              ...(approved && networkScope ? { approvalNetworkScope: networkScope } : {}),
               // Don't let approval wait time inflate the duration badge
               ...(approved ? { startedAt: Date.now() } : {}),
             }
@@ -137,11 +136,16 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
 
     noteNetworkScope: (key, toolUseId, networkScope) => {
       const chat = key === null ? get().draft : get().buffers[key];
-      // Only a Network card that offered scopes takes one; the host's word wins.
+      // Only a Network card that offered scopes takes one, and only the
+      // host's settled outcome sets or clears it (#3595).
       if (!chat?.messages.some(m => m.toolCalls.some(t => t.id === toolUseId && t.approvalNetwork && t.approvalNetworkScope !== networkScope))) return;
       mutateToolHolder(key, toolUseId, (holder) => ({
         ...holder,
-        toolCalls: holder.toolCalls.map(t => t.id === toolUseId && t.approvalNetwork ? { ...t, approvalNetworkScope: networkScope } : t),
+        toolCalls: holder.toolCalls.map(t => {
+          if (t.id !== toolUseId || !t.approvalNetwork) return t;
+          const { approvalNetworkScope: _previous, ...rest } = t;
+          return networkScope ? { ...rest, approvalNetworkScope: networkScope } : rest;
+        }),
       }));
     },
 

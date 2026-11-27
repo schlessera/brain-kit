@@ -1,7 +1,7 @@
 import { ActionCard, Button } from "@schlessera/brain-ui-kit";
 import type { KeyboardEvent } from "react";
 import type { ClientMessage, NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
-import { NETWORK_SCOPE_ALLOW_LABELS, NETWORK_SCOPE_RECEIPTS, networkDestination, networkScopes, offeredNetworkScope } from "../../lib/tool-approval.js";
+import { NETWORK_SCOPE_ALLOW_LABELS, networkDestination, networkScopes, offeredNetworkScope } from "../../lib/tool-approval.js";
 import { offersAlwaysAllow, type ToolCall } from "../../stores/chat-store.js";
 import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
 import { effectOf, getToolLabel, getToolSummary } from "../chat/tool-views.js";
@@ -64,7 +64,8 @@ export function approvalOutcome(
   return {
     ...(scope ? { networkScope: scope } : {}),
     receipt: {
-      text: approved ? (always ? "Always allowed" : scope ? NETWORK_SCOPE_RECEIPTS[scope] : "Allowed") : "Denied",
+      // A Network scope is named only once the host's granted outcome says so (#3595).
+      text: approved ? (always ? "Always allowed" : "Allowed") : "Denied",
       target: tool ? tool.name : toolUseId,
       effect: always ? "write_policy" : approved ? "tool_approval" : "tool_denial",
     },

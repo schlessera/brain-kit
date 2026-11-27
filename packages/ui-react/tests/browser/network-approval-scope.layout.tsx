@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
-import type { ClientMessage, NetworkApprovalOffer, NetworkApprovalScope } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, NetworkApprovalOffer, NetworkApprovalScope, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { ToolCallTimeline } from "../../src/components/chat/tool-call-timeline.js";
 import { ApprovalCard } from "../../src/components/activity/approval-card.js";
 import { approvalOutcome } from "../../src/components/activity/approval-card.js";
@@ -46,8 +46,8 @@ async function mount(width: number, surface: "transcript" | "actions") {
     const calls = useChatStore(s => activeChat(s).messages.at(-1)?.toolCalls ?? []);
     if (surface === "transcript") return <><ToolCallTimeline live toolCalls={calls} onApproval={decide} /><textarea data-composer aria-label="continue" /></>;
     return <><h2 data-needs-you-heading tabIndex={-1}>Needs you</h2>{calls.filter(call => call.status === "pending_approval").map(call => <ApprovalCard key={call.id} tool={call} origin="this conversation" keys
-      onDecide={(approved, always, scope) => { const { frame, receipt, networkScope } = approvalOutcome(call, call.id, approved, always, scope); send(frame); receipts.push(receipt.text);
-        root!.stores.chat.getState().resolveToolApproval(null, call.id, approved, networkScope); }} />)}</>;
+      onDecide={(approved, always, scope) => { const { frame, receipt } = approvalOutcome(call, call.id, approved, always, scope); send(frame); receipts.push(receipt.text);
+        root!.stores.chat.getState().resolveToolApproval(null, call.id, approved); }} />)}</>;
   }
   host = document.createElement("div"); host.style.cssText = `width:${Math.min(width, 720)}px;background:var(--bk-color-canvas);color:var(--bk-color-ink)`;
   document.body.append(host); renderer = createRoot(host);
@@ -82,9 +82,15 @@ for (const width of [320, 1280]) for (const surface of ["transcript", "actions"]
     await userEvent.click(wider);
     await expect.poll(() => replies.length).toBe(2);
     expect(replies[1], "WIDER_BUTTON_SENDS_ITS_SCOPE").toEqual({ type: "tool_approval", toolUseId: "net-wider", networkScope: "session", channel: "card" });
-    const settled = activeChat(root!.stores.chat.getState()).messages.flatMap(message => message.toolCalls);
-    expect(settled.map(call => call.approvalNetworkScope), "SETTLED_CARDS_KEEP_THEIR_SCOPE").toEqual(["once", "session"]);
-    if (surface === "actions") expect(receipts, "ACTIONS_RECEIPTS_NAME_THE_SCOPE").toEqual(["Allowed once", "Allowed all origins for this session"]);
+    // Sending claims no scope: only the host's settled outcome names one.
+    const scopes = () => activeChat(root!.stores.chat.getState()).messages.flatMap(message => message.toolCalls).map(call => call.approvalNetworkScope ?? null);
+    expect(scopes(), "SCOPE_RECEIPT_ONLY_FROM_HOST_OUTCOME").toEqual([null, null]);
+    if (surface === "actions") expect(receipts, "ACTIONS_SEND_CLAIMS_NO_SCOPE").toEqual(["Allowed", "Allowed"]);
+    expect(host!.querySelectorAll("[data-network-scope-receipt]")).toHaveLength(0);
+    // The host grants the once and refuses the session grant it could not commit.
+    root!.connection.handleServerMessage({ type: "tool_resolution", toolUseId: "net-keyboard", turnId: "turn-aeaea", outcome: "granted", networkScope: "once" } as ServerMessage);
+    root!.connection.handleServerMessage({ type: "tool_resolution", toolUseId: "net-wider", turnId: "turn-aeaea", outcome: "expired", reason: "The network grant could not be recorded." } as ServerMessage);
+    expect(scopes(), "HOST_OUTCOME_SETS_THE_SCOPE").toEqual(["once", null]);
     if (surface === "transcript") await expect.poll(() => [...host!.querySelectorAll<HTMLElement>("[data-network-scope-receipt]")].map(row => row.textContent),
-      { message: "TRANSCRIPT_RECEIPTS_NAME_THE_SCOPE" }).toEqual(["Allowed once", "Allowed all origins for this session"]);
+      { message: "TRANSCRIPT_RECEIPTS_NAME_THE_SCOPE" }).toEqual(["Allowed once"]);
   });

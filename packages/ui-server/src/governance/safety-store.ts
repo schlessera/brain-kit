@@ -102,13 +102,37 @@ export function logSafetyRecording(body:string,attributes:Record<string,string|n
 const causeAttributes=(scope:string,reason:string,cause:SafetyFailureCause)=>({"safety.scope":scope,"safety.reason":reason,"safety.site":cause.site,
   "safety.turn_id":cause.turnId,"error.class":cause.errorClass,"error.message":cause.message});
 
+/** How many contained losses a collection's failure cause lists before it
+ * marks overflow with one unattributed entry. */
+const MAX_COLLECTION_LOSSES=64;
+/**
+ * Every writer of a collection's failure goes through here (#4351): the
+ * first cause stays, and each contained loss is appended to its bounded
+ * `losses`, named by its reservation or "" when it had none. Past the bound
+ * one "" marks the overflow, so no later loss can read as attributed.
+ */
+function recordCollectionLoss(db:Database,where:"id"|"turn_id",key:string,reason:string|null,cause:SafetyFailureCause):void {
+  const row=db.query<{failure_cause:string|null},[string]>(`SELECT failure_cause FROM safety_collections WHERE ${where}=?`).get(key);
+  if(!row)return;
+  let next:SafetyFailureCause&{losses:string[]};
+  try{
+    const first=row.failure_cause?JSON.parse(row.failure_cause) as SafetyFailureCause&{losses?:unknown}:null;
+    const losses=!first?[]:Array.isArray(first.losses)?first.losses.filter((loss):loss is string=>typeof loss==="string")
+      // A cause written before losses were listed names only its first loss.
+      :[typeof first.reservation==="string"?first.reservation:""];
+    const loss=cause.reservation??"";
+    if(losses.length<MAX_COLLECTION_LOSSES)losses.push(loss);else if(losses.length===MAX_COLLECTION_LOSSES)losses.push("");
+    next={...(first??cause),losses};
+  }catch{next={...cause,losses:[""]};}
+  const failure=reason===null?"COALESCE(failure,'recording_failed')":"CASE WHEN failure='capacity' THEN failure ELSE ? END";
+  db.query(`UPDATE safety_collections SET failure=${failure},failure_cause=? WHERE ${where}=?`).run(...(reason===null?[]:[reason]),JSON.stringify(next),key);
+}
 /** Chat scope: marks only this turn's collection failed, with its first cause.
  * Returns false when the turn has no collection to carry the fact. */
 export function failSafetyCollection(db:Database,turnId:string,reason:SafetyFailureReason,cause:SafetyFailureCause):boolean {
   const marked=db.transaction(()=>{
     const c=collection(db,turnId);if(!c)return false;
-    db.query(`UPDATE safety_collections SET failure=CASE WHEN failure='capacity' THEN failure ELSE ? END,
-      failure_cause=COALESCE(failure_cause,?) WHERE id=?`).run(reason,JSON.stringify(cause),c.id);
+    recordCollectionLoss(db,"id",c.id,reason,cause);
     advance(db);return true;
   }).immediate();
   if(marked)logSafetyRecording("safety recording failed for one chat",causeAttributes("chat",reason,cause));
@@ -123,7 +147,7 @@ export function latchSafety(db:Database,turnId:string|null,reason:SafetyFailureR
     db.query("UPDATE safety_meta SET failed=1,reason=CASE WHEN reason='capacity' THEN reason ELSE ? END WHERE singleton=1").run(reason);
     db.query(`INSERT INTO safety_latch(singleton,since,reason,site,turn_id,error_class,message,stack,unscoped,revision) VALUES(1,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(singleton) DO UPDATE SET count=count+1,unscoped=MAX(unscoped,excluded.unscoped)`).run(cause.at,reason,cause.site,cause.turnId,cause.errorClass,cause.message,cause.stack,unscoped?1:0,meta(db).revision);
-    if(turnId) db.query("UPDATE safety_collections SET failure=CASE WHEN failure='capacity' THEN failure ELSE ? END,failure_cause=COALESCE(failure_cause,?) WHERE turn_id=?").run(reason,JSON.stringify(cause),turnId);
+    if(turnId) recordCollectionLoss(db,"turn_id",turnId,reason,cause);
     if(BigInt(meta(db).revision)<MAX_REVISION)advance(db);
   }).immediate();
   logSafetyRecording("safety recording latched for the brain",causeAttributes("brain",reason,cause));
@@ -424,7 +448,7 @@ function gapOwedResults(db:Database,collectionId:string|null,site:SafetyFailureS
  const causes:SafetyFailureCause[]=[];
  for(const row of owed){
   const cause=safetyFailureCause(new SafetyUnavailable(`A tool result was never recorded: ${row.tool} (${row.tool_use_id})${row.n>1?` and ${row.n-1} more`:""}`),site,row.turn_id);
-  db.query("UPDATE safety_collections SET failure=COALESCE(failure,'recording_failed'),failure_cause=COALESCE(failure_cause,?) WHERE id=?").run(JSON.stringify(cause),row.collection_id);
+  recordCollectionLoss(db,"id",row.collection_id,null,cause);
   db.query("DELETE FROM safety_obligations WHERE collection_id=?").run(row.collection_id);
   causes.push(cause);
  }
@@ -473,17 +497,21 @@ function safetyScope(db:Database,turnId:string|null,sessionId:string|null) {
 /** Pending input uses the aggregate's durable canonical membership, even before
  * its own reservation commits. Include an unbound turn with no collection yet. */
 /**
- * The reserved write that alone accounts for the scope's active recording
- * failure (#4351): the first cause of the only unended failed collection,
- * with the brain not latched. Null when any other failure is active, or the
- * cause names no reservation.
+ * Every contained loss behind the scope's active recording failures (#4351),
+ * each named by its reservation or "" when it had none. A latched brain, or
+ * a failed collection whose cause lists no losses, contributes "".
  */
-export function safetyFailureReservation(db:Database,turnId:string|null,sessionId:string|null):string|null {
- if(meta(db).failed)return null;
+export function safetyFailureLosses(db:Database,turnId:string|null,sessionId:string|null):string[] {
+ const losses:string[]=meta(db).failed?[""]:[];
  const {scope,args}=safetyScope(db,turnId,sessionId);
- const failed=db.query<{failure_cause:string|null},(string|null)[]>(`SELECT c.failure_cause FROM safety_collections c WHERE ${scope} AND c.failure IS NOT NULL AND c.ended=0 LIMIT 2`).all(...args);
- if(failed.length!==1||!failed[0]!.failure_cause)return null;
- try{const reservation=(JSON.parse(failed[0]!.failure_cause) as {reservation?:unknown}).reservation;return typeof reservation==="string"?reservation:null;}catch{return null;}
+ for(const c of db.query<{failure_cause:string|null},(string|null)[]>(`SELECT c.failure_cause FROM safety_collections c WHERE ${scope} AND c.failure IS NOT NULL AND c.ended=0`).all(...args)){
+  try{
+   const listed=c.failure_cause?(JSON.parse(c.failure_cause) as {losses?:unknown}).losses:undefined;
+   if(Array.isArray(listed)&&listed.length)for(const loss of listed)losses.push(typeof loss==="string"?loss:"");
+   else losses.push("");
+  }catch{losses.push("");}
+ }
+ return losses;
 }
 export function safetyScopeTurns(db:Database,turnId:string|null,sessionId:string|null):Set<string> {
  const {scope,args}=safetyScope(db,turnId,sessionId);

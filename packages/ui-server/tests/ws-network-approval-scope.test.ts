@@ -15,6 +15,7 @@ import { createWsHandlers } from "../src/ws/connection";
 import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
+import { TurnCoordinator, type RunningTurn } from "../src/ws/turns";
 import { testPrincipal } from "./helpers/principal";
 
 /** Polls a condition; the watchdog only stops a hang and scales under load. */
@@ -35,7 +36,7 @@ const OFFER: NetworkApprovalOffer = { transport: "http", host: "aeaea.invalid", 
  * A turn raising one Network card for `net-aeaea`, as the turn proxy does:
  * no tool span, the offer when given, and the proxy's commit hook.
  */
-function setup(network?: NetworkApprovalOffer, commit?: (scope: "origin" | "session") => Promise<boolean>) {
+function setup(network?: NetworkApprovalOffer, commit?: (scope: "origin" | "session") => boolean) {
   const db = createUiDb(":memory:");
   const state: { decided: PermissionDecision | null; finish: () => void; commits: string[] } = { decided: null, finish: () => {}, commits: [] };
   const backend = makeFakeBackend({
@@ -73,7 +74,7 @@ function setup(network?: NetworkApprovalOffer, commit?: (scope: "origin" | "sess
 
 test("the card and its re-delivery carry the offer; a committed wider scope reaches the backend and the host outcome", async () => {
   let resolutionBeforeCommit = false;
-  const s = setup(OFFER, async () => { resolutionBeforeCommit = card.frames("tool_resolution").length > 0; return true; });
+  const s = setup(OFFER, () => { resolutionBeforeCommit = card.frames("tool_resolution").length > 0; return true; });
   const card = await s.connect();
   const turnId = await s.raise(card);
   expect(card.frames("tool_approval_request")[0].network, "NETWORK_OFFER_ON_THE_CARD").toEqual(OFFER);
@@ -90,7 +91,7 @@ test("the card and its re-delivery carry the offer; a committed wider scope reac
 });
 
 test("a wider grant that cannot commit expires the card and publishes no granted scope", async () => {
-  const s = setup(OFFER, async () => false);
+  const s = setup(OFFER, () => false);
   const client = await s.connect();
   const turnId = await s.raise(client);
   client.send({ type: "tool_approval", toolUseId: "net-aeaea", networkScope: "session", channel: "card", turnId });
@@ -108,7 +109,7 @@ test("a wider grant that cannot commit expires the card and publishes no granted
 });
 
 test("a scope the card did not offer narrows to this one connection and commits nothing", async () => {
-  const s = setup({ ...OFFER, scopes: ["once"] }, async () => true);
+  const s = setup({ ...OFFER, scopes: ["once"] }, () => true);
   const client = await s.connect();
   const turnId = await s.raise(client);
   client.send({ type: "tool_approval", toolUseId: "net-aeaea", networkScope: "session", channel: "card", turnId });
@@ -125,4 +126,22 @@ for (const reply of ["legacy reply", "scope on an unrelated card"] as const) tes
   client.send({ type: "tool_approval", toolUseId: "net-aeaea", ...(reply === "legacy reply" ? {} : { networkScope: "session" }), channel: "card", turnId });
   await until(() => s.state.decided !== null);
   expect(s.state.decided, "UNSCOPED_ANSWER_UNCHANGED").toEqual({ behavior: "allow" });
+});
+
+test("a card that fails revalidation commits no grant and publishes no granted scope", () => {
+  const coordinator = new TurnCoordinator();
+  const turn = { sessionId: "sess-aeaea", turnId: "turn-aeaea", principalId: "test-principal", pendingCancellationPrincipalIds: [], abortController: new AbortController(),
+    timeoutHandle: setTimeout(() => {}, 0), queue: [], cancelled: false, lastResult: null } as unknown as RunningTurn;
+  const commits: string[] = [], decisions: PermissionDecision[] = [];
+  const request = { toolUseId: "net-aeaea", toolName: "Network", kind: "command" as const, input: {}, network: OFFER,
+    commitNetworkScope: (scope: "origin" | "session") => { commits.push(scope); return true; } };
+  coordinator.openApproval("net-aeaea", { turn, turnId: "turn-aeaea", request, resolve: decision => { decisions.push(decision); },
+    revalidate: () => "Safety or authority changed while the card waited." });
+  const claimed = coordinator.claimApproval("net-aeaea")!;
+  coordinator.settleApproval("net-aeaea", claimed, { behavior: "allow", networkScope: "session" }, { principalId: "test-principal" });
+  expect(commits, "EXPIRED_CARD_COMMITS_NO_GRANT").toEqual([]);
+  expect(decisions[0]?.behavior).toBe("deny");
+  expect(coordinator.resolvedApprovals.get("net-aeaea")).toMatchObject({ outcome: "expired" });
+  expect(coordinator.resolvedApprovals.get("net-aeaea")).not.toHaveProperty("networkScope");
+  clearTimeout(turn.timeoutHandle);
 });

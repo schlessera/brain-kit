@@ -28,6 +28,7 @@ import type {
 } from "../../lib/api-client.js";
 import { useActivityStore } from "../../stores/activity-store.js";
 import { useChatStore, pendingApprovals } from "../../stores/chat-store.js";
+import { NETWORK_SCOPE_RECEIPTS } from "../../lib/tool-approval.js";
 import { EmptyState, FilterRow, InlineToast, Label } from "@schlessera/brain-ui-kit";
 import { cn } from "../../lib/utils.js";
 import { ApprovalCard, approvalOutcome } from "./approval-card.js";
@@ -123,7 +124,12 @@ export function ActivityPage() {
    * silent and the row leaving the list is the receipt. Grow un-acknowledge
    * and the toast returns with its Undo.
    */
-  const [receipt, setReceipt] = useState<{ text: string; target: string; effect: string } | null>(null);
+  const [receipt, setReceipt] = useState<{ text: string; target: string; effect: string; toolUseId?: string } | null>(null);
+  // A Network card's receipt names its scope once the host's granted outcome
+  // reaches the card (#3595); until then, or for any other outcome, it does not.
+  const receiptScope = useChatStore((s) => receipt?.toolUseId ? [s.draft, ...Object.values(s.buffers)].flatMap(chat => chat?.messages ?? [])
+    .flatMap(message => message.toolCalls).find(tool => tool.id === receipt.toolUseId)?.approvalNetworkScope : undefined);
+  const receiptText = receipt && receiptScope ? NETWORK_SCOPE_RECEIPTS[receiptScope] : receipt?.text;
   const [drained, setDrained] = useState(false);
   const loadInbox = useActivityStore((s) => s.loadInbox);
   const acknowledgeIntent = useActivityStore((s) => s.acknowledgeIntent);
@@ -390,12 +396,12 @@ export function ActivityPage() {
   }
   function decideApproval(key: string | null, toolUseId: string, approved: boolean, asked?: boolean, networkScope?: NetworkApprovalScope) {
     const tool = approvals.find((a) => a.tool.id === toolUseId)?.tool;
-    const { receipt, frame, networkScope: granted } = approvalOutcome(tool, toolUseId, approved, asked, networkScope);
+    const { receipt, frame } = approvalOutcome(tool, toolUseId, approved, asked, networkScope);
     // A refused send keeps the card open and produces no decision receipt.
     if (!root.connection.send(frame)) return;
-    setReceipt(receipt);
+    setReceipt({ ...receipt, toolUseId });
     setDrained(inbox.length + approvals.length <= 1);
-    resolveToolApproval(key, toolUseId, approved, granted);
+    resolveToolApproval(key, toolUseId, approved);
   }
   /**
    * The badge's one number (#684): live approvals plus open, non-FYI durable
@@ -667,7 +673,7 @@ export function ActivityPage() {
               </div>
               {!hasNeedsYou ? (
                 <div className="flex flex-col gap-3">
-                  {receipt && <InlineToast text={receipt.text} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />}
+                  {receipt && <InlineToast text={receiptText!} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />}
                   {/* A drained section becomes the empty state, and its heading
                       takes focus after the last decision (D37) — never the
                       document top. */}
@@ -675,7 +681,7 @@ export function ActivityPage() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {receipt && receiptIds.length > 0 && <InlineToast text={receipt.text} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />}
+                  {receipt && receiptIds.length > 0 && <InlineToast text={receiptText!} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />}
                   {approvals.length > 0 && (
                     <div className="space-y-2">
                       {approvals.map(({ key, tool }) => (
@@ -906,7 +912,7 @@ export function ActivityPage() {
           {receipt && (
             <div className="flex flex-col gap-2">
               <Label text="Last decision" icon="resolved" />
-              <InlineToast text={receipt.text} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />
+              <InlineToast text={receiptText!} target={receipt.target} effect={receipt.effect} tone="teal" undoLabel="" />
             </div>
           )}
         </aside>
