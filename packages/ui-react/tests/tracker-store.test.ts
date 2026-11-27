@@ -457,6 +457,56 @@ describe("creating a tracker", () => {
   });
 });
 
+describe("frames that change nothing (#4740)", () => {
+  function counting(r: BrainUiRoot) {
+    const seen = { all: 0, unconfirmed: 0 };
+    const unsubscribe = r.stores.trackers.subscribe((next, before) => {
+      seen.all++;
+      if (next.unconfirmed !== before.unconfirmed) seen.unconfirmed++;
+    });
+    return Object.assign(seen, { unsubscribe });
+  }
+
+  test("further frames of the running turn neither write nor notify; its end still does", () => {
+    const r = root();
+    hello(r, false);
+    runningIn(r, A);
+    r.stores.trackers.getState().track(A);
+    const before = r.stores.trackers.getState();
+    expect(before.evidence[A]?.latest?.state).toBe("running");
+    const seen = counting(r);
+    const N = 50;
+    for (let i = 0; i < N; i++) {
+      frame(r, { type: "text_delta", sessionId: A, turnId: "turn-1", text: " row" });
+      frame(r, { type: "tool_input_delta", sessionId: A, turnId: "turn-1", toolUseId: "t1", partialJson: "{" });
+    }
+    expect(seen.all).toBe(0);
+    const after = r.stores.trackers.getState();
+    expect(after.evidence).toBe(before.evidence);
+    expect(after.records).toBe(before.records);
+    frame(r, { type: "result", sessionId: A, turnId: "turn-1", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+    seen.unsubscribe();
+    expect(seen.all).toBeGreaterThan(0);
+    expect(r.stores.trackers.getState().evidence[A]?.latest?.state).toBe("terminal");
+  });
+
+  test("a frame of the running turn that accepts the unconfirmed send still clears it", () => {
+    const r = root();
+    hello(r, false);
+    runningIn(r, A);
+    r.stores.trackers.getState().track(A, { unconfirmedRequestId: "req-steer" });
+    expect(r.stores.trackers.getState().unconfirmed[A]).toBe("req-steer");
+    const evidence = r.stores.trackers.getState().evidence[A];
+    const seen = counting(r);
+    frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-1", requestId: "req-steer" });
+    seen.unsubscribe();
+    // The turn was already known to run: only the acceptance is news.
+    expect(r.stores.trackers.getState().evidence[A]).toBe(evidence);
+    expect(r.stores.trackers.getState().unconfirmed[A]).toBeUndefined();
+    expect(seen.unconfirmed).toBe(1);
+  });
+});
+
 describe("clearing a tracker", () => {
   function seenFixture() {
     const r = root();
