@@ -22,6 +22,7 @@ import type { StoredDefinition } from "./definition.js";
 import { dropUnstartedItems } from "./queue-items.js";
 import { occurrenceId, OUTSTANDING_STATES, type ExecutionPolicy, type OccurrenceRow, type ScheduleService, type TaskRow } from "./service.js";
 import { SCHEDULE_FRESHNESS_MS } from "./time.js";
+import { clipUtf8 } from "../clip-utf8.js";
 
 /** Result text kept on the occurrence: bounded, inert, never authority. */
 const MAX_RESULT_BYTES = 4096;
@@ -50,15 +51,6 @@ interface LinkRow { item_id: string; occurrence_id: string; sequence: number }
 interface AttemptRow { run_id: string; occurrence_id: string; item_id: string; started_at: number; deadline_at: number }
 
 const OUTSTANDING = "('queued', 'running', 'unwinding', 'waiting_for_action', 'retrying')";
-
-function clipUtf8(text: string, limit: number): string {
-  const bytes = new TextEncoder().encode(text);
-  if (bytes.length <= limit) return text;
-  for (let end = limit; end >= limit - 3; end--) {
-    try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, end)); } catch { /* earlier boundary */ }
-  }
-  return "";
-}
 
 export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDeps) {
   const now = deps.now ?? Date.now;
