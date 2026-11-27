@@ -1,7 +1,7 @@
 import { Database, constants } from "bun:sqlite";
 import { chmodSync, mkdirSync, statSync } from "node:fs";
 import { dirname } from "node:path";
-import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
+import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./llm-defaults.js";
 import { nameKeys } from "./name-key.js";
 import { builtFtsTokenizer } from "./search-language.js";
 import { maintenanceConfigRoots } from "../config/env.js";
@@ -21,7 +21,7 @@ import { maintenanceConfigRoots } from "../config/env.js";
  */
 export const SCHEMA_VERSION = 16;
 
-/** Embedding identity written into index_metadata; defaults come from models.ts. */
+/** Embedding identity written into index_metadata; defaults come from llm-defaults.ts. */
 export interface SchemaOptions {
   embeddingModel?: string;
   embeddingDimensions?: number;
@@ -845,7 +845,7 @@ export function getMeta(db: Database, key: string): string | null {
  *
  * Exact match aside, this accepts one legacy form: `index_metadata.embedding_model`
  * used to be seeded by the schema-v3 migration with the bare model name from
- * models.ts ("gemini-embedding-2"), while providers report a namespaced id
+ * llm-defaults.ts ("gemini-embedding-2"), while providers report a namespaced id
  * ("gemini:gemini-embedding-2"). A brain last embedded before the indexer began
  * recording `provider.id` therefore carries perfectly good vectors under a name
  * that can never compare equal — search-engine skips vector search forever, and

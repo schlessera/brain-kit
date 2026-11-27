@@ -18,7 +18,7 @@ import { resolveEnv } from "../config/env.js";
 import type { BrainContext } from "../lib/context.js";
 import { migrateVecSchema, openDatabase, storedVectorWidth } from "../lib/db.js";
 import type { IndexStats } from "../lib/indexer.js";
-import { EMBEDDING_DIMENSIONS } from "../lib/models.js";
+import { EMBEDDING_DIMENSIONS } from "../lib/llm-defaults.js";
 import type { EmbeddingProvider } from "../lib/seams.js";
 import type { CliContext } from "./types.js";
 
