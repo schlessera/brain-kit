@@ -58,8 +58,6 @@ export type { Reservation, StateLedger, WorkerStateErrorClass } from "./server/w
 
 export { envMaskedPaths, PROVIDER_CACHE_DIR, PROVIDER_CACHE_FILES, resolveWorkerProtection } from "./server/worker-protection.js";
 
-export { prepareWorkerOutput } from "./server/worker-output.js";
-
 export { hostOutputStagingLimits, outputStagingLimit } from "./server/worker-state-limits.js";
 export { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission,
   workerCommandPolicyNote } from "./server/command-policy.js";

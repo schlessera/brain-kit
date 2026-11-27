@@ -245,6 +245,15 @@ export interface CreateAppOptions {
    * has no client build of its own and no NODE_ENV heuristics.
    */
   staticRoot?: string;
+  /**
+   * A URL path prefix under `staticRoot`, such as `"/assets/"`, whose files
+   * the build names by content hash. A file found under it is served as
+   * `Cache-Control: public, max-age=31536000, immutable`; every other static
+   * response, the `index.html` fallback included, is `no-cache`. It must start
+   * and end with `/` and may not be `/` itself. No default: unset, nothing is
+   * immutable. No effect without `staticRoot`.
+   */
+  staticImmutablePrefix?: string;
   /** Display name used in connection/status copy. Default "Brain UI". */
   appName?: string;
   /**
@@ -371,6 +380,10 @@ function isWebSocketUpgradeAttempt(request: Request): boolean {
 }
 
 export async function createApp(options: CreateAppOptions = {}): Promise<BrainUiApp> {
+  const immutablePrefix = options.staticImmutablePrefix;
+  if (immutablePrefix !== undefined && (immutablePrefix === "/" || !immutablePrefix.startsWith("/") || !immutablePrefix.endsWith("/"))) {
+    throw new TypeError(`staticImmutablePrefix must start and end with "/" and name a directory below the root; got ${JSON.stringify(immutablePrefix)}.`);
+  }
   // The edge: ambient environment becomes explicit configuration exactly once.
   // options.dbPath folds into the config here, so the handle's `config` and
   // the database actually opened can never disagree.
@@ -1429,7 +1442,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Static files: the deployment shell passes its built client explicitly.
   if (options.staticRoot) {
     const staticRoot = options.staticRoot;
-    app.use("/*", serveStatic({ root: staticRoot }));
+    // Only a file that exists gets a policy; a build's hashed directory may
+    // be cached for good, everything else is revalidated (#4815).
+    app.use("/*", serveStatic({ root: staticRoot, precompressed: true,
+      onFound: (_path, c) => {
+        c.header("Cache-Control", immutablePrefix !== undefined && c.req.path.startsWith(immutablePrefix)
+          ? "public, max-age=31536000, immutable" : "no-cache");
+      } }));
 
     // SPA fallback, served directly rather than through serveStatic({ path }).
     //
@@ -1445,7 +1464,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       const file = Bun.file(indexPath);
       if (!(await file.exists())) return c.notFound();
       return new Response(file, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" },
       });
     });
   }

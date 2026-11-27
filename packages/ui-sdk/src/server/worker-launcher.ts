@@ -13,11 +13,11 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
 import { createWorkerFreezer } from "./worker-freezer.js";
-import { parseProcStat, procChildren, readProcStat } from "./proc-identity.js";
+import { readProcStat } from "./proc-identity.js";
 import { createWorkerFileObserver, type ObservedWorkerFile } from "./worker-file-observer.js";
 import { createWorkerPipes, createWorkerPipesSteps } from "./worker-pipes.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, workerStepSleep, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
-import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerStateLimits, validWorkerStateBytes } from "./worker-state-limits.js";
+import { DEFAULT_MAINTENANCE_TEMP_BYTES, validWorkerStateBytes } from "./worker-state-limits.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { WORKER_EGRESS_DIR } from "./egress-proxy.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
@@ -27,11 +27,9 @@ import { WORKER_EMPTY_HOME, WORKER_XDG_HOME, WORKER_XDG_DIRS } from "./worker-xd
 import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
   type WorkerLimitHit, type WorkerLimitReport, type WorkerLimitsPlan } from "./worker-limits.js";
 import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from "./worker-cgroup.js";
-import { processStateLedger } from "./worker-state-budget.js";
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
 import { dataTreeMounts, resolveWorkerProtection, protectedWorkerMounts, providerMaskMounts, verifyWorkerFolderMountsSteps } from "./worker-protection.js";
-import { prepareWorkerOutput } from "./worker-output.js";
-import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
+import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
 import { workerEnvironmentArgs } from "./worker-environment.js";
@@ -955,13 +953,19 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
   // Managed worktrees (#2430): the whole access generation, so a grant appears
   // and a parked worktree disappears without a mount in the running namespace.
   // The generation is root-owned: the worker cannot add entries beside a grant.
-  if (sandbox.worktrees) {
-    const source = sandbox.worktrees.source, info = lstatSync(source, { throwIfNoEntry: false });
+  // A pool directory (a worktree generation or a reference view) binds only
+  // into an interactive governed or strict worker, and only from the pool.
+  const rootOwnedPoolDirectory = (source: string, noun: string): void => {
+    const info = lstatSync(source, { throwIfNoEntry: false });
     if (sandbox.restricted || input.restricted || input.maintenance || input.transport || workerProfile(sandbox) === "restricted")
-      throw new WorkerHostError("only an interactive governed or strict worker binds a managed worktree generation");
+      throw new WorkerHostError(`only an interactive governed or strict worker binds a ${noun}`);
     if (!isAbsolute(source) || !info?.isDirectory() || realpathSync(source) !== normalize(source) || info.uid !== 0 || (info.mode & 0o7777) !== 0o755
       || holds(brain, source) || holds(source, brain))
-      throw new WorkerHostError("a managed worktree generation must be its pool's root-owned directory outside the brain");
+      throw new WorkerHostError(`a ${noun} must be its pool's root-owned directory outside the brain`);
+  };
+  if (sandbox.worktrees) {
+    const source = sandbox.worktrees.source;
+    rootOwnedPoolDirectory(source, "managed worktree generation");
     out.binds.push("--bind", source, WORKER_WORKTREE_ROOT);
   }
   // Shared reference source (#2432): each domain's whole view, read-only, so a
@@ -969,12 +973,7 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
   for (const domain of ["public", "private"] as const) {
     const source = sandbox.references?.[domain];
     if (!source) continue;
-    const info = lstatSync(source, { throwIfNoEntry: false });
-    if (sandbox.restricted || input.restricted || input.maintenance || input.transport || workerProfile(sandbox) === "restricted")
-      throw new WorkerHostError("only an interactive governed or strict worker binds a reference source view");
-    if (!isAbsolute(source) || !info?.isDirectory() || realpathSync(source) !== normalize(source) || info.uid !== 0 || (info.mode & 0o7777) !== 0o755
-      || holds(brain, source) || holds(source, brain))
-      throw new WorkerHostError("a reference source view must be its pool's root-owned directory outside the brain");
+    rootOwnedPoolDirectory(source, "reference source view");
     out.binds.push("--ro-bind", source, `${WORKER_REFERENCE_ROOT}/${domain}`);
   }
   return out;
@@ -1106,7 +1105,7 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
  * Private trusted bootstrap. It validates/clears descriptors, joins the
  * worker's cgroup when it has one, then resets signal dispositions and execs the launcher.
  */
-export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: { source: string; gateSource: string }): { command: string[]; env: Record<string, string> } {
+export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: { source: string; gateSource: string }): { command: string[]; env: Record<string, string>; payload: WorkerLaunchPayload } {
   // Resolve using this package's source/build output, never the brain's module resolver.
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
   const { limits: _limits, populateState: _populate, ...launch } = input;
@@ -1129,9 +1128,35 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: {
     // START_GATE, which closes it before the payload exec.
     argv = ["/bin/sh", "-c", 'exec 3>"$1"; exec 4<"$2"; shift 2; exec "$@"', "brain-worker-status", status.source, status.gateSource, ...argv];
   }
-  return { command: [process.execPath, entry], env: {
-    BRAIN_WORKER_LAUNCH: JSON.stringify({ ...launch, argv, ...(cgroup ? { cgroup } : {}) }),
-  } };
+  const payload: WorkerLaunchPayload = { ...launch, argv, ...(cgroup ? { cgroup } : {}) };
+  return { command: [process.execPath, entry], env: { BRAIN_WORKER_LAUNCH: JSON.stringify(payload) }, payload };
+}
+
+/** The identity helper's optional enrollment after its roots: the cgroup, the output stage and a retained brain view. */
+type IdentityEnrollment = Parameters<typeof prepareWorkerIdentity> extends [string, string[], unknown, ...infer Rest] ? Rest : never;
+
+/** What `workerBootstrap` serializes into `BRAIN_WORKER_LAUNCH`: the launch, its bubblewrap argv and its cgroup. */
+type WorkerLaunchPayload = Omit<WorkerLaunch, "limits" | "populateState"> & { argv: string[]; cgroup?: string };
+
+/**
+ * Hands a separate-UID launch to the identity helper: checks the start gate
+ * in the bubblewrap argv, enrolls the runtime-state and turn-temp roots, and
+ * rewrites the serialized launch so the bootstrap starts the helper's
+ * supervisor instead. The helper enrolls only the payload, so the payload's
+ * cgroup is left to the coordination outside it.
+ */
+function withIdentity(boot: ReturnType<typeof workerBootstrap>, helper: string, payloadArgv: readonly string[],
+  input: Pick<WorkerLaunch, "stateBytes" | "turnTempBytes">, ...enroll: IdentityEnrollment): ReturnType<typeof prepareWorkerIdentity> {
+  const { payload } = boot;
+  identityStartGate(payload.argv, payloadArgv, input);
+  const broker = prepareWorkerIdentity(helper, payload.argv, [
+    ...(input.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: input.stateBytes }]),
+    ...(input.turnTempBytes === undefined ? [] : [{ name: "temp" as const, path: TURN_TEMP_ROOT, bytes: input.turnTempBytes }]),
+  ], ...enroll);
+  payload.argv = broker.command;
+  delete payload.cgroup;
+  boot.env.BRAIN_WORKER_LAUNCH = JSON.stringify(payload);
+  return broker;
 }
 
 /** A direct-spawn launch held at its start gate, then released (#4301). */
@@ -1280,33 +1305,15 @@ function exited(pid: number): boolean {
 }
 
 /**
- * The sandbox's first process: the only child bubblewrap forks. Read from
- * the kernel's own record of bubblewrap's children, so nothing inside the
- * sandbox can name it.
+ * Opens one of the worker's private tmpfs mounts from outside, through the
+ * sandbox's root. bubblewrap reports the sandbox before it mounts anything,
+ * so this waits until the path is a tmpfs of exactly the allowance that
+ * `accept` takes for the mount of its own; until then it would still name a
+ * host directory, or nothing. `noun` names the mount in every refusal.
  */
-export function sandboxPid(bwrap: number, deadline: number): number {
-  for (;;) {
-    const children = procChildren(bwrap);
-    if (children.length === 1) return children[0]!.pid;
-    if (children.length > 1) throw new WorkerHostError("bubblewrap started more than one sandbox process");
-    if (exited(bwrap)) throw new WorkerHostError("bubblewrap exited before it started its sandbox");
-    if (Date.now() > deadline) throw new WorkerHostError("bubblewrap did not start its sandbox in time");
-    Bun.sleepSync(1);
-  }
-}
-
-/**
- * Opens the worker's private tmpfs from outside, through the sandbox's root.
- * bubblewrap reports the sandbox before it mounts anything, so this waits
- * until the path is a mount of its own (a device other than its parent's), a
- * tmpfs of exactly the allowance, and empty. Until then it would still name
- * the host's directory, or nothing.
- */
-function openPrivateState(bwrap: number, pid: number, bytes: number, deadline: number, mount = WORKER_STATE, stagingDirectories = false): number {
-  return runWorkerStepsSync(openPrivateStateSteps(bwrap, pid, bytes, deadline, mount, stagingDirectories));
-}
-
-function* openPrivateStateSteps(bwrap: number, pid: number, bytes: number, deadline: number, mount = WORKER_STATE, stagingDirectories = false): WorkerSteps<number> {
+function* openPrivateTmpfsSteps(bwrap: number, pid: number, options: { mount: string; bytes: number; deadline: number;
+  accept: (root: string, dev: number) => boolean; noun: string }): WorkerSteps<number> {
+  const { mount, bytes, deadline, accept, noun } = options;
   const path = `/proc/${pid}/root${mount}`;
   let last = "it never appeared";
   for (;;) {
@@ -1315,56 +1322,41 @@ function* openPrivateStateSteps(bwrap: number, pid: number, bytes: number, deadl
       fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       const root = `/proc/self/fd/${fd}`;
       const fs = statfsSync(root);
-      if (fs.type === TMPFS_MAGIC && fs.blocks * fs.bsize === bytes && fstatSync(fd).dev !== statSync(`${root}/..`).dev
-        && (stagingDirectories ? readdirSync(root).every(name => ["upper", "work", "merged"].includes(name)) : readdirSync(root).length === 0)) return fd;
+      const dev = fstatSync(fd).dev;
+      if (fs.type === TMPFS_MAGIC && fs.blocks * fs.bsize === bytes && accept(root, dev)) return fd;
       last = "it was not yet the private tmpfs";
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EACCES" || (error as NodeJS.ErrnoException).code === "EPERM") {
         if (fd !== undefined) closeSync(fd);
-        throw new WorkerHostError("the server cannot reach its worker's private runtime state through /proc (is bubblewrap installed setuid, or /proc mounted with hidepid?)");
+        throw new WorkerHostError(`the server cannot reach its worker's private ${noun} through /proc (is bubblewrap installed setuid, or /proc mounted with hidepid?)`);
       }
       last = (error as Error).message;
     }
     if (fd !== undefined) closeSync(fd);
-    if (exited(pid) || exited(bwrap)) throw new WorkerHostError(`bubblewrap exited before it mounted the worker's private runtime-state tmpfs (${last})`);
-    if (Date.now() > deadline) throw new WorkerHostError(`the worker's private runtime-state tmpfs was not mounted in time (${last})`);
+    const tmpfs = `${noun.replaceAll(" ", "-")} tmpfs`;
+    if (exited(pid) || exited(bwrap)) throw new WorkerHostError(`bubblewrap exited before it mounted the worker's private ${tmpfs} (${last})`);
+    if (Date.now() > deadline) throw new WorkerHostError(`the worker's private ${tmpfs} was not mounted in time (${last})`);
     yield* workerStepSleep(1);
   }
 }
 
+/** The worker's runtime-state tmpfs: a mount of its own, and empty. */
+function openPrivateStateSteps(bwrap: number, pid: number, bytes: number, deadline: number): WorkerSteps<number> {
+  return openPrivateTmpfsSteps(bwrap, pid, { mount: WORKER_STATE, bytes, deadline, noun: "runtime state",
+    accept: (root, dev) => dev !== statSync(`${root}/..`).dev && readdirSync(root).length === 0 });
+}
+
 /**
- * Opens the worker's private turn-temp tmpfs from outside, through the
- * sandbox's root (#1703). Until bubblewrap has switched to the sandbox's root,
- * the path names the server's own `/tmp`, so it must be a tmpfs of exactly
- * the allowance on another device than that. Nothing in the worker has run
- * yet: its command waits behind the start gate.
+ * The worker's turn-temp tmpfs (#1703). Until bubblewrap has switched to the
+ * sandbox's root, the path names the server's own `/tmp`, so it must also be
+ * on another device than that. Nothing in the worker has run yet: its
+ * command waits behind the start gate.
  */
-function* openPrivateTurnTempSteps(bwrap: number, pid: number, bytes: number, deadline: number): WorkerSteps<number> {
-  const path = `/proc/${pid}/root${TURN_TEMP_ROOT}`;
+function openPrivateTurnTempSteps(bwrap: number, pid: number, bytes: number, deadline: number): WorkerSteps<number> {
   let hostTmp: number | undefined;
   try { hostTmp = statSync(TURN_TEMP_ROOT).dev; } catch { hostTmp = undefined; }
-  let last = "it never appeared";
-  for (;;) {
-    let fd: number | undefined;
-    try {
-      fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-      const root = `/proc/self/fd/${fd}`;
-      const fs = statfsSync(root);
-      const dev = fstatSync(fd).dev;
-      if (fs.type === TMPFS_MAGIC && fs.blocks * fs.bsize === bytes && dev !== hostTmp && dev !== statSync(`${root}/..`).dev) return fd;
-      last = "it was not yet the private tmpfs";
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EACCES" || (error as NodeJS.ErrnoException).code === "EPERM") {
-        if (fd !== undefined) closeSync(fd);
-        throw new WorkerHostError("the server cannot reach its worker's private turn temp through /proc (is bubblewrap installed setuid, or /proc mounted with hidepid?)");
-      }
-      last = (error as Error).message;
-    }
-    if (fd !== undefined) closeSync(fd);
-    if (exited(pid) || exited(bwrap)) throw new WorkerHostError(`bubblewrap exited before it mounted the worker's private turn-temp tmpfs (${last})`);
-    if (Date.now() > deadline) throw new WorkerHostError(`the worker's private turn-temp tmpfs was not mounted in time (${last})`);
-    yield* workerStepSleep(1);
-  }
+  return openPrivateTmpfsSteps(bwrap, pid, { mount: TURN_TEMP_ROOT, bytes, deadline, noun: "turn temp",
+    accept: (root, dev) => dev !== hostTmp && dev !== statSync(`${root}/..`).dev });
 }
 
 /**
@@ -1415,86 +1407,6 @@ function shareInitialWorkerState(root: string): void {
   visit(root, 0);
 }
 
-/**
- * A server-owned, kernel-bounded tmpfs, held by a trusted mount helper
- * until publication finishes. No host directory backs the stored bytes.
- * Only writable upper-layer bytes occupy this allowance. Immutable startup
- * inputs live separately and cannot be modified through this merged view.
- */
-export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutputStagingLimits(), lowerRoot?: string) {
-  const reservation = processStateLedger().reserve(undefined, undefined, limits);
-  let mount: string;
-  try { mount = mkdtempSync("/tmp/brain-output-staging-"); } catch (error) { reservation.release(); throw error; }
-  let fd: number | undefined;
-  let child: ReturnType<typeof Bun.spawn> | undefined;
-  let pipes: ReturnType<typeof createWorkerPipes> | undefined;
-  try {
-    validWorkerStateBytes(limits.allowanceBytes, "output staging allowance");
-    const bwrap = Bun.which("bwrap");
-    if (!bwrap) throw new WorkerHostError("bubblewrap is missing");
-    if (lowerRoot && !isNativeWorkerStartupRoot(lowerRoot) && !/^\/tmp\/brain-startup-input-[A-Za-z0-9]+\/startup-[A-Za-z0-9]+\/brain$/.test(lowerRoot)) {
-      throw new WorkerHostError("output staging requires a server-owned immutable lower path");
-    }
-    if (lowerRoot && /[,:\\]/.test(lowerRoot)) throw new WorkerHostError("native output staging requires a managed store path without colon, comma or backslash mount-option delimiters");
-    if (lowerRoot && isNativeWorkerStartupRoot(lowerRoot)) throw new WorkerHostError("native output staging requires asynchronously prepared trusted OverlayFS through the configured native manager; userxattr fallback is unavailable");
-    const mountProgram = lowerRoot ? Bun.which("mount") : undefined;
-    if (lowerRoot && !mountProgram) throw new WorkerHostError("util-linux mount is required for bounded copy-on-write output staging");
-    pipes = createWorkerPipes();
-    // This helper executes only the literal shell below, never repository
-    // inputs. Preserve source mount writability so the final worker can
-    // rebind an explicitly allowed maintenance span sink. The final worker
-    // applies its own read-only root and complete boundary before agent code.
-    const setupScript = '"$4" -i -n -t tmpfs -o "size=$3,mode=700" tmpfs "$2" && mkdir "$2/upper" "$2/work" "$2/merged" && "$4" -i -n -t overlay overlay -o "lowerdir=$1,upperdir=$2/upper,workdir=$2/work,userxattr" "$2/merged" || exit 126; printf "ready\\n"; IFS= read -r go; exit 0';
-    const unshare = lowerRoot ? Bun.which("unshare") : undefined;
-    if (lowerRoot && !unshare) throw new WorkerHostError("util-linux unshare is required for bounded copy-on-write output staging");
-    const keeperCommand = lowerRoot
-      ? [unshare!, "--user", "--map-root-user", "--mount", "--net", "--ipc", "--uts", "--fork", "--kill-child=SIGKILL",
-        "/bin/sh", "-c", setupScript, "brain-output-keeper", lowerRoot, mount, String(limits.allowanceBytes), mountProgram!]
-      : [bwrap, "--unshare-user", "--unshare-net", "--unshare-ipc", "--unshare-uts",
-        "--die-with-parent", "--new-session", "--cap-drop", "ALL", "--bind", "/", "/", "--proc", "/proc",
-        ...["null", "zero", "full", "random", "urandom", "tty"].flatMap(name => ["--dev-bind", `/dev/${name}`, `/dev/${name}`]),
-        "--size", String(limits.allowanceBytes), "--tmpfs", mount,
-        "--clearenv", "--", "/bin/sh", "-c", 'printf "ready\\n"; IFS= read -r go; exit 0'];
-    child = Bun.spawn(keeperCommand, { env: {}, stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
-    pipes.closeChild();
-    const deadline = Date.now() + STATE_SETUP_MS;
-    fd = openPrivateState(child.pid, sandboxPid(child.pid, deadline), limits.allowanceBytes, deadline, mount, Boolean(lowerRoot));
-    const namespacePid = sandboxPid(child.pid, deadline);
-    // Older bubblewrap switches user namespaces after mounting. Wait for
-    // the trusted shell itself before asking nsenter to join the finished pair.
-    const ready = openSync(`/proc/self/fd/${pipes.parent[1]}`, constants.O_RDONLY | constants.O_NONBLOCK);
-    try {
-      let received = "";
-      const buffer = Buffer.alloc(16);
-      while (received !== "ready\n") {
-        try { received += buffer.subarray(0, readSync(ready, buffer)).toString(); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code !== "EAGAIN") throw error; }
-        if (received === "ready\n") break;
-        if (exited(child.pid) || Date.now() > deadline) throw new WorkerHostError("output-staging helper did not become ready");
-        Bun.sleepSync(1);
-      }
-    } finally { closeSync(ready); }
-    const owned = fd;
-    let refs = 0, closed = false;
-    // Only the server reads this descriptor alias. Worker mount sources are
-    // resolved inside the keeper namespace, then masked by their own /tmp.
-    const root = `/proc/${process.pid}/fd/${owned}`;
-    void child.exited.finally(() => pipes!.cleanup());
-    const namespaceStart = parseProcStat(readFileSync(`/proc/${namespacePid}/stat`, "utf8")).start;
-    return { root, mount, namespacePid, namespaceStart, allowanceBytes: reservation.outputStagingBytes,
-      retain() { if (closed) throw new Error("output staging is closed"); refs++; },
-      release() { if (closed || --refs > 0) return; closed = true; child!.kill("SIGKILL"); closeSync(owned); rmSync(mount, { recursive: true, force: true }); reservation.release(); },
-    };
-  } catch (error) {
-    child?.kill("SIGKILL");
-    if (fd !== undefined) closeSync(fd);
-    const detail = pipes ? launchDiagnostics(pipes.parent[2]) : "";
-    pipes?.cleanup(); rmSync(mount, { recursive: true, force: true }); reservation.release();
-    if (detail) throw new WorkerHostError(detail);
-    throw error;
-  }
-}
-
 /** What bubblewrap wrote to the worker's stderr so far, read without waiting. */
 function launchDiagnostics(stderr: number): string {
   let fd: number | undefined;
@@ -1530,11 +1442,18 @@ export function launchAgentWorkerAsync(input: WorkerLaunch): Promise<LaunchedWor
 /** The launch as steps, for a caller that drives it inside its own steps (#2790). */
 export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<LaunchedWorker> {
   let startupView = input.preparedOutput?.view ?? input.startupView;
-  let areaOutput: ReturnType<typeof prepareWorkerOutput> | PreparedWorkerOutput | undefined = input.preparedOutput;
+  const areaOutput: PreparedWorkerOutput | undefined = input.preparedOutput;
+  // The launch inputs: the area output, then the startup view unless the
+  // caller's prepared output owns it. The view is attempted even when the
+  // area cleanup rejects. Before launch the area output is the caller's
+  // prepared output too, so the two early refusals release the same way.
+  const releaseLaunchInputs = async (): Promise<void> => {
+    try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); }
+  };
   let plan: WorkerLimitsPlan;
   try { plan = launchLimits(input); }
   catch (error) {
-    void Promise.resolve(input.preparedOutput?.cleanup() ?? startupView?.cleanup()).catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
+    void releaseLaunchInputs().catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
     throw error;
   }
   let cgroup: WorkerCgroup | undefined;
@@ -1544,7 +1463,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       // them. Later plans, the status and the agent's note say they are absent.
       const reason = (error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error));
       workerCgroupHostFailed(reason);
-      void Promise.resolve(input.preparedOutput?.cleanup() ?? startupView?.cleanup()).catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
+      void releaseLaunchInputs().catch(() => { /* Native broker keeps the recoverable checkpoint identity. */ });
       throw new WorkerHostError(`the worker's cgroup could not be created (${reason}); the next turn runs without cgroup limits and says so`);
     }
   }
@@ -1585,7 +1504,9 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     startupView ??= input.sandbox?.profile === "governed" ? undefined : createWorkerStartupView(realpathSync(input.brainPath), { omitGit: Boolean(input.restricted) });
     const configurationRoot = startupView?.root ?? realpathSync(input.brainPath);
     const areas = input.sandbox?.areas.filter(area => area.mount.writable).map(area => area.rel) ?? [];
-    if (startupView && areas.length && !areaOutput) areaOutput = prepareWorkerOutput(input.brainPath, { startupView, areas });
+    // Writable areas publish only through output the caller prepared; no
+    // host can stage it here, so the launch is refused before any spawn.
+    if (startupView && areas.length && !areaOutput) throw new WorkerHostError("a prepared output for the worker's writable areas (preparedOutput)");
     const resolvedInput = { ...input, ...(startupView ? { startupView } : {}), ...(areaOutput ? { areaOutput: areaOutput.output } : {}) };
     transferNativeMaintenanceMasks(input, resolvedInput);
     input = resolvedInput;
@@ -1609,19 +1530,9 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     const bootInput = { ...input, limits: plan };
     transferNativeMaintenanceMasks(input, bootInput);
     const boot = workerBootstrap(bootInput, cgroup?.path, status);
-    if (helper) {
-      const payload = JSON.parse(boot.env.BRAIN_WORKER_LAUNCH!) as { argv: string[]; cgroup?: string };
-      identityStartGate(payload.argv, payloadCommand(input), input);
-      identityBroker = prepareWorkerIdentity(helper, payload.argv, [
-        ...(input.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: input.stateBytes }]),
-        ...(input.turnTempBytes === undefined ? [] : [{ name: "temp" as const, path: TURN_TEMP_ROOT, bytes: input.turnTempBytes }]),
-      ], cgroup?.path, input.areaOutput?.storage ?? input.maintenance?.output?.storage,
+    // The helper enrolls only the payload launch. Coordination stays outside its cgroup.
+    if (helper) identityBroker = withIdentity(boot, helper, payloadCommand(input), input, cgroup?.path, input.areaOutput?.storage ?? input.maintenance?.output?.storage,
       input.sandbox?.profile === "governed" && input.sandbox.retainedFolders?.length ? brain : undefined);
-      payload.argv = identityBroker.command;
-      // The helper enrolls only the payload launch. Coordination stays outside its cgroup.
-      delete payload.cgroup;
-      boot.env.BRAIN_WORKER_LAUNCH = JSON.stringify(payload);
-    }
     child = Bun.spawn(boot.command, { env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
     pipes.closeChild();
@@ -1743,15 +1654,14 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
         if (areaOutput && input.outputLock) await areaOutput.publishLocked(input.outputLock);
         else await areaOutput?.publish();
       }
-      finally { try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); } }
+      finally { await releaseLaunchInputs(); }
       return code;
     }, async error => {
       clearInterval(memoryWatch);
       // A failed supervisor/control path is never eligible for publication; the
       // worker's exit has already terminated it and closed its broker.
       cgroup?.remove();
-      try { await areaOutput?.cleanup(); }
-      finally { if (!input.preparedOutput) await startupView?.cleanup(); }
+      await releaseLaunchInputs();
       throw error;
     });
     const launched = { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, released: pipes.released, limits: plan, limitReport: () => report(),
@@ -1790,6 +1700,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
         else identityBroker?.discard();
         await child?.exited;
         cgroup?.remove();
+        // Not `releaseLaunchInputs`: this stops at the first rejection, so a
+        // retried close repeats the whole sequence.
         await areaOutput?.cleanup();
         if (!input.preparedOutput) await startupView?.cleanup();
       })().catch((failure: unknown) => { closing = undefined; throw failure; });
@@ -1799,8 +1711,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     }
     completeMaintenanceSetup?.();
     cgroup?.remove();
-    if (child) void child.exited.finally(async () => { try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); } }).catch(() => { /* Native broker retains unresolved release intent for recovery. */ });
-    else { void Promise.resolve(areaOutput?.cleanup()).finally(() => input.preparedOutput ? undefined : startupView?.cleanup()).catch(() => { /* No child ran; durable ownership retains unresolved release intent. */ }); }
+    if (child) void child.exited.finally(releaseLaunchInputs).catch(() => { /* Native broker retains unresolved release intent for recovery. */ });
+    else { void releaseLaunchInputs().catch(() => { /* No child ran; durable ownership retains unresolved release intent. */ }); }
     if (detail) {
       throw new WorkerHostError(NO_TMPFS_SIZE.test(diagnostics)
         ? `bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${diagnostics})`
@@ -2025,7 +1937,7 @@ function* probeWorkerHostSteps(brainPath: string, options: WorkerHostProbeOption
       // Opens the start gate up front; the probe has nothing to copy in.
       let child: { exitCode: number | null };
       if (identityHelper) {
-        const payload = JSON.parse(boot.env.BRAIN_WORKER_LAUNCH!) as { argv: string[] };
+        const { payload } = boot;
         if (!sandbox && !restricted) {
           // Only this minted qualification channel is restored over private /tmp.
           // Do not route it through installed-package closure discovery or change
@@ -2035,12 +1947,7 @@ function* probeWorkerHostSteps(brainPath: string, options: WorkerHostProbeOption
           if (separator < 0 || !relayDir) throw new WorkerHostError("worker_identity_relay_probe_invalid");
           payload.argv.splice(separator, 0, "--ro-bind", relayDir, relayDir);
         }
-        identityStartGate(payload.argv, probeCommand, options);
-        broker = prepareWorkerIdentity(identityHelper, payload.argv, [
-          ...(options.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: options.stateBytes }]),
-          ...(options.turnTempBytes === undefined ? [] : [{ name: "temp" as const, path: TURN_TEMP_ROOT, bytes: options.turnTempBytes }]),
-        ]);
-        payload.argv = broker.command; boot.env.BRAIN_WORKER_LAUNCH = JSON.stringify(payload);
+        broker = withIdentity(boot, identityHelper, probeCommand, options);
         const supervisor = Bun.spawn(boot.command, { env: boot.env, stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
         const deadline = Date.now() + 10_000;
         verifiedWorkerUid = (yield* broker.readySteps(supervisor.pid, deadline)).workerUid; yield* broker.requestSteps("release");
