@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { text as streamText } from "node:stream/consumers";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { launchAgentWorker, prepareWorkerSandbox } from "../../ui-sdk/src/server/worker-launcher";
 import { Database } from "bun:sqlite";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -15,6 +15,8 @@ import { resolveServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
+import * as referenceTransport from "../src/brain/reference-transport";
+import { readdirSync } from "node:fs";
 const roots: string[] = [];
 const nativeCleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of nativeCleanup.splice(0)) await close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -235,3 +237,49 @@ for (const kind of ["quarantine", "private directory"] as const) {
     expect(readFileSync(secret, "utf8")).toBe("host-private fixture");
   });
 }
+
+describe("the in-memory quarantine directory has an owner (#4807)", () => {
+  const boot = (f: ReturnType<typeof fixture>, dbPath: string) => createApp({ config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", BRAIN_PATH: f.brain, DB_PATH: dbPath,
+    BRAIN_UI_PRICING_DISCOVERY: "0" }), registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]) });
+  /** Runs `body` with the temporary root pointed at a private directory outside the brain; returns the quarantine directories left there. */
+  async function inPrivateTemp(f: ReturnType<typeof fixture>, body: (left: () => string[]) => Promise<void>) {
+    const temp = join(f.root, "tmp"), saved = process.env.TMPDIR;
+    mkdirSync(temp);
+    const left = () => readdirSync(temp).filter(name => name.startsWith("brain-ui-quarantine-"));
+    process.env.TMPDIR = temp;
+    try { await body(left); } finally { if (saved === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = saved; }
+    return left();
+  }
+
+  test("closing an app on an in-memory database removes its quarantine directory", async () => {
+    const f = fixture();
+    expect(await inPrivateTemp(f, async left => {
+      const app = await boot(f, ":memory:");
+      try { expect(left()).toHaveLength(1); } finally { await app.close(); }
+    })).toEqual([]);
+  });
+
+  test("a boot that fails after the quarantine exists removes it too", async () => {
+    const f = fixture();
+    expect(await inPrivateTemp(f, async left => {
+      const transport = spyOn(referenceTransport, "createReferenceTransport").mockImplementation(() => {
+        expect(left()).toHaveLength(1);
+        throw new Error("The harbor refused Odysseus");
+      });
+      try {
+        await expect(boot(f, ":memory:")).rejects.toThrow("The harbor refused Odysseus");
+        expect(transport).toHaveBeenCalledTimes(1);
+      } finally { transport.mockRestore(); }
+    })).toEqual([]);
+  });
+
+  test("a file-backed database keeps the quarantine beside it", async () => {
+    const f = fixture();
+    const kept = join(f.state, "brain-ui-quarantine", "turn-ithaca", "penelope.md");
+    mkdirSync(dirname(kept), { recursive: true });
+    writeFileSync(kept, "Quarantined loom notes");
+    const app = await boot(f, join(f.state, "brain-ui.db"));
+    await app.close();
+    expect(readFileSync(kept, "utf8")).toBe("Quarantined loom notes");
+  });
+});
