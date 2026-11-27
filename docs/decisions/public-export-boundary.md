@@ -290,10 +290,14 @@ source modules. A removed internal name was never supported, so the third
 migration path applies.
 
 First-party additions for the video module (#1205):
-`@schlessera/brain/internal` shares `getContext`, `resolveCompletionProvider`,
+`@schlessera/brain/internal` shares `resolveCompletionProvider`,
 `geminiCompletions` and `GEMINI_FLASH_MODEL`. They do not expand the supported
 public API. The video package supports its manifest, schema and config type;
 its watch implementation and CLI remain implementation details.
+
+Amended 2026-11-27 (#4690): the list above also named the process-wide context
+getter. It was removed with the module-level state it read: the video module
+never imported it, and every consumer passes the context `initContext` returns.
 
 An internal-only package (#1396): `@schlessera/brain-common` has no root
 entry. Its entries, `./internal/env`, `./internal/frontmatter` and
