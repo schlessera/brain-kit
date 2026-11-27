@@ -3,15 +3,15 @@ import { randomUUID } from "node:crypto";
 import { scanText } from "./check-leakage";
 import { GitReservationStore, assertLease, holderToken, holds, LEASE_MS, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
   type Candidate, type Operation, type Lease } from "./integration-reservation";
-import { contractReadiness, latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
+import { contractReadiness, latestIntegrationRun, verifyIntegrationProof as provedIntegration } from "./integration-proof";
 import { declareFix, gateDecision, recordExpedited, type RedMainRecord } from "./red-main";
-import { isAncestor } from "./red-main-cli";
+import { isAncestor as gitAncestor } from "./red-main-cli";
 import { expeditedProblems, expeditedTests, fixProbeTitle, probeReceipt, type FeedbackEvidence, type ProbeEvidence } from "./red-main-expedite";
 import { receiptFromBody, receiptRefusal } from "./check-receipt";
-import { reviewGate } from "./review-receipt";
+import { reviewGate as recordedReview } from "./review-receipt";
 import type { API } from "./proof-api";
-import { classify } from "./proof-system";
-import { checkQualification, laneRefusal, readLane, type MainRun } from "./proof-system-lane";
+import { classify as classifyProofSystem } from "./proof-system";
+import { checkQualification as qualify, laneRefusal, readLane as laneAt, type MainRun } from "./proof-system-lane";
 
 /**
  * A refusal no retry can cure: the candidate changed or the reservation no longer
@@ -33,11 +33,65 @@ async function gh(...args: string[]): Promise<string> {
   return out.trim();
 }
 
-if (import.meta.main) {
+/**
+ * Everything `runIntegrate` takes from its surroundings: the GitHub CLI, the
+ * reservation store on the invoking checkout, the clocks and timer, output, the
+ * local Git reads on that checkout, the expedited-fix record, and the imported
+ * checks that read Git. `processIntegrateIo` is the real process; tests pass fakes.
+ */
+export interface IntegrateIO {
+  gh(...args: string[]): Promise<string>;
+  store(): Pick<GitReservationStore, "root" | "git" | "read" | "publish" | "publishRedMain">;
+  /** Monotonic milliseconds. */
+  now(): number;
+  sleep(ms: number): Promise<unknown>;
+  setInterval(tick: () => unknown, ms: number): unknown;
+  clearInterval(timer: unknown): void;
+  out(line: string): void;
+  err(line: string): void;
+  /** `git cat-file -e <sha>^{commit}` on `cwd`. */
+  hasCommit(sha: string, cwd: string): boolean;
+  /** `git merge-tree --write-tree <base> <head>` on `cwd`. */
+  mergeTree(base: string, head: string, cwd: string): { exitCode: number; stdout: string };
+  write(path: string, text: string): Promise<unknown>;
+  /** Runs a command to completion, as the `ci-timings.ts record` of an expedited fix. */
+  run(command: string[]): { exitCode: number; stderr: string };
+  isAncestor: typeof gitAncestor;
+  reviewGate: typeof recordedReview;
+  classify: typeof classifyProofSystem;
+  checkQualification: typeof qualify;
+  readLane: typeof laneAt;
+  verifyIntegrationProof: typeof provedIntegration;
+}
+
+export function processIntegrateIo(): IntegrateIO {
+  return {
+    gh, store: () => new GitReservationStore(process.cwd()),
+    now: () => performance.now(), sleep: ms => Bun.sleep(ms),
+    setInterval: (tick, ms) => setInterval(tick, ms), clearInterval: timer => clearInterval(timer as ReturnType<typeof setInterval>),
+    out: line => console.log(line), err: line => console.error(line),
+    hasCommit: (sha, cwd) => Bun.spawnSync(["git", "cat-file", "-e", `${sha}^{commit}`], { cwd }).exitCode === 0,
+    mergeTree(base, head, cwd) {
+      const merged = Bun.spawnSync(["git", "merge-tree", "--write-tree", base, head], { cwd, stdout: "pipe", stderr: "pipe" });
+      return { exitCode: merged.exitCode, stdout: new TextDecoder().decode(merged.stdout) };
+    },
+    write: (path, text) => Bun.write(path, text),
+    run(command) {
+      const child = Bun.spawnSync(command, { stdout: "pipe", stderr: "pipe" });
+      return { exitCode: child.exitCode, stderr: new TextDecoder().decode(child.stderr) };
+    },
+    isAncestor: gitAncestor, reviewGate: recordedReview, classify: classifyProofSystem, checkQualification: qualify, readLane: laneAt, verifyIntegrationProof: provedIntegration,
+  };
+}
+
+/** The integration command; resolves to its exit code. */
+export async function runIntegrate(argv: readonly string[], io: IntegrateIO): Promise<number> {
+  const { gh, isAncestor, reviewGate, classify, checkQualification, readLane, verifyIntegrationProof } = io;
+  let exitCode = 0;
   // `token` proves this process holds `own` (#3303). It stays in memory; only `acquire` prints it.
-  let own: Lease | undefined, token: string | undefined, store: GitReservationStore | undefined;
+  let own: Lease | undefined, token: string | undefined, store: ReturnType<IntegrateIO["store"]> | undefined;
   let actor = 0, repository = "";
-  let timer: ReturnType<typeof setInterval> | undefined, pending = Promise.resolve(), lost: unknown;
+  let timer: unknown, pending = Promise.resolve(), lost: unknown;
   // Local monotonic time until which the owned lease is certainly live, and of the last successful renewal.
   let liveUntil = 0, renewedAt = 0, pollFailingSince: number | undefined;
   /** `started` precedes the server clock read, so the local deadline never outlasts the lease. */
@@ -60,24 +114,24 @@ if (import.meta.main) {
       try { next = reservationTransition(snapshot.state, operation, actor, now); } catch (error) { throw new Fatal(describe(error)); }
       if (scanText("coordination", JSON.stringify(next)).length) throw new Fatal("Public coordination state failed the leakage gate");
       if (store!.publish(snapshot, next)) return next;
-      await Bun.sleep(100 * 2 ** attempt);
+      await io.sleep(100 * 2 ** attempt);
     }
     throw new Error("Concurrent coordination update; bounded retries exhausted");
   }
   async function renew() {
     if (!own) throw new Error("No owned reservation");
-    const started = performance.now();
+    const started = io.now();
     if (!sameCandidate(await candidate(own.candidate.pr), own.candidate)) throw new Fatal("Candidate head/base changed; reacquisition and new confirmation required");
     const state = await change({ kind: "renew", id: own.id, token }); own = state.active!;
     held(own, started, state.updated);
   }
   async function acquire(desired: Candidate) {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const secret = holderToken(), started = performance.now();
+      const secret = holderToken(), started = io.now();
       try { const state = await change({ kind: "acquire", candidate: desired, token: secret }), lease = state.active!; token = secret; held(lease, started, state.updated); return lease; }
       catch (error) {
         if (!String(error).includes("Integration busy:") || attempt === 2) throw error;
-        console.error(String(error)); await Bun.sleep(1000 * 2 ** attempt);
+        io.err(String(error)); await io.sleep(1000 * 2 ** attempt);
         if (!sameCandidate(await candidate(desired.pr), desired)) throw new Error("Candidate changed while waiting for integration ownership");
       }
     }
@@ -98,7 +152,7 @@ if (import.meta.main) {
       if (record === snapshot.redMain) return record;
       if (scanText("coordination", JSON.stringify(record)).length) throw new Error("Public coordination state failed the leakage gate");
       if (store!.publishRedMain(snapshot, record)) return record;
-      await Bun.sleep(100 * 2 ** attempt);
+      await io.sleep(100 * 2 ** attempt);
     }
     throw new Error("Concurrent coordination update; bounded retries exhausted");
   }
@@ -108,14 +162,14 @@ if (import.meta.main) {
       await changeRedMain((record, now) => recordExpedited(record, { pr: desired.pr, head: desired.head, base: desired.base, squash,
         baseProbe: evidence.baseProbe!.run, headProbe: evidence.headProbe!.run, feedbackRun: evidence.feedback!.run, actor, at: now }, now));
       const dir = `${store!.root}/tmp/ci-timings`, file = `${store!.root}/tmp/expedited-fix-${desired.pr}.json`;
-      await Bun.write(file, JSON.stringify({ kind: "expedited-fix", pr: desired.pr, run: fixesRun,
+      await io.write(file, JSON.stringify({ kind: "expedited-fix", pr: desired.pr, run: fixesRun,
         evidence: `https://github.com/${repository}/actions/runs/${evidence.headProbe!.run}` }));
-      const child = Bun.spawnSync([process.execPath, `${import.meta.dir}/ci-timings.ts`, "record", "--repo", repository, "--event", file, "--out", dir], { stdout: "pipe", stderr: "pipe" });
-      if (child.exitCode !== 0) throw new Error(new TextDecoder().decode(child.stderr).trim());
-    } catch (error) { console.error(`Expedited fix merged but its record is incomplete; record it by hand: ${String(error)}`); }
+      const child = io.run([process.execPath, `${import.meta.dir}/ci-timings.ts`, "record", "--repo", repository, "--event", file, "--out", dir]);
+      if (child.exitCode !== 0) throw new Error(child.stderr.trim());
+    } catch (error) { io.err(`Expedited fix merged but its record is incomplete; record it by hand: ${String(error)}`); }
   }
   function ensureCommit(sha: string) {
-    if (Bun.spawnSync(["git", "cat-file", "-e", `${sha}^{commit}`], { cwd: store!.root }).exitCode !== 0) store!.git(["fetch", "origin", sha]);
+    if (!io.hasCommit(sha, store!.root)) store!.git(["fetch", "origin", sha]);
   }
   /** The main-push CI run at one squash: the newest of at most ten, one API read. */
   async function mainRunAt(sha: string): Promise<MainRun | null> {
@@ -152,22 +206,22 @@ if (import.meta.main) {
     try { await renew(); }
     catch (error) {
       if (error instanceof Fatal) { lost = error; return; }
-      const since = Math.round((performance.now() - renewedAt) / 1000);
-      console.error(`Lease renewal failed ${since}s after the last success; retrying next tick: ${describe(error)}`);
-      if (performance.now() >= liveUntil - RENEW_MS) lost = new Error(`No lease renewal succeeded for ${since}s (safety margin ${SAFETY_MS / 1000}s before possible expiry); last error: ${describe(error)}`);
+      const since = Math.round((io.now() - renewedAt) / 1000);
+      io.err(`Lease renewal failed ${since}s after the last success; retrying next tick: ${describe(error)}`);
+      if (io.now() >= liveUntil - RENEW_MS) lost = new Error(`No lease renewal succeeded for ${since}s (safety margin ${SAFETY_MS / 1000}s before possible expiry); last error: ${describe(error)}`);
     }
   }
   function heartbeat() {
-    timer = setInterval(() => { pending = pending.then(tick); return pending; }, RENEW_MS);
+    timer = io.setInterval(() => { pending = pending.then(tick); return pending; }, RENEW_MS);
   }
   /** A proof read that fails transiently is retried next tick; a refusal is not, and polling gives up with the lease's margin. */
   async function poll<T>(read: () => Promise<T>): Promise<T | undefined> {
     try { const value = await read(); pollFailingSince = undefined; return value; }
     catch (error) {
       if (error instanceof Fatal) throw error;
-      pollFailingSince ??= performance.now();
-      const failing = Math.round((performance.now() - pollFailingSince) / 1000);
-      console.error(`Proof poll failed (failing for ${failing}s); retrying next tick: ${describe(error)}`);
+      pollFailingSince ??= io.now();
+      const failing = Math.round((io.now() - pollFailingSince) / 1000);
+      io.err(`Proof poll failed (failing for ${failing}s); retrying next tick: ${describe(error)}`);
       if (failing * 1000 >= SAFETY_MS) throw new Error(`Proof polls failed for ${failing}s; last error: ${describe(error)}`);
       return undefined;
     }
@@ -183,8 +237,8 @@ if (import.meta.main) {
       if (readiness.state === "passed") return;
       if (readiness.state === "refused") throw new Error(readiness.message);
       if (waited >= CONTRACT_WAIT_MS) throw new Error(`${readiness.message} after ${waited / 1000}s; confirm again once it completes. No reservation was taken and no candidate CI was requested.`);
-      console.error(`${readiness.message}; waiting before taking the reservation`);
-      await Bun.sleep(RENEW_MS);
+      io.err(`${readiness.message}; waiting before taking the reservation`);
+      await io.sleep(RENEW_MS);
     }
   }
   /**
@@ -201,7 +255,7 @@ if (import.meta.main) {
       }
     });
   }
-  async function stopHeartbeat() { if (timer) clearInterval(timer); timer = undefined; await pending; }
+  async function stopHeartbeat() { if (timer) io.clearInterval(timer); timer = undefined; await pending; }
   async function milestones(pr: number, issueRefs: string[]) {
     const live = await api.json(`pulls/${pr}`);
     if (!live.milestone?.title) throw new Error("PR release milestone required");
@@ -240,7 +294,7 @@ if (import.meta.main) {
   /** Expedited fix evidence for the exact candidate; throws the ruling's refusals. */
   async function expeditedEvidence(desired: Candidate, fixesRun: number, after = { probe: 0, run: 0 }) {
     const tests = expeditedTests(store!.read().redMain, fixesRun);
-    for (const sha of [desired.head, desired.base]) if (Bun.spawnSync(["git", "cat-file", "-e", `${sha}^{commit}`], { cwd: store!.root }).exitCode !== 0) store!.git(["fetch", "origin", sha]);
+    for (const sha of [desired.head, desired.base]) if (!io.hasCommit(sha, store!.root)) store!.git(["fetch", "origin", sha]);
     const deleted = store!.git(["diff", "--name-only", "--no-renames", "--diff-filter=D", `${desired.base}...${desired.head}`]).split("\n").filter(Boolean);
     const run = await feedbackEvidence(desired), feedback = run && run.run > after.run ? run : null;
     const [baseProbe, headProbe] = [await fixProbe(fixesRun, desired.base, after.probe), await fixProbe(fixesRun, desired.head, after.probe)];
@@ -265,9 +319,9 @@ if (import.meta.main) {
       expedited = await expeditedEvidence(desired, fixesRun, after);
       if (expedited.problems.length) throw new Error(`Expedited fix proof refused: ${expedited.problems.join("; ")}`);
       // The squash must equal the exact base merged with the exact probed head.
-      const merged = Bun.spawnSync(["git", "merge-tree", "--write-tree", desired.base, desired.head], { cwd: store!.root, stdout: "pipe", stderr: "pipe" });
+      const merged = io.mergeTree(desired.base, desired.head, store!.root);
       if (merged.exitCode !== 0) throw new Error("The fix head does not merge cleanly onto the exact base");
-      tree = new TextDecoder().decode(merged.stdout).split("\n")[0]!.trim(); candidateRun = expedited.feedback!.run;
+      tree = merged.stdout.split("\n")[0]!.trim(); candidateRun = expedited.feedback!.run;
     }
     await milestones(desired.pr, issueRefs);
     await stopHeartbeat();
@@ -287,13 +341,13 @@ if (import.meta.main) {
     const main = await api.json(`actions/workflows/ci.yml/runs?event=push&head_sha=${merged.merge_commit_sha}&per_page=10`);
     const mainProof = "pending; inspect actual main jobs before claiming full completion";
     const observedMainConclusion = main.workflow_runs?.[0]?.conclusion ?? null;
-    console.log(JSON.stringify({ merged: true, sha: merged.merge_commit_sha, candidateRun, mainProof, observedMainConclusion,
+    io.out(JSON.stringify({ merged: true, sha: merged.merge_commit_sha, candidateRun, mainProof, observedMainConclusion,
       ...(expedited ? { expedited: { fixesMainRun: fixesRun, baseProbe: expedited.baseProbe!.run, headProbe: expedited.headProbe!.run,
         backstop: "the next main run includes the open red set; only its green result clears the record" } } : {}) }));
-    process.exitCode = 2; // A run summary alone never completes actual main proof reconciliation.
+    exitCode = 2; // A run summary alone never completes actual main proof reconciliation.
   }
   try {
-    const [command, target, ...options] = process.argv.slice(2), values = new Map<string, string>();
+    const [command, target, ...options] = argv, values = new Map<string, string>();
     for (let index = 0; index < options.length; index += 2) {
       const key = options[index]!, value = options[index + 1];
       if (!["--issues", "--lease", "--token", "--fixes-main-run"].includes(key) || !value || value.startsWith("--") || values.has(key)) throw new Error("Invalid integration options");
@@ -307,29 +361,29 @@ if (import.meta.main) {
     if (issues.some(value => !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[1-9]\d*$/.test(value)) || issues.length > 100) throw new Error("Invalid delivered issue identities");
     repository = await gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner");
     const user = JSON.parse(await gh("api", "user")); actor = user.id;
-    store = new GitReservationStore(process.cwd());
+    store = io.store();
     const remote = store.git(["remote", "get-url", "origin"]).replace(/^git@github.com:/, "https://github.com/").replace(/\.git$/, "");
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || remote !== `https://github.com/${repository}`) throw new Error("Authenticated repository and origin differ");
     if (command === "lane") {
       if (target !== "--json" || options.length) throw new Error("usage: bun scripts/integrate.ts lane --json");
       store.git(["fetch", "origin", "main"]);
       const decision = await readLane(store.git(["rev-parse", "FETCH_HEAD"]), mainRunAt, { cwd: store.root });
-      console.log(JSON.stringify({ ...decision, refusal: laneRefusal(decision) }));
+      io.out(JSON.stringify({ ...decision, refusal: laneRefusal(decision) }));
     } else if (command === "main-status") {
       if (target !== undefined && target !== "--json") throw new Error("usage: bun scripts/integrate.ts main-status [--json]");
       const snapshot = store.read();
-      console.log(JSON.stringify({ red: snapshot.redMain.open !== null, source: snapshot.oid, record: snapshot.redMain }));
+      io.out(JSON.stringify({ red: snapshot.redMain.open !== null, source: snapshot.oid, record: snapshot.redMain }));
     } else if (command === "declare-fix") {
       if (!/^[1-9]\d*$/.test(target ?? "") || !Number.isSafeInteger(Number(target))) throw new Error("A PR number is required");
       const live = await api.json(`pulls/${target}`);
       if (live.state !== "open" || live.base?.ref !== "main" || live.base?.repo?.full_name !== repository) throw new Error("Only an open PR against main can be declared a red-main fix");
-      console.log(JSON.stringify(await changeRedMain((record, now) => declareFix(record, Number(target), now))));
+      io.out(JSON.stringify(await changeRedMain((record, now) => declareFix(record, Number(target), now))));
     } else if (command === "inspect") {
       const snapshot = store.read(), now = await clock();
-      console.log(JSON.stringify({ ...snapshot, live: liveLease(snapshot.state.active, now), serverTime: now }));
+      io.out(JSON.stringify({ ...snapshot, live: liveLease(snapshot.state.active, now), serverTime: now }));
     } else if (command === "revoke") {
       const permission = await api.json(`collaborators/${encodeURIComponent(user.login)}/permission`);
-      console.log(JSON.stringify(await change({ kind: "revoke", reason: target ?? "", maintainer: permission.permission === "admin" || ["admin", "maintain"].includes(permission.role_name) })));
+      io.out(JSON.stringify(await change({ kind: "revoke", reason: target ?? "", maintainer: permission.permission === "admin" || ["admin", "maintain"].includes(permission.role_name) })));
     } else if (command === "release" || command === "renew") {
       const state = store.read().state;
       token = values.get("--token");
@@ -338,8 +392,8 @@ if (import.meta.main) {
       own = state.active;
       // A failed renew exits nonzero and leaves the lease for the next renewal or expiry;
       // only an explicit release (or confirm/merge's own completion) ends it (#3302).
-      if (command === "renew") try { await renew(); console.log(JSON.stringify(own)); } finally { own = undefined; }
-      else { console.log(JSON.stringify(await change({ kind: "release", id: own.id, token }))); own = undefined; }
+      if (command === "renew") try { await renew(); io.out(JSON.stringify(own)); } finally { own = undefined; }
+      else { io.out(JSON.stringify(await change({ kind: "release", id: own.id, token }))); own = undefined; }
     } else if (["acquire", "confirm", "merge"].includes(command ?? "")) {
       if (!/^[1-9]\d*$/.test(target ?? "") || !Number.isSafeInteger(Number(target))) throw new Error("A PR number is required");
       if (command === "merge" && values.has("--lease")) {
@@ -353,7 +407,7 @@ if (import.meta.main) {
       if (fixesRun !== undefined) {
         // Refuse a run that is not the open record's, or category-only failures, before any write.
         expeditedTests(store.read().redMain, fixesRun);
-        console.log(JSON.stringify({ declared: (await changeRedMain((record, now) => declareFix(record, desired.pr, now))).open?.fixes }));
+        io.out(JSON.stringify({ declared: (await changeRedMain((record, now) => declareFix(record, desired.pr, now))).open?.fixes }));
       } else if (command !== "acquire") {
         if (!receiptFromBody((await api.json(`pulls/${desired.pr}`)).body)) throw new Error(receiptRefusal("", new Set())!);
         // Before any lease or candidate CI, like the receipt; an expedited red-main fix is exempt from both.
@@ -368,12 +422,12 @@ if (import.meta.main) {
         const state = store.read().state;
         if (state.active?.id === lease && state.active.holder !== undefined && token === undefined) throw new Error("merge --lease needs --token <token>, printed once by the acquire that took this lease");
         if (state.active?.id === lease && state.active.actor === actor && holds(state.active, token)) own = state.active;
-        const started = performance.now(), now = await clock();
+        const started = io.now(), now = await clock();
         held(assertLease(state, lease, actor, desired, now, token), started, now);
         await merge(issues, fixesRun);
       } else if (command === "confirm" && fixesRun !== undefined) {
         own = await acquire(desired);
-        console.log(JSON.stringify({ acquired: own }));
+        io.out(JSON.stringify({ acquired: own }));
         heartbeat();
         const tests = expeditedTests(store.read().redMain, fixesRun);
         const after = { probe: Math.max(0, ...(await probeRuns()).map(r => r.id)), run: (await latestIntegrationRun(api, "ci.yml", desired))?.id ?? 0 };
@@ -391,7 +445,7 @@ if (import.meta.main) {
           const pending = !evidence || [evidence.baseProbe, evidence.headProbe].some(probe => probe?.status !== "completed") || !evidence.feedback ||
             evidence.feedback.changeset === null || (evidence.feedback.changeset === "success" && evidence.feedback.verify === null);
           if (!pending) { await stopHeartbeat(); await merge(issues, fixesRun, after); break; }
-          await Bun.sleep(RENEW_MS);
+          await io.sleep(RENEW_MS);
         }
         if (lost) throw lost;
       } else {
@@ -400,7 +454,7 @@ if (import.meta.main) {
         if (command === "confirm") await contractPassed(desired);
         own = await acquire(desired);
         // Only an explicit acquire prints the holder token, once; confirm keeps it in memory.
-        console.log(JSON.stringify(command === "acquire" ? { acquired: own, token } : { acquired: own }));
+        io.out(JSON.stringify(command === "acquire" ? { acquired: own, token } : { acquired: own }));
         if (command === "acquire") { own = undefined; token = undefined; } // Caller retains the explicit id and token.
         else {
           heartbeat();
@@ -423,19 +477,22 @@ if (import.meta.main) {
               if (observed.conclusion !== "success") throw new Error(`Candidate proof ${observed.conclusion}; reservation released without retry`);
               await stopHeartbeat(); await merge(issues); break;
             }
-            await Bun.sleep(RENEW_MS);
+            await io.sleep(RENEW_MS);
           }
           if (lost) throw lost;
         }
       }
     } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | lane --json | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id --token token] [--issues owner/repo#N,...] [--fixes-main-run <run-id>] | renew/release <id> [--token token] | revoke <reason>");
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1;
+    io.err(error instanceof Error ? error.message : String(error)); exitCode = 1;
   } finally {
     await stopHeartbeat();
     if (own && store) try {
       const current = store.read().state.active;
       if (current?.id === own.id && current.actor === actor && holds(current, token)) await change({ kind: "release", id: own.id, token });
-    } catch (error) { console.error(`Owned reservation cleanup unfinished: ${String(error)}`); process.exitCode = 1; }
+    } catch (error) { io.err(`Owned reservation cleanup unfinished: ${String(error)}`); exitCode = 1; }
   }
+  return exitCode;
 }
+
+if (import.meta.main) process.exitCode = await runIntegrate(process.argv.slice(2), processIntegrateIo());
