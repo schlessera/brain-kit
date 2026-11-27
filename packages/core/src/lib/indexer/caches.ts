@@ -303,9 +303,15 @@ export function saveAssetCache(db: Database, root: string): void {
 
 /**
  * Remove every line whose key `drop` selects, and return how many went.
- * Writes only when a line was removed.
+ * Writes only when a line was removed. `drop` is built from the file's keys,
+ * and only when the file holds at least one, so a missing or empty cache
+ * costs the caller nothing.
  */
-function removeSidecarLines(root: string, path: string, drop: (key: string) => boolean): number {
+function removeSidecarLines(
+  root: string,
+  path: string,
+  drop: (keys: ReadonlySet<string>) => (key: string) => boolean
+): number {
   migrateSidecarCaches(root);
   requireCacheDir(root);
   let raw: string;
@@ -314,15 +320,18 @@ function removeSidecarLines(root: string, path: string, drop: (key: string) => b
   } catch {
     return 0; // no cache yet
   }
-  const lines = raw.split("\n").filter((l) => l.trim());
-  const kept = lines.filter((line) => {
+  const lines = raw.split("\n").filter((l) => l.trim()).map((line) => {
     try {
-      const entry = JSON.parse(line) as { k?: string };
-      return !entry.k || !drop(entry.k);
+      return { line, k: (JSON.parse(line) as { k?: string }).k };
     } catch {
-      return true; // leave malformed lines alone; not ours to discard
+      return { line, k: undefined }; // leave malformed lines alone; not ours to discard
     }
   });
+  const keys = new Set<string>();
+  for (const { k } of lines) if (k) keys.add(k);
+  if (keys.size === 0) return 0;
+  const dropKey = drop(keys);
+  const kept = lines.filter(({ k }) => !k || !dropKey(k)).map(({ line }) => line);
   if (kept.length === lines.length) return 0;
   writeCache(root, path, kept.length ? kept.join("\n") + "\n" : "");
   return lines.length - kept.length;
@@ -330,12 +339,12 @@ function removeSidecarLines(root: string, path: string, drop: (key: string) => b
 
 /** Remove the chunk contexts stored under `keys`; returns the lines removed. */
 export function forgetContextEntries(root: string, keys: ReadonlySet<string>): number {
-  return removeSidecarLines(root, contextCachePath(root), (k) => keys.has(k));
+  return removeSidecarLines(root, contextCachePath(root), () => (k) => keys.has(k));
 }
 
 /** Remove every description of these bytes, under any title; returns the lines removed. */
 export function forgetAssetEntries(root: string, contentHash: string): number {
-  return removeSidecarLines(root, assetCachePath(root), (k) => assetKeyHash(k) === contentHash);
+  return removeSidecarLines(root, assetCachePath(root), () => (k) => assetKeyHash(k) === contentHash);
 }
 
 /**
@@ -384,18 +393,24 @@ export function pruneSidecarCaches(
         )
         .all() as { content_hash: string }[];
       const liveHashes = new Set(assetRows.map((r) => r.content_hash));
-      removed.assets = removeSidecarLines(root, assetCachePath(root), (k) => !liveHashes.has(assetKeyHash(k)));
+      removed.assets = removeSidecarLines(root, assetCachePath(root), () => (k) => !liveHashes.has(assetKeyHash(k)));
     }
 
-    const chunkRows = db
-      .prepare(
+    // Only the cache's own keys are held: chunks stream past, and a brain with
+    // no context cache scans none.
+    removed.contexts = removeSidecarLines(root, contextCachePath(root), (keys) => {
+      const live = new Set<string>();
+      const chunks = db.prepare<{ heading: string; content: string; title: string }, []>(
         `SELECT c.heading, c.content, d.title
          FROM chunks c JOIN documents d ON d.id = c.document_id
          WHERE d.asset_type = 'markdown'`
-      )
-      .all() as { heading: string; content: string; title: string }[];
-    const liveContexts = new Set(chunkRows.map((r) => chunkContextKey(r.title, r.heading, r.content)));
-    removed.contexts = removeSidecarLines(root, contextCachePath(root), (k) => !liveContexts.has(k));
+      );
+      for (const r of chunks.iterate()) {
+        const key = chunkContextKey(r.title, r.heading, r.content);
+        if (keys.has(key)) live.add(key);
+      }
+      return (k) => !live.has(k);
+    });
   } catch (e) {
     warn(`  Could not prune sidecar caches: ${(e as Error).message}`);
   }
