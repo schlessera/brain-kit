@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import type { Database } from "bun:sqlite";
+import { CHUNKER_VERSION } from "../src/lib/chunker";
 import { openDatabase } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
@@ -64,6 +65,38 @@ async function fresh(root: string, name: string) {
   const db = open(root, name);
   await indexAll(db, options(root));
   return partitions(snapshot(db));
+}
+
+/**
+ * Run `commit` once, right after the run loads the index's document rows: the
+ * window in which another connection (an MCP server, a git hook) can commit
+ * before the run writes. Restored in teardown.
+ */
+function afterRowsLoad(db: Database, commit: () => void) {
+  const prepare = db.prepare;
+  let fired = false;
+  db.prepare = ((...args: Parameters<typeof prepare>) => {
+    const statement = prepare.apply(db, args);
+    if (!String(args[0]).startsWith("SELECT id, path, asset_type, content_hash, chunker_version, accepted_mtime, stat_fingerprint FROM documents")) return statement;
+    const all = statement.all.bind(statement);
+    statement.all = ((...params: Parameters<typeof all>) => {
+      const rows = all(...params);
+      if (!fired) { fired = true; commit(); }
+      return rows;
+    }) as typeof statement.all;
+    return statement;
+  }) as typeof prepare;
+  cleanups.push(() => { db.prepare = prepare; });
+  return () => fired;
+}
+
+/** Another connection's index of an earlier version of `path`: its row, as that run committed it. */
+function commitRow(root: string, name: string, path: string, title: string) {
+  const other = open(root, name);
+  other.prepare(`INSERT INTO documents (path, title, type, created, updated, content, content_hash, asset_type, indexed_at, chunker_version)
+    VALUES (?, ?, 'note', '2026-07-01', '2026-07-12', 'An earlier version.', 'earlier', 'markdown', ?, ?)`).run(path, title, new Date().toISOString(), CHUNKER_VERSION);
+  const { id } = other.prepare("SELECT id FROM documents WHERE path = ?").get(path) as { id: number };
+  other.prepare("INSERT INTO documents_fts(rowid, title, summary, content, tags, aliases) VALUES (?, ?, '', 'An earlier version.', '', '')").run(id, title);
 }
 
 describe("targeted index runs (#2835)", () => {
@@ -146,6 +179,46 @@ describe("targeted index runs (#2835)", () => {
     const after = partitions(snapshot(db));
     expect(after.links).toEqual([{ source: "notes/raft.md", target: "Nymph of Ogygia", resolved: "notes/calypso.md" }]);
     expect(after).toEqual(await fresh(root, "fresh"));
+  });
+
+  test("a row another connection commits for a named path after the run read the index is indexed over (#4899)", async () => {
+    const root = brain({ "notes/penelope.md": note("Penelope", "Penelope weaves.") });
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    write(root, "notes/telemachus.md", note("Telemachus", "Son of [[Penelope]]."));
+    const fired = afterRowsLoad(db, () => commitRow(root, "brain", "notes/telemachus.md", "Telemachus"));
+    await indexAll(db, { ...options(root), paths: ["notes/telemachus.md"] });
+    expect(fired()).toBe(true);
+    expect(partitions(snapshot(db))).toEqual(await fresh(root, "fresh"));
+  });
+
+  test("a note another connection commits after the run read the index resolves links as a fresh build does (#4899)", async () => {
+    const root = brain({
+      "notes/penelope.md": note("Penelope", "Penelope waits for [[odysseus]]."),
+      "notes/telemachus.md": note("Telemachus", "Son of Penelope."),
+    });
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    write(root, "notes/odysseus.md", note("Odysseus", "Returns to Ithaca."));
+    write(root, "notes/telemachus.md", note("Telemachus", "Son of Penelope, edited."));
+    const fired = afterRowsLoad(db, () => commitRow(root, "brain", "notes/odysseus.md", "Odysseus"));
+    await indexAll(db, { ...options(root), paths: ["notes/telemachus.md"] });
+    expect(fired()).toBe(true);
+    const after = partitions(snapshot(db));
+    expect(after.links).toContainEqual({ source: "notes/penelope.md", target: "odysseus", resolved: "notes/odysseus.md" });
+    expect(after).toEqual(await fresh(root, "fresh"));
+  });
+
+  test("a row another connection commits for a named, deleted path after the run read the index is swept and counted (#4873)", async () => {
+    const root = brain({ "notes/penelope.md": note("Penelope", "Penelope weaves.") });
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    // Indexed elsewhere, then deleted before this run reads the disk.
+    const fired = afterRowsLoad(db, () => commitRow(root, "brain", "notes/raft.md", "Raft"));
+    const stats = await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
+    expect(fired()).toBe(true);
+    expect(stats.deleted).toBe(1);
+    expect(partitions(snapshot(db))).toEqual(await fresh(root, "fresh"));
   });
 
   test("an index without markdown is built completely, whatever paths were named", async () => {

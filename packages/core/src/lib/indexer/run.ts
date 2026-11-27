@@ -224,7 +224,7 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   }
 
   // --- persist ------------------------------------------------------------
-  persistMarkdown(
+  const persisted = persistMarkdown(
     run,
     parsed,
     existingDocs,
@@ -232,6 +232,13 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
     assetsOnDisk,
     targeted ? new Set(options.paths) : undefined
   );
+  if (!persisted) {
+    // Another connection changed the index after this targeted run read it.
+    // Nothing was written; a complete run reads every file and row afresh.
+    run.report("Index changed during a targeted run: indexing completely");
+    run.stats = emptyStats();
+    return runPipeline(run, { ...options, paths: undefined });
+  }
 
   await dropIneligibleVectors(run);
   dropOrphanedVectors(run.db);
