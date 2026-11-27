@@ -31,10 +31,11 @@ for (const legacy of [false, true]) for (const view of ["index", "session", "run
     const timing = { sendToFirstHostFrameMs: 7 };
     Object.defineProperty(db, "query", { configurable: true, value: ((sql: string, ...args: unknown[]) => {
       const statement = Reflect.apply(query, db, [sql, ...args]);
-      if (!sql.includes("CAST(substr(CAST(receipt AS BLOB)")) return statement;
+      // The client receipt is read in the lifecycle's own statement (#4802).
+      if (!sql.includes("LEFT JOIN activity_turn_clients")) return statement;
       return new Proxy(statement, { get(target, property) {
-        if (property === "get") return (...bindings: unknown[]) => {
-          const row = Reflect.apply(target.get, target, bindings);
+        if (property === "get" || property === "all") return (...bindings: unknown[]) => {
+          const row = Reflect.apply(target[property], target, bindings);
           if (!raced) { raced = true; racedInsideScopedRead = insideScopedRead; expect(writer.writeClientReceipt!("turn-ithaca", "odysseus", timing)).toBe(true); }
           return row;
         };
@@ -106,7 +107,7 @@ for (const list of [false, true]) {
     let raced = false;
     Object.defineProperty(db, "query", { configurable: true, value: ((sql: string, ...args: unknown[]) => {
       const statement = Reflect.apply(query, db, [sql, ...args]);
-      if (!sql.startsWith("SELECT record FROM activity_turn_lifecycles")) return statement;
+      if (!/^SELECT (l\.)?record(, | FROM activity_turn_lifecycles)/.test(sql)) return statement;
       return new Proxy(statement, { get(target, property) {
         if (property === "get" || property === "all") return (...bindings: unknown[]) => {
           const rows = Reflect.apply(target[property], target, bindings);
@@ -145,17 +146,17 @@ for (const view of ["index", "session"] as const) {
     let raced = false;
     Object.defineProperty(db, "query", { configurable: true, value: ((sql: string, ...args: unknown[]) => {
       const statement = Reflect.apply(query, db, [sql, ...args]);
-      if (!sql.includes("COALESCE(MAX(seq), 0) AS hi")) return statement;
+      // The snapshot reads every lifecycle's floor in one grouped statement (#4802): the turns finish just before it runs.
+      if (!sql.includes("MAX(seq) AS hi FROM activity_changes WHERE run_id IN")) return statement;
       return new Proxy(statement, { get(target, property) {
-        if (property === "get") return (...bindings: unknown[]) => {
-          const row = Reflect.apply(target.get, target, bindings);
-          if (!raced && String(bindings[0]).startsWith("lifecycle:")) {
+        if (property === "all") return (...bindings: unknown[]) => {
+          if (!raced && String(bindings[0]).includes("lifecycle:")) {
             raced = true;
             foreign.transaction(() => {
               for (const id of ["turn-ithaca", "turn-troy"]) writer.writeLifecycle({ ...writer.lifecycle(id)!, endedAt: 1100, outcome: "success" });
             })();
           }
-          return row;
+          return Reflect.apply(target.all, target, bindings);
         };
         const value = Reflect.get(target, property);
         return typeof value === "function" ? value.bind(target) : value;

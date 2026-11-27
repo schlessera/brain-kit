@@ -474,14 +474,11 @@ export async function buildWikilinkMap(root: string): Promise<Record<string, str
       const matchPath = isDir ? `${relChild}/` : relChild;
       if (matcher.ignores(matchPath)) continue;
 
-      let childStat;
-      try {
-        childStat = await stat(join(abs, d.name));
-      } catch {
-        continue;
-      }
+      // The directory entry already says what it is; only a symlink needs its target's type.
+      let isDirectory = isDir;
       if (isSymlink) {
         try {
+          isDirectory = (await stat(join(abs, d.name))).isDirectory();
           const real = await realpath(join(abs, d.name));
           const absRoot = resolve(root);
           if (!isWithin(absRoot, real, { separator: sep })) continue;
@@ -490,7 +487,7 @@ export async function buildWikilinkMap(root: string): Promise<Record<string, str
         }
       }
 
-      if (childStat.isDirectory()) {
+      if (isDirectory) {
         try {
           await walk(relChild);
         } catch (err) {
