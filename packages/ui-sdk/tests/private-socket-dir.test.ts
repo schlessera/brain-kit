@@ -1,8 +1,9 @@
 // The private relay socket directory (#4764): both halves against real
 // directories and Unix sockets, and the launcher's three call sites with a
 // widened directory mode.
-import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
+import { chmodSync, chownSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -129,6 +130,7 @@ describe("verifyPrivateSocketDirectory", () => {
 });
 
 describe("createPrivateSocketDirectory and securePrivateSocket", () => {
+  afterEach(() => mock.restore());
   for (const separate of [false, true]) {
     test(`separate identity ${separate}: the directory and socket get their private modes`, async () => {
       const dir = createPrivateSocketDirectory(join(root(), "brain-relay-"), separate);
@@ -139,6 +141,18 @@ describe("createPrivateSocketDirectory and securePrivateSocket", () => {
       expect(lstatSync(socket).mode & 0o7777).toBe(sockMode(separate));
       expect(lstatSync(dir).uid).toBe(process.getuid!());
       expect(lstatSync(dir).gid).toBe(process.getgid!());
+    });
+
+    test(`separate identity ${separate}: a failure setting the directory's mode removes the directory`, () => {
+      const parent = root();
+      const real = fs.chmodSync;
+      spyOn(fs, "chmodSync").mockImplementation(((path: fs.PathLike, mode: fs.Mode) => {
+        if (String(path).startsWith(join(parent, "brain-relay-"))) throw Object.assign(new Error("EPERM: simulated"), { code: "EPERM" });
+        return real(path, mode);
+      }) as typeof fs.chmodSync);
+      expect(() => createPrivateSocketDirectory(join(parent, "brain-relay-"), separate)).toThrow("EPERM: simulated");
+      mock.restore();
+      expect(readdirSync(parent)).toEqual([]);
     });
 
     test(`separate identity ${separate}: a failure before the socket is bound removes the directory`, () => {
