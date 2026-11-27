@@ -12,10 +12,12 @@ describe("chromePath", () => {
   afterAll(() => warn.mockRestore());
 
   test("no Chrome and no flag skips with one warning naming the file", () => {
-    expect(chromePath("odysseus-skip-runtime.test.ts", {}, none)).toBeUndefined();
-    expect(chromePath("odysseus-skip-runtime.test.ts", { BRAIN_REQUIRE_CHROME: "0" }, none)).toBeUndefined();
+    // The warning is once per file and process; a repeated run needs a file it has not warned for.
+    const file = `odysseus-skip-${crypto.randomUUID()}-runtime.test.ts`;
+    expect(chromePath(file, {}, none)).toBeUndefined();
+    expect(chromePath(file, { BRAIN_REQUIRE_CHROME: "0" }, none)).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]![0])).toContain("odysseus-skip-runtime.test.ts");
+    expect(String(warn.mock.calls[0]![0])).toContain(file);
   });
 
   test("no Chrome with BRAIN_REQUIRE_CHROME=1 throws the fixed message", () => {
