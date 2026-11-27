@@ -180,7 +180,13 @@ that are changed with it.
 - **C1. Know the budget of the tier.** Most unit files finish in under a
   second. A file that reaches 30 seconds is a heavy command for
   [host admission](testing.md#host-admission-for-heavy-local-commands) and
-  needs a reason a reader can find. Prevents `slow-file`.
+  needs a reason a reader can find. A Bun test file whose reviewed weight in
+  `scripts/test-shard-costs.json` exceeds half a determinism partition
+  (`DETERMINISM_PARTITIONS.capacitySeconds` divided by the repetition floor,
+  150 s today) must be split by scenario group: a changed file repeats at least
+  twice under load and cannot be split across partitions, so the load gate
+  cannot repeat it within its step. `tests/test-shards.test.ts` enforces the
+  bound and names the files still exempt. Prevents `slow-file`.
 - **C2. Pay for setup once.** Build immutable fixtures in `beforeAll` and share
   them read-only. Do not spawn a process per assertion: cover the logic
   in-process and keep one spawned test for the process boundary. Size a fixture
