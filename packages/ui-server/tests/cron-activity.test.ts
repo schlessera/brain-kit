@@ -12,7 +12,6 @@ import { createActivityStore } from "../src/activity/store";
 import { ingestSpanSink } from "../src/activity/span-sink";
 import { createUiDb } from "../src/db/client";
 import { createCronScheduler, recordCronRun } from "../src/cron/scheduler";
-import { createBrainClient } from "../src/brain/client";
 
 const sinkDirs: string[] = [];
 afterEach(() => {
@@ -142,10 +141,7 @@ describe("cron status name gap", () => {
     // Module jobs and maintain arrive only through the external recorder.
     recordCronRun(db, "maintain").finish();
     recordCronRun(db, "jobs-scrape").finish("boom");
-    const cron = createCronScheduler({
-      db,
-      brain: createBrainClient({ brainPath: "/nonexistent" }),
-    });
+    const cron = createCronScheduler({ db });
     const status = cron.getCronStatus();
     const names = status.map((s) => s.name);
     expect(names).toContain("sync");

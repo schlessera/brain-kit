@@ -3,6 +3,7 @@ import type { AppEnv } from "../app-env.js";
 import { getDictationSettings } from "../db/settings.js";
 import type { SettingsWrites } from "../db/settings-writes.js";
 import { Hono } from "hono";
+import { bodyTooLarge, decodeUtf8, JSON_BODY_LIMIT_BYTES, readBodyBytes, readJsonBody } from "../middleware/body-limit.js";
 import type {
   VoiceKeytermsResponse,
   VoiceTokenResponse,
@@ -47,7 +48,8 @@ export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono<AppEnv> {
       if (principal?.kind !== "owner" && principal?.kind !== "ambient") return c.json({ error: "owner_required" }, 403);
       const match = c.req.header("If-Match");
       if (match === undefined) return c.json({ error: "dictation_settings_stale", message: "If-Match is required.", current: getDictationSettings(db) }, 428);
-      const body = await c.req.json().catch(() => null);
+      const body = await readJsonBody<any>(c).catch(() => null);
+      if (body instanceof Response) return body;
       if (!body || typeof body !== "object" || Array.isArray(body) ||
           !(body.defaultProvider === null || typeof body.defaultProvider === "string") ||
           (body.smart !== undefined && typeof body.smart !== "boolean")) return c.json({ error: "dictation_settings_invalid" }, 400);
@@ -73,7 +75,9 @@ export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono<AppEnv> {
         // Legacy clients POST without a JSON body (or with ignored text); only an
         // explicit JSON request expresses a selection, and it is validated strictly.
         const json = /^application\/json\b/i.test(c.req.header("content-type") ?? "");
-        const raw = json ? await c.req.text() : "";
+        const read = json ? await readBodyBytes(c.req.raw, JSON_BODY_LIMIT_BYTES) : { chunks: [], bytes: 0 };
+        if (!read) return bodyTooLarge(c);
+        const raw = decodeUtf8(read);
         if (raw) {
           const body = JSON.parse(raw);
           if (!body || typeof body !== "object" || Array.isArray(body) ||
