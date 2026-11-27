@@ -9,6 +9,7 @@ const HELP = `brain archive <path> — set status: archived and a primary or uns
 
 export const archiveCommand: CoreCommand = {
   summary: "Archive a document (set status: archived)",
+  flags: { boolean: ["dry-run"], value: [] },
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);

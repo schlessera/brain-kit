@@ -89,7 +89,7 @@ export const Phone320 = meta.story({
     signout.focus(); await userEvent.keyboard("{Enter}");
     const warning = await screen.findByRole("dialog", { name: "Sign out of Brain?" });
     const content = within(warning);
-    await expect(content.getByText("2 recordings not yet added to a draft · 1.0 MB · 1 with an unaccepted transcript")).toBeVisible();
+    await expect(content.getByText("2 recordings not yet added to a draft · 1 MB · 1 with an unaccepted transcript")).toBeVisible();
     for (const text of ["1 accepted recordings awaiting cleanup", "1 unsent drafts, including their images", "1 staged track references"]) await expect(content.getByText(text)).toBeVisible();
     const keep = content.getByRole("button", { name: "Keep working" });
     await expect(document.activeElement).toBe(keep);

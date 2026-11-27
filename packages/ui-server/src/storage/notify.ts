@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
+import { isHumanOwner, isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { SELF } from "../brain/writer-gate.js";
 import type { StorageHistory } from "./history-store.js";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
@@ -19,7 +19,7 @@ export function createStorageNotifier(db: Database, history: StorageHistory, wri
   let lastClock = 0;
   function owner(id: string, now: number) {
     const principal = resolvePrincipal(db, id);
-    return principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, now);
+    return principal && isHumanOwner(principal) && isUsablePrincipal(principal, now);
   }
   const options = { brain, self: { pid: SELF.pid, start: SELF.start } };
   const procedures = writer ? null : noticeWrites.setup(db, options, history.read);

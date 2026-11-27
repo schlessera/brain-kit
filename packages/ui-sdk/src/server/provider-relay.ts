@@ -32,7 +32,8 @@ import { readRelayResponse, readRelayRequestHead, relayHeaderBytes, RELAY_REQUES
  * those requests (docs/decisions/governed-writable-workers.md, "Cost and
  * budgets").
  */
-import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
+import { createPrivateSocketDirectory, securePrivateSocket } from "./private-socket-dir.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -338,9 +339,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     return own.key === key && own.origin === origin || (options.origins?.get(key) ?? []).includes(origin);
   };
   // Private to this server user; a worker sees only the bound socket.
-  const dir = mkdtempSync(join(tmpdir(), "brain-providers-"));
   const separateIdentity = Boolean(workerIdentityHelper());
-  chmodSync(dir, separateIdentity ? 0o750 : 0o700);
+  const dir = createPrivateSocketDirectory(join(tmpdir(), "brain-providers-"), separateIdentity);
   const socketPath = join(dir, "relay.sock");
   let server: ReturnType<typeof Bun.serve>;
   let active = 0, buffered = 0;
@@ -760,7 +760,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       observe(cause.outcome);
     }
   }
-  chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);
+  try { securePrivateSocket(dir, socketPath, separateIdentity); }
+  catch (error) { void server.stop(true); throw error; }
   let stopping: Promise<void> | undefined;
   return {
     dir,

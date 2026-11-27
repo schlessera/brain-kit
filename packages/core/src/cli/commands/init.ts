@@ -157,6 +157,7 @@ async function initDefault(cli: CliContext): Promise<Record<string, unknown>> {
 
 export const initCommand: CoreCommand = {
   summary: "Preflight check (--check) or non-interactive default setup (--default)",
+  flags: { boolean: ["check", "default"], value: [] },
   helpBlock: HELP,
   async run(args, cli) {
     const { flags } = parseArgs(args);

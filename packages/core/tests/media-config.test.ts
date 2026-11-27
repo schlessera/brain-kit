@@ -15,16 +15,12 @@ import { DEFAULT_MEDIA_POLICY, type MediaPolicy } from "../src/lib/media";
 import { planMediaPolicyEdit, readMediaPolicyLists } from "../src/lib/media-config-edit";
 import { applyMediaConfigChange, planMediaConfigChange, type MediaConfigOp, type MediaConfigPlan } from "../src/lib/media-config";
 import { cleanup, runCli } from "./cli-harness";
+import { git } from "./git-fixture";
 
 const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
-function git(cwd: string, ...args: string[]) {
-  // Command-scoped, so neither a global nor an environment-scoped commit.gpgsign reaches the fixture commit.
-  const r = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", cwd, ...args]);
-  if (r.exitCode !== 0) throw new Error(r.stderr.toString());
-}
 function put(root: string, path: string, bytes: string) {
   mkdirSync(dirname(join(root, path)), { recursive: true });
   writeFileSync(join(root, path), bytes);

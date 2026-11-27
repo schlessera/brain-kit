@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync,
+  cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createNativeBrainManagerClient, probeWorkerHost } from "@schlessera/brain-ui-sdk/internal";
@@ -37,6 +37,7 @@ import { createFixtureApp as createApp, createNativeAppFixture } from "./helpers
 import { testServerConfig } from "./helpers/test-config";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
+import { installFakeBrain } from "./helpers/fake-brain-cli";
 const ROOT = resolve(import.meta.dir, "../../..");
 const CORPUS = join(ROOT, "packages/core/fixtures/corpus");
 const CORE = join(ROOT, "packages/core/src/index.ts");
@@ -96,20 +97,18 @@ try { appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORK
 `;
 }
 
-/** A `brain` CLI in the brain that evaluates its config, as the real one does, then answers like `brain`. */
-function installCli(brain: string, body = "") {
-  const bin = join(brain, "node_modules/.bin/brain");
-  mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-  writeFileSync(bin, `#!/usr/bin/env bun
-const args = process.argv.slice(2);
-if (args[0] !== "--version") await import(process.cwd() + "/brain.config.ts");
+/**
+ * The script of a `brain` CLI that evaluates its config, as the real one
+ * does, runs `body`, then answers like `brain`. It answers `--version` itself,
+ * after `body`, so a body can act on the version probe too.
+ */
+function brainLike(body = "") {
+  return `if (args[0] !== "--version") await import(process.cwd() + "/brain.config.ts");
 ${body}
-if (args[0] === "--version") console.log("${MIN_BRAIN_CLI_VERSION}");
+if (args[0] === "--version") console.log(${JSON.stringify(MIN_BRAIN_CLI_VERSION)});
 else if (args[0] === "stats") console.log(JSON.stringify({ documents: 1 }));
 else if (args[0] === "search") console.log(JSON.stringify({ results: [], warnings: [] }));
-else console.log("{}");
-`);
-  chmodSync(bin, 0o755);
+else console.log("{}");`;
 }
 
 /** Every evaluation's proof line, and no host sentinel. */
@@ -160,7 +159,7 @@ describe("the host execution boundary (#1648)", () => {
   test("a server-spawned index refresh and sync evaluate the config in workers", async () => {
     if (!supported) return;
     const f = fixture({ config: "plain" });
-    installCli(f.brain);
+    installFakeBrain(f.brain, { version: null, body: brainLike() });
     const brain = createBrainClient({ brainPath: f.brain, exec: {}, boundary: boundaryFor(f.brain, f.outside) });
     await brain.index();
     await brain.sync();
@@ -171,7 +170,7 @@ describe("the host execution boundary (#1648)", () => {
   test("a bunfig.toml preload and an .env the brain holds never load into a host process", async () => {
     if (!supported) return;
     const f = fixture({ config: "plain" });
-    installCli(f.brain);
+    installFakeBrain(f.brain, { version: null, body: brainLike() });
     writeFileSync(join(f.brain, "preload.ts"), helperSource(f.sentinel, f.proof, "bunfig-preload"));
     writeFileSync(join(f.brain, "bunfig.toml"), 'preload = ["./preload.ts"]\n');
     writeFileSync(join(f.brain, ".env"), "BRAIN_DOTENV_MARK=from-the-brain\n");
@@ -197,12 +196,12 @@ describe("the host execution boundary (#1648)", () => {
     const refs = join(f.outside, "refs");
     mkdirSync(refs);
     symlinkSync(refs, join(f.brain, ".git/refs/heads"));
-    installCli(f.brain, `if (args[0] === "sync") {
+    installFakeBrain(f.brain, { version: null, body: brainLike(`if (args[0] === "sync") {
   const run = cmd => Bun.spawnSync(["git", "-c", "user.name=Odysseus", "-c", "user.email=odysseus@ithaca.example", ...cmd], { cwd: process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd(), stdout: "ignore", stderr: "pipe" });
   run(["add", "-A"]);
   const commit = run(["commit", "-q", "-m", "Harbor log"]);
   await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/commit.log", "exit " + commit.exitCode + "\\n" + commit.stderr.toString());
-}`);
+}`) });
     const brain = createBrainClient({ brainPath: f.brain, exec: {}, boundary: boundaryFor(f.brain, f.outside) });
     await brain.sync();
     expect(readFileSync(join(f.brain, "commit.log"), "utf8"), "the commit ran, in the worker").toMatch(/^exit /);
@@ -235,7 +234,7 @@ describe("what the brain cannot use to open the boundary (#1648 review)", () => 
   test("at boot the CLI version probe meets the writer gate a cron job holds", async () => {
     if (!supported) return;
     const f = fixture({ config: "plain" });
-    installCli(f.brain);
+    installFakeBrain(f.brain, { version: null, body: brainLike() });
     const dbPath = join(f.root, "db/brain-ui.db");
     mkdirSync(join(f.root, "db"), { recursive: true });
     const cron = createUiDb(dbPath);
@@ -253,7 +252,7 @@ describe("what the brain cannot use to open the boundary (#1648 review)", () => 
   test("a reader runs beside turns but never beside an exclusive holder", async () => {
     if (!supported) return;
     const f = fixture({ config: "plain" });
-    installCli(f.brain);
+    installFakeBrain(f.brain, { version: null, body: brainLike() });
     const dbPath = join(f.root, "db/brain-ui.db");
     mkdirSync(join(f.root, "db"), { recursive: true });
     const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {}, nativeManager: nativeManager(f.brain) });
@@ -292,7 +291,7 @@ describe("cron jobs (#1648)", () => {
   test("a scheduled sync runs in a worker, waits for the writer gate a turn holds, and its config helper never runs on the host", async () => {
     if (!supported) return;
     const f = fixture({ config: "plain" });
-    installCli(f.brain);
+    installFakeBrain(f.brain, { version: null, body: brainLike() });
     const dbPath = join(f.root, "db/brain-ui.db");
     mkdirSync(join(f.root, "db"), { recursive: true });
     const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {}, nativeManager: nativeManager(f.brain), requireGate: true });
@@ -333,10 +332,7 @@ describe("cron jobs (#1648)", () => {
 }) };\n`);
     const config = join(f.brain, "brain.config.ts");
     writeFileSync(config, readFileSync(config, "utf8").replace("defineConfig({", 'defineConfig({\n  modules: { "./modules/beacon": {} },'));
-    mkdirSync(join(f.brain, "node_modules/.bin"), { recursive: true });
-    const cli = join(f.brain, "node_modules/.bin/brain");
-    writeFileSync(cli, `#!/usr/bin/env bun\nawait import(${JSON.stringify(join(ROOT, "packages/core/src/cli/brain.ts"))});\n`);
-    chmodSync(cli, 0o755);
+    installFakeBrain(f.brain, { real: true });
     const dbPath = join(f.root, "db/brain-ui.db");
     mkdirSync(join(f.root, "db"), { recursive: true });
     const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {}, nativeManager: nativeManager(f.brain), requireGate: true });
@@ -387,10 +383,7 @@ describe("cron jobs (#1648)", () => {
       const declare = (repositories: string[]) => writeFileSync(config, readFileSync(config, "utf8").replace(/defineConfig\(\{(\n  modules: .*,)?/,
         `defineConfig({\n  modules: { "./modules/beacon": { repositories: ${JSON.stringify(repositories)} } },`));
       declare([watchtower]);
-      mkdirSync(join(f.brain, "node_modules/.bin"), { recursive: true });
-      const cli = join(f.brain, "node_modules/.bin/brain");
-      writeFileSync(cli, `#!/usr/bin/env bun\nawait import(${JSON.stringify(join(ROOT, "packages/core/src/cli/brain.ts"))});\n`);
-      chmodSync(cli, 0o755);
+      installFakeBrain(f.brain, { real: true });
       const dbPath = join(f.root, "db/brain-ui.db");
       mkdirSync(join(f.root, "db"), { recursive: true });
       const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {}, nativeManager: nativeManager(f.brain), requireGate: true });
@@ -434,7 +427,7 @@ describe("cron jobs (#1648)", () => {
   test("an abort kills the whole maintenance worker, and the call settles only once it is gone", async () => {
     if (!supported) return;
     const f = fixture({ config: "plain" });
-    installCli(f.brain, `if (args[0] === "search") { await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/started", "x"); await Bun.sleep(60_000); }`);
+    installFakeBrain(f.brain, { version: null, body: brainLike(`if (args[0] === "search") { await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + "/started", "x"); await Bun.sleep(60_000); }`) });
     const brain = createBrainClient({ brainPath: f.brain, exec: {}, boundary: boundaryFor(f.brain, f.outside) });
     const controller = new AbortController();
     const call = brain.search("loom", { signal: controller.signal });
@@ -470,7 +463,7 @@ describe("governed availability", () => {
 
   test("/api/status names the reason, and a governed history keeps the boundary in force", async () => {
     const f = fixture({ config: "plain" });
-    installCli(f.brain);
+    installFakeBrain(f.brain, { version: null, body: brainLike() });
     const dbPath = join(f.outside, "brain-ui.db");
     const cwd = spyOn(hostExecution, "cwd").mockReturnValue(f.brain);
     const app = await bootApp(f.brain, dbPath);
@@ -493,7 +486,7 @@ describe("crash recovery", () => {
   test("a brain.config.ts created mid-turn by a turn whose server died is quarantined at boot before anything evaluates it", async () => {
     if (!supported) return;
     const f = fixture({ config: false });
-    installCli(f.brain, `if (args[0] === "--version") { try { await import(process.cwd() + "/brain.config.ts"); } catch {} }`);
+    installFakeBrain(f.brain, { version: null, body: brainLike(`if (args[0] === "--version") { try { await import(process.cwd() + "/brain.config.ts"); } catch {} }`) });
     const dbPath = join(f.outside, "db/brain-ui.db");
     mkdirSync(join(f.outside, "db"));
     const db = createUiDb(dbPath);

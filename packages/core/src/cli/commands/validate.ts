@@ -12,6 +12,7 @@ import { emit } from "../io.js";
  */
 export const validateCommand: CoreCommand = {
   summary: "Run config, frontmatter, link, and index-drift validation",
+  flags: { boolean: [], value: [] },
   helpBlock: "brain validate — config check, then frontmatter + wiki-link + index-drift validation.",
   async run(_args, cli): Promise<number> {
     if (cli.configError) {
