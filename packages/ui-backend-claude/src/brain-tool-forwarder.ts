@@ -248,14 +248,20 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
       worker.stderr.resume();
-      input.req.workerStarted?.(worker);
+      // Turn scope gets a guarded handle, never the raw worker: its kill is
+      // the same single asynchronous signal (#4894 round 6 F1).
+      // Its stderr stream stays observable; nothing on it can signal the worker.
+      input.req.workerStarted?.(Object.assign({ exited: child.exited, freeze: () => child.freeze(), resume: () => child.resume(), kill: kill }, { stderr: child.stderr }));
       let closing: Promise<void> | undefined;
       return { worker, transport: brainWorkerTransport(worker), close() {
         return closing ??= (async () => {
           if (abort) signal.removeEventListener("abort", abort);
           const exit = await stopBrainWorker(child, kill);
           if (!exit.settled) { const error = unexited(); retainUnexited(child, error); throw error; }
-          try { await child.released(); } finally { await release(); }
+          // The allowance is free once the exit is confirmed and storage is
+          // closed; it never waits for the pipes to release, so the next
+          // bridge worker can reserve it (#4894 round 6 F2).
+          try { await release(); } finally { await child.released(); }
           if ("error" in exit) throw exit.error;
         })();
       } };

@@ -17,3 +17,5 @@ The inventory check now has its own 8-second bound before a new chat's first req
 A session that retained tool search resumes only through its relay to the first-party origin and is refused by name otherwise. Past its bound the inventory check returns the stdio fallback at once while the worker's cleanup continues detached, and a rejected worker exit closes the forwarder transport too.
 
 Every bridge worker is signalled at most once, through the launcher's new asynchronous `killAsync` (a separate-UID signal no longer blocks the host), and releases its turn-temp handle when it exits. The inventory verdict never waits for worker cleanup, and closing the forwarder never waits for a launch that has not returned and waits for a started worker's cleanup only within the exit wait, so a turn's terminal frame is never held by bridge cleanup.
+
+Turn scope receives a guarded handle whose kill is that same single signal, and a bridge worker's turn-temp allowance is released once its exit is confirmed and storage closed, without waiting for its pipes, so the forwarder can reserve what the inventory check held.

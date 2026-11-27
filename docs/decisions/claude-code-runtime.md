@@ -1754,8 +1754,9 @@ checks that rejection in effective native settings before releasing input;
 other project MCP servers retain their existing startup behavior.
 
 The new-session inventory has its own `backend` startup span,
-`brain_tool_inventory`, covering the sandboxed command and its cleanup, without
-cache attributes. The command overlaps only independent runtime-version and
+`brain_tool_inventory`, covering the sandboxed command until its verdict,
+without cache attributes; the worker's cleanup runs detached afterwards and is
+not included. The command overlaps only independent runtime-version and
 route-input preparation before `query()`. Its verdict fixes `mcpServers.brain`,
 `disabledMcpjsonServers` and `ENABLE_TOOL_SEARCH`, so query dispatch waits for
 it. All preparation owners settle before a failure propagates.
