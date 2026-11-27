@@ -3,6 +3,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { useChatStore, type ChatMessage, type ToolCall } from "../src/stores/chat-store";
 import { attributedTool } from "../src/components/chat/safety-indicator";
+import { isReusedToolId } from "../src/stores/chat-slices/buffers";
 
 const grep: ToolCall = { id: "tool_c", name: "Grep", input: { pattern: "sirens" }, inputJson: "{}", output: "notes/loom.md", status: "complete" };
 const bash: ToolCall = { id: "tool_c", name: "Bash", input: { command: "cat notes/raft.md" }, inputJson: "{}", output: "The raft holds.", status: "complete" };
@@ -37,9 +38,37 @@ for (const [name, drawn, received] of ([
   useChatStore.setState({ buffers: { ithaca: { messages: [drawn], isStreaming: drawn.isStreaming === true, askUser: null, lastTouched: 0 } } });
   useChatStore.getState().setMessages("ithaca", [received]);
   const buffer = useChatStore.getState().buffers.ithaca!;
-  expect(buffer.ambiguousTools ?? [], "REUSED_ID_STAYS_AMBIGUOUS").toContain("voyage\0tool_c");
+  expect(isReusedToolId(buffer, "voyage", "tool_c"), "REUSED_ID_STAYS_AMBIGUOUS").toBe(true);
   const calls = buffer.messages.flatMap(message => message.toolCalls);
-  expect(attributedTool(calls, "tool_c", buffer.ambiguousTools?.includes("voyage\0tool_c")), "REPLAY_NAMES_NO_ACTION").toBeNull();
+  expect(attributedTool(calls, "tool_c", isReusedToolId(buffer, "voyage", "tool_c")), "REPLAY_NAMES_NO_ACTION").toBeNull();
   useChatStore.getState().setMessages("ithaca", [received]);
-  expect(useChatStore.getState().buffers.ithaca!.ambiguousTools ?? [], "AMBIGUITY_NEVER_SHRINKS").toContain("voyage\0tool_c");
+  expect(isReusedToolId(useChatStore.getState().buffers.ithaca!, "voyage", "tool_c"), "AMBIGUITY_NEVER_SHRINKS").toBe(true);
+});
+
+/** Every observation feeds one grow-only name map per turn and ID (#4513). */
+test("a replay copy without a turn of its own resolves to the live turn", () => {
+  const live: ChatMessage = { ...answer([{ ...grep, output: undefined, status: "streaming" }], "Odysseus", true), turnId: undefined, streamTurnId: "voyage" };
+  useChatStore.setState({ buffers: { ithaca: { messages: [live], isStreaming: true, askUser: null, lastTouched: 0 } } });
+  useChatStore.getState().setMessages("ithaca", [{ ...answer([bash], "Odysseus", false), turnId: undefined }]);
+  const buffer = useChatStore.getState().buffers.ithaca!;
+  expect(isReusedToolId(buffer, "voyage", "tool_c"), "TURNLESS_REPLAY_JOINS_THE_LIVE_TURN").toBe(true);
+  expect(attributedTool(buffer.messages.flatMap(message => message.toolCalls), "tool_c", isReusedToolId(buffer, "voyage", "tool_c"))).toBeNull();
+});
+
+test("a name observed before an empty completed replay still counts when another arrives", () => {
+  useChatStore.setState({ buffers: { ithaca: { messages: [answer([grep], "Odysseus", false)], isStreaming: false, askUser: null, lastTouched: 0 } } });
+  useChatStore.getState().setMessages("ithaca", []);
+  useChatStore.getState().finishHistoryReplay("ithaca", false);
+  expect(useChatStore.getState().buffers.ithaca!.messages, "EMPTY_REPLAY_ERASED_THE_CALL").toEqual([]);
+  useChatStore.getState().setMessages("ithaca", [answer([bash], "Odysseus", false)]);
+  useChatStore.getState().finishHistoryReplay("ithaca", false);
+  const buffer = useChatStore.getState().buffers.ithaca!;
+  expect(isReusedToolId(buffer, "voyage", "tool_c"), "NAMES_SURVIVE_AN_EMPTY_REPLAY").toBe(true);
+  expect(attributedTool(buffer.messages.flatMap(message => message.toolCalls), "tool_c", isReusedToolId(buffer, "voyage", "tool_c"))).toBeNull();
+});
+
+test("a live stream records every name it starts under an ID", () => {
+  useChatStore.setState({ buffers: { ithaca: { messages: [{ ...answer([grep], "", true), turnId: undefined, streamTurnId: "voyage" }], isStreaming: true, askUser: null, lastTouched: 0 } } });
+  useChatStore.getState().startToolCall("ithaca", "tool_c", "Bash");
+  expect(isReusedToolId(useChatStore.getState().buffers.ithaca!, "voyage", "tool_c"), "LIVE_START_IS_OBSERVED").toBe(true);
 });

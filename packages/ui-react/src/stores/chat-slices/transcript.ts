@@ -5,7 +5,7 @@
  */
 import type { AskUserExchange, ChatMessage, ChatState, MessagePart, SessionChat, ToolCall } from "../chat-state.js";
 import type { ChatSliceContext } from "./buffers.js";
-import { appendPart, emptyChat, evictStale, revokeAttachmentUrls } from "./buffers.js";
+import { appendPart, emptyChat, evictStale, observeToolNames, revokeAttachmentUrls } from "./buffers.js";
 
 
 /**
@@ -49,21 +49,12 @@ function includesDrawnText(text: string, drawn: string): boolean {
 }
 
 /** Shared tools keep their chronological IDs even when either copy missed a call. */
-/** The grow-only set of `turn\0toolUseId` keys under which this client
- * has seen differently named calls (#4513): one name map across everything
- * it holds or receives in a merge, never one per copy. */
-function reusedToolIds(prior: readonly string[] | undefined, ...copies: readonly ChatMessage[][]): readonly string[] | undefined {
-  const keys = new Set(prior);
-  const names = new Map<string, Set<string>>();
-  for (const messages of copies) for (const m of messages) {
-    const turn = m.turnId ?? m.streamTurnId;
-    if (turn) for (const t of m.toolCalls) {
-      const key = `${turn}\0${t.id}`, seen = names.get(key) ?? new Set<string>();
-      seen.add(t.name); names.set(key, seen);
-    }
-  }
-  for (const [key, seen] of names) if (seen.size > 1) keys.add(key);
-  return keys.size ? [...keys] : prior;
+/** Every copy a replay brings, held or received, feeds the buffer's
+ * grow-only name map (#4513). A received copy of the live answer without a
+ * turn of its own resolves to the live turn. */
+function observeReplay(prior: SessionChat["toolNames"], held: readonly ChatMessage[], received: readonly ChatMessage[]): SessionChat["toolNames"] {
+  const live = held.at(-1)?.isStreaming ? held.at(-1) : undefined;
+  return observeToolNames(observeToolNames(prior, held), received, live?.turnId ?? live?.streamTurnId);
 }
 
 /** Each call's identity within its list. The runtime can reuse one
@@ -388,7 +379,7 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
         if (key === null) {
           if (state.draft) revokeAttachmentUrls(state.draft.messages);
           return {
-            draft: { ...emptyChat(), messages },
+            draft: { ...emptyChat(), messages, toolNames: observeToolNames(undefined, messages) },
           };
         }
         const existing = state.buffers[key];
@@ -401,8 +392,8 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
           ...state.buffers,
           [key]: base
             ? { ...emptyChat(), ...drawn, replay: { base, received: messages }, historyConfirmed: true as const,
-              ambiguousTools: reusedToolIds(existing!.ambiguousTools, base.messages, messages) }
-            : { ...emptyChat(), messages, historyConfirmed: true as const },
+              toolNames: observeReplay(existing!.toolNames, base.messages, messages) }
+            : { ...emptyChat(), messages, historyConfirmed: true as const, toolNames: observeToolNames(undefined, messages) },
         };
         const restoreFailures = { ...state.restoreFailures };
         delete restoreFailures[key];
@@ -443,7 +434,7 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
             buffers: {
               ...state.buffers,
               [key]: { ...existing, ...drawn, replay: { base: current, received: all }, lastTouched: Date.now(),
-            ambiguousTools: reusedToolIds(existing.ambiguousTools, existing.messages, all) },
+            toolNames: observeReplay(observeToolNames(existing.toolNames, current.messages), existing.messages, all) },
             },
           };
         }
@@ -454,6 +445,7 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
               ...existing,
               messages: [...existing.messages, ...messages],
               lastTouched: Date.now(),
+              toolNames: observeToolNames(existing.toolNames, messages),
             },
           },
         };

@@ -23,6 +23,30 @@ export interface ChatSliceContext {
 /** Retained transcript buffers beyond the active one (LRU-evicted). */
 const MAX_BUFFERS = 8;
 
+/**
+ * Records every tool name observed under each `turn\0toolUseId` (#4513).
+ * Grow-only; returns `prior` itself when nothing new was seen. A message
+ * without a turn of its own (a replay copy of the live answer) resolves to
+ * `liveTurn`.
+ */
+export function observeToolNames(prior: SessionChat["toolNames"], messages: readonly ChatMessage[], liveTurn?: string): SessionChat["toolNames"] {
+  let next: Record<string, readonly string[]> | undefined;
+  for (const m of messages) {
+    const turn = m.turnId ?? m.streamTurnId ?? (m.role === "assistant" ? liveTurn : undefined);
+    if (turn) for (const t of m.toolCalls) {
+      const key = `${turn}\0${t.id}`, seen = (next ?? prior)?.[key] ?? [];
+      if (seen.includes(t.name)) continue;
+      next ??= { ...prior };
+      next[key] = [...seen, t.name];
+    }
+  }
+  return next ?? prior;
+}
+/** Differently named calls were observed under this turn and tool-use ID. */
+export function isReusedToolId(chat: Pick<SessionChat, "toolNames">, turnId: string, toolUseId: string): boolean {
+  return (chat.toolNames?.[`${turnId}\0${toolUseId}`]?.length ?? 0) > 1;
+}
+
 export function emptyChat(): SessionChat {
   return { messages: [], isStreaming: false, askUser: null, lastTouched: Date.now() };
 }
@@ -100,6 +124,13 @@ export function createChatSliceContext(set: ChatSet, get: ChatGet): ChatSliceCon
       const patch = fn(chat);
       let changed = (Object.keys(patch) as (keyof SessionChat)[]).some((field) => !Object.is(patch[field], chat[field]));
       const next = { ...chat, ...patch };
+      // Every live observation feeds the grow-only name map (#4513): each
+      // message this mutation replaced or added, so a streamed delta costs
+      // one message.
+      if (next.messages !== chat.messages) {
+        const toolNames = observeToolNames(chat.toolNames, next.messages.filter((message, index) => message !== chat.messages[index]));
+        if (toolNames !== chat.toolNames) { next.toolNames = toolNames; changed = true; }
+      }
       if (next.journals) {
         const last = new Map<string, number>();
         next.messages.forEach((message, index) => { const id = message.turnId ?? message.streamTurnId; if (message.role === "assistant" && id) last.set(id, index); });

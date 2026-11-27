@@ -6,6 +6,7 @@ import { Button, Icon, IconButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { activeChat, useChatStore, type ChatMessage, type ToolCall } from "../../stores/chat-store.js";
+import { isReusedToolId } from "../../stores/chat-slices/buffers.js";
 import { READING_COLUMN_ATTR } from "../../lib/client-environment.js";
 import { entryEvidence, safetyEvidence, type SafetyEvidence } from "../../lib/safety-evidence.js";
 import { createSafetyReviewer, type SafetyReviewProgress } from "../../lib/safety-reviewer.js";
@@ -135,7 +136,7 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
   const root=useBrainUiRoot(),sessionId=useChatStore(s=>s.activeSessionId),auth=useStore(root.authLock.state,s=>s.phase);
   // Grow-only: once two names were seen under an ID, a replay holding one
   // of them proves nothing (#4513).
-  const reused=useChatStore(s=>activeChat(s).ambiguousTools);
+  const names=useChatStore(s=>activeChat(s).toolNames);
   const supported=useStore(root.stores.safety,s=>s.supported),readReason=useStore(root.stores.safety,s=>s.reason);
   const readStatus=useStore(root.stores.safety,s=>s.status),historyScopeKey=useStore(root.stores.safety,s=>s.historyScopeKey);
   const chatCount=useStore(root.stores.safety,s=>s.status==="ready"&&s.identity&&"sessionId" in s.identity&&s.identity.sessionId===sessionId?s.projection?.unresolvedCount:undefined);
@@ -199,7 +200,7 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
       style={{...position,width:"min(384px, calc(100vw - 24px))",maxHeight:"min(65vh, 520px)",overflowWrap:"anywhere"}}>
       <div className="flex items-center justify-between gap-2"><strong>{name}</strong><IconButton icon="dismiss" name="Close safety details" style={{minWidth:44,minHeight:44}} onClick={close}/></div>
       <p className="mb-3 text-xs">Marking an input safe accepts that input for this chat. Its contents stay in the model’s context.</p>
-      {entries.slice(0,limit).map(entry=><SafetyTrigger key={entry.occurrence.id} entry={entry} nextIndicator={nextIndicator} showNext={showNext} toolName={entry.occurrence.turnId===turnId ? attributedTool(toolCalls,entry.occurrence.entry?.toolUseId,reused?.includes(`${turnId}\0${entry.occurrence.entry?.toolUseId}`)) : undefined}/>)}
+      {entries.slice(0,limit).map(entry=><SafetyTrigger key={entry.occurrence.id} entry={entry} nextIndicator={nextIndicator} showNext={showNext} toolName={entry.occurrence.turnId===turnId ? attributedTool(toolCalls,entry.occurrence.entry?.toolUseId,!!turnId&&!!entry.occurrence.entry&&isReusedToolId({toolNames:names},turnId,entry.occurrence.entry.toolUseId)) : undefined}/>)}
       {entries.length>limit&&<Button label="Show more inputs" tone="quiet" reach onClick={()=>setLimit(n=>n+20)}/>}
     </div>,document.body)}
   </span>;

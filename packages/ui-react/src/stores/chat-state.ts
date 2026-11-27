@@ -326,11 +326,12 @@ export interface SessionChat {
    */
   historyConfirmed?: true;
   /**
-   * @internal Every `turn\0toolUseId` under which this client has seen
-   * differently named calls (#4513). Grow-only: a replay that carries one of
-   * the calls cannot make the action look proven again.
+   * @internal Every tool name this client has observed under each
+   * `turn\0toolUseId` (#4513), from live frames and every replay copy.
+   * Grow-only: no merge or replay removes a name, so a later copy that
+   * carries one call cannot make its action look proven.
    */
-  ambiguousTools?: readonly string[];
+  toolNames?: Readonly<Record<string, readonly string[]>>;
 }
 
 /**
