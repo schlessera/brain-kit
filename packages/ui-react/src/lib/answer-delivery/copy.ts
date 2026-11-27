@@ -3,6 +3,7 @@
  * table, word for word (#910). Changing a string here changes reviewed copy.
  */
 import { MAX_QUEUED_ANSWERS, type AnswerDelivery } from "./types.js";
+import { clockTime } from "../format-time.js";
 
 export type DeliveryAction = "cancel" | "copy" | "sendAsMessage" | "edit" | "reload" | "tryAgain";
 
@@ -22,13 +23,6 @@ export const SEND_AS_MESSAGE_NOTE = "Sends a new chat message; it doesn't answer
 export const SENT_AS_MESSAGE_NOTE = "Sent as a new chat message; it didn't answer this question.";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const pad = (n: number) => String(n).padStart(2, "0");
-
-/** "09:41", in local time. */
-function clockTime(at: number): string {
-  const d = new Date(at);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 /** "2 Oct 09:41", in local time. */
 function dayAndTime(at: number): string {

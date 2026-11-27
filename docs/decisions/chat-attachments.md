@@ -431,7 +431,8 @@ originals, on a host that advertises `composerFiles`:
   Attach: attach · indicator · field · mic · send. Its 44px box takes a 28px
   place in the row, so it touches its neighbours' boxes without growing the
   field. An empty draft keeps the slot with no control. D52's persistent line
-  is gone from the composer; `DraftSaveLine` stays for the voice strip.
+  is gone from the composer, and from the voice strip since #3735; its
+  component was removed in #4679.
   - **Success is one fact.** The host acknowledged this exact edit, with
     every original bound and nothing of the draft still uploading. An
     acknowledgement of an older edit never shows ✓; the indicator stays

@@ -22,17 +22,6 @@ export interface StatusDotProps {
   size?: number;
 }
 
-/** The `mark` role: this is the 4-14px dot the design sizes that step for. */
-const TONES: Record<Tone, string> = {
-  amber: accent.amber.mark,
-  gold: accent.gold.mark,
-  teal: accent.teal.mark,
-  purple: accent.purple.mark,
-  blue: accent.blue.mark,
-  red: accent.red.mark,
-  neutral: accent.neutral.mark,
-};
-
 export function StatusDot(p: StatusDotProps) {
   const s = Number(p.size) || 7;
   const dot: CSSProperties = {
@@ -41,7 +30,7 @@ export function StatusDot(p: StatusDotProps) {
     borderRadius: "50%",
     flex: "none",
     display: "inline-block",
-    background: TONES[p.tone || "amber"] || TONES.amber,
+    background: (accent[p.tone || "amber"] ?? accent.amber).mark,
     animation: p.pulse ? "breathe 2s ease-in-out infinite" : undefined,
   };
   return <span style={dot} />;

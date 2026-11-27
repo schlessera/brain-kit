@@ -85,7 +85,7 @@ non-depleting window runs flat across its own span and reads "not running
 out". There is no cone and no fill between two lines, because a range is not
 a confidence interval. A line starts only at a measured current bucket: when
 now is a gap or another volume's figure, no line is drawn
-(`scenarioLines`, `packages/ui-kit/src/storage/history-geometry.ts:403-420`;
+(`scenarioLines`, `packages/ui-kit/src/storage/history-geometry.ts:398-415`;
 `storageScenarios`, `packages/ui-react/src/components/settings/storage/storage-history.ts:163-199`).
 A changed scope draws no projection and says so.
 

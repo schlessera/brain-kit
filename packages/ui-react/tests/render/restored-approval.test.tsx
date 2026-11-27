@@ -4,27 +4,30 @@
 // client); the shell it builds is rendered by the transcript's own
 // `MessageBubble`. Queries come from `render()`, never `screen` — see
 // tests/render/dom.ts for why.
-import { unregisterRestoredApprovalDom } from "./restored-approval-dom.js";
+import { registerRestoredApprovalDom, unregisterRestoredApprovalDom } from "./restored-approval-dom.js";
 
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ClientMessage, ServerMessage, SessionRecovery, SessionRecoveryLatest, SessionRecoveryPending } from "@schlessera/brain-ui-sdk/protocol";
 
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
+import { clockTime } from "../../src/lib/format-time.js";
 
 const roots: BrainUiRoot[] = [];
 afterEach(() => {
   cleanup();
   for (const r of roots.splice(0)) r.dispose();
 });
+beforeAll(registerRestoredApprovalDom);
 afterAll(unregisterRestoredApprovalDom);
 
 const A = "odysseus-sirens";
 /** The host's clock when the turn started: hours before this page drew the shell. */
 const STARTED_AT = Date.now() - (3 * 60 + 17) * 60_000;
-const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+// The shared 24-hour clock every surface prints (#4736).
+const clock = clockTime;
 
 function root(latest: Partial<SessionRecoveryLatest>, pending: SessionRecoveryPending[] = []) {
   const sent: ClientMessage[] = [];

@@ -9,7 +9,6 @@ import {
   toolHeadroomView,
   toolResultLines,
   toolStateLine,
-  toolStateText,
   type ToolRunState,
 } from "../src/storage/tool-row-model.js";
 
@@ -33,20 +32,20 @@ describe("tool state line", () => {
   for (const [state, expected] of cases) {
     test(`${state} reads as a distinct glyph and word`, () => {
       const line = toolStateLine({ state, at: "12 Jul 03:08" });
-      expect(`${line.glyph} ${toolStateText(line)}`).toBe(expected);
+      expect(`${line.glyph} ${line.word}${line.detail ? ` · ${line.detail}` : ""}`).toBe(expected);
     });
   }
   test("every state has its own glyph-and-word pair, so greyscale keeps them apart", () => {
     const pairs = cases.map(([state]) => { const l = toolStateLine({ state }); return `${l.glyph}${l.word}`; });
     expect(new Set(pairs).size).toBe(pairs.length);
   });
-  test("a missing time adds no dangling separator", () => {
-    expect(toolStateText(toolStateLine({ state: "complete" }))).toBe("Done");
-    expect(toolStateText(toolStateLine({ state: "running" }))).toBe("Running");
+  test("a missing time leaves no detail", () => {
+    expect(toolStateLine({ state: "complete" })).toMatchObject({ word: "Done", detail: undefined });
+    expect(toolStateLine({ state: "running" })).toMatchObject({ word: "Running", detail: undefined });
   });
   test("unavailable overrides the receipt state and says why", () => {
     const line = toolStateLine({ state: "complete", at: "12 Jul", available: false, unavailableReason: "Git not installed" });
-    expect(`${line.glyph} ${toolStateText(line)}`).toBe("⊘ Not available here · Git not installed");
+    expect(`${line.glyph} ${line.word} · ${line.detail}`).toBe("⊘ Not available here · Git not installed");
   });
   test("cancelling applies only while busy", () => {
     expect(toolStateLine({ state: "running", cancelling: true }).word).toBe("Cancelling…");

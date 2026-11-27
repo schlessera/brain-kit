@@ -71,17 +71,6 @@ export function childSpans(state: ActivityState, parentSpanId: string): Activity
     .sort((a, b) => a.startedAt - b.startedAt);
 }
 
-/** The subagent spans spawned by a turn's Agent tool calls, live status included. */
-export function subagentSpans(state: ActivityState, sessionId: string): ActivitySpan[] {
-  const out: ActivitySpan[] = [];
-  for (const byId of Object.values(state.spans)) {
-    for (const span of Object.values(byId)) {
-      if (span.kind === "subagent" && span.sessionId === sessionId) out.push(span);
-    }
-  }
-  return out.sort((a, b) => a.startedAt - b.startedAt);
-}
-
 /** Stable empty result for `eventsFor` — a fresh `[]` per call would defeat
  *  reference-equality checks in zustand selectors. */
 const EMPTY_EVENTS: ActivitySpanEvent[] = Object.freeze(
@@ -143,22 +132,4 @@ export function runEvents(state: ActivityState, runId: string): ActivitySpanEven
 export function spanForTool(state: ActivityState, toolUseId: string): ActivitySpan | null {
   const runId = state.spanRun[toolUseId];
   return runId ? (state.spans[runId]?.[toolUseId] ?? null) : null;
-}
-
-/**
- * Server-stamped timing for a tool call. One clock for live and reloaded
- * views: when the activity stream carries the span, its timestamps win over
- * client stamps (AE2 — live and revisit must render identical timings).
- * `waitUntil` marks the approval-wait/execution boundary.
- */
-export function timingFor(
-  state: ActivityState,
-  toolUseId: string
-): { startedAt: number; endedAt?: number } | null {
-  const span = spanForTool(state, toolUseId);
-  if (!span) return null;
-  return {
-    startedAt: span.waitUntil ?? span.startedAt,
-    ...(span.endedAt !== undefined ? { endedAt: span.endedAt } : {}),
-  };
 }

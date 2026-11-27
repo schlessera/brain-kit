@@ -8,6 +8,7 @@ import {
   type SessionRecoveryPendingKind,
   type SessionRecoveryUnavailable,
 } from "@schlessera/brain-ui-sdk/protocol";
+import { clockTime } from "./format-time.js";
 
 /**
  * Trackers for work left running (D52 §4, #948): the pure part. A tracker is
@@ -475,11 +476,6 @@ export function compareTrackers(a: TrackerView, b: TrackerView): number {
 /** `done` and `cancelled` beyond this leave the pill row; their Sessions row still says unseen (D52 §4). */
 export const SETTLED_TRACKER_CAP = 24;
 
-function clock(ms: number): string {
-  const date = new Date(ms);
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
 function age(ms: number): string {
   const minutes = Math.floor(Math.max(0, ms) / 60_000);
   if (minutes < 1) return "<1m";
@@ -512,7 +508,7 @@ export function trackerWords(view: TrackerView, now: number): { word: string; de
     case "needs_you":
       return { word: "needs you", detail: view.pendingKind };
     case "failed":
-      return { word: FAILED_WORD[view.outcome!] ?? "failed", detail: view.endedAt !== null ? `ended ${clock(view.endedAt)}` : null };
+      return { word: FAILED_WORD[view.outcome!] ?? "failed", detail: view.endedAt !== null ? `ended ${clockTime(view.endedAt)}` : null };
     case "unconfirmed":
       return { word: "unconfirmed", detail: "didn't hear back" };
     case "running":
@@ -524,9 +520,9 @@ export function trackerWords(view: TrackerView, now: number): { word: string; de
     case "cant_check":
       return { word: "can't check", detail: view.cantCheck ? CANT_CHECK_LINE[view.cantCheck] : null };
     case "done":
-      return { word: view.endedAt !== null ? `done · ${age(now - view.endedAt)}` : "done", detail: view.endedAt !== null ? `finished ${clock(view.endedAt)}` : null };
+      return { word: view.endedAt !== null ? `done · ${age(now - view.endedAt)}` : "done", detail: view.endedAt !== null ? `finished ${clockTime(view.endedAt)}` : null };
     case "cancelled":
-      return { word: view.outcome === "denied" ? "denied" : "cancelled", detail: view.endedAt !== null ? `ended ${clock(view.endedAt)}` : null };
+      return { word: view.outcome === "denied" ? "denied" : "cancelled", detail: view.endedAt !== null ? `ended ${clockTime(view.endedAt)}` : null };
   }
 }
 

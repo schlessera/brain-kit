@@ -1,7 +1,7 @@
 import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Button, Overlay, TextButton, Label, Receipt, ScreenHeader } from "@schlessera/brain-ui-kit";
 import type { ReceiptRow } from "@schlessera/brain-ui-kit";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "../icons.js";
 import { useFileStore } from "../../stores/file-store.js";
 import { singleKey } from "../../lib/single-key.js";
 import { useCloseRequest } from "../../lib/use-close-request.js";

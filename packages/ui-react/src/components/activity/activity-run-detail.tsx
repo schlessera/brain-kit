@@ -1,6 +1,6 @@
 import { TurnTiming } from "./turn-timing.js";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, ChevronRight } from "../icons.js";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 import { Disclosure, IconButton, StatusDot, TraceSteps, type TraceStep } from "@schlessera/brain-ui-kit";

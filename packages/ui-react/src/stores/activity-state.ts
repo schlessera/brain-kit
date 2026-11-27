@@ -17,8 +17,6 @@ export {
   runEvents,
   runSpans,
   spanForTool,
-  subagentSpans,
-  timingFor,
 } from "./activity-store-helpers.js";
 
 function boundLifecycles(records: Record<string, ActivityTurnLifecycle>, highWater: Record<string, number>, deltaSeq: Record<string, number>): Record<string, ActivityTurnLifecycle> {

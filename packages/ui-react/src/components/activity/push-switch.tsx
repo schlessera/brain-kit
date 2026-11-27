@@ -1,5 +1,5 @@
 import { Toggle } from "@schlessera/brain-ui-kit";
-import { BellOff } from "lucide-react";
+import { BellOff } from "../icons.js";
 
 /**
  * What push looks like — nothing about how it is obtained. `PushToggle` is
