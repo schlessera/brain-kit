@@ -8,6 +8,7 @@ import { DEFAULT_ROOTS, testArgv } from "../scripts/test";
 import { planChecks, workspaces } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
 import { localUnitWorkerCount } from "../scripts/unit-workers";
+import { copyScriptClosure, TEST_RUNNER_ENTRY, TEST_RUNNER_INPUTS } from "./helpers/script-closure";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -428,9 +429,7 @@ function importFixture() {
   const dir = fixture();
   const root = join(import.meta.dir, "..");
   mkdirSync(join(dir, "scripts"));
-  for (const helper of ["test.ts", "offline-command.ts", "offline-command.py", "test-credential-names.json", "docker-test-files.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-home.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs"]) {
-    cpSync(join(root, "scripts", helper), join(dir, "scripts", helper));
-  }
+  copyScriptClosure(dir, [TEST_RUNNER_ENTRY], TEST_RUNNER_INPUTS);
   mkdirSync(join(dir, "packages/core/tests"), { recursive: true });
   cpSync(join(root, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"));
   mkdirSync(join(dir, "packages/fixture/src"), { recursive: true });

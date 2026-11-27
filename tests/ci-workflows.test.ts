@@ -577,6 +577,51 @@ test("a unit matrix or divisor that disagrees with the planner's partition set i
   }
 });
 
+describe("repeated ci.yml blocks stay equal (#4675)", () => {
+  // Edits one job's block of the workflow text, so the rule is proved on the file's own shape.
+  const inJob = (text: string, job: string, edit: (block: string) => string) => {
+    const start = text.indexOf(`\n  ${job}:\n`);
+    expect(start, `JOB_FOUND: ${job}`).toBeGreaterThan(0);
+    const next = text.slice(start + 1).search(/\n  [a-z_]+:\n/);
+    const end = next < 0 ? text.length : start + 1 + next;
+    const block = text.slice(start, end), edited = edit(block);
+    expect(edited, `EDIT_APPLIED: ${job}`).not.toBe(block);
+    return text.slice(0, start) + edited + text.slice(end);
+  };
+
+  test("the current ci.yml passes with no workflow edit", () => {
+    expect(workflowProblems(read("ci.yml"), "ci.yml")).toEqual([]);
+  });
+
+  test("a shared diagnostic path missing from one job fails naming the job and the path", () => {
+    const text = inJob(read("ci.yml"), "layout", block => block.replace("            packages/ui-react/.vitest-attachments/\n", ""));
+    expect(workflowProblems(text, "ci.yml")).toContain("ci.yml: layout: diagnostic upload lacks shared path packages/ui-react/.vitest-attachments/ (or lists it out of order)");
+  });
+
+  test("a path added to one job's list only fails", () => {
+    const text = inJob(read("ci.yml"), "captures", block => block.replace("            tmp/svg-proof/\n", "            tmp/svg-proof/\n            tmp/new-diagnostic/\n"));
+    expect(workflowProblems(text, "ci.yml").filter(problem => problem.startsWith("ci.yml: captures: diagnostic upload's own paths must be exactly []"))).toHaveLength(1);
+  });
+
+  test("a shared path moved out of order fails", () => {
+    const text = inJob(read("ci.yml"), "endurance", block => block.replace("            tmp/proof-checkout.json\n", "").replace("            tmp/svg-proof/\n", "            tmp/svg-proof/\n            tmp/proof-checkout.json\n"));
+    expect(workflowProblems(text, "ci.yml").some(problem => problem.startsWith("ci.yml: endurance: diagnostic upload lacks shared path"))).toBe(true);
+  });
+
+  test("a different retention in one copy fails", () => {
+    const text = inJob(read("ci.yml"), "browser", block => block.replace("          retention-days: 7\n", "          retention-days: 3\n"));
+    expect(workflowProblems(text, "ci.yml")).toContain("ci.yml: browser: diagnostic upload retention-days must be 7, as in every copy");
+  });
+
+  test("a recompute step without RED_MAIN_OID, or with a different value, fails naming the job", () => {
+    const line = "          RED_MAIN_OID: ${{ needs.changeset.outputs.red_main_oid }}\n";
+    const dropped = inJob(read("ci.yml"), "browser", block => block.replace(line, ""));
+    expect(workflowProblems(dropped, "ci.yml")).toContain("ci.yml: browser: planner recompute step lacks RED_MAIN_OID");
+    const respelled = inJob(read("ci.yml"), "verify", block => block.replace("BASE_SHA: ${{ github.event.pull_request.base.sha }}", "BASE_SHA: ${{ github.base_ref }}"));
+    expect(workflowProblems(respelled, "ci.yml")).toContain("ci.yml: verify: planner recompute step must set BASE_SHA to ${{ github.event.pull_request.base.sha }}, as every copy does");
+  });
+});
+
 test("all unit partitions upload incremental memory diagnostics even after proof failure", () => {
   const upload = ci.jobs.unit!.steps.find(s => s.uses === pinned("actions/upload-artifact@v7"))!;
   expect(upload.if).toBe("always()");

@@ -38,7 +38,7 @@ After editing 50 small files, a rerun saved nothing. Short files are inline
 metadata, which dedupe never touches. Metadata growth cannot be isolated on a
 shared host filesystem; the pool cells below measure it.
 
-**Pool behaviour, on the owned reference pool** (`scripts/native-proof/dedupe-experiment.ts`).
+**Pool behaviour, on the owned reference pool** ([`scripts/native-proof/dedupe-experiment.ts`](https://github.com/schlessera/brain-kit/blob/d96d8541a49360425070ee316f5fdf00c4d21102/scripts/native-proof/dedupe-experiment.ts), archived at `d96d8541a493`; its call site was never committed).
 The real manager ran inside the pinned native fixture: kernel
 7.0.0-1017-azure, btrfs-progs 6.6.3, hosted heavy-feedback run 42504379233.
 Dedupe ran through `FIDEDUPERANGE` directly, with the destination opened
