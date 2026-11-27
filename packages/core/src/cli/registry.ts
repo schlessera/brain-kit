@@ -2,11 +2,12 @@
  * The command registry: core commands plus one namespaced word per module.
  *
  * Refactors the reference brain's 976-line dispatch switch into a data-driven
- * Map. Core commands register eagerly; module commands register a
- * lazy loader keyed by their manifest word, so heavy module code is only
- * imported when that command actually runs (or when `--help` resolves its
- * summary). A module word colliding with a core name (or another module's word)
- * is a load error surfaced by the bin entry.
+ * Map. Every command registers a lazy loader, so a command's code is only
+ * imported when that command runs or `brain <cmd> --help` resolves its usage
+ * block. A core command's summary comes from the core command table without
+ * loading anything; a module command's summary is resolved by importing it
+ * (`brain --help`). A module word colliding with a core name (or another
+ * module's word) is a load error surfaced by the bin entry.
  */
 
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
@@ -42,14 +43,14 @@ function outsideBrain(root: string, path: string | undefined): boolean {
 
 export interface RegisteredCommand {
   name: string;
-  /** Eager for core commands; a placeholder for modules until describe() runs. */
+  /** From the core command table for core commands; a placeholder for modules until describe() runs. */
   summary: string;
   helpBlock?: string;
   /** Dormant namespace help still answers a nonzero status without importing code. */
   helpExitCode?: number;
   source: "core" | "module";
   run(args: string[], cli: CliContext): Promise<number | void>;
-  /** Module commands resolve their real summary/helpBlock lazily (imports the command). */
+  /** Resolves the real summary/helpBlock lazily (imports the command). */
   describe?(): Promise<{ summary: string; helpBlock?: string }>;
 }
 
@@ -70,13 +71,18 @@ export function buildRegistry(brain: BrainContext): Registry {
   const commands = new Map<string, RegisteredCommand>();
   const errors: string[] = [];
 
-  for (const [name, cmd] of Object.entries(CORE_COMMANDS)) {
+  for (const [name, entry] of Object.entries(CORE_COMMANDS)) {
     commands.set(name, {
       name,
-      summary: cmd.summary,
-      helpBlock: cmd.helpBlock,
+      summary: entry.summary,
       source: "core",
-      run: cmd.run,
+      async run(args, cli) {
+        return (await entry.load()).run(args, cli);
+      },
+      async describe() {
+        const cmd = await entry.load();
+        return { summary: cmd.summary, helpBlock: cmd.helpBlock };
+      },
     });
   }
 

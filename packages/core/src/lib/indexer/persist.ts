@@ -261,13 +261,18 @@ function sweepDeletions(
   st: Statements,
   existingDocs: Map<string, ExistingDoc>,
   markdownOnDisk: Set<string>,
-  assetsOnDisk: Set<string>
+  assetsOnDisk: Set<string>,
+  sweepOnly?: ReadonlySet<string>
 ): void {
   // The candidates are the rows the scan loaded; every row this run wrote is
-  // on disk. Each one's id is read again here, inside the transaction: a
-  // `--force` wipe already removed every markdown row (and may have handed
-  // its id to a new one), so only a row that still exists is swept or counted.
+  // on disk, and a row another run committed after the scan is no evidence
+  // of a deletion. A targeted run knows only the paths it was named, so only
+  // those may be swept. Each candidate's id is read again here, inside the
+  // transaction: a `--force` wipe already removed every markdown row (and may
+  // have handed its id to a new one), so only a row that still exists is
+  // swept or counted.
   for (const [path, existing] of existingDocs) {
+    if (sweepOnly && !sweepOnly.has(path)) continue;
     const onDisk = existing.asset_type === "markdown" ? markdownOnDisk.has(path) : assetsOnDisk.has(path);
     if (onDisk) continue;
     const row = st.getDocId.get(path) as { id: number } | null;
@@ -367,7 +372,9 @@ export function persistMarkdown(
   parsed: ParseResult,
   existingDocs: Map<string, ExistingDoc>,
   markdownOnDisk: Set<string>,
-  assetsOnDisk: Set<string>
+  assetsOnDisk: Set<string>,
+  /** A targeted run's named paths: only these rows may be swept. */
+  sweepOnly?: ReadonlySet<string>
 ): void {
   const st = prepareStatements(run.db);
   const write = run.db.transaction(() => {
@@ -381,7 +388,7 @@ export function persistMarkdown(
       else run.stats.updated++;
     }
 
-    sweepDeletions(run, st, existingDocs, markdownOnDisk, assetsOnDisk);
+    sweepDeletions(run, st, existingDocs, markdownOnDisk, assetsOnDisk, sweepOnly);
     rebuildLinks(run, st, parsed);
   });
   write.immediate();

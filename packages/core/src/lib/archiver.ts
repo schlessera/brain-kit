@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { readFileSync, existsSync, unlinkSync, statSync } from "fs";
-import { resolve } from "path";
+import { readFileSync, existsSync, realpathSync, unlinkSync, statSync } from "fs";
+import { relative, resolve } from "path";
 import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
@@ -23,9 +23,11 @@ export interface ArchiveOptions {
   /**
    * Reindex the brain after the archive write (skipped on dryRun). The CLI
    * wires this to the incremental indexer's indexAll(); injected so this module
-   * does not hard-couple to the indexer. Same shape ingestion.ts uses.
+   * does not hard-couple to the indexer. Same shape ingestion.ts uses. `paths`
+   * names the files the archive changed, repo-relative: the document, and its
+   * new path too when it moved. A hook may index only those.
    */
-  reindex?: (db: Database) => Promise<unknown>;
+  reindex?: (db: Database, paths?: readonly string[]) => Promise<unknown>;
   /** Embedding dimensions for the vec table when opening a fresh db (fallback path). */
   embeddingDimensions?: number;
 }
@@ -121,13 +123,15 @@ export async function archiveDocument(
   // caller may hand in an open db; otherwise open one, load vec support, and
   // close it — mirroring the original two-branch behaviour.
   if (options?.reindex) {
+    const canonicalRoot = realpathSync(root);
+    const changed = [relative(canonicalRoot, fullPath), ...(archiveFullPath ? [relative(canonicalRoot, archiveFullPath)] : [])];
     if (options.db) {
-      await options.reindex(options.db);
+      await options.reindex(options.db, changed);
     } else {
       const dimensions = options.embeddingDimensions ?? EMBEDDING_DIMENSIONS;
       const db = openDatabase(indexDbPath(resolve(root)), { embeddingDimensions: dimensions });
       await migrateVecSchema(db, storedVectorWidth(db, dimensions));
-      await options.reindex(db);
+      await options.reindex(db, changed);
       db.close();
     }
   }

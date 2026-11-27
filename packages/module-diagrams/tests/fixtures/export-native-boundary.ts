@@ -62,10 +62,13 @@ if(process.argv[1]===entry){
   assert.equal(process.env[name],undefined,`NATIVE_EXPORT_NO_${name}`);
  const attempts:string[]=[];
  const {CORE_COMMANDS}=await import("../../../core/src/cli/commands/index.js");
- // buildRegistry reads cmd.run after this preload. Exact source auditing also
- // checks aliases and early dispatch branches; shared library helpers keep
- // their ordinary behavior and initialization executes normally.
- for(const [name,command]of Object.entries(CORE_COMMANDS))Object.defineProperty(command,"run",{
+ // Load every core command here and replace run on the shared module
+ // instances: the registry reads run from the loaded command at dispatch, and
+ // early dispatch imports storage, policy and apify by path, which reaches the
+ // same instances. Exact source auditing also checks aliases and early
+ // dispatch branches; shared library helpers keep their ordinary behavior and
+ // initialization executes normally.
+ for(const [name,entry]of Object.entries(CORE_COMMANDS))Object.defineProperty(await entry.load(),"run",{
   configurable:false,writable:false,value:async()=>{attempts.push(name);throw Error(`NATIVE_EXPORT_CORE_COMMAND_ACTIVATED: ${name}`);}
  });
  process.on("exit",()=>{

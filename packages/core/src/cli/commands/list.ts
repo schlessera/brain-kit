@@ -1,7 +1,7 @@
 import type { SearchOptions } from "../../lib/types.js";
 import { filterSearch } from "../../lib/search-engine.js";
 import { DEFAULT_LIST_LIMIT, listLimitSchema, MAX_LIST_LIMIT, pageDocuments } from "../../lib/ops/read.js";
-import { indexStaleness } from "../../lib/ops/staleness.js";
+import { indexStaleness, staleWarning } from "../../lib/ops/staleness.js";
 import type { CoreCommand } from "../types.js";
 import { stringFlag } from "../flags.js";
 import { emit, type Flags, openReadonlyDb, parseArgs, UsageError } from "../io.js";
@@ -69,7 +69,7 @@ export const listCommand: CoreCommand = {
         // The shared paged operation (#3643): the same page brain_list and
         // pi's brain_list return for the same index.
         const { stale } = indexStaleness(db, cli.brain.root, cli.brain.taxonomy);
-        const warnings = stale > 0 ? [`index is stale (${stale} file(s) newer than index); run \`brain index\``] : [];
+        const warnings = stale > 0 ? [staleWarning(stale)] : [];
         let page;
         try {
           page = pageDocuments(

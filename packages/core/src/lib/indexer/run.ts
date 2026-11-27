@@ -227,7 +227,8 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
     parsed,
     existingDocs,
     markdownOnDisk,
-    assetsOnDisk
+    assetsOnDisk,
+    targeted ? new Set(options.paths) : undefined
   );
 
   await dropIneligibleVectors(run);
@@ -257,9 +258,10 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   // `brain index` is the only thing that knows what is still reachable.
   // Asset lines are pruned only while the index holds a current hash for
   // every asset on disk; otherwise a live asset's description would look
-  // unreachable (#3242). A targeted run scans no asset, so it never knows.
+  // unreachable (#3242). A targeted run scans no asset, so it never knows;
+  // nor does it read every note, so it leaves context lines alone too.
   const pruneAssets = !targeted && indexCoversAssets(run, assetFiles);
-  const pruned = pruneSidecarCaches(run.db, run.root, run.warn, { assets: pruneAssets });
+  const pruned = pruneSidecarCaches(run.db, run.root, run.warn, { assets: pruneAssets, contexts: !targeted });
   if (pruned.assets || pruned.contexts) {
     run.report(`  Pruned ${pruned.assets} asset and ${pruned.contexts} context cache entries`);
   }
