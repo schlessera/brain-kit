@@ -8,7 +8,7 @@ import { unregisterSessionsPaneDom } from "./sessions-pane-dom.js";
 
 import { afterAll, afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
-import { Profiler, useReducer } from "react";
+import { Profiler, useEffect, useReducer } from "react";
 
 import { SessionDrawer } from "../../src/components/chat/session-drawer.js";
 import { SessionsPane } from "../../src/components/chat/sessions-pane.js";
@@ -108,16 +108,16 @@ describe("the Sessions drawer while it is closed", () => {
       return counted;
     });
     const r = fixture(sessions);
-    let rerender = () => {};
+    const parent = { rerender: () => {} };
     function Parent() {
       const [, bump] = useReducer((n: number) => n + 1, 0);
-      rerender = bump;
+      useEffect(() => { parent.rerender = bump; }, []);
       return <SessionDrawer open={false} onClose={noop} onResume={noop} />;
     }
     render(<BrainUiProvider root={r}><Parent /></BrainUiProvider>);
     await tick();
     reads = 0;
-    for (let i = 0; i < 10; i++) act(() => rerender());
+    for (let i = 0; i < 10; i++) act(() => parent.rerender());
     expect(reads).toBe(0);
   });
 });

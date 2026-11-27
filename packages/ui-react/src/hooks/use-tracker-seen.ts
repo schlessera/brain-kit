@@ -71,6 +71,7 @@ export function useTrackerSeen(transcript: RefObject<HTMLElement | null>, scroll
   // show, and its scroll listener has to follow it there (#4743).
   const [element, setElement] = useState<HTMLElement | null>(null);
   useEffect(() => {
+    // Set only when the element changed, so it never loops.
     if (transcript.current !== element) setElement(transcript.current);
     observeTrackerSeen(root, transcript.current, scrollDisc);
   });
