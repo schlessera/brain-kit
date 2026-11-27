@@ -39,6 +39,8 @@ export interface InboxDispatcherDeps extends Pick<AutonomousTurnDeps, "store" | 
   /** The shared ledger configuration; triage admits through the same caps. */
   budget: Omit<Parameters<typeof createInboxBudget>[1], "now">;
   classification: { apiKey: string | null };
+  /** BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS: how long an interactive caller waits before an autonomous holder yields. */
+  yieldAfterMs?: number;
   /** Classification transport; production uses the platform fetch. */
   fetch?: FetchLike;
   now?: () => number;
@@ -213,7 +215,8 @@ export function createInboxDispatcher(db: Database, deps: InboxDispatcherDeps) {
           const { action, allowed } = decision(item, backendId, escalation);
           escalateInbox(db, { itemId: item.id, expectedVersion: current.version, escalation, action, allowedOperations: allowed, now: now() });
         } }, { turnId: runId, principalId, compose: admission => context(item, approved, admission), profileId: chosen.profileId, billingMode: chosen.billingMode,
-        pricingRoute: chosen.pricingRoute, allowedTools, signal, application: { approved } });
+        pricingRoute: chosen.pricingRoute, allowedTools, signal, application: { approved },
+        ...(deps.yieldAfterMs !== undefined ? { yieldAfterMs: deps.yieldAfterMs } : {}) });
     } catch { result = null; }
     // The backend has unwound. Escalation already blocked the item and a
     // yield already returned it; only an unblocked live claim settles here.

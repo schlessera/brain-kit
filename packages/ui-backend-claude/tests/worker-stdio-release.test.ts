@@ -26,7 +26,7 @@ function fixture() {
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   const fifos = ownedWorkerFifos();
   cleanup.push(fifos.restore);
-  const sandbox = prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [] });
   const ledger = createStateLedger();
   const spawner = (started: (worker: LaunchedWorker) => void) => createWorkerSpawn(brain, {}, new AbortController().signal, undefined, sandbox,
     undefined, undefined, { ledger, limits, turnTempLimits: { allowanceBytes: MiB, budgetBytes: MiB } }, undefined,

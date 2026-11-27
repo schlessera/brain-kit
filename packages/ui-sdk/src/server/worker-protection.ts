@@ -1,6 +1,7 @@
 /** The governed layout: one resolved list for mounts, note and manifest. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { closeSync, fstatSync, lstatSync, mkdirSync, readdirSync, realpathSync, readFileSync, statSync } from "node:fs";
+import { parseProcStat, type ProcStat } from "./proc-identity.js";
 import { isAbsolute, join, normalize } from "node:path";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { CACHE_DIR, LEGACY_SIDECAR_CACHES } from "@schlessera/brain-common/internal/cache-location";
@@ -381,8 +382,8 @@ function mountRecords(pid: number, site: MountSite, since: number): MountRecord[
 function mountReadDetail(pid: number, text: string, since: number): string {
   let state: string;
   try {
-    const fields = readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ");
-    state = `worker state ${fields[0]} start ${fields[19]}`;
+    const stat = parseProcStat(readFileSync(`/proc/${pid}/stat`, "utf8"));
+    state = `worker state ${stat.state} start ${stat.start}`;
   } catch (error) { state = `worker state unavailable (${code(error)})`; }
   return ` (${Buffer.byteLength(text)} bytes, ${text ? text.split("\n").length : 0} lines, ${state}, after ${Date.now() - since}ms)`;
 }
@@ -419,10 +420,11 @@ export function* verifyWorkerFolderMountsSteps(brain: string, protection: Worker
   if (!qualified || retainedFolders.some(root => !qualified.roots.includes(root)))
     throw new Error("provider folder topology was not qualified by the resolver");
   const identity = () => {
-    const fields = readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ");
-    if (["Z", "X", "x"].includes(fields[0]!) || !/^\d+$/.test(fields[19] ?? ""))
-      throw new Error("provider folder topology worker identity is unavailable");
-    return fields[19]!;
+    const line = readFileSync(`/proc/${pid}/stat`, "utf8");
+    let stat: ProcStat;
+    try { stat = parseProcStat(line); } catch { throw new Error("provider folder topology worker identity is unavailable"); }
+    if (["Z", "X", "x"].includes(stat.state)) throw new Error("provider folder topology worker identity is unavailable");
+    return stat.start;
   };
   const since = Date.now();
   try {

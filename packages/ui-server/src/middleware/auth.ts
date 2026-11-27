@@ -180,88 +180,13 @@ export function assertAuthConfig(mode: AuthMode, auth: AuthRuntime, log?: Logger
   });
 }
 
-/** Middleware guarding /api/* according to the resolved mode. */
-export function authGuard(
-  mode: AuthMode,
-  auth: AuthRuntime,
-  db: Database
-): MiddlewareHandler<AppEnv> {
-  switch (mode) {
-    case "tailscale":
-      return async (c, next) => {
-        principalWrites(db).pruneIfDue(Date.now());
-        if (isTailscaleAllowed(c, auth.trustProxy, auth.trustProxyHops)) {
-          const ip = clientIp(c, auth.trustProxy, auth.trustProxyHops);
-          c.set(
-            "principal",
-            await principalWrites(db).ambient("tailscale", ip, sanitizeAmbientLabel(ip))
-          );
-          await next();
-        } else {
-          return c.json({ error: "VPN access required" }, 403);
-        }
-      };
-    case "proxy":
-      return async (c, next) => {
-        principalWrites(db).pruneIfDue(Date.now());
-        const proxyIdentity = resolveProxyIdentity(c, auth);
-        if (proxyIdentity) {
-          c.set(
-            "principal",
-            await principalWrites(db).ambient(
-              "proxy",
-              proxyIdentity.identity,
-              proxyIdentity.label
-            )
-          );
-          await next();
-        } else {
-          return c.json(
-            { error: "Authentication required", authRequired: true },
-            401
-          );
-        }
-      };
-    case "password":
-      return async (c, next) => {
-        principalWrites(db).pruneIfDue(Date.now());
-        const principal = await resolveCookiePrincipal(c, auth, db);
-        if (principal) {
-          c.set("principal", principal);
-          await next();
-        } else {
-          return c.json(
-            { error: "Authentication required", authRequired: true },
-            401
-          );
-        }
-      };
-    case "none":
-      return async (c, next) => {
-        principalWrites(db).pruneIfDue(Date.now());
-        c.set(
-          "principal",
-          await principalWrites(db).ambient(
-            "none",
-            "No authentication",
-            "No authentication"
-          )
-        );
-        await next();
-      };
-  }
-}
-
 /**
- * Authorize a WebSocket upgrade. The upgrade handler must call this itself —
- * browsers can't set headers on the WS handshake, so the session cookie (sent
- * automatically same-origin) is the credential, and no header-modifying
- * middleware may sit on the WS route (immutable-header errors). Mirrors
- * {@link authGuard} without emitting a response.
- *
- * @returns The resolved principal for an authorized upgrade, otherwise null.
+ * Resolve the request's principal under `mode`, or null when the request is
+ * not authenticated. The one place the four modes are told apart: the HTTP
+ * guard and the WebSocket upgrade both call it, so they admit and refuse the
+ * same requests. It emits nothing, which the upgrade path requires.
  */
-export async function isWsAuthorized(
+async function resolveRequestPrincipal(
   c: Context<AppEnv>,
   mode: AuthMode,
   auth: AuthRuntime,
@@ -297,6 +222,46 @@ export async function isWsAuthorized(
     case "password":
       return resolveCookiePrincipal(c, auth, db);
   }
+}
+
+/** Middleware guarding /api/* according to the resolved mode. */
+export function authGuard(
+  mode: AuthMode,
+  auth: AuthRuntime,
+  db: Database
+): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const principal = await resolveRequestPrincipal(c, mode, auth, db);
+    if (principal) {
+      c.set("principal", principal);
+      await next();
+      return;
+    }
+    // Tailscale admits by network, so a refusal there is not a sign-in prompt.
+    if (mode === "tailscale") return c.json({ error: "VPN access required" }, 403);
+    return c.json(
+      { error: "Authentication required", authRequired: true },
+      401
+    );
+  };
+}
+
+/**
+ * Authorize a WebSocket upgrade. The upgrade handler must call this itself —
+ * browsers can't set headers on the WS handshake, so the session cookie (sent
+ * automatically same-origin) is the credential, and no header-modifying
+ * middleware may sit on the WS route (immutable-header errors). Resolves the
+ * principal exactly as {@link authGuard} does, without emitting a response.
+ *
+ * @returns The resolved principal for an authorized upgrade, otherwise null.
+ */
+export function isWsAuthorized(
+  c: Context<AppEnv>,
+  mode: AuthMode,
+  auth: AuthRuntime,
+  db: Database
+): Promise<Principal | null> {
+  return resolveRequestPrincipal(c, mode, auth, db);
 }
 
 // --- password mode helpers ---

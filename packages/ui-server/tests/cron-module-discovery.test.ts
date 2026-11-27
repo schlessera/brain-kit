@@ -147,7 +147,7 @@ describe("persistModuleDiscovery", () => {
 
     const db = createUiDb(dbPath);
     try {
-      const status = createCronScheduler({ db, brain: {} as never }).getCronStatus().find(job => job.name === MODULE_DISCOVERY_JOB_NAME);
+      const status = createCronScheduler({ db }).getCronStatus().find(job => job.name === MODULE_DISCOVERY_JOB_NAME);
       expect(status?.lastStatus, "CRON_DISCOVERY_SKIP_IS_OPERATOR_VISIBLE").toBe("error");
       expect(status?.lastError).toBe("module cron skipped: brain module list exited 3");
       const store = createActivityStore(db);
@@ -166,7 +166,7 @@ describe("persistModuleDiscovery", () => {
     persistModuleDiscovery({ brainPath, dbPath, hostQualified: true, outcome: { modules: MODULES, attempts: 1 }, report: () => {} });
     const db = createUiDb(dbPath);
     try {
-      const status = createCronScheduler({ db, brain: {} as never }).getCronStatus().find(job => job.name === MODULE_DISCOVERY_JOB_NAME);
+      const status = createCronScheduler({ db }).getCronStatus().find(job => job.name === MODULE_DISCOVERY_JOB_NAME);
       expect(status?.lastStatus).toBe("success");
       expect(status?.lastError).toBeNull();
     } finally { db.close(); }
