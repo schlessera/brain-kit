@@ -30,6 +30,8 @@ export interface ArchiveOptions {
   reindex?: (db: Database, paths?: readonly string[]) => Promise<unknown>;
   /** Embedding dimensions for the vec table when opening a fresh db (fallback path). */
   embeddingDimensions?: number;
+  /** Called once the archived document has been written, before the source is removed or the reindex runs. */
+  written?: () => void;
 }
 
 function today(): string {
@@ -114,9 +116,11 @@ export async function archiveDocument(
       }
       throw error;
     }
+    options?.written?.();
     unlinkSync(fullPath);
   } else {
     writeFileSafely(fullPath, output);
+    options?.written?.();
   }
 
   // Reindex is injected (indexAll lives in the indexer, another module). The
