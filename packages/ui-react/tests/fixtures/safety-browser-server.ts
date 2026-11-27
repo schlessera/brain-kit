@@ -65,6 +65,8 @@ app.post('/fixture',async c=>{
  if(input.action==='add')await tool(input.id??'tool_d',input.finalized!==false);
  // The real collector sees two names under one ID (#4513): the host decides attribution.
  if(input.action==='reuse'){collector.admitting?.(input.id??'tool_c','Grep');collector.admitting?.(input.id??'tool_c','Bash');}
+ // Nine reused IDs exceed what the host tracks one by one: the whole turn is unknown.
+ if(input.action==='reuse-turn')for(let i=0;i<9;i++){collector.admitting?.(`oar_${i}`,'Grep');collector.admitting?.(`oar_${i}`,'Bash');}
  if(input.action==='prune')pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);
  if(input.action==='loss')await f.writes.safetyFail('voyage');
  f.history.poll();

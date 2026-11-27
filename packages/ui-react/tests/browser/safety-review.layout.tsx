@@ -102,9 +102,9 @@ async function details(button:HTMLButtonElement){
  const sections=[...document.querySelectorAll('[data-safety-trigger]')].map(e=>e.textContent??'');
  await userEvent.keyboard('{Escape}');return sections;
 }
-for(const width of [320,1280])for(const hostSaw of [true,false])test(`${width}: a tool-use ID reused by differently named calls keeps one reviewable input${hostSaw?', unknown when the host saw both names':', labelled while the host saw one'}`,async()=>{
+for(const width of [320,1280])for(const hostSaw of ['id','turn',false] as const)test(`${width}: a tool-use ID reused by differently named calls keeps one reviewable input${hostSaw==='id'?', unknown when the host saw both names':hostSaw==='turn'?', unknown when the host could not check every ID':', labelled while the host saw one'}`,async()=>{
  await scene(width,'light',false,reused);
- if(hostSaw){await patch({action:'reuse',id:'tool_c'});await expect.poll(()=>Object.values(ui!.stores.safety.getState().records).some(r=>r.kind==='attribution'),{timeout:5000}).toBe(true);}
+ if(hostSaw){await patch({action:hostSaw==='id'?'reuse':'reuse-turn',id:'tool_c'});await expect.poll(()=>ui!.stores.safety.getState().projection?.attributionUnknown?.length??0,{timeout:8000}).toBeGreaterThan(0);}
  const collapsed=transcriptCounts();
  expect(collapsed,'REUSED_ID_COLLAPSED_COUNT').toEqual([2]);
  const sections=await details([...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].find(b=>!b.closest('[data-safety-turn-event]'))!);
@@ -112,9 +112,10 @@ for(const width of [320,1280])for(const hostSaw of [true,false])test(`${width}: 
  const search=sections.find(text=>text.includes('Workspace read'))!,fetch=sections.find(text=>text.includes('Web fetch'))!;
  if(hostSaw){
   expect(search,'HOST_UNKNOWN_NAMES_NO_ACTION').not.toMatch(/Action · (Local search|Bash|Grep)/);
-  expect(search,'HOST_UNKNOWN_RENDERS_UNKNOWN').toContain('Action · Unknown');
+  expect(search,'HOST_UNKNOWN_RENDERS_UNKNOWN').toContain(hostSaw==='id'?'Action · Unknown. The host saw more than one tool':'Action · Unknown. The host could not verify that only one tool used this call ID in this turn.');
  }else expect(search,'NO_HOST_FLAG_KEEPS_THE_LABEL').toContain('Action · Local search (Grep)');
- expect(fetch,'UNIQUE_ID_KEEPS_ITS_ACTION').toContain('Action · WebFetch');
+ if(hostSaw==='turn')expect(fetch,'TURN_WIDE_COVERS_EVERY_INPUT').toContain('Action · Unknown. The host could not verify');
+ else expect(fetch,'UNIQUE_ID_KEEPS_ITS_ACTION').toContain('Action · WebFetch');
  await userEvent.click(page.getByRole('button',{name:/^3 steps/}));
  await expect.poll(()=>host!.querySelectorAll('[data-tool-call]').length).toBe(3);
  expect(transcriptCounts().reduce((a,b)=>a+b,0),'REUSED_ID_EXPANDED_COUNT').toBe(2);
@@ -124,25 +125,6 @@ for(const width of [320,1280])for(const hostSaw of [true,false])test(`${width}: 
  expect(only).toHaveLength(1);
  expect(only[0],'EXPANDED_VIEW_USES_THE_SAME_ATTRIBUTION').toContain(hostSaw?'Action · Unknown':'Action · Local search (Grep)');
  expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
-});
-
-/** The host's attribution can sit on a later page than its input (#4513):
- * no action is named until the whole history has loaded. */
-test('an input under a reused ID names no action while its history is still loading',async()=>{
- await scene(320,'light',false,reused);
- await patch({action:'reuse',id:'tool_c'});
- await expect.poll(()=>Object.values(ui!.stores.safety.getState().records).some(r=>r.kind==='attribution'),{timeout:5000}).toBe(true);
- const state=ui!.stores.safety.getState(),all=Object.values(state.records);
- const base={version:1 as const,identity:state.identity!,snapshotId:'odyssey_pages',highWater:state.revision,projection:state.projection!,detailPruned:false};
- flushSync(()=>{state.begin('odyssey_read');ui!.stores.safety.getState().page('odyssey_read',{...base,cursor:null,nextCursor:'ithaca_page_2',snapshotComplete:false,records:all.filter(r=>r.kind!=='attribution')});});
- expect(ui!.stores.safety.getState().status).toBe('partial');
- const search=(await details([...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].find(b=>!b.closest('[data-safety-turn-event]'))!)).find(text=>text.includes('Workspace read'))!;
- expect(search,'PAGINATING_HISTORY_NAMES_NO_ACTION').not.toMatch(/Action · (Local search|Bash|Grep)/);
- expect(search,'PAGINATING_HISTORY_IS_CHECKING').toContain('Action · Checking');
- flushSync(()=>{ui!.stores.safety.getState().page('odyssey_read',{...base,cursor:'ithaca_page_2',nextCursor:null,snapshotComplete:true,records:all.filter(r=>r.kind==='attribution')});});
- expect(ui!.stores.safety.getState().status).toBe('ready');
- const settled=(await details([...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].find(b=>!b.closest('[data-safety-turn-event]'))!)).find(text=>text.includes('Workspace read'))!;
- expect(settled,'COMPLETE_HISTORY_SHOWS_THE_HOST_VERDICT').toContain('Action · Unknown');
 });
 
 test('mounted tool indicators share one turn index per messages array',async()=>{

@@ -11,7 +11,9 @@ test("the turn index is built once per messages array", () => {
   const messages = [answer], before = turnToolIndexBuilds();
   for (let i = 0; i < 25; i++) turnToolIndex(messages).get("voyage");
   expect(turnToolIndexBuilds() - before, "ONE_BUILD_PER_MESSAGES_ARRAY").toBe(1);
-  expect(turnToolIndex(messages).get("voyage")?.steps.map(tool => tool.name)).toEqual(["Grep", "Bash"]);
+  const turn = turnToolIndex(messages).get("voyage")!;
+  expect([...turn.drawn].map(tool => tool.name)).toEqual(["Grep", "Bash"]);
+  expect(turn.firstStep.get("tool_c")?.name, "FIRST_DRAWN_STEP_CARRIES_THE_INPUT").toBe("Grep");
   turnToolIndex([...messages]);
   expect(turnToolIndexBuilds() - before, "A_NEW_ARRAY_BUILDS_AGAIN").toBe(2);
 });

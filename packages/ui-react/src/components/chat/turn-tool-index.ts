@@ -10,10 +10,12 @@ import { isAskExchangeTool, isShowBlockTool } from "../../lib/tool-names.js";
 import { cachedToolPayload } from "./renderers/payload-cache.js";
 
 interface TurnTools {
-  /** The calls drawn as timeline steps, in drawn order: the steps that carry a safety indicator. */
-  readonly steps: readonly ToolCall[];
   /** Every call of the turn, drawn or not. */
   readonly calls: readonly ToolCall[];
+  /** The calls drawn as timeline steps: the steps that carry a safety indicator. */
+  readonly drawn: ReadonlySet<ToolCall>;
+  /** The first drawn step under each tool-use ID, where its input shows. */
+  readonly firstStep: ReadonlyMap<string, ToolCall>;
 }
 
 /** The calls a message draws as timeline steps. An ask exchange and an
@@ -32,13 +34,16 @@ export function turnToolIndex(messages: readonly ChatMessage[]): ReadonlyMap<str
   const cached = cache.get(messages);
   if (cached) return cached;
   builds++;
-  const index = new Map<string, { steps: ToolCall[]; calls: ToolCall[] }>();
+  const index = new Map<string, { calls: ToolCall[]; drawn: Set<ToolCall>; firstStep: Map<string, ToolCall> }>();
   for (const message of messages) {
     const turn = message.turnId ?? message.streamTurnId;
     if (!turn || !message.toolCalls.length) continue;
-    const entry = index.get(turn) ?? { steps: [], calls: [] };
-    entry.steps.push(...timelineSteps(message));
+    const entry = index.get(turn) ?? { calls: [], drawn: new Set<ToolCall>(), firstStep: new Map<string, ToolCall>() };
     entry.calls.push(...message.toolCalls);
+    for (const step of timelineSteps(message)) {
+      entry.drawn.add(step);
+      if (!entry.firstStep.has(step.id)) entry.firstStep.set(step.id, step);
+    }
     index.set(turn, entry);
   }
   cache.set(messages, index);
