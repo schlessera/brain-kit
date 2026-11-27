@@ -4,6 +4,7 @@ export { safetyRecordSchema, safetyOccurrenceAdmissionSchema, safetyAdmissionSch
 export { BRAIN_INTERACTION_GUIDANCE, projectConversationGuidance, conversationOrientation, ORIENTATION_MAX_BYTES } from "./server/interaction-guidance.js";
 export { prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles } from "./server/worker-identity-reader.js";
 export { workerCleanupUnconfirmed, workerIdentityHelper, reportStrandedWorkerCleanup } from "./server/worker-identity.js";
+export { createPrivateSocketDirectory, securePrivateSocket } from "./server/private-socket-dir.js";
 export { verifiedWorkerIdentity } from "./server/worker-launcher.js";
 export { launchAgentWorker, launchAgentWorkerAsync, launchLimits, requireWorkerHost, requireWorkerHostAsync, WorkerResourceLimitError, probeWorkerHost, workerHostBoundary, WorkerHostError, WORKER_SCRATCH, WORKER_STATE } from "./server/worker-launcher.js";
 export { WORKER_EMPTY_HOME } from "./server/worker-xdg.js";

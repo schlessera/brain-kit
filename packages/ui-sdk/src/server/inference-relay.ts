@@ -13,7 +13,8 @@ import { readRelayResponse, readRelayRequestHead, RELAY_REQUEST_STRIPPED, RELAY_
  * document cannot read, print or reuse the real credential, and no other
  * method, path, host or redirect is reachable through it.
  */
-import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
+import { createPrivateSocketDirectory, securePrivateSocket } from "./private-socket-dir.js";
 import { workerIdentityHelper } from "./worker-identity.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,9 +95,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
   };
   if (typeof options.credentials !== "function") validateCredentials(options.credentials);
   // Private to this server user; the worker sees only the bind-mounted socket.
-  const dir = mkdtempSync(join(tmpdir(), "brain-inference-"));
   const separateIdentity = Boolean(workerIdentityHelper());
-  chmodSync(dir, separateIdentity ? 0o750 : 0o700);
+  const dir = createPrivateSocketDirectory(join(tmpdir(), "brain-inference-"), separateIdentity);
   const socketPath = join(dir, "relay.sock");
   const refuse = (method: string, path: string, status: number, reason: string, denialReason?: string): Response => {
     observeDiagnostic(() => options.observe?.({ method, path, outcome: "refused", status, reason, ...(denialReason ? { denialReason } : {}) }));
@@ -272,7 +272,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
       },
     });
   } catch (error) { rmSync(dir, { recursive: true, force: true }); throw error; }
-  chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);
+  try { securePrivateSocket(dir, socketPath, separateIdentity); }
+  catch (error) { void server.stop(true); throw error; }
   let stopped = false;
   return {
     dir,
