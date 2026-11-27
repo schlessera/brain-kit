@@ -1,0 +1,342 @@
+{
+  "receipts": {
+    "calypso": {
+      "listPriceCostUsd": 1.5,
+      "listPriceIsEstimate": false,
+      "tokens": 1500,
+      "observedAt": 1783832400000,
+      "coverage": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered",
+      "scopes": [
+        {
+          "scope": "turn",
+          "legacyRuns": 0,
+          "costUsd": 1.5,
+          "tokens": 1500,
+          "unknownRuns": 0,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "session",
+          "legacyRuns": 0,
+          "costUsd": 1.5,
+          "tokens": 1500,
+          "unknownRuns": 0,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "day",
+          "legacyRuns": 1,
+          "costUsd": 2.06,
+          "tokens": 520,
+          "unknownRuns": 2,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "resetAt": 1783900800000,
+          "warning": false,
+          "blocked": false
+        }
+      ]
+    },
+    "telemachus": {
+      "listPriceCostUsd": 0.9,
+      "listPriceIsEstimate": false,
+      "tokens": 900,
+      "observedAt": 1783832400000,
+      "coverage": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered",
+      "scopes": [
+        {
+          "scope": "turn",
+          "legacyRuns": 0,
+          "costUsd": 0.9,
+          "tokens": 900,
+          "unknownRuns": 0,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "session",
+          "legacyRuns": 1,
+          "costUsd": 1.6,
+          "tokens": 1095,
+          "unknownRuns": 1,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "day",
+          "legacyRuns": 1,
+          "costUsd": 2.06,
+          "tokens": 520,
+          "unknownRuns": 2,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "resetAt": 1783900800000,
+          "warning": false,
+          "blocked": false
+        }
+      ]
+    },
+    "penelope": {
+      "listPriceCostUsd": 0.1,
+      "listPriceIsEstimate": false,
+      "tokens": 10,
+      "observedAt": 1783832400000,
+      "coverage": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered",
+      "scopes": [
+        {
+          "scope": "turn",
+          "legacyRuns": 0,
+          "costUsd": 0.44999999999999996,
+          "tokens": 10,
+          "unknownRuns": 0,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "session",
+          "legacyRuns": 1,
+          "costUsd": 1.6,
+          "tokens": 1095,
+          "unknownRuns": 1,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "day",
+          "legacyRuns": 1,
+          "costUsd": 2.06,
+          "tokens": 520,
+          "unknownRuns": 2,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "resetAt": 1783900800000,
+          "warning": false,
+          "blocked": false
+        }
+      ]
+    },
+    "nausicaa": {
+      "listPriceCostUsd": 0.2,
+      "listPriceIsEstimate": false,
+      "tokens": 20,
+      "observedAt": 1783832400000,
+      "coverage": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered",
+      "scopes": [
+        {
+          "scope": "turn",
+          "legacyRuns": 0,
+          "costUsd": 0.85,
+          "tokens": 90,
+          "unknownRuns": 1,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "session",
+          "legacyRuns": 0,
+          "costUsd": 0.85,
+          "tokens": 90,
+          "unknownRuns": 1,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "day",
+          "legacyRuns": 1,
+          "costUsd": 2.06,
+          "tokens": 520,
+          "unknownRuns": 2,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "resetAt": 1783900800000,
+          "warning": false,
+          "blocked": false
+        }
+      ]
+    },
+    "eumaeus": {
+      "listPriceCostUsd": 0.3,
+      "listPriceIsEstimate": false,
+      "tokens": 30,
+      "observedAt": 1783832400000,
+      "coverage": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered",
+      "scopes": [
+        {
+          "scope": "turn",
+          "legacyRuns": 0,
+          "costUsd": 0.3,
+          "tokens": 30,
+          "unknownRuns": 0,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "session",
+          "legacyRuns": 0,
+          "costUsd": 0,
+          "tokens": 0,
+          "unknownRuns": 0,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "day",
+          "legacyRuns": 1,
+          "costUsd": 2.06,
+          "tokens": 520,
+          "unknownRuns": 2,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "resetAt": 1783900800000,
+          "warning": false,
+          "blocked": false
+        }
+      ]
+    },
+    "argus": {
+      "listPriceCostUsd": null,
+      "listPriceIsEstimate": null,
+      "tokens": 60,
+      "observedAt": 1783832400000,
+      "coverage": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered",
+      "scopes": [
+        {
+          "scope": "turn",
+          "legacyRuns": 0,
+          "costUsd": null,
+          "tokens": 60,
+          "unknownRuns": 1,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "session",
+          "legacyRuns": 1,
+          "costUsd": 1.6,
+          "tokens": 1095,
+          "unknownRuns": 1,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "warning": false,
+          "blocked": false
+        },
+        {
+          "scope": "day",
+          "legacyRuns": 1,
+          "costUsd": 2.06,
+          "tokens": 520,
+          "unknownRuns": 2,
+          "warnUsd": 50,
+          "blockUsd": 100,
+          "blockTokens": 1000000,
+          "resetAt": 1783900800000,
+          "warning": false,
+          "blocked": false
+        }
+      ]
+    }
+  },
+  "apify": {
+    "listPriceCostUsd": 0.1,
+    "listPriceIsEstimate": false,
+    "tokens": 10,
+    "observedAt": 1783832400000,
+    "coverage": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered",
+    "scopes": [
+      {
+        "scope": "turn",
+        "legacyRuns": 0,
+        "costUsd": 0.45999999999999996,
+        "apifyUsd": 0.01,
+        "tokens": 10,
+        "unknownRuns": 0,
+        "warnUsd": 50,
+        "blockUsd": 100,
+        "blockTokens": 1000000,
+        "warning": false,
+        "blocked": false
+      },
+      {
+        "scope": "session",
+        "legacyRuns": 1,
+        "costUsd": 1.62,
+        "apifyUsd": 0.02,
+        "tokens": 1095,
+        "unknownRuns": 1,
+        "warnUsd": 50,
+        "blockUsd": 100,
+        "blockTokens": 1000000,
+        "warning": false,
+        "blocked": false
+      },
+      {
+        "scope": "day",
+        "legacyRuns": 1,
+        "costUsd": 2.09,
+        "apifyUsd": 0.03,
+        "tokens": 520,
+        "unknownRuns": 2,
+        "warnUsd": 50,
+        "blockUsd": 100,
+        "blockTokens": 1000000,
+        "resetAt": 1783900800000,
+        "warning": false,
+        "blocked": false
+      }
+    ]
+  },
+  "day": {
+    "scope": "day",
+    "legacyRuns": 1,
+    "costUsd": 2.06,
+    "tokens": 520,
+    "unknownRuns": 2,
+    "warnUsd": 50,
+    "blockUsd": 100,
+    "blockTokens": 1000000,
+    "resetAt": 1783900800000,
+    "warning": false,
+    "blocked": false
+  }
+}

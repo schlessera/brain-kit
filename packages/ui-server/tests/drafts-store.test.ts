@@ -5,6 +5,7 @@ import type { SessionDraftLimits } from "@schlessera/brain-ui-sdk/protocol";
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
 import { createDraftStore, DraftError, draftPreview, hasImageSignature } from "../src/drafts/store";
+import { queryPlan, recordStatements } from "./helpers/statement-recorder";
 
 const dbs: Database[] = [];
 afterEach(() => { for (const db of dbs.splice(0)) db.close(); });
@@ -134,4 +135,41 @@ test("provisional dialogue adoption consumes the exact draft and moves only newe
  expect(store.accept({draftRef:{draftId:"current",revision:1},sessionId:"voyage",sourceSessionId:"dialogue:ithaca",resumed:false,requestId:"first",principalId:owner})).toBe("consumed");
  expect(store.accept({draftRef:{draftId:"newer",revision:1},sessionId:"voyage",sourceSessionId:"dialogue:ithaca",resumed:false,requestId:"second",principalId:owner})).toBe("kept");
  expect(store.get(owner,"newer")).toMatchObject({sessionId:"voyage",text:"And the departure note.",revision:3});
+});
+
+/** Whether a statement's bytecode reads `column` from `table`'s rows (not from one of its indexes). */
+function readsColumn(db: Database, sql: string, table: string, column: string) {
+  const { rootpage } = db.query("SELECT rootpage FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table) as { rootpage: number };
+  const { cid } = db.query("SELECT cid FROM pragma_table_info(?) WHERE name = ?").get(table, column) as { cid: number };
+  const program = db.prepare(`EXPLAIN ${sql}`);
+  try {
+    const steps = program.all() as Array<{ opcode: string; p1: number; p2: number }>;
+    const cursors = new Set(steps.filter(step => step.opcode === "OpenRead" && step.p2 === rootpage).map(step => step.p1));
+    return steps.some(step => step.opcode === "Column" && cursors.has(step.p1) && step.p2 === cid);
+  } finally { program.finalize(); }
+}
+
+test("draft byte totals read sizes from the covering index, never the rows that hold the image BLOBs (#4803)", () => {
+  const { db, owner } = setup();
+  const recorded = recordStatements(db), store = createDraftStore(recorded.db, { now: () => 1_000_000 });
+  store.upload(owner, "draft-a", { idempotencyKey: "u1", mime: "image/png", name: null, bytes: png(1, 64) });
+  const totals = [...new Set(recorded.statements.map(statement => statement.sql).filter(sql => sql.includes("SUM(size_bytes), 0) FROM session_draft_attachments")))];
+  expect(totals).toHaveLength(2);
+  const plans = totals.map(sql => queryPlan(db, { sql, params: [] }).filter(step => /\bsession_draft_attachments\b/.test(step)));
+  expect(plans).toEqual(totals.map(() => ["SCAN session_draft_attachments USING COVERING INDEX session_draft_attachments_sizes"]));
+});
+
+test("saving new text to a draft with two images reads no image bytes, and the images still read back (#4803)", () => {
+  const { db, owner } = setup();
+  const recorded = recordStatements(db), store = createDraftStore(recorded.db, { now: () => 1_000_000 });
+  const images = [png(7, 48), png(9, 80)];
+  const ids = images.map((bytes, i) => store.upload(owner, "draft-a", { idempotencyKey: `u${i}`, mime: "image/png", name: `shroud-${i}.png`, bytes }).attachmentId);
+  store.save(owner, "draft-a", { ifMatch: 0, idempotencyKey: "s1", sessionId: null, text: "weave", attachmentIds: ids });
+  recorded.statements.length = 0;
+  expect(store.save(owner, "draft-a", { ifMatch: 1, idempotencyKey: "s2", sessionId: null, text: "weave and unweave", attachmentIds: ids })).toMatchObject({ revision: 2 });
+  const selects = [...new Set(recorded.statements.map(statement => statement.sql).filter(sql => /^\s*SELECT\b/i.test(sql)))];
+  expect(selects.some(sql => sql.includes("FROM session_draft_attachments"))).toBe(true);
+  expect(selects.filter(sql => readsColumn(db, sql, "session_draft_attachments", "bytes"))).toEqual([]);
+  expect(store.get(owner, "draft-a")?.attachments.map(a => [a.attachmentId, a.name, a.bytes])).toEqual(
+    ids.map((id, i) => [id, `shroud-${i}.png`, Buffer.from(images[i]!).toString("base64")]));
 });
