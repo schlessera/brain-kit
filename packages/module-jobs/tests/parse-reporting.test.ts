@@ -43,7 +43,7 @@ import {
 
 import { BaseAdapter } from "../src/adapters/base";
 import { getAdapter, runScrape } from "../src/scrape";
-import { ALL_SOURCES, SOURCE_STATUSES, type Source, type RawJob } from "../src/types";
+import { ALL_SOURCES, type Source, type RawJob } from "../src/types";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "reporting");
 
@@ -652,16 +652,12 @@ describe("the run report", () => {
     }
   });
 
-  test("the four states are the four the contract documents", () => {
-    expect([...SOURCE_STATUSES]).toEqual(["ok", "empty", "unparseable", "not_run"]);
-  });
-
   test("all four are reachable, and no two of them mean the same thing", async () => {
     const reached = new Set<string>();
     reached.add((await runBoard(new OnePageBoard(2))).status);
     reached.add((await runBoard(new OnePageBoard(0, { declaredEmpty: true }))).status);
     reached.add((await runBoard(new OnePageBoard(0))).status);
     reached.add((await runBoard(new SilentBoard())).status);
-    expect([...reached].sort()).toEqual([...SOURCE_STATUSES].sort());
+    expect([...reached].sort()).toEqual(["empty", "not_run", "ok", "unparseable"]);
   });
 });
