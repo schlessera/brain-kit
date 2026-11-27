@@ -68,6 +68,7 @@ export function MicButton(p: MicButtonProps) {
       <button
         type="button"
         className="bk-voice-mic"
+        data-voice-mic=""
         data-phase={phase}
         aria-label={p.name ?? "Dictate"}
         disabled={p.disabled}

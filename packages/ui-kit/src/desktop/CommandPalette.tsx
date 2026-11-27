@@ -112,16 +112,6 @@ export interface CommandPaletteProps {
   onClose?: () => void;
 }
 
-const INKS: Record<Tone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 const DEFAULT_PLACEHOLDER = "Where to, what to ask, what to run…";
 const DEFAULT_FOOT_HINT = "↑↓ move · ⏎ run · home/end ends · esc closes";
 
@@ -363,7 +353,7 @@ export function CommandPalette(p: CommandPaletteProps) {
                 // with its reason — but never an interactive one.
                 const act = Boolean(it.onClick) && !off;
                 const listed = anyInteractive && (act || off);
-                const ink = INKS[it.tone || "neutral"] || INKS.neutral;
+                const ink = (accent[it.tone || "neutral"] ?? accent.neutral).ink;
                 const chipped = Boolean(it.cost || it.effect);
                 const row: CSSProperties = {
                   display: "flex",

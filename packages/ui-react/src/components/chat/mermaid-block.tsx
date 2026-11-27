@@ -1,7 +1,7 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import { IconButton } from "@schlessera/brain-ui-kit";
-import { Code, ChartNetwork, Expand } from "lucide-react";
+import { Code, ChartNetwork, Expand } from "../icons.js";
 import { peekMermaidSvg, renderMermaidSvg } from "../../lib/mermaid.js";
 import type { MermaidTheme } from "../../lib/mermaid-theme.js";
 import { useColorScheme } from "../../hooks/use-color-scheme.js";

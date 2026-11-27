@@ -46,7 +46,7 @@ export function VoiceNotice(p: VoiceNoticeProps) {
       {actions.length ? (
         <div className="bk-voice-actions">
           {actions.map((a) => (
-            <button key={a.label} type="button" className="bk-voice-action" data-tone={a.tone} onClick={a.onClick}>
+            <button key={a.label} type="button" className="bk-voice-action" data-voice-action="" data-tone={a.tone} onClick={a.onClick}>
               {a.label}
             </button>
           ))}

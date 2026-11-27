@@ -1,5 +1,5 @@
 import { IconButton } from "@schlessera/brain-ui-kit";
-import { FileText, RotateCcw, X } from "lucide-react";
+import { FileText, RotateCcw, X } from "../icons.js";
 import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { trackBytes, trackStatus, type PendingTrack } from "../../lib/track-uploads.js";
 

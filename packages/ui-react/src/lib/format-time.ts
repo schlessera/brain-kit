@@ -1,3 +1,14 @@
+/**
+ * A clock time, `HH:MM` on a 24-hour clock in the reader's time zone (#4736):
+ * the design's form ("ended 09:41"). Built by padding the hour and the minute,
+ * never with the locale's time formatter, whose separator and digits still
+ * follow the device locale.
+ */
+export function clockTime(ms: number): string {
+  const date = new Date(ms);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 /** Relative timestamp for list rows ("3m ago"); dates beyond a week. */
 export function formatRelativeTime(ms: number): string {
   const diff = Date.now() - ms;

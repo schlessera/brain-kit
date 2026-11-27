@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 
 import { Button } from "../primitives/Button.js";
 import { accent, color, font } from "../tokens.js";
+import { markupBytesLabel } from "../images/markup.js";
 
 /**
  * The exact effect a decision will have, shown before the control that
@@ -57,8 +58,7 @@ export function effectLineCount(text: string | undefined): number {
 }
 
 function sizeLabel(text: string): string {
-  const bytes = new TextEncoder().encode(text).length;
-  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+  return markupBytesLabel(new TextEncoder().encode(text).length);
 }
 
 export function EffectPreview(p: EffectPreviewProps) {

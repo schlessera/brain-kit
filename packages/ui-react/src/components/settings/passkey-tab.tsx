@@ -8,6 +8,7 @@ import { LocalWorkDialog } from "../voice/local-work-dialog.js";
 import type { SignOutLoss } from "../../lib/local-work-flow.js";
 import { ToolPermissionsSection } from "./tool-permissions.js";
 import { PasskeyList } from "./passkey-list.js";
+import { bytesLabelGrew, formatBytes } from "../../lib/format-bytes.js";
 
 /**
  * Passkey management + sign out — the Security tab of the settings panel.
@@ -144,7 +145,7 @@ export function PasskeyTab({ active }: { active: boolean }) {
       const fresh = await root.localWorkFlow.loss();
       if (signal.aborted || consent !== consentVersion.current) return;
       const expanded = (["recordings", "transcripts", "accepted", "drafts", "tracks", "shares"] as const).some(key => fresh[key] > loss[key])
-        || Number((fresh.bytes / (1024 * 1024)).toFixed(1)) > Number((loss.bytes / (1024 * 1024)).toFixed(1))
+        || bytesLabelGrew(loss.bytes, fresh.bytes)
         || fresh.review && !loss.review || fresh.unknown && !loss.unknown || fresh.otherUnknown && !loss.otherUnknown
         || alsoDelete && fresh.unassigned > loss.unassigned;
       if (expanded) { setLoss(fresh); setLossChanged(true); if (fresh.unassigned > loss.unassigned) setAlsoDelete(false); return; }
@@ -174,7 +175,7 @@ export function PasskeyTab({ active }: { active: boolean }) {
       {lossChanged && <p role="alert" className="my-3 text-sm text-foreground">Local work changed. Review the updated warning before signing out.</p>}
       <p className="text-sm text-foreground">This deletes the following from this device:</p>
       <ul className="my-3 list-inside list-disc text-sm text-foreground">
-        {loss.recordings > 0 && <li>{loss.recordings} recordings not yet added to a draft · {(loss.bytes / (1024 * 1024)).toFixed(1)} MB · {loss.transcripts} with an unaccepted transcript</li>}
+        {loss.recordings > 0 && <li>{loss.recordings} recordings not yet added to a draft · {formatBytes(loss.bytes)} · {loss.transcripts} with an unaccepted transcript</li>}
         {loss.accepted > 0 && <li>{loss.accepted} accepted recordings awaiting cleanup</li>}
         {loss.drafts > 0 && <li>{loss.drafts} unsent drafts, including their images</li>}
         {loss.tracks > 0 && <li>{loss.tracks} staged track references</li>}

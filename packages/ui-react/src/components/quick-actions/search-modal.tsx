@@ -1,6 +1,6 @@
 import { Button, IconButton } from "@schlessera/brain-ui-kit";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Loader2, Search, X, AlertTriangle } from "lucide-react";
+import { Loader2, Search, X, TriangleAlert } from "../icons.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { Kbd } from "../layout/kbd.js";
 import { useFileStore } from "../../stores/file-store.js";
@@ -196,7 +196,7 @@ export function SearchPanel({
         {/* Degraded-mode notices from the CLI (e.g. FTS-only, no vectors) */}
         {warnings.length > 0 && (
           <div className="flex items-start gap-2 border-b border-border bg-surface-raised/40 px-5 py-2">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <div className="text-[11px] leading-relaxed text-muted-foreground">
               {warnings.map((w, i) => (
                 <div key={i}>{w}</div>
