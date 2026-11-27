@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { GeoConfig } from "../config.js";
-import { nearestTrackPoint } from "../spatial.js";
+import { nearestOnEdges, trackEdges } from "../arcs.js";
 import { distanceM, EARTH_RADIUS_M, normalizeTrack, routePoint, type ParsedTrack } from "../track.js";
 import { GeoReplyError, GeoTransport, type GeoError } from "./io.js";
 import { overpassElements, queryOverpass, type OverpassResult } from "./overpass.js";
@@ -42,6 +42,8 @@ function decodePois(raw: unknown, near: Coordinate | null, track: ParsedTrack | 
   const data = {elements: overpassElements(raw)};
   if (data.elements.length > limits.maxResults + 1) throw new GeoReplyError({code: "response_limit", message: "Overpass exceeded the bounded element count."});
   const items: PointOfInterest[] = [], seen = new Set<string>();
+  // One edge list per reply, not one per element.
+  const arcs = track ? trackEdges(track) : [];
   let omitted = 0;
   for (const rawElement of data.elements.slice(0, limits.maxResults)) {
     try {
@@ -55,7 +57,7 @@ function decodePois(raw: unknown, near: Coordinate | null, track: ParsedTrack | 
       const unknown: PointOfInterest["unknown"] = [];
       const openingHours = element.tags.opening_hours?.trim() ? element.tags.opening_hours : null;
       if (openingHours === null) unknown.push({field: "openingHours", reason: "not_mapped"});
-      const distance = near ? distanceM(routePoint(near.lat, near.lon), point) : nearestTrackPoint(track!, point, 0).distance.value;
+      const distance = near ? distanceM(routePoint(near.lat, near.lon), point) : nearestOnEdges(track!, arcs, point, 0).distance.value;
       if (distance === null) unknown.push({field: "distance", reason: "track_distance_undefined"});
       items.push({osm: {type: element.type, id: element.id}, name: element.tags.name?.trim() ? element.tags.name : null,
         point: {lat: point.lat, lon: point.lon}, position: element.type === "node" ? "node" : "bounding_box_center", tags: {...element.tags},

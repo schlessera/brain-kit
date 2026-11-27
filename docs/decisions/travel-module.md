@@ -16,12 +16,12 @@ embedded visit history. `place` is a canonical country, city, town or spot.
 A visit's identity is its owner's root-relative document path plus a stable
 visit ID. Route labels identify variants inside one trip; one primary route
 makes selection explicit. The parser checks those invariants
-(`parseTravelDocument`, `packages/module-travel/src/content.ts:80-99`).
+(`parseTravelDocument`, `packages/module-travel/src/content.ts:81-100`).
 
 Place summaries union references from the place and from canonical
 journey/trip visits, deduplicating the document/visit pair. They never read
 stored counts or dates as authority
-(`summarizePlaceVisits`, `packages/module-travel/src/content.ts:180-203`).
+(`summarizePlaceVisits`, `packages/module-travel/src/content.ts:209-227`).
 Unknown dates and coordinates stay unknown. An undated visit still counts;
 first/last bounds remain unknown if any included date is unknown. Valid
 zero coordinates remain zero. Domain parsing uses YAML JSON scalars through the
@@ -29,7 +29,7 @@ cache-free frontmatter helper so timestamp coercion cannot turn a written
 nonexistent date into another day. A failing fixture showed unquoted
 `2026-02-30` becoming `2026-03-02` under the default timestamp parser. Relative assets must resolve within the brain,
 and place ancestry and visit references must resolve in canonical files
-(`readTravelCorpus`, `packages/module-travel/src/content.ts:107-169`).
+(`readTravelCorpus`, `packages/module-travel/src/content.ts:124-187`).
 Markdown remains authoritative; no travel database or geocoding is introduced.
 
 ## Migration boundary
@@ -262,7 +262,8 @@ detected before the first write and refuses the whole run
 landing between that check and the write is not detected; like every
 path-based writer here, sync does not lock the file.
 
-Place rows reuse `summarizePlaceVisits`. Countries need a rollup that the
+Place rows use the same summaries, built for every place in one pass over the
+journeys and trips (`summarizeAllPlaceVisits`). Countries need a rollup that the
 place summary does not define: a country is visited when it or any place
 within it was. The rollup unions the visits of every place whose ancestry
 reaches that country and keys them by document path and visit ID, so a visit

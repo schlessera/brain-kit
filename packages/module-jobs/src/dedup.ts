@@ -105,30 +105,34 @@ export function runDedup(db: Database, verbose = false): DedupStats {
     "UPDATE jobs SET is_duplicate = 1, duplicate_of = ? WHERE id = ?"
   );
 
-  for (const { fingerprint } of dupeFingerprints) {
-    // Get all jobs with this fingerprint, ordered by first_seen_at
-    const jobs = db
-      .query(
-        `SELECT id, source, first_seen_at FROM jobs
-         WHERE fingerprint = ? AND is_duplicate = 0
-         ORDER BY first_seen_at ASC`
-      )
-      .all(fingerprint) as Array<{ id: number; source: string; first_seen_at: string }>;
+  // One transaction for the whole pass, like ingest: a failure part-way marks nothing.
+  const markAll = db.transaction(() => {
+    for (const { fingerprint } of dupeFingerprints) {
+      // Get all jobs with this fingerprint, ordered by first_seen_at
+      const jobs = db
+        .query(
+          `SELECT id, source, first_seen_at FROM jobs
+           WHERE fingerprint = ? AND is_duplicate = 0
+           ORDER BY first_seen_at ASC`
+        )
+        .all(fingerprint) as Array<{ id: number; source: string; first_seen_at: string }>;
 
-    stats.checked += jobs.length;
+      stats.checked += jobs.length;
 
-    if (jobs.length < 2) continue;
+      if (jobs.length < 2) continue;
 
-    // First one is canonical
-    const canonical = jobs[0];
-    for (let i = 1; i < jobs.length; i++) {
-      markDupe.run(canonical.id, jobs[i].id);
-      stats.duplicates_found++;
-      if (verbose) {
-        console.log(`[dedup] Job #${jobs[i].id} (${jobs[i].source}) -> duplicate of #${canonical.id}`);
+      // First one is canonical
+      const canonical = jobs[0];
+      for (let i = 1; i < jobs.length; i++) {
+        markDupe.run(canonical.id, jobs[i].id);
+        stats.duplicates_found++;
+        if (verbose) {
+          console.log(`[dedup] Job #${jobs[i].id} (${jobs[i].source}) -> duplicate of #${canonical.id}`);
+        }
       }
     }
-  }
+  });
+  markAll();
 
   return stats;
 }

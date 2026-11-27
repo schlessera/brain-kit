@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spatialWork } from "../src/arcs.js";
 import { nearestTrackPoint, trackCoverage } from "../src/spatial.js";
 import { EARTH_RADIUS_M, normalizeTrack } from "../src/track.js";
 
@@ -74,8 +75,12 @@ describe("spherical track proximity",()=>{
   });
 
   test("comparison limits apply even when sample count is below its limit",()=>{
-    const many=normalizeTrack(Array.from({length:1_000},()=>[{lat:0,lon:0},{lat:0,lon:0.001}]));
-    expect(trackCoverage(equator(0,0.02),many,{toleranceM:1})).toMatchObject({ratio:null,unknown:["analysis_limit_exceeded"]});
+    // 5,560 samples, each within reach of all 1,000 identical sections: more than 5,000,000 comparisons performed.
+    const many=normalizeTrack(Array.from({length:1_000},()=>[{lat:0,lon:0},{lat:0,lon:0.005}]));
+    spatialWork.comparisons=0;
+    expect(trackCoverage(equator(0,0.005),many,{toleranceM:1,sampleSpacingM:0.1})).toMatchObject({status:"unknown",ratio:null,
+      coveredLength:{value:null},bounds:null,unknown:["analysis_limit_exceeded"],method:{samples:0,maxComparisons:5_000_000}});
+    expect(spatialWork.comparisons).toBeLessThanOrEqual(5_000_000);
   });
 
   test("undefined coverage and bounded analysis never fabricate a percentage",()=>{

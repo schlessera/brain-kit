@@ -564,34 +564,42 @@ function computeRewrite(abs: string, generated: string, asOf: string): string | 
   return rewriteGeneratedRegion(migrated, REGION, generated, asOf);
 }
 
-/** Rewrite only the generated body block; bump `updated:`. Returns true if written. */
-function rewriteBody(abs: string, generated: string, asOf: string): boolean {
-  const next = computeRewrite(abs, generated, asOf);
-  if (next === null) return false;
-  writeFileSync(abs, next);
-  return true;
-}
+interface PlannedFile { path: string; abs: string; next: string | null }
 
-/** Regenerate ledger bodies and the <clientsDir>/_index.md dashboard from frontmatter. */
-export function syncFiles(opts: FinanceOptions, asOf = today()): SyncResult {
+/**
+ * Every generated file `syncFiles` owns, with its next content (`null` when
+ * its region is current). Computes all of them before anything is written,
+ * so the sync and the hygiene check read one list.
+ */
+function planFinanceSync(opts: FinanceOptions, asOf: string): PlannedFile[] {
   const ledgers = loadLedgers(opts);
   const pf = portfolioFromLedgers(ledgers, opts.feeTolerance, asOf);
   const bySlug = new Map(ledgers.map((l) => [l.slug, l]));
-  const written: string[] = [];
+  const plan: PlannedFile[] = [];
 
   for (const c of pf.clients) {
     const ledger = bySlug.get(c.slug);
     if (!ledger) continue;
     const abs = safeResolve(opts.root, ledger.ledgerPath);
     if (!abs) continue;
-    if (rewriteBody(abs, renderLedgerTables(c, ledger.payments), asOf)) written.push(ledger.ledgerPath);
+    plan.push({ path: ledger.ledgerPath, abs, next: computeRewrite(abs, renderLedgerTables(c, ledger.payments), asOf) });
   }
 
   const indexPath = safeResolve(opts.root, join(opts.clientsDir, "_index.md"));
-  if (indexPath && existsSync(indexPath) && rewriteBody(indexPath, renderIndexTable(pf), asOf)) {
-    written.push(relative(opts.root, indexPath));
+  if (indexPath && existsSync(indexPath)) {
+    plan.push({ path: relative(opts.root, indexPath), abs: indexPath, next: computeRewrite(indexPath, renderIndexTable(pf), asOf) });
   }
+  return plan;
+}
 
+/** Regenerate ledger bodies and the <clientsDir>/_index.md dashboard from frontmatter; bump `updated:`. */
+export function syncFiles(opts: FinanceOptions, asOf = today()): SyncResult {
+  const written: string[] = [];
+  for (const file of planFinanceSync(opts, asOf)) {
+    if (file.next === null) continue;
+    writeFileSync(file.abs, file.next);
+    written.push(file.path);
+  }
   return { files: written };
 }
 
@@ -600,25 +608,5 @@ export function syncFiles(opts: FinanceOptions, asOf = today()): SyncResult {
  * generated block is out of date. Writes nothing. Used by the hygiene check.
  */
 export function checkSync(opts: FinanceOptions, asOf = today()): string[] {
-  const ledgers = loadLedgers(opts);
-  const pf = portfolioFromLedgers(ledgers, opts.feeTolerance, asOf);
-  const bySlug = new Map(ledgers.map((l) => [l.slug, l]));
-  const stale: string[] = [];
-
-  for (const c of pf.clients) {
-    const ledger = bySlug.get(c.slug);
-    if (!ledger) continue;
-    const abs = safeResolve(opts.root, ledger.ledgerPath);
-    if (!abs) continue;
-    if (computeRewrite(abs, renderLedgerTables(c, ledger.payments), asOf) !== null) {
-      stale.push(ledger.ledgerPath);
-    }
-  }
-
-  const indexPath = safeResolve(opts.root, join(opts.clientsDir, "_index.md"));
-  if (indexPath && existsSync(indexPath) && computeRewrite(indexPath, renderIndexTable(pf), asOf) !== null) {
-    stale.push(relative(opts.root, indexPath));
-  }
-
-  return stale;
+  return planFinanceSync(opts, asOf).filter((file) => file.next !== null).map((file) => file.path);
 }
