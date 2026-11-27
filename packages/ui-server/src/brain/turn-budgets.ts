@@ -428,6 +428,21 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
       }
     },
     /**
+     * `saved` of many turns for history replay (#4800): one read over the
+     * whole list, each receipt parsed once. A turn whose receipt is missing
+     * or unreadable is left out, as `saved` returns nothing for it.
+     */
+    savedReceipts(ids: readonly string[]): Map<string, TurnBudgetReceipt> {
+      const found = new Map<string, TurnBudgetReceipt>();
+      if (!ids.length) return found;
+      const rows = db.query("SELECT turn_id, receipt FROM turn_budget_usage WHERE turn_id IN (SELECT value FROM json_each(?))").all(JSON.stringify([...new Set(ids)])) as { turn_id: string; receipt: string | null }[];
+      for (const row of rows) {
+        if (!row.receipt) continue;
+        try { found.set(row.turn_id, JSON.parse(row.receipt) as TurnBudgetReceipt); } catch { /* as saved(): presentation never fails on a receipt */ }
+      }
+      return found;
+    },
+    /**
      * Before each relayed CLI provider request (#1673), once every budget
      * write submitted before it has committed. A turn's request is refused
      * once any of its scopes is blocked; a maintenance run outside any turn,
