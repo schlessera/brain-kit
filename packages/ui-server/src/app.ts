@@ -233,10 +233,17 @@ export interface CreateAppOptions {
   versionRequirements?: HostVersionRequirements;
   /**
    * Fully-resolved configuration. When omitted, `createApp` resolves it from
-   * the process environment ONCE, here at the edge — nothing deeper in the
-   * package touches the ambient environment. Pass an explicit object (e.g. from
-   * `resolveServerConfig(customEnv)`) to run two differently-configured apps
-   * in one process or to vary configuration in tests without env mutation.
+   * the process environment ONCE, here at the edge. Pass an explicit object
+   * (e.g. from `resolveServerConfig(customEnv)`) to vary what
+   * `ServerConfig` holds without env mutation.
+   *
+   * It does not cover everything. Whatever `config` holds, these are still
+   * read from the process environment: child-process environments
+   * (`subprocessEnv`, at each spawn), the reference, Apify and GitHub-tools
+   * credentials (`referenceCredentialValues`, `apifyTokenSource`,
+   * `githubToolsTokenSource`, once per app), the web-search provider keys
+   * (`resolveWebSearchEnv`) and the standalone pricing fallback
+   * (`resolveStandalonePricingConfig`). Two apps in one process share those.
    */
   config?: ServerConfig;
   /**
@@ -851,7 +858,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const stopApifyReconciler = apifyHost.startReconciler();
   // Host GitHub tools (#3797): the dedicated credential only, never GITHUB_TOKEN.
   // The session's G6 taint commits before any GitHub text reaches a turn.
-  const githubTools = createGithubToolsHost({ token: githubToolsTokenSource(),
+  // One closure for the tools and the detail pages below: one read per app.
+  const githubToolsToken = githubToolsTokenSource();
+  const githubTools = createGithubToolsHost({ token: githubToolsToken,
     untrusted: async (turn, event) => {
       const collection=db.query("SELECT id,policy_hash FROM safety_collections WHERE turn_id=?").get(turn.turnId) as {id:string;policy_hash:string|null}|null;
       const observed=occurrence(collection?.id??crypto.randomUUID(),"compute_input",null,"finalized");
@@ -1239,7 +1248,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     settled: () => host.historySettled(), retired: target => host.catalog.chatRetired?.(target) === true }));
   // GitHub detail pages and avatars for the chat components (#3796): display
   // data under the tools' dedicated credential, never provider context.
-  app.route("/api", createGithubDetailRoutes({ details: createGithubDetails({ token: githubToolsTokenSource() }),
+  app.route("/api", createGithubDetailRoutes({ details: createGithubDetails({ token: githubToolsToken }),
     principalValid: principal => host.isPrincipalValid(principal),
     owns: (principal, sessionId) => { const chat = resolveChat(db, { sessionId }); return !("refused" in chat) && chatOwnedBy(db, chat, principal.id); },
     retired: sessionId => host.catalog.chatRetired?.({ sessionId }) === true,

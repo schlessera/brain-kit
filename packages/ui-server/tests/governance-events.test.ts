@@ -8,7 +8,6 @@ import { createActivityStore } from "../src/activity/store.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
 import {
   bindTurnEvents,
-  GOVERNANCE_EVENT_KINDS,
   GOVERNANCE_EVENT_SCHEMAS,
   GOVERNANCE_PAYLOAD_MAX_BYTES,
   GovernanceEventError,
@@ -22,6 +21,8 @@ import {
 import { httpSpecification } from "./helpers/http-spec";
 import { handleTurnTemp } from "@schlessera/brain-ui-sdk/server";
 
+/** Every kind the schema table declares, in declaration order. */
+const EVENT_KINDS = Object.keys(GOVERNANCE_EVENT_SCHEMAS) as GovernanceEventKind[];
 const NOW = 1_800_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -104,14 +105,14 @@ describe("governance event writer", () => {
   test("every kind accepts its documented sample and stores kind, version and attribution", () => {
     const d = db();
     session(d, "sess-ithaca");
-    for (const kind of GOVERNANCE_EVENT_KINDS) {
+    for (const kind of EVENT_KINDS) {
       if(kind==="taint_exposure"){
         const occurrence=d.query("SELECT id FROM safety_records WHERE kind='occurrence' LIMIT 1").get() as {id:string};
         expect(recordGovernanceEvent(d,event(kind,{payload:{occurrenceId:occurrence.id,state:"interrupted_unknown"}})).recorded).toBe(true);
       }else expect(recordGovernanceEvent(d, event(kind)).recorded).toBe(true);
     }
     const events = queryGovernanceEvents(d, { limit: 100 });
-    expect(events.map((e) => e.kind)).toEqual(GOVERNANCE_EVENT_KINDS);
+    expect(events.map((e) => e.kind)).toEqual(EVENT_KINDS);
     for (const e of events) {
       // policy_confirm is at version 2 since it gained `host_stopped` (#4565).
       expect(e).toMatchObject({ sessionId: "sess-ithaca", turnId: "turn-ithaca", at: NOW, actor: "interactive", model: "claude-opus-5", profile: "governed", schemaVersion: e.kind === "policy_confirm" ? 2 : 1 });
@@ -265,7 +266,7 @@ test("the kinds and their fields are exactly the ones docs/http-api.md specifies
   expect(start).toBeGreaterThan(-1);
   const section = httpSpecification.slice(start);
   const rows = [...section.matchAll(/^\| `([a-z_]+)` \| (\d+) \| ([^|]+) \|/gm)];
-  expect(rows.map((r) => r[1])).toEqual(GOVERNANCE_EVENT_KINDS);
+  expect(rows.map((r) => r[1])).toEqual(EVENT_KINDS);
   for (const [, kind, version, fields] of rows) {
     const spec = GOVERNANCE_EVENT_SCHEMAS[kind as GovernanceEventKind];
     expect({ kind, version: Number(version) }).toEqual({ kind: kind!, version: spec.version });
