@@ -6,93 +6,29 @@
  * client runs the CLI directly (no worker boundary), so this suite runs on
  * any Linux host. Odysseus's cast; nothing reaches the network.
  */
-import { afterEach, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
-import { hygieneMediaPlanSchema } from "@schlessera/brain-ui-sdk/schemas";
-import type { HygieneMediaPlan } from "@schlessera/brain-ui-sdk/protocol";
-import { createUiDb } from "../src/db/client.js";
-import { createTurnJournal } from "../src/brain/turn-journal.js";
-import { createWriterGate } from "../src/brain/writer-gate.js";
+import { afterAll, expect, test } from "bun:test";
+import { existsSync, readdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { journalStatement } from "../src/brain/journal-store.js";
-import { createMediaEffects } from "../src/inbox/media-effects.js";
 import { createHygieneReview } from "../src/inbox/hygiene-review.js";
 import { createPrincipal } from "../src/db/principals.js";
-import type { BrainClient } from "../src/brain/client.js";
 import { createInboxStore } from "../src/inbox/store.js";
 import { Hono } from "hono";
 import type { AppEnv } from "../src/app-env.js";
 import { createHygieneReviewRoutes } from "../src/routes/hygiene-review.js";
 const createInboxStoreRead = (db: Parameters<typeof createInboxStore>[0], id: string) => { const item = createInboxStore(db).getItem(id); return item?.queue === "actions" ? item : null; };
-import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { runCliInProcess } from "../../core/tests/cli-in-process-runner";
+import { inProcessHygiene, LOOM, mediaEffectsHost, NOTE, put, read, run, SCRATCH, sha } from "./helpers/media-effects-host.js";
 
-const CORE_CLI = resolve(import.meta.dir, "../../core/src/cli/brain.ts");
-const LOOM = "photos/penelope-loom.png", NOTE = "journeys/return.md", SCRATCH = ".brain/scratch/2026-07-12/harbour-dawn.jpg";
-const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
-const clean: Array<() => Promise<void> | void> = [];
-afterEach(async () => { for (const fn of clean.splice(0).reverse()) await fn(); });
+// Core runs inside this process (#4845); hygiene-media-effects-process.test.ts
+// keeps one case per call shape on the spawned bin.
+const setup = mediaEffectsHost(inProcessHygiene);
 
-function run(cwd: string, ...args: string[]) {
-  const r = Bun.spawnSync(args, { cwd, env: { PATH: process.env.PATH ?? "", HOME: cwd, BRAIN_ROOT: cwd, GIT_CONFIG_NOSYSTEM: "1" } });
-  return { code: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
-}
-function put(root: string, path: string, text: string) { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), text); }
-const read = (root: string, path: string) => readFileSync(join(root, path), "utf8");
-
-async function setup(options: { capBytes?: number; wrap?: (args: string[], real: (args: string[]) => unknown, signal?: AbortSignal) => unknown } = {}) {
-  const directory = mkdtempSync(join(tmpdir(), "brain-media-effects-host-"));
-  const root = join(directory, "brain"); mkdirSync(root);
-  run(root, "git", "init", "-q", "-b", "main");
-  put(root, ".gitignore", ".brain/\nbrain.db*\n.brain-index/\n.bun/\n");
-  put(root, "brain.config.json", "{}\n");
-  put(root, "places/ithaca.md", "# Ithaca\n");
-  run(root, "git", "add", "-A");
-  run(root, "git", "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "commit", "-qm", "fixture");
-  put(root, LOOM, "loom bytes");
-  put(root, NOTE, "# Return\n\n![loom](../photos/penelope-loom.png)\n");
-  const real = (args: string[]) => {
-    const r = run(root, process.execPath, CORE_CLI, "hygiene", "--json", ...args);
-    if (![0, 1].includes(r.code ?? -1)) throw new Error(`brain hygiene ${args.join(" ")} exited ${r.code}: ${r.stderr}`);
-    return JSON.parse(r.stdout);
-  };
-  const cli = async (args: string[], signal?: AbortSignal) => options.wrap ? options.wrap(args, real, signal) : real(args);
-  const dbPath = join(directory, "ui.sqlite"), db = createUiDb(dbPath), native = createNativeJournalFixture(root, directory);
-  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: root, dbPath, objectsRoot: join(directory, "objects"), ...(options.capBytes ? { capBytes: options.capBytes } : {}) });
-  await journal.ready;
-  const gate = createWriterGate(db, root, { pollMs: 1 });
-  let authorized = true;
-  const reviewer = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 86400 });
-  const effects = createMediaEffects(db, { brainPath: root, journal, gate, lock: createKeyedLock(), cli, authorized: id => authorized && (id === "odysseus" || id === reviewer.id) });
-  const brain = { hygiene: async (args: readonly string[], opts?: { signal?: AbortSignal }) => cli([...args], opts?.signal) } as unknown as BrainClient;
-  const review = createHygieneReview(db, { brain, media: effects });
-  clean.push(async () => { await journal.close(); await native.close(); db.close(); rmSync(directory, { recursive: true, force: true }); });
-  let n = 0;
-  async function plan(path: string, action: HygieneMediaPlan["action"], to?: string) {
-    const finding = (real(["list"]) as { entries: Array<{ id: string; path: string; fingerprint: string }> }).entries.find(e => e.path === path)
-      ?? (real(["reconcile"]), (real(["list"]) as { entries: Array<{ id: string; path: string; fingerprint: string }> }).entries.find(e => e.path === path))!;
-    const raw = real(["media", action, finding.id, "--expect-fingerprint", finding.fingerprint, ...(to ? ["--to", to] : []), "--dry-run"]);
-    return { finding, plan: hygieneMediaPlanSchema.parse(raw) };
-  }
-  async function apply(path: string, action: HygieneMediaPlan["action"], to?: string) {
-    const { finding, plan: p } = await plan(path, action, to);
-    expect(p.refusals).toEqual([]);
-    return effects.apply({ id: `odysseus-media-${String(++n).padStart(4, "0")}`, principalId: "odysseus", findingId: finding.id, fingerprint: finding.fingerprint, plan: p });
-  }
-  return { root, directory, db, journal, effects, plan, apply, review, reviewer, brain, revoke() { authorized = false; }, undo: (sourceId: string) => effects.undo({ id: `${sourceId}-undo`, principalId: "odysseus", sourceId }) };
-}
-
-test("Delete captures the bytes first, removes the file, and Undo puts back the exact bytes", async () => {
-  const f = await setup();
-  const receipt = await f.apply(LOOM, "delete");
-  expect(receipt, "MEDIA_DELETE_APPLIED").toMatchObject({ outcome: "applied", files: [{ path: LOOM, state: "removed" }], undo: { available: true } });
-  expect(existsSync(join(f.root, LOOM))).toBe(false);
-  const undone = await f.undo(receipt.journalId);
-  expect(undone, "MEDIA_DELETE_UNDONE").toMatchObject({ outcome: "undone", files: [{ path: LOOM, state: "restored" }] });
-  expect(read(f.root, LOOM), "MEDIA_DELETE_UNDO_BYTES").toBe("loom bytes");
-  expect(f.effects.receipt(receipt.journalId, "odysseus")?.undo, "MEDIA_UNDO_ONCE").toEqual({ available: false, reason: "already-undone" });
+// The in-process runner swaps the console and the environment for each call
+// and puts them back; after the whole file they are what they were before it.
+const before = { log: console.log, error: console.error, brainRoot: process.env.BRAIN_ROOT };
+afterAll(() => {
+  expect({ log: console.log, error: console.error, brainRoot: process.env.BRAIN_ROOT }, "IN_PROCESS_CLI_RESTORES_THE_PROCESS").toEqual(before);
 });
 
 test("Move rewrites the note; Undo restores the source, the note and removes the created folder", async () => {
@@ -153,7 +89,7 @@ test("Keep a permanent copy records the kept entry after the copy verifies; Undo
   expect(read(f.root, ".brain/scratch-pins/pins.json"), "MEDIA_KEEP_UNDO_PINS").toBe(pins);
   // The kept entry goes in the same Undo (rev 5 §5.7): the original is pending again, never reopened as copy-missing.
   expect(read(f.root, "context/hygiene/kept.md"), "MEDIA_KEEP_UNDO_UNKEPT").not.toContain("harbour-dawn");
-  const entries = run(f.root, process.execPath, CORE_CLI, "hygiene", "--json", "list").stdout;
+  const entries = (await inProcessHygiene(f.root, ["list"])).stdout;
   const original = (JSON.parse(entries) as { entries: Array<{ path: string; state: string; invalidation: unknown }> }).entries.find(e => e.path === SCRATCH);
   expect(original, "MEDIA_KEEP_UNDO_OPEN").toMatchObject({ state: "open", invalidation: null });
   expect(read(f.root, "context/hygiene/open.md")).not.toContain("copy-missing");
@@ -165,23 +101,12 @@ test("a later ordinary sync commits the kept copy and its rule, and never the sc
   put(f.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
   expect((await f.apply(SCRATCH, "keep-copy", "places/ithaca/harbour-dawn.jpg")).outcome).toBe("kept");
   run(f.root, "git", "config", "user.name", "Penelope"); run(f.root, "git", "config", "user.email", "penelope@example.test");
-  const synced = run(f.root, process.execPath, CORE_CLI, "sync", "commit");
+  const synced = await runCliInProcess(f.root, ["sync", "commit"], { HOME: f.root, BRAIN_ROOT: f.root, GIT_CONFIG_NOSYSTEM: "1" });
   expect(synced.code, `MEDIA_KEEP_SYNC_EXIT ${synced.stderr}`).toBe(0);
   expect(run(f.root, "git", "show", "HEAD:places/ithaca/harbour-dawn.jpg").stdout, "MEDIA_KEEP_SYNC_COPY").toBe("dawn bytes");
   expect(run(f.root, "git", "show", "HEAD:brain.config.json").stdout, "MEDIA_KEEP_SYNC_CONFIG").toBe('{ "media": { "track": ["places/ithaca/harbour-dawn.jpg"] } }\n');
   expect(run(f.root, "git", "ls-files", "--", ".brain").stdout, "MEDIA_KEEP_SYNC_NO_SCRATCH").toBe("");
   expect(read(f.root, SCRATCH)).toBe("dawn bytes");
-});
-
-test("a refused kept entry (step 6b) removes the copy and restores the config", async () => {
-  const f = await setup({ wrap: (args, real) => args[0] === "keep-copy" ? { status: "refused", reason: "copy-changed" } : real(args) });
-  put(f.root, SCRATCH, "dawn bytes");
-  put(f.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
-  const receipt = await f.apply(SCRATCH, "keep-copy", "places/harbour-dawn.jpg");
-  expect(receipt, "MEDIA_KEEP_6B_COMPENSATED").toMatchObject({ outcome: "compensated", reason: "copy-changed" });
-  expect(existsSync(join(f.root, "places/harbour-dawn.jpg")), "MEDIA_KEEP_6B_NO_COPY").toBe(false);
-  expect(read(f.root, "brain.config.json")).toBe("{}\n");
-  expect(existsSync(join(f.root, "context/hygiene/kept.md"))).toBe(false);
 });
 
 test("capture that cannot fit the journal refuses before any write", async () => {
@@ -195,9 +120,9 @@ test("capture that cannot fit the journal refuses before any write", async () =>
 
 test("an interrupted apply is compensated per file, and a concurrent edit is left as a conflict (partial)", async () => {
   let concurrent = false;
-  const f = await setup({ wrap: (args, real) => {
+  const f = await setup({ wrap: async (args, real) => {
     if (args[0] !== "media" || args.includes("--dry-run")) return real(args);
-    const result = real(args) as { status: string };
+    const result = await real(args) as { status: string };
     if (result.status !== "applied") return result;
     if (concurrent) put(f.root, NOTE, "Penelope's own later edit\n");
     return { ...result, status: "interrupted", reason: "write-failed" };
@@ -536,7 +461,7 @@ test("one preview scan per server: the same principal's newer preview aborts the
 test("a preview whose Action would not fit the response limit is refused at its boundary plus one, admitted at it, and stores nothing", async () => {
   // Rewrites of 4 KiB targets make the stored Action large without any network or extra file.
   const pad = (plan: Record<string, unknown>) => ({ ...plan, rewrites: Array.from({ length: 3 }, (_, i) => ({ note: `journeys/day-${i}.md`, line: 1, kind: "image", before: "b".repeat(4096), after: "a".repeat(4096) })) });
-  const f = await setup({ wrap: (args, real) => args[0] === "media" && args.includes("--dry-run") ? pad(real(args) as Record<string, unknown>) : real(args) });
+  const f = await setup({ wrap: async (args, real) => args[0] === "media" && args.includes("--dry-run") ? pad(await real(args) as Record<string, unknown>) : real(args) });
   rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md"));
   const card = (await f.review.command(f.reviewer.id, "start")).action!;
   const request = { itemId: card.id, optionId: "media-move", expectedVersion: card.version, input: "places/loom.png" };
@@ -684,11 +609,11 @@ test("a restart after an interrupted copy leaves a config edited since as a conf
  * Review keeps a copy, and the server dies after the effect committed `kept`
  * but before review recorded the outcome; `tamper` runs before the restart.
  */
-type Tamper = (f: Awaited<ReturnType<typeof setup>>, relist: (edit: (entry: Record<string, unknown>) => Record<string, unknown>) => void) => void;
+type Tamper = (f: Awaited<ReturnType<typeof setup>>, relist: (edit: (entry: Record<string, unknown>) => Record<string, unknown>) => void) => void | Promise<void>;
 async function reviewKeptThenCrashed(tamper: Tamper) {
   let edit: ((entry: Record<string, unknown>) => Record<string, unknown>) | null = null;
-  const f = await setup({ wrap: (args, real) => {
-    const out = real(args) as { entries?: Array<Record<string, unknown>> };
+  const f = await setup({ wrap: async (args, real) => {
+    const out = await real(args) as { entries?: Array<Record<string, unknown>> };
     return args[0] === "list" && edit ? { ...out, entries: out.entries!.map(edit) } : out;
   } });
   rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md")); rmSync(join(f.root, LOOM));
@@ -701,7 +626,7 @@ async function reviewKeptThenCrashed(tamper: Tamper) {
   const attempt = f.db.query("SELECT id FROM hygiene_effect_attempts WHERE status = 'started'").get() as { id: string } | null;
   expect(attempt, "MEDIA_RECOVER_KEPT_STARTED").not.toBeNull();
   expect(read(f.root, "places/ithaca/harbour-dawn.jpg")).toBe("dawn bytes");
-  tamper(f, e => { edit = e; });
+  await tamper(f, e => { edit = e; });
   const restarted = createHygieneReview(f.db, { brain: f.brain, media: f.effects });
   await restarted.recover();
   return { f, card, restarted, item: createInboxStoreRead(f.db, card.id)! };
@@ -723,7 +648,7 @@ const tampers: Array<[string, Tamper]> = [
   // Only the state differs: the CLI lists the entry as no longer kept, with the same fingerprint and SHA-256.
   ["entry state", (_f, relist) => relist(e => e.path === SCRATCH ? { ...e, state: "dismissed" } : e)],
   // The copy went before the restart, so reconcile reopened the original: the entry is no longer kept.
-  ["copy, so the entry was reopened,", f => { rmSync(join(f.root, "places/ithaca/harbour-dawn.jpg")); run(f.root, process.execPath, CORE_CLI, "hygiene", "--json", "reconcile"); }],
+  ["copy, so the entry was reopened,", async f => { rmSync(join(f.root, "places/ithaca/harbour-dawn.jpg")); await inProcessHygiene(f.root, ["reconcile"]); }],
 ];
 for (const [what, tamper] of tampers) {
   test(`recover() reports receipt-unknown for a kept copy whose ${what} differs, and never re-copies it`, async () => {

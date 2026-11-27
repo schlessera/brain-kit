@@ -20,6 +20,7 @@ import { brainCliCommand, workerBrainCliCommand } from "../src/brain/client";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createGovernedTurns } from "../src/brain/governed-turn";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { installFakeBrain } from "./helpers/fake-brain-cli";
 
 const REPO = resolve(import.meta.dir, "../../..");
 const CORPUS = join(REPO, "packages/core/fixtures/corpus");
@@ -662,9 +663,7 @@ test("the masked worker resolves only the fallback's bun to the server's runtime
   expect(brainCliCommand(root), "HOST_FALLBACK_UNCHANGED").toEqual(["bun", "scripts/brain-cli.ts"]);
   // The script stays relative: the worker starts in the immutable startup view, which resolves it.
   expect(workerBrainCliCommand(brainCliCommand(root)), "WORKER_FALLBACK_RUNTIME_ABSOLUTE").toEqual({ ok: true, command: [process.execPath, "scripts/brain-cli.ts"] });
-  mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
-  writeFileSync(join(root, "node_modules/.bin/brain"), "#!/usr/bin/env bun\n");
-  const packaged = join(root, "node_modules/.bin/brain");
+  const packaged = installFakeBrain(root);
   expect(brainCliCommand(root), "PACKAGED_CLI_PREFERRED").toEqual([packaged]);
   expect(workerBrainCliCommand(brainCliCommand(root)), "PACKAGED_CLI_UNCHANGED_IN_THE_WORKER").toEqual({ ok: true, command: [packaged] });
   expect(workerBrainCliCommand(CLI), "CONFIGURED_ABSOLUTE_UNCHANGED").toEqual({ ok: true, command: CLI });

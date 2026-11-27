@@ -17,6 +17,7 @@ import { createSyncJudge, type JevLike, type SyncJudge } from "../src/lib/sync/j
 import type { PostSyncResult, SyncEnv } from "../src/lib/sync/run";
 import type { JevAnswers, JevChoiceQuestion, JevRequest } from "../src/lib/jev";
 import { makeTempBrain, runCli } from "./cli-harness";
+import { git, gitResult } from "./git-fixture";
 
 const dirs: string[] = [];
 
@@ -25,15 +26,12 @@ export function cleanupFixtures(): void {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 }
 
-export function git(cwd: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", "-C", cwd, ...args]);
-  if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
-  return result.stdout.toString().trim();
-}
+/** The shared runner: fixture commits carry its command-line identity, not the one `identify` writes. */
+export { git };
 
 /** Git where failing is the point (a conflicting merge or pop). */
 export function gitMayFail(cwd: string, ...args: string[]): number {
-  return Bun.spawnSync(["git", "-C", cwd, ...args]).exitCode ?? 0;
+  return gitResult(cwd, ...args).code;
 }
 
 export function identify(root: string): void {

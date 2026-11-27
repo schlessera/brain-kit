@@ -9,6 +9,7 @@ import { writeFileSync } from "fs";
 import { join } from "path";
 
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { git } from "./git-fixture";
 
 const temps: string[] = [];
 afterEach(() => {
@@ -23,10 +24,9 @@ function repo(files: Record<string, string>): string {
     JSON.stringify({ mcpServers: { brain: { command: "bun", args: ["node_modules/.bin/brain", "mcp"] } } })
   );
   for (const [rel, text] of Object.entries(files)) writeFileSync(join(root, rel), text);
-  const git = (...args: string[]) => expect(Bun.spawnSync(["git", "-C", root, ...args]).exitCode).toBe(0);
-  git("init", "-q", "-b", "main");
-  git("add", "-A", "--", ".", ":!node_modules");
-  git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture");
+  git(root, "init", "-q", "-b", "main");
+  git(root, "add", "-A", "--", ".", ":!node_modules");
+  git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture");
   return root;
 }
 

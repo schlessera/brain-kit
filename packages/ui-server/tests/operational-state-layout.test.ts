@@ -16,6 +16,7 @@ import { testServerConfig } from "./helpers/test-config";
 import { createRecordingObservability } from "../src/observability";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
+import { installFakeBrain } from "./helpers/fake-brain-cli";
 import * as referenceTransport from "../src/brain/reference-transport";
 import { readdirSync } from "node:fs";
 const roots: string[] = [];
@@ -34,8 +35,8 @@ function fixture() {
   const state = join(root, "state");
   mkdirSync(brain); mkdirSync(state);
   const sentinel = join(state, "evaluated");
-  mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-  writeFileSync(join(brain, "node_modules/.bin/brain"), `#!/usr/bin/env bun\nawait Bun.write(${JSON.stringify(sentinel)}, "evaluated"); console.log("${MIN_BRAIN_CLI_VERSION}");\n`, { mode: 0o755 });
+  // Every call, the version probe included, proves the brain was executed.
+  installFakeBrain(brain, { version: null, body: `await Bun.write(${JSON.stringify(sentinel)}, "evaluated"); console.log(${JSON.stringify(MIN_BRAIN_CLI_VERSION)});` });
   return { root, brain, state, sentinel };
 }
 

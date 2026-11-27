@@ -1,19 +1,47 @@
 /**
  * Git helpers for tests that need a brain inside a real repository. Not a
  * test file itself. Commits use a fixed fictional identity, so no host git
- * config is needed.
+ * config is needed, and none is read: every child runs with the system and
+ * global configuration files ignored, so an ambient signing, hooks or
+ * default-branch setting never reaches a fixture.
+ *
+ * This is the one Git runner for test files: `scripts/check-test-helpers.ts`
+ * refuses a local `function git(` or `const git =` anywhere else.
  */
 
 import { afterEach, beforeEach, expect } from "bun:test";
 
+/** Command-scoped, so they outrank repository and environment-scoped configuration too (#3485). */
+const FIXTURE_FLAGS = ["-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false", "-c", "tag.forceSignAnnotated=false"];
+
+/**
+ * The child environment: the test process's own, which keeps the
+ * `GIT_CONFIG_COUNT` entries the test preload adds, with the system and
+ * global configuration files switched off.
+ */
+function fixtureEnv(): Record<string, string | undefined> {
+  return { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
+}
+
+/** Run Git in `root` without asserting success, for callers where failing is the point. */
+export function gitResult(root: string, ...args: string[]): { code: number; stdout: string; stderr: string } {
+  const proc = Bun.spawnSync(["git", ...FIXTURE_FLAGS, "-C", root, ...args], { env: fixtureEnv(), stdout: "pipe", stderr: "pipe" });
+  const decoder = new TextDecoder();
+  return { code: proc.exitCode ?? 1, stdout: decoder.decode(proc.stdout), stderr: decoder.decode(proc.stderr) };
+}
+
+/** Run Git in `root`, fail the test unless it exits 0, and return its trimmed output. */
 export function git(root: string, ...args: string[]): string {
-  const proc = Bun.spawnSync(
-    ["git", "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false", "-c", "tag.forceSignAnnotated=false", "-C", root, ...args],
-    { stdout: "pipe", stderr: "pipe" }
-  );
-  const stderr = new TextDecoder().decode(proc.stderr);
-  expect(proc.exitCode, `git ${args.join(" ")}: ${stderr}`).toBe(0);
-  return new TextDecoder().decode(proc.stdout).trim();
+  const { code, stdout, stderr } = gitResult(root, ...args);
+  expect(code, `git ${args.join(" ")}: ${stderr}`).toBe(0);
+  return stdout.trim();
+}
+
+/** Make `root` a repository on `main` holding everything in it as one commit. */
+export function initBrainRepo(root: string): void {
+  git(root, "init", "-q", "-b", "main");
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "-m", "fixture");
 }
 
 /** `git count-objects -v`'s loose-object count. */
