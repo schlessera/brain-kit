@@ -170,16 +170,17 @@ export function targetedScan(run: IndexRun, options: IndexOptions, existingDocs:
 }
 
 /**
- * Add the corpus the targeted parse did not read to its maps: every unnamed
- * row's title and aliases, as the index recorded them from that row's own
- * frontmatter. Link resolution then sees the same corpus a complete run does.
+ * Add the corpus the parse did not read to its maps: the title and aliases of
+ * every row in `fromIndex` (a targeted run's unnamed rows, and any file the parse
+ * found unchanged), as the index recorded them from that row's own
+ * frontmatter. Link resolution then sees the same corpus a full parse does.
  */
-export function completeCorpusMaps(run: IndexRun, parsed: ParseResult, unnamed: readonly string[]): ParseResult {
-  const wanted = new Set(unnamed);
+export function completeCorpusMaps(run: IndexRun, parsed: ParseResult, fromIndex: readonly string[]): ParseResult {
+  const wanted = new Set(fromIndex);
   const titles = new Map(parsed.fileMap);
   const aliases = new Map<string, string[]>();
   for (const [alias, paths] of parsed.aliasMap) for (const path of paths) aliases.set(path, [...(aliases.get(path) ?? []), alias]);
-  // One statement for the whole corpus, not one per unnamed row.
+  // One statement for the whole corpus, not one per row it fills.
   const rows = run.db.prepare<{ path: string; title: string; aliases: string | null }, []>(
     "SELECT d.path, d.title, f.aliases FROM documents d LEFT JOIN documents_fts f ON f.rowid = d.id WHERE d.asset_type = 'markdown'"
   );
