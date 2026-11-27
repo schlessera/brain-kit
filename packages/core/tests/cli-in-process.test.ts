@@ -12,7 +12,8 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 import { packageVersion } from "../src/package-version";
-import { cleanup, keylessEnv, makeTempBrain, runCli, runCliInProcess, type CliResult } from "./cli-harness";
+import { cleanup, keylessEnv, makeTempBrain, runCli, type CliResult } from "./cli-harness";
+import { runCliInProcess } from "./cli-in-process-runner";
 
 const MAIN = join(import.meta.dir, "../src/cli/main.ts");
 

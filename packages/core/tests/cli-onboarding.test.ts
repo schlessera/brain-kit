@@ -26,7 +26,8 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { cleanup, keylessEnv, makeTempBrain, runCli, runCliInProcess } from "./cli-harness";
+import { cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
+import { runCliInProcess } from "./cli-in-process-runner";
 import { installGitHooks } from "../src/cli/hooks-util";
 import { withoutSigning } from "./git-fixture";
 
