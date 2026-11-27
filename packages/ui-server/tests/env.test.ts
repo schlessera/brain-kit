@@ -222,3 +222,73 @@ describe("config/env default Claude model", () => {
     ).toBe("claude-sonnet-5");
   });
 });
+
+/**
+ * Every numeric variable resolveServerConfig reads, one invalid value each,
+ * and what it does today (#4822): refuse the boot naming the variable, or fall
+ * back to a value. A later consolidation of the parsers is checked against it.
+ */
+describe("config/env numeric variables keep their invalid-value policy", () => {
+  type Pick = (config: ReturnType<typeof resolveServerConfig>) => unknown;
+  const NATIVE = { BRAIN_UI_NATIVE_BRAIN_SOCKET: "/run/ithaca/native.sock" };
+  const falls: Array<[name: string, invalid: string, pick: Pick, fallback: unknown, base?: Record<string, string>]> = [
+    ["BRAIN_UI_PRICING_TTL_HOURS", "x", c => c.pricing.ttlMs, 24 * 60 * 60 * 1000],
+    ["MAX_CONCURRENT_SESSIONS", "x", c => c.maxConcurrentSessions, 3],
+    ["BRAIN_UI_MODEL_TTL_HOURS", "x", c => c.agent.modelTtlMs, 24 * 60 * 60 * 1000],
+    ["BRAIN_UI_ATTACHMENT_POOL_BYTES", "x", c => c.attachmentPoolBytes, resolveServerConfig({}).attachmentPoolBytes],
+    ["BRAIN_UI_TURN_TIMEOUT_MS", "x", c => c.turnTimeoutMs, null],
+    ["TRUST_PROXY_HOPS", "x", c => c.auth.trustProxyHops, 1],
+    ["BRAIN_UI_WS_MAX_CONNECTIONS", "x", c => c.wsMaxConnections, 32],
+    ["BRAIN_UI_WS_RATE", "x", c => c.wsRate.ratePerSecond, 20],
+    ["BRAIN_UI_WS_BURST", "x", c => c.wsRate.burst, 60],
+    ["VOICE_KEYTERM_LIMIT", "5OO", c => c.voice.keytermLimit, 500],
+    ["BRAIN_UI_REFERENCE_VALIDATION_SECONDS", "", c => c.referenceSource?.validationMs, 300_000],
+    ["BRAIN_UI_REFERENCE_REFRESH_SECONDS", "", c => c.referenceSource?.refreshMs, 300_000],
+    ["BRAIN_UI_REFERENCE_ACQUISITIONS", "", c => c.referenceSource?.operations, 2],
+  ];
+  const refuses: Array<[name: string, invalid: string, message: string | RegExp, base?: Record<string, string>]> = [
+    ["BRAIN_UI_WORKER_STATE_BYTES", "x", "BRAIN_UI_WORKER_STATE_BYTES"],
+    ["BRAIN_UI_WORKER_STATE_BUDGET_BYTES", "x", "BRAIN_UI_WORKER_STATE_BUDGET_BYTES"],
+    ["BRAIN_UI_TURN_TEMP_BYTES", "x", "BRAIN_UI_TURN_TEMP_BYTES"],
+    ["BRAIN_UI_TURN_TEMP_BUDGET_BYTES", "x", "BRAIN_UI_TURN_TEMP_BUDGET_BYTES"],
+    ["BRAIN_UI_OUTPUT_STAGING_BYTES", "x", "BRAIN_UI_OUTPUT_STAGING_BYTES"],
+    ["BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES", "x", "BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES"],
+    ["BRAIN_UI_MAINTENANCE_TEMP_BYTES", "x", "BRAIN_UI_MAINTENANCE_TEMP_BYTES"],
+    ["BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES", "x", "BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES"],
+    // The form limits go to a schema keyed by field, so the refusal names the field.
+    ["BRAIN_UI_ASK_USER_FORM_MAX_DEPTH", "x", "maxDepth"],
+    ["BRAIN_UI_ASK_USER_FORM_MAX_NODES", "x", "maxNodes"],
+    ["BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS", "x", "maxOptions"],
+    ["BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY", "x", "BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY"],
+    ["BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY", "x", "BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY"],
+    ["BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD", "x", "BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD"],
+    ["BRAIN_UI_AUTONOMOUS_EMERGENCY_TURNS", "x", "BRAIN_UI_AUTONOMOUS_EMERGENCY_TURNS"],
+    ["BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN", "x", "BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN"],
+    ["MAX_AUTONOMOUS_RUNS", "x", "MAX_AUTONOMOUS_RUNS"],
+    ["BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS", "x", "BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS"],
+    ["BRAIN_UI_NATIVE_BRAIN_TIMEOUT_MS", "x", "BRAIN_UI_NATIVE_BRAIN_TIMEOUT_MS", NATIVE],
+    ["BRAIN_UI_NATIVE_BRAIN_TIMEOUT_MS", "", "BRAIN_UI_NATIVE_BRAIN_TIMEOUT_MS", NATIVE],
+    ["BRAIN_UI_NATIVE_BRAIN_DELTA_BYTES", "x", "BRAIN_UI_NATIVE_BRAIN_DELTA_BYTES", NATIVE],
+    ["BRAIN_UI_NATIVE_BRAIN_DELTA_BYTES", "", "BRAIN_UI_NATIVE_BRAIN_DELTA_BYTES", NATIVE],
+    ["BRAIN_UI_REFERENCE_VALIDATION_SECONDS", "x", "BRAIN_UI_REFERENCE_VALIDATION_SECONDS"],
+    ["BRAIN_UI_REFERENCE_REFRESH_SECONDS", "x", "BRAIN_UI_REFERENCE_REFRESH_SECONDS"],
+    ["BRAIN_UI_REFERENCE_ACQUISITIONS", "x", "BRAIN_UI_REFERENCE_ACQUISITIONS"],
+  ];
+
+  for (const [name, invalid, pick, fallback, base] of falls) {
+    test(`${name}=${JSON.stringify(invalid)} falls back to ${JSON.stringify(fallback)}`, () => {
+      expect(pick(resolveServerConfig({ ...base, [name]: invalid }))).toEqual(fallback);
+    });
+  }
+  for (const [name, invalid, message, base] of refuses) {
+    test(`${name}=${JSON.stringify(invalid)} refuses the boot`, () => {
+      expect(() => resolveServerConfig({ ...base, [name]: invalid })).toThrow(message);
+    });
+  }
+
+  test("VOICE_KEYTERM_LIMIT keeps 0 as no terms, and unset or empty as the 500 default", () => {
+    expect(resolveServerConfig({ VOICE_KEYTERM_LIMIT: "0" }).voice.keytermLimit).toBe(0);
+    expect(resolveServerConfig({ VOICE_KEYTERM_LIMIT: "" }).voice.keytermLimit).toBe(500);
+    expect(resolveServerConfig({}).voice.keytermLimit).toBe(500);
+  });
+});

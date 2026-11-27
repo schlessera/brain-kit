@@ -69,8 +69,7 @@ function parseDefaultThinkingLevel(raw: string | undefined): ThinkingLevel {
  * under the name this package has always exported. This package's entries
  * use the `string` arm of `required` for conditionally-required variables
  * (e.g. "AUTH_MODE=password") and `null` for "no default".
- */
-/**
+ *
  * One environment variable the server reads.
  *
  * Deliberately LOCAL and narrower than the shared EnvVarSpec: this is the
@@ -87,16 +86,16 @@ export interface EnvVarDescriptor {
   required: false | string;
 }
 
-/**
- * Every environment variable this package reads. Order groups by concern.
- * The env-parity gate (G4) asserts this list equals the package's env
- * documentation in both directions — add here and to the docs together.
- */
 /** Optional host build token. Invalid input is unknown, never guessed. */
 export function parseBuildRevision(raw: string | undefined): string | undefined {
   return raw !== undefined && /^[A-Za-z0-9._+-]{1,64}$/.test(raw) ? raw : undefined;
 }
 
+/**
+ * Every environment variable this package reads. Order groups by concern.
+ * The env-parity gate (G4) asserts this list equals the package's env
+ * documentation in both directions — add here and to the docs together.
+ */
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
   { name: "BRAIN_UI_BUILD_REVISION", description: "Optional build revision token, 1–64 ASCII letters, digits, dot, underscore, plus or hyphen. Invalid values are absent.", default: null, required: false },
   { name: "BRAIN_UI_STORAGE_BACKUP_ROOTS", description: "JSON array of at most four absolute operator-approved local backup directories. Metadata only; no remote stores or automatic cleanup.", default: "[]", required: false },
@@ -1085,13 +1084,6 @@ function list(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
-/**
- * A log threshold, defaulting to INFO.
- *
- * An unrecognised value falls back rather than throwing: a typo in a log level
- * must never be the reason a server refuses to boot, and silently emitting
- * nothing would be worse than emitting too much.
- */
 /** A non-negative number, falling back rather than throwing on nonsense. */
 function positiveNumber(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === "") return fallback;
@@ -1137,6 +1129,13 @@ function parseConfirmBash(raw: string | undefined): ConfirmPatternSource[] | nul
   }
 }
 
+/**
+ * A log threshold, defaulting to INFO.
+ *
+ * An unrecognised value falls back rather than throwing: a typo in a log level
+ * must never be the reason a server refuses to boot, and silently emitting
+ * nothing would be worse than emitting too much.
+ */
 function parseSeverity(raw: string | undefined): Severity {
   const upper = raw?.trim().toUpperCase();
   return (SEVERITIES as readonly string[]).includes(upper ?? "")
@@ -1238,9 +1237,14 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
 
   const rawTtl = Number(env.BRAIN_UI_MODEL_TTL_HOURS);
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
+  // A mistyped limit is the documented default, not NaN: NaN reads as "below
+  // one" and would cache an empty vocabulary (#4822). A valid 0 means no terms.
+  const rawKeytermLimit = Number(env.VOICE_KEYTERM_LIMIT || 500);
+  const keytermLimit = Number.isFinite(rawKeytermLimit) ? rawKeytermLimit : 500;
+  const dbPath = env.DB_PATH || join(process.cwd(), "brain-ui.db");
 
   return {
-    compute: resolveComputeConfig(env, env.DB_PATH || join(process.cwd(), "brain-ui.db")),
+    compute: resolveComputeConfig(env, dbPath),
     nativeBrain: resolveNativeBrainConfig(env),
     referenceSource: resolveReferenceSourceConfig(env),
     providerRecipientOrigins: parseProviderRecipientOrigins(env.BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS),
@@ -1252,7 +1256,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       ["maxNodes", env.BRAIN_UI_ASK_USER_FORM_MAX_NODES],
       ["maxOptions", env.BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS],
     ].filter((entry) => entry[1] !== undefined).map(([name, value]) => [name, Number(value)]))),
-    dbPath: env.DB_PATH || join(process.cwd(), "brain-ui.db"),
+    dbPath,
     inbox: {
       pokeTokenFile: env.BRAIN_UI_INBOX_POKE_TOKEN_FILE || null, budget: autonomousBudgetConfig(env),
       maxAutonomousRuns: autonomousPositiveInteger(env, "MAX_AUTONOMOUS_RUNS", 2),
@@ -1320,7 +1324,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       provider: env.VOICE_PROVIDER?.trim().toLowerCase() || null,
       deepgramApiKey: env.DEEPGRAM_API_KEY || null,
       geminiApiKey: env.GEMINI_API_KEY || null,
-      keytermLimit: Number(env.VOICE_KEYTERM_LIMIT || 500),
+      keytermLimit,
       cacheDir: env.VOICE_CACHE_DIR || join(brainPath, ".brain-ui"),
     },
     coastline: {
@@ -1477,11 +1481,6 @@ function filterPackageSubprocessEnv(
 }
 
 /**
- * The allowlisted parent environment for a spawned subprocess, plus explicit
- * overrides. The agent default preserves this exported helper's historical
- * no-argument use; every ui-server spawn names its actual audience.
- */
-/**
  * The exec wrapper and its cancellation helper, or empty when the host
  * configured neither.
  *
@@ -1515,6 +1514,11 @@ export function ambientExecConfig(): ExecWrapperConfig {
   return execConfig(process.env);
 }
 
+/**
+ * The allowlisted parent environment for a spawned subprocess, plus explicit
+ * overrides. The agent default preserves this exported helper's historical
+ * no-argument use; every ui-server spawn names its actual audience.
+ */
 export function subprocessEnv(
   audience: SubprocessEnvAudience = "agent",
   extra: Record<string, string> = {},
@@ -1523,16 +1527,16 @@ export function subprocessEnv(
   return filterPackageSubprocessEnv(process.env, audience, extraNames, extra);
 }
 
-/**
- * The host-only Apify token (#3159), read once at the edge into a closure.
- * Only the host's Apify authority calls it; the value is placed on its fixed
- * upstream request alone and never enters a worker, record, log or response.
- */
 /** The host's Apify ledger path (#3162): `BRAIN_APIFY_LEDGER`, or beside the UI database. */
 export function apifyLedgerPath(dbPath: string, env: NodeJS.ProcessEnv = process.env): string {
   return env.BRAIN_APIFY_LEDGER?.trim() || `${dbPath}.apify-ledger.sqlite`;
 }
 
+/**
+ * The host-only Apify token (#3159), read once at the edge into a closure.
+ * Only the host's Apify authority calls it; the value is placed on its fixed
+ * upstream request alone and never enters a worker, record, log or response.
+ */
 export function apifyTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
   const token = env.APIFY_TOKEN?.trim() || undefined;
   return () => token;
@@ -1558,12 +1562,6 @@ export function moduleGitHubTokenSource(env: NodeJS.ProcessEnv = process.env): (
 }
 
 /**
- * The pi config directory, resolved with EXACTLY the precedence pi-web-access
- * uses for its `web-search.json` (PI_CODING_AGENT_DIR, then XDG_CONFIG_HOME/pi,
- * then ~/.pi) — the settings routes write the file the extension reads, so
- * the two resolutions must never diverge.
- */
-/**
  * Token for private-repo skill installs, read at call time. Specialized
  * variable first, generic fallback — the deployment-wide pattern is
  * `<specialized>_GITHUB_TOKEN` falling back to `GITHUB_TOKEN`.
@@ -1572,6 +1570,12 @@ export function resolveGitHubToken(env: EnvRecord = process.env): string | undef
   return env.BRAIN_UI_SKILLS_GITHUB_TOKEN || env.GITHUB_TOKEN || undefined;
 }
 
+/**
+ * The pi config directory, resolved with EXACTLY the precedence pi-web-access
+ * uses for its `web-search.json` (PI_CODING_AGENT_DIR, then XDG_CONFIG_HOME/pi,
+ * then ~/.pi) — the settings routes write the file the extension reads, so
+ * the two resolutions must never diverge.
+ */
 export function resolvePiConfigDir(env: EnvRecord = process.env): string {
   if (env.PI_CODING_AGENT_DIR) return env.PI_CODING_AGENT_DIR;
   if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, "pi");
