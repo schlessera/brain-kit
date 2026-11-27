@@ -1,4 +1,4 @@
-import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { BackendRequestError, textParts } from "@schlessera/brain-ui-sdk/server";
 import { WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { z } from "zod";
@@ -96,7 +96,7 @@ export const piOutputStatus=z.object({complete:z.boolean(),exitCode:z.number().i
 const searchStatus=z.object({decodingLoss:z.boolean().optional(),stdoutEmpty:z.boolean().optional(),exitCode:z.number().int(),stderr:z.boolean(),truncated:z.boolean(),framedOutput:z.string().optional(),visibleText:z.string().optional()}).strict();
 /** Host-only observation. Never alter provider result content to encode status. */
 export function safetyResultInput(tool:string,content:readonly {type:string;text?:unknown}[],complete=true,failed=false,details?:unknown): {output:string;segments?:string[];outputStatus:z.infer<typeof piOutputStatus>;failed?:true} {
- const segments=content.filter(part=>part.type==='text'&&typeof part.text==='string').map(part=>part.text as string),output=segments.join('\n');
+ const segments=textParts(content),output=segments.join('\n');
  if(tool==='grep'){
   const status=searchStatus.safeParse(details&&typeof details==='object'?(details as Record<string,unknown>).search:undefined);
   const original=complete&&content.length===1&&content[0]?.type==='text'&&typeof content[0]?.text==='string';
