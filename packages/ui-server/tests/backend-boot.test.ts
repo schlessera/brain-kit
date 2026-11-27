@@ -20,6 +20,7 @@ import {
 } from "../src/agent/backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
+import { testServerConfig } from "./helpers/test-config";
 import { makeFakeBackend } from "./helpers/fake-backend";
 
 const bootBrain = mkdtempSync(join(tmpdir(), "odysseus-backend-boot-brain-"));
@@ -361,7 +362,7 @@ describe("createApp boot validation", () => {
 describe("BrainUiApp handle", () => {
   test("exposes the resolved authMode so the shell need not re-derive it", async () => {
     const app = await createApp({
-      config: resolveServerConfig({ HOST: "127.0.0.1", AUTH_MODE: "none", DB_PATH: ":memory:", BRAIN_PATH: bootBrain, BRAIN_UI_PRICING_DISCOVERY: "0" }),
+      config: testServerConfig({ brain: bootBrain, db: ":memory:" }),
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
     expect(app.authMode).toBe("none");

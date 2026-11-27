@@ -1,4 +1,4 @@
-// Refuses a local copy of a test need that has a shared owner (#4835).
+// Refuses a local copy of a test need that has a shared owner (#4835, #4838).
 //
 // Why: a test that waits for a condition, runs Git or boots an app writes the
 // same few lines as the next file, and the copies drift apart (bounds,
@@ -81,6 +81,10 @@ const POLL_HEAD = new RegExp(
 );
 const SLEEPS = /\bsetTimeout\b|\bsetImmediate\b|\bsleep\s*\(/;
 
+// `resolveServerConfig({ … })` with both keys a test app boots with.
+const BOOT_CONFIG = /\bresolveServerConfig\s*\(\s*\{/g;
+const configKeys = (literal: string) => new Set([...literal.matchAll(/\b([A-Z][A-Z0-9_]{3,})\s*:/g)].map((match) => match[1]!));
+
 export const RULES: readonly Rule[] = [
   {
     id: "polling-helper",
@@ -91,6 +95,20 @@ export const RULES: readonly Rule[] = [
       const found: Array<{ line: number; name: string }> = [];
       for (const match of text.matchAll(POLL_HEAD)) {
         if (SLEEPS.test(declarationText(text, match.index!))) found.push({ line: lineAt(text, match.index!), name: match[1] ?? match[2]! });
+      }
+      return found;
+    },
+  },
+  {
+    id: "boot-config",
+    refused: "a hand-written boot config literal (`resolveServerConfig({ AUTH_MODE, HOST, … })`)",
+    instead: "build it with `testServerConfig` from packages/ui-server/tests/helpers/test-config.ts, which turns every vendor discovery off",
+    allowed: ["packages/ui-server/tests/helpers/test-config.ts"],
+    sites(text) {
+      const found: Array<{ line: number; name: string }> = [];
+      for (const match of text.matchAll(BOOT_CONFIG)) {
+        const keys = configKeys(declarationText(text, match.index! + match[0].length - 1));
+        if (keys.has("AUTH_MODE") && keys.has("HOST")) found.push({ line: lineAt(text, match.index!), name: "resolveServerConfig" });
       }
       return found;
     },

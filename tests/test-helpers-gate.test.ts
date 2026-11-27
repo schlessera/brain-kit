@@ -90,6 +90,35 @@ describe("the polling-helper rule", () => {
   });
 });
 
+describe("the boot-config rule", () => {
+  // Spelled through CALL so this file's own source holds no boot literal.
+  const CALL = "resolveServerConfig";
+  const BOOT = `const config = ${CALL}({ AUTH_MODE: "none", HOST: "127.0.0.1", BRAIN_PATH: brain, DB_PATH: ":memory:" });\n`;
+
+  test("a new boot literal fails with the file name", () => {
+    const root = tree({ "packages/ui-server/tests/ithaca-boot.test.ts": `import { ${CALL} } from '../src/config/env';\n` + BOOT });
+    expect(scanTree(root).findings).toEqual([{ rule: "boot-config", file: "packages/ui-server/tests/ithaca-boot.test.ts", line: 2, name: "resolveServerConfig" }]);
+    const gate = runGate(root);
+    expect(gate.code).toBe(1);
+    expect(gate.stderr).toContain("packages/ui-server/tests/ithaca-boot.test.ts:2: resolveServerConfig");
+  });
+
+  test("a literal over several lines, or inside a child program's source, is still one", () => {
+    expect(scanSource("tests/a.test.ts", `${CALL}(\n  {\n    HOST: host,\n    AUTH_MODE: 'none',\n  })\n`).map((site) => site.line)).toEqual([1]);
+    expect(scanSource("tests/a.test.ts", "const program = `config:" + CALL + "({AUTH_MODE:'none',HOST:'127.0.0.1',BRAIN_PATH:${JSON.stringify(brain)}})`;\n")).toHaveLength(1);
+  });
+
+  test("config resolution that does not boot a keyless app is not refused", () => {
+    for (const text of [
+      `${CALL}({ AUTH_MODE: "password", BRAIN_PATH: brain });\n`,
+      `${CALL}({ HOST: "0.0.0.0" });\n`,
+      `${CALL}(baseEnv);\n`,
+      `${CALL}({ ...baseEnv, AGENT_BACKEND: "gemini" });\n`,
+    ]) expect({ text, sites: scanSource("tests/a.test.ts", text) }).toEqual({ text, sites: [] });
+    expect(scanSource("packages/ui-server/tests/helpers/test-config.ts", BOOT)).toEqual([]);
+  });
+});
+
 describe("the baseline", () => {
   const file = "packages/ui-server/tests/ws-ithaca.test.ts";
   const entry = (count: number): BaselineEntry => ({ rule: "polling-helper", file, count, reason: "follow-up slice of the Ithaca tests" });

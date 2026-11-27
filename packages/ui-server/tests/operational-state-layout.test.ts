@@ -11,7 +11,7 @@ import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worke
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { assertOperationalStateOutsideBrain, operationalStateMasks } from "../src/brain/operational-state";
 import { createHostBoundary as createBoundary } from "../src/brain/host-boundary";
-import { resolveServerConfig } from "../src/config/env";
+import { testServerConfig } from "./helpers/test-config";
 import { createRecordingObservability } from "../src/observability";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
@@ -75,8 +75,7 @@ describe("operational state boot refusal (#1649)", () => {
         let failure: Error | undefined;
         try {
           const app = await createApp({ workerProfile: profile, observability,
-            config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", BRAIN_PATH: f.brain, DB_PATH: dbPath,
-              BRAIN_UI_INBOX_POKE_TOKEN_FILE: token, BRAIN_UI_PRICING_DISCOVERY: "0" }),
+            config: testServerConfig({ brain: f.brain, db: dbPath }, { BRAIN_UI_INBOX_POKE_TOKEN_FILE: token }),
             registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]) });
           await app.close();
         } catch (error) { failure = error as Error; }
@@ -114,7 +113,7 @@ describe("operational state boot refusal (#1649)", () => {
     const saved = process.env.TMPDIR;
     process.env.TMPDIR = f.brain;
     try {
-      await expect(createApp({ config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", BRAIN_PATH: f.brain, DB_PATH: ":memory:" }),
+      await expect(createApp({ config: testServerConfig({ brain: f.brain, db: ":memory:" }),
         registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]) })).rejects.toThrow("TMPDIR resolves inside the brain");
       expect(existsSync(f.sentinel)).toBe(false);
     } finally { if (saved === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = saved; }
@@ -130,7 +129,7 @@ describe("operational state boot refusal (#1649)", () => {
     const f = fixture(); const cwd = process.cwd(); const nested = join(f.brain, "nested"); mkdirSync(nested);
     process.chdir(nested);
     try {
-      await expect(createApp({ workerProfile: "strict", dbPath: "", config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", BRAIN_PATH: f.brain, DB_PATH: join(f.state, "brain-ui.db") }),
+      await expect(createApp({ workerProfile: "strict", dbPath: "", config: testServerConfig({ brain: f.brain, db: join(f.state, "brain-ui.db") }),
         registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]) }), "ANONYMOUS_DATABASE_QUARANTINE_GUARD")
         .rejects.toThrow("DB_PATH quarantine resolves inside the brain");
       expect(existsSync(f.sentinel)).toBe(false);
@@ -158,11 +157,11 @@ describe("operational state boot refusal (#1649)", () => {
     const mounted = join(f.brain, "mounted-state"); mkdirSync(mounted);
     const program = `import {createFixtureApp as createApp} from ${JSON.stringify(resolve(import.meta.dir, "helpers/native-app-fixture.ts"))};
       import {createStaticBackendRegistry} from ${JSON.stringify(resolve(import.meta.dir, "../src/agent/backend.ts"))};
-      import {resolveServerConfig} from ${JSON.stringify(resolve(import.meta.dir, "../src/config/env.ts"))};
+      import {testServerConfig} from ${JSON.stringify(resolve(import.meta.dir, "helpers/test-config.ts"))};
       import {makeFakeBackend} from ${JSON.stringify(resolve(import.meta.dir, "helpers/fake-backend.ts"))};
       import {statSync} from 'node:fs';
       const original=statSync(${JSON.stringify(existing ? dbPath : f.state)}),alias=statSync(${JSON.stringify(existing ? join(mounted, "brain-ui.db") : mounted)});
-      let app,failure;try{app=await createApp({workerProfile:${JSON.stringify(profile)},config:resolveServerConfig({AUTH_MODE:'none',HOST:'127.0.0.1',BRAIN_PATH:${JSON.stringify(f.brain)},DB_PATH:${JSON.stringify(dbPath)},BRAIN_UI_PRICING_DISCOVERY:'0'}),registry:createStaticBackendRegistry([makeFakeBackend({id:'fake'})])})}catch(e){failure=e}finally{await app?.close()}
+      let app,failure;try{app=await createApp({workerProfile:${JSON.stringify(profile)},config:testServerConfig({brain:${JSON.stringify(f.brain)},db:${JSON.stringify(dbPath)}}),registry:createStaticBackendRegistry([makeFakeBackend({id:'fake'})])})}catch(e){failure=e}finally{await app?.close()}
       console.log("ODYSSEUS_STATE_RECEIPT:"+JSON.stringify({name:failure?.name,sameInode:original.dev===alias.dev&&original.ino===alias.ino}));`;
     const run = Bun.spawnSync(["bwrap", "--unshare-user", "--unshare-net", "--bind", "/", "/", "--bind", f.state, mounted,
       "--proc", "/proc", "--dev", "/dev", process.execPath, "--config=/dev/null", "--no-env-file", "-e", program],
