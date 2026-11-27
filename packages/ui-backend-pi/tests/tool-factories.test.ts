@@ -20,6 +20,9 @@ import { createTurnContext } from "../src/turn-context";
 import { resultText } from "./helpers";
 import {baselineGrepTool} from "./fixtures/grep-before-safety";
 import { makeMockBridge } from "./mock-bridge";
+import { staleAfterTicket } from "./stale-admission";
+import { rememberPiAdmission } from "../src/tool-admission";
+import { existsSync } from "node:fs";
 
 const CTX = {} as never;
 let root: string;
@@ -101,6 +104,18 @@ test("editFileTool writes $ sequences in new_string verbatim, and its remembered
   // kit passes its base check instead of reading the file as changed.
   await run(editFileTool(tools), { path: "notes/ithaca.md", old_string: "as typed", new_string: "as written" });
   expect(readFileSync(join(root, "notes/ithaca.md"), "utf8")).toBe("# Ithaca\n\nOdysseus costs $$5, keeps $& and $' and $` as written.\n");
+});
+
+test("bashTool without a host final-admission route refuses a call whose safety goes stale during the wait after its ticket", async () => {
+  // The fallback final admission validates again after the last pending wait (#4767).
+  const { admissionSafety, inputSafety, log } = staleAfterTicket();
+  const tools = kit({ exec: {} }, { admissionSafety, inputSafety, commitToolAdmission: undefined });
+  const params = { command: "touch ran" };
+  rememberPiAdmission(tools.turn, "bash", "call-1", params, admissionSafety.read(), false, admissionSafety);
+  await expect(run(bashTool(tools), params), "PI_BASH_FALLBACK_STALE_AFTER_WAIT_REFUSES").rejects.toThrow("Safety or authority changed");
+  expect(existsSync(join(root, "ran")), "PI_BASH_FALLBACK_STALE_AFTER_WAIT_DOES_NOT_RUN").toBe(false);
+  // The tool's outer refusal records the same denial again.
+  expect(log, "PI_BASH_FALLBACK_STALE_AFTER_WAIT_IS_REFUSED").toEqual(["prepare call-1", "stale", "cancel", "refused call-1 true", "refused call-1 true"]);
 });
 
 test("bashTool runs one command in the repository and keeps a nonzero exit", async () => {
