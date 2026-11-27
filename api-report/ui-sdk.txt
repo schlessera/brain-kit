@@ -17588,6 +17588,7 @@ signatures (every public export and the types it is made of)
         Output?: ComponentType<{
             tool: ToolCallView;
         }>;
+        copyText?(tool: ToolCallView): string;
     }
   ToolRendererRegistry (packages/ui-sdk/src/client/renderers.ts)
     export interface ToolRendererRegistry {

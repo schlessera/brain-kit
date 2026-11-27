@@ -1977,6 +1977,23 @@ optional parameter does not change the server-owned `applyImageMask` route.
 `tests/seam-list.test.ts` fails when this table, the one in
 extending/README.md and the tags in the source disagree.
 
+<a id="tool-renderer-copy-text-additive-0460-4210"></a>
+
+### Tool renderers choose what Copy output copies (additive, 0.46.0, #4210)
+
+`ToolRenderer` (`@schlessera/brain-ui-sdk/client`) gains the optional method
+`copyText(tool: ToolCallView): string`, read when the chat timeline's Copy
+output control is pressed. Without it the control copies `tool.output` as
+stored, as before. When a renderer that has it throws, the timeline's fallback
+shows the same text as the output, with no links, and no input view, instead
+of the generic view; if `copyText` throws too, the fallback says the output
+can't be shown. A call still awaiting approval keeps its approval card, which
+shows the input the owner is asked about. The
+ui-react Gmail search and read renderers copy their
+output with hidden characters as the `‹U+XXXX›` markers their cards and
+fallback show, so a paste never carries a direction override the reader was
+not shown. The stored output is unchanged.
+
 <a id="external-compute-seam-additive-3105"></a>
 
 ### External compute seam (additive, #3105)

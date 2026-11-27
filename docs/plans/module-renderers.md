@@ -21,7 +21,7 @@ declared once by a module and implemented by two entry points:
 | Static entry | `<module>/render` export | `brain render`, `/api/render`, the client share path | `toStatic(source, { theme, path? }) → Promise<string>` returning HTML/SVG with no script and no external resource. It declares `needsBrowser`: Mermaid's static step needs a DOM, so it runs on the client before a share, as today. The diagrams module's does not. |
 
 The client registry mirrors the tool-renderer one (`export function registerToolRenderers`,
-`packages/ui-sdk/src/client/renderers.ts:171`) and is fed the same way, by the
+`packages/ui-sdk/src/client/renderers.ts:181`) and is fed the same way, by the
 build (`export function registerBuiltinRenderers`, `packages/ui-react/src/components/chat/renderers/index.ts:21-27`).
 Dispatch order: an exact fence language or extension match from a configured
 module, then the built-in code view.
