@@ -528,7 +528,7 @@ three browser and two layout partitions
 with full coverage assertions and original per-browser file concurrency bounds.
 The first two-unit-partition hosted run reached its 20-minute budgets while
 still making progress. Completed-file observations in
-`scripts/unit-shard-observation.json` update underestimated weights; unfinished
+[`scripts/unit-shard-observation.json`](https://github.com/schlessera/brain-kit/blob/d96d8541a49360425070ee316f5fdf00c4d21102/scripts/unit-shard-observation.json) (archived at `d96d8541a493`) update underestimated weights; unfinished
 files are not passing proof. Four partitions retain the deadlines and reduce
 that measured critical path. After #1298 added the pinned native evaluation
 controls, run38045497058/attempt1 again exhausted the outer20-minute cap in
