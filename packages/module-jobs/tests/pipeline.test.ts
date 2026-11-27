@@ -80,6 +80,20 @@ describe("jobs scaffold", () => {
       expect(text).toContain(`\n## ${section}\n`);
     }
   });
+
+  test("writes a salary known only by its bounds as an annual EUR range", async () => {
+    const root = makeBrain();
+    const db = openDatabase(join(root, "jobs.db"));
+    ingestJobs(db, [{ source: "remoteok", source_id: "2", title: "Helm Engineer", company: "Ithaca Fleet" }]);
+    db.exec("UPDATE jobs SET salary_min = 12000000, salary_max = 15000000, salary_raw = NULL");
+    const id = (db.query("SELECT id FROM jobs").get() as { id: number }).id;
+    db.close();
+
+    const { code, stderr } = await brain(root, "jobs", "scaffold", String(id), "--json");
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+    const text = readFileSync(join(root, "career/opportunities/ithaca-fleet/status.md"), "utf8");
+    expect(text).toContain("- **Salary:** €120,000 - €150,000 (EUR, annual)\n");
+  });
 });
 
 describe("jobs pipeline", () => {
