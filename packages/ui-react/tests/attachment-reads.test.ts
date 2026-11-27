@@ -168,6 +168,32 @@ describe("reads client", () => {
     expect(r.asked).toEqual([`/api/sessions/${SESSION}/attachment-reads`]);
     expect(r.store.getState().loaded[SESSION]).toBeUndefined();
   });
+  test("a session id that names an Object.prototype member is read like any other", async () => {
+    // `loaded` is a plain object: `loaded.constructor` is inherited and truthy,
+    // which must not count as "already read".
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let n = 0;
+    const r = rig(async (url) => {
+      if (n++ === 0) await gate;
+      return Response.json({ sessionId: decodeURIComponent(url.split("/")[3]!), reads: [] });
+    });
+    r.chat.getState().setActiveSession("constructor");
+    r.hello(true);
+    r.hello(true);
+    await Bun.sleep(0);
+    release();
+    for (let i = 0; i < 5; i++) await Bun.sleep(0);
+    expect(r.asked).toEqual(["/api/sessions/constructor/attachment-reads", "/api/sessions/constructor/attachment-reads"]);
+    expect(Object.hasOwn(r.store.getState().loaded, "constructor")).toBe(true);
+  });
+  test("opening a session whose id names an Object.prototype member reads it", async () => {
+    const r = rig(async (url) => Response.json({ sessionId: decodeURIComponent(url.split("/")[3]!), reads: [] }));
+    r.hello(true);
+    r.chat.getState().setActiveSession("toString");
+    await Bun.sleep(0); await Bun.sleep(0);
+    expect(r.asked).toEqual(["/api/sessions/toString/attachment-reads"]);
+  });
   test("opening another session reads that one", async () => {
     const r = rig(async (url) => Response.json({ sessionId: decodeURIComponent(url.split("/")[3]!), reads: [] }));
     r.hello(true);

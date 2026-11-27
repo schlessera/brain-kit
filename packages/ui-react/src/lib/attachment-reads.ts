@@ -43,14 +43,14 @@ export function createAttachmentReadClient(root: Pick<BrainUiServices, "stores" 
       // A hello arrived while this was in flight, and its own read of the
       // session was skipped as a duplicate (#3887): ask now, for the newer
       // connection, if the session is still in view and unread.
-      if (!disposed && asked !== epoch && active() === sessionId && !store.getState().loaded[sessionId]) void load(sessionId);
+      if (!disposed && asked !== epoch && active() === sessionId && store.getState().loaded[sessionId] !== true) void load(sessionId);
     }
   }
 
   const active = () => root.stores.chat.getState().activeSessionId;
   const unsubscribe = root.stores.chat.subscribe((state, previous) => {
     const id = state.activeSessionId;
-    if (id && id !== previous.activeSessionId && !store.getState().loaded[id]) void load(id);
+    if (id && id !== previous.activeSessionId && store.getState().loaded[id] !== true) void load(id);
   });
 
   return {
