@@ -24,6 +24,7 @@ import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createBrainRoutes } from "../src/routes/brain";
 import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
+import { installFakeBrain } from "./helpers/fake-brain-cli";
 import { BRAIN_BIN, runCli } from "../../core/tests/cli-harness";
 import { registeredVersionDeadline } from "../../ui-sdk/tests/helpers/registered-version-deadline";
 import { privateMaintenanceTest } from "./helpers/private-maintenance-test.js";
@@ -44,14 +45,6 @@ function temporaryBrain(): string {
   return root;
 }
 
-function installBrainCli(root: string, source: string): void {
-  const binDir = join(root, "node_modules", ".bin");
-  mkdirSync(binDir, { recursive: true });
-  const bin = join(binDir, "brain");
-  writeFileSync(bin, `#!/usr/bin/env bun\n${source}`);
-  chmodSync(bin, 0o755);
-}
-
 function appConfig(brainPath: string) {
   return testServerConfig({ brain: brainPath, db: ":memory:" });
 }
@@ -65,12 +58,10 @@ describe("brain CLI invocation", () => {
     // vector table this host cannot count (#169). The client and route pass
     // the object through; neither may coerce the unknown into a number.
     const root = temporaryBrain();
-    installBrainCli(
-      root,
+    installFakeBrain(root, { body:
       `console.log(JSON.stringify({ documents: 3, byType: { note: 3 }, byStatus: { active: 3 }, ` +
         `byRelevance: {}, tags: 0, links: 0, brokenLinks: 0, chunks: 3, embeddings: null, ` +
-        `health: { embeddingCoverage: null } }));\n`
-    );
+        `health: { embeddingCoverage: null } }));\n` });
     const brain = createBrainClient({ brainPath: root });
 
     const stats = (await brain.stats()) as unknown as Record<string, unknown>;
@@ -83,7 +74,7 @@ describe("brain CLI invocation", () => {
     expect(body).toHaveProperty("embeddings", null);
 
     // And a count that was taken passes through as the number it is.
-    installBrainCli(root, `console.log(JSON.stringify({ documents: 3, chunks: 3, embeddings: 7 }));\n`);
+    installFakeBrain(root, { body: `console.log(JSON.stringify({ documents: 3, chunks: 3, embeddings: 7 }));\n` });
     expect(((await brain.stats()) as unknown as Record<string, unknown>).embeddings).toBe(7);
     expect(await (await app.request("/brain/stats")).json()).toHaveProperty("embeddings", 7);
   });
@@ -91,13 +82,11 @@ describe("brain CLI invocation", () => {
   test("stats history runs `brain stats --history` and the route passes its nulls through", async () => {
     const root = temporaryBrain();
     const capture = join(root, "argv.jsonl");
-    installBrainCli(
-      root,
+    installFakeBrain(root, { body:
       `import { appendFileSync } from "fs";\n` +
         `appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/argv.jsonl" : ${JSON.stringify(capture)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n` +
         `console.log(JSON.stringify({ dates: ["2026-09-01", "2026-09-02"], documents: [3, 4], ` +
-        `health: { orphans: [null, 1] } }));\n`
-    );
+        `health: { orphans: [null, 1] } }));\n` });
     const brain = createBrainClient({ brainPath: root });
     const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 }, exec: {} });
 
@@ -111,7 +100,7 @@ describe("brain CLI invocation", () => {
     expect(JSON.parse(readFileSync(capture, "utf8").trim())).toEqual(["stats", "--history"]);
 
     // A CLI that predates --history exits 1: the route says so as a 500.
-    installBrainCli(root, `console.error("Unknown flag: --history"); process.exit(1);\n`);
+    installFakeBrain(root, { body: `console.error("Unknown flag: --history"); process.exit(1);\n` });
     const old = await app.request("/brain/stats/history");
     expect(old.status).toBe(500);
     expect(((await old.json()) as { error: string }).error).toContain("Unknown flag: --history");
@@ -120,12 +109,10 @@ describe("brain CLI invocation", () => {
   test("places flags before -- and a --prefixed search query after it", async () => {
     const root = temporaryBrain();
     const capture = join(root, "argv.jsonl");
-    installBrainCli(
-      root,
+    installFakeBrain(root, { body:
       `import { appendFileSync } from "fs";\n` +
         `appendFileSync(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/argv.jsonl" : ${JSON.stringify(capture)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n` +
-        `console.log(JSON.stringify({ results: [], warnings: [] }));\n`
-    );
+        `console.log(JSON.stringify({ results: [], warnings: [] }));\n` });
 
     await createBrainClient({ brainPath: root }).search("--weird query", {
       type: "note",
@@ -171,10 +158,10 @@ describe("search cancellation and deadlines", () => {
   function stalledBrain() {
     const root = temporaryBrain();
     const pidPath = join(root, "node_modules/.bin/brain");
-    installBrainCli(root, `
+    installFakeBrain(root, { body: `
       process.on("SIGTERM", () => {});
       setInterval(() => {}, 1000);
-    `);
+    ` });
     return { root, pidPath };
   }
 
@@ -259,7 +246,7 @@ describe("brain CLI version probe", () => {
   test("a 0.40.0 brain repo pin refuses app creation and names the package floor", async () => {
     if (await privateMaintenanceTest(import.meta.path, "a 0.40.0 brain repo pin refuses app creation and names the package floor")) return;
     const root = temporaryBrain();
-    installBrainCli(root, `console.log("0.40.0");\n`);
+    installFakeBrain(root, { version: "0.40.0" });
     const observability = createRecordingObservability();
 
     await expect(createApp({
@@ -272,7 +259,7 @@ describe("brain CLI version probe", () => {
   test("the first compatible CLI release boots", async () => {
     if (await privateMaintenanceTest(import.meta.path, "the first compatible CLI release boots")) return;
     const root = temporaryBrain();
-    installBrainCli(root, `console.log("${MIN_BRAIN_CLI_VERSION}");\n`);
+    installFakeBrain(root);
     const app = await createApp({ config: appConfig(root), observability: createRecordingObservability(), registry: registry() });
     await app.close();
   });
@@ -284,7 +271,7 @@ describe("brain CLI version probe", () => {
     // index directory itself, so every later worker can write sidecars there.
     const root = temporaryBrain();
     chmodSync(root, 0o2775);
-    installBrainCli(root, `console.log("${MIN_BRAIN_CLI_VERSION}");\n`);
+    installFakeBrain(root);
     const app = await createApp({ config: appConfig(root), observability: createRecordingObservability(), registry: registry() });
     try {
       expect(statSync(join(root, ".brain-index")).mode & 0o7777, "BOOT_INDEX_DIRECTORY_TAKES_ROOT_MODE").toBe(0o2775);
@@ -297,7 +284,7 @@ describe("brain CLI version probe", () => {
     // prerelease pattern would parse it as a real 0.32.9 prerelease and refuse
     // to boot; the contract is that anything unparseable warns and continues.
     const root = temporaryBrain();
-    installBrainCli(root, `console.log("0.32.9-..");\n`);
+    installFakeBrain(root, { version: "0.32.9-.." });
     const observability = createRecordingObservability();
 
     const app = await createApp({
@@ -352,14 +339,14 @@ describe("brain CLI client over the keyless Odysseus corpus", () => {
     mkdirSync(join(root, "node_modules"), { recursive: true });
     symlinkSync(resolve(import.meta.dir, "../../../node_modules/@schlessera"), join(root, "node_modules/@schlessera"));
     const harness = resolve(import.meta.dir, "../../core/tests/cli-harness.ts");
-    installBrainCli(root, `
+    installFakeBrain(root, { body: `
       import { keylessEnv } from ${JSON.stringify(harness)};
       const child = Bun.spawn([process.execPath, ${JSON.stringify(BRAIN_BIN)}, ...process.argv.slice(2)], {
         cwd: ${JSON.stringify(root)}, env: keylessEnv(${JSON.stringify(root)}),
         stdin: "ignore", stdout: "inherit", stderr: "inherit",
       });
       process.exit(await child.exited);
-    `);
+    ` });
     const indexed = await runCli(root, ["index", "--json"]);
     expect(indexed.code, indexed.stderr).toBe(0);
   });
@@ -529,7 +516,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
 
   test("a search runs through the wrapper, with the CLI as its argument", async () => {
     const root = temporaryBrain();
-    installBrainCli(root, `console.log(JSON.stringify({ results: [], warnings: [] }));\n`);
+    installFakeBrain(root, { body: `console.log(JSON.stringify({ results: [], warnings: [] }));\n` });
     const log = installWrapper(root);
     previous = process.env.BRAIN_UI_EXEC_WRAPPER;
     process.env.BRAIN_UI_EXEC_WRAPPER = join(root, "wrapper.sh");
@@ -553,13 +540,9 @@ describe("the exec wrapper covers the shared CLI client", () => {
    */
   async function wrappersSeenByApp(config: (root: string, configured: string) => ServerConfig) {
     const root = temporaryBrain();
-    installBrainCli(
-      root,
-      `const args = process.argv.slice(2);\n` +
-        `if (args.includes("--version")) console.log("${MIN_BRAIN_CLI_VERSION}");\n` +
-        `else if (args.includes("search")) console.log(JSON.stringify({ results: [], warnings: [] }));\n` +
-        `else console.log("synced");\n`
-    );
+    installFakeBrain(root, { body:
+      `if (args.includes("search")) console.log(JSON.stringify({ results: [], warnings: [] }));\n` +
+        `else console.log("synced");\n` });
     const wrapperAt = (name: string) => {
       const wrapper = join(root, `${name}.sh`);
       writeFileSync(wrapper, `#!/bin/sh\nprintf '%s\\n' "$@" >> "\${BRAIN_WORKER_DATA_ROOT:-${root}}/${name}.log"\nexec "$@"\n`);
@@ -618,7 +601,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
 
   test("with no wrapper configured the CLI is launched directly", async () => {
     const root = temporaryBrain();
-    installBrainCli(root, `console.log(JSON.stringify({ results: [], warnings: [] }));\n`);
+    installFakeBrain(root, { body: `console.log(JSON.stringify({ results: [], warnings: [] }));\n` });
     const log = installWrapper(root);
     previous = process.env.BRAIN_UI_EXEC_WRAPPER;
     delete process.env.BRAIN_UI_EXEC_WRAPPER;
@@ -635,7 +618,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
     // supervising wrapper is the wrapper — the CLI it launched keeps running.
     const root = temporaryBrain();
     const marker = `odysseus-wrapper-child-${root.split("/").at(-1)}`;
-    installBrainCli(root, `console.log("${MIN_BRAIN_CLI_VERSION}");\n`);
+    installFakeBrain(root);
 
     const wrapper = join(root, "supervise.sh");
     writeFileSync(
@@ -665,7 +648,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
 
   test("the version probe goes through it too, so a broken wrapper fails at boot", async () => {
     const root = temporaryBrain();
-    installBrainCli(root, `console.log("${MIN_BRAIN_CLI_VERSION}");\n`);
+    installFakeBrain(root);
     const log = installWrapper(root);
 
     await probeBrainCliVersion(root, createRecordingObservability().logger("test"), { exec: { wrapper: join(root, "wrapper.sh") } });
@@ -676,16 +659,16 @@ describe("the exec wrapper covers the shared CLI client", () => {
 
 test("hygiene reads business refusals on exit 1 but rejects an abnormal CLI exit", async () => {
   const root = temporaryBrain();
-  installBrainCli(root, 'console.log(JSON.stringify({status:"refused",id:"ithaca-link",reason:"stale-fingerprint"})); process.exit(1);\n');
+  installFakeBrain(root, { body: 'console.log(JSON.stringify({status:"refused",id:"ithaca-link",reason:"stale-fingerprint"})); process.exit(1);\n' });
   const brain = createBrainClient({ brainPath: root });
   expect(await brain.hygiene!(["resolve", "--", "ithaca-link"])).toMatchObject({ status: "refused" });
-  installBrainCli(root, 'console.log(JSON.stringify({status:"fixed",id:"ithaca-link"})); process.exit(2);\n');
+  installFakeBrain(root, { body: 'console.log(JSON.stringify({status:"fixed",id:"ithaca-link"})); process.exit(2);\n' });
   await expect(brain.hygiene!(["resolve", "--", "ithaca-link"])).rejects.toThrow("exit 2");
 });
 
 test("a failed module call names the module command that ran, never hygiene (#4723)", async () => {
   const root = temporaryBrain();
-  installBrainCli(root, 'console.error("the module loom is tangled"); process.exit(2);\n');
+  installFakeBrain(root, { body: 'console.error("the module loom is tangled"); process.exit(2);\n' });
   const brain = createBrainClient({ brainPath: root });
   for (const [operation, command] of [["get", "module settings"], ["enable", "module enable"], ["disable", "module disable"]] as const) {
     const error = await brain.moduleSettings!("ithaca", operation).catch((e: Error) => e);
@@ -697,7 +680,7 @@ test("a failed module call names the module command that ran, never hygiene (#47
 
 test("hygiene output that is not JSON is reported as unreadable", async () => {
   const root = temporaryBrain();
-  installBrainCli(root, 'console.log("not a hygiene report"); console.error("half a report"); process.exit(1);\n');
+  installFakeBrain(root, { body: 'console.log("not a hygiene report"); console.error("half a report"); process.exit(1);\n' });
   await expect(createBrainClient({ brainPath: root }).hygiene!(["resolve", "--", "ithaca-link"]))
     .rejects.toThrow("brain hygiene returned unreadable output (exit 1): half a report");
 });

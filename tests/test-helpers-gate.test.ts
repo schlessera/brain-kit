@@ -119,6 +119,32 @@ describe("the boot-config rule", () => {
   });
 });
 
+describe("the git-runner rule", () => {
+  const RUNNER = 'function git(cwd: string, ...args: string[]) {\n  return Bun.spawnSync(["git", "-C", cwd, ...args]);\n}\n';
+
+  test("a new local function git( in a fixture tree fails with the file name", () => {
+    const root = tree({ "packages/core/tests/fixtures/ithaca-repo.ts": `const harbour = "Ithaca";\n${RUNNER}` });
+    expect(scanTree(root).findings).toEqual([{ rule: "git-runner", file: "packages/core/tests/fixtures/ithaca-repo.ts", line: 2, name: "git" }]);
+    const gate = runGate(root);
+    expect(gate.code).toBe(1);
+    expect(gate.stderr).toContain("packages/core/tests/fixtures/ithaca-repo.ts:2: git");
+  });
+
+  test("every refused shape, and what is not a runner", () => {
+    for (const text of [RUNNER, "export async function git(root: string) {}\n", "  const git = (...args: string[]) => run(args);\n", "const git=(...a:string[])=>run(a);\n", "const git: Runner = run;\n"]) {
+      expect({ text, sites: names(text) }).toEqual({ text, sites: ["git"] });
+    }
+    for (const text of ["const gitResult = run;\n", "// function git(cwd) {}\n", "fixture.git = run;\n", "import { git } from './git-fixture';\n"]) {
+      expect({ text, sites: names(text) }).toEqual({ text, sites: [] });
+    }
+  });
+
+  test("the shared owner is not refused", () => {
+    expect(scanSource("packages/core/tests/git-fixture.ts", RUNNER)).toEqual([]);
+    expect(scanSource("packages/core/tests/sync-fixture.ts", RUNNER)).toHaveLength(1);
+  });
+});
+
 describe("the tmp-path rule", () => {
   // Spelled through TMP so this file's own source holds no such path.
   const TMP = "tmpdir()";

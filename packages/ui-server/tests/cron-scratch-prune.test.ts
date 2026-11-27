@@ -5,10 +5,10 @@
  * and closing the server kills a pass in flight and waits for it.
  */
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
+import { installFakeBrain } from "./helpers/fake-brain-cli";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
@@ -167,19 +167,15 @@ describe("startScratchPrune", () => {
 
 describe("BrainClient.scratchPrune", () => {
   /** A fake `brain` bin; `CAPTURE` in its source is replaced by a path it may write to. */
-  function brainWithCli(source: string): { root: string; capture: string; bin: string } {
+  function pruneBrain(source: string): { root: string; capture: string; bin: string } {
     const root = mkdtempSync(join(tmpdir(), "brain-scratch-prune-"));
-    const binDir = join(root, "node_modules", ".bin");
-    mkdirSync(binDir, { recursive: true });
     const capture = join(root, "capture.txt");
-    const bin = join(binDir, "brain");
-    writeFileSync(bin, `#!/usr/bin/env bun\n${source.replaceAll("CAPTURE", `(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/capture.txt" : ${JSON.stringify(capture)})`)}`);
-    chmodSync(bin, 0o755);
+    const bin = installFakeBrain(root, { body: source.replaceAll("CAPTURE", `(process.env.BRAIN_WORKER_DATA_ROOT ? process.env.BRAIN_WORKER_DATA_ROOT + "/capture.txt" : ${JSON.stringify(capture)})`) });
     return { root, capture, bin };
   }
 
   test("spawns `brain scratch prune` in the brain repo and surfaces a non-zero exit", async () => {
-    const { root, capture, bin } = brainWithCli(
+    const { root, capture } = pruneBrain(
       `import { writeFileSync } from "fs";\n` +
         `writeFileSync(CAPTURE, JSON.stringify(process.argv.slice(2)));\n` +
         `if (process.argv.includes("prune")) { console.log("Pruned .brain/scratch/: removed 0 file(s)"); process.exit(0); }\n` +
@@ -190,7 +186,7 @@ describe("BrainClient.scratchPrune", () => {
       expect(await brain.scratchPrune()).toContain("Pruned");
       expect(JSON.parse(readFileSync(capture, "utf8"))).toEqual(["scratch", "prune"]);
 
-      writeFileSync(bin, `#!/usr/bin/env bun\nconsole.error("unknown command"); process.exit(1);\n`);
+      installFakeBrain(root, { body: `console.error("unknown command"); process.exit(1);` });
       await expect(brain.scratchPrune()).rejects.toThrow(/brain scratch prune failed \(exit 1\): unknown command/);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -198,7 +194,7 @@ describe("BrainClient.scratchPrune", () => {
   });
 
   test("a pass that left a file it could not remove (exit 2, report printed) rejects with the report, so the pruner warns", async () => {
-    const { root } = brainWithCli(
+    const { root } = pruneBrain(
       `console.log(JSON.stringify({ action: "prune", removed: [], failed: [{ path: ".brain/scratch/stuck.pdf", reason: "EPERM" }], bytes: 5, files: 1 }));\n` +
         `process.exit(2);\n`
     );
@@ -216,7 +212,7 @@ describe("BrainClient.scratchPrune", () => {
   });
 
   test("an aborted signal kills the child, and the call rejects only once it is gone", async () => {
-    const { root, bin } = brainWithCli(
+    const { root, bin } = pruneBrain(
       `await Bun.sleep(60_000);\n`
     );
     const controller = new AbortController();
@@ -293,10 +289,7 @@ async function withBootPruneApp(source: string, action: (fixture: {
   let app: Awaited<ReturnType<typeof createApp>> | undefined;
   const failures: unknown[] = [];
   try {
-    mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
-    writeFileSync(bin, `#!/usr/bin/env bun\n` +
-      `if (process.argv.includes("--version")) { console.log("${MIN_BRAIN_CLI_VERSION}"); process.exit(0); }\n` + source);
-    chmodSync(bin, 0o755);
+    installFakeBrain(root, { body: source });
     const observability = createRecordingObservability();
     app = await createApp({
       config: testServerConfig({ brain: root, db: ":memory:" }),
@@ -376,15 +369,7 @@ describe("the shared test-app helper", () => {
     const harness = await createTestApp({
       appOptions: { observability },
       prepare: (brainPath) => {
-        const binDir = join(brainPath, "node_modules", ".bin");
-        mkdirSync(binDir, { recursive: true });
-        writeFileSync(
-          join(binDir, "brain"),
-          `#!/usr/bin/env bun\n` +
-            `if (process.argv.includes("--version")) { console.log("${MIN_BRAIN_CLI_VERSION}"); process.exit(0); }\n` +
-            `await Bun.sleep(60_000);\n`
-        );
-        chmodSync(join(binDir, "brain"), 0o755);
+        installFakeBrain(brainPath, { body: "await Bun.sleep(60_000);" });
       },
     });
     try {
