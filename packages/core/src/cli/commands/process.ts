@@ -135,7 +135,7 @@ ${keepNote ? "Keep the original note file (do not archive it)." : "Include an ar
 
 export const processCommand: CoreCommand = {
   summary: "Assimilate a note into proper brain content",
-  flags: { boolean: ["all", "keep-note"], value: [] },
+  flags: { boolean: ["all", "dry-run", "keep-note"], value: [] },
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);

@@ -18,11 +18,15 @@
  * own file reads through `flags.name`, `flags["name"]`, a helper called with
  * the flags or the raw arguments and a literal name (`stringFlag(flags, "x")`,
  * `repeatedFlag(args, "x")`), a literal `"--name"` compared or searched for,
- * and the bin's per-command reads in `brain.ts` and `read-only.ts`. It cannot
- * see a read in another module that receives the whole flags object or the
- * argument list, a name built at run time, or a read through a per-verb table
- * (`geo`, `schedule`, `queue` and `compute`, whose tables are compared with
- * their declarations instead).
+ * and the bin's reads in `brain.ts` and `read-only.ts`: a `MUTATING_WITH_FLAGS`
+ * row, a read-only.ts line that names one command, and a read on a line that
+ * starts `if (mutates`, which the bin makes for every writing command (the
+ * `--dry-run` that skips the read-only-mount refusal). It cannot see a read in
+ * another module that receives the whole flags object or the argument list, a
+ * name built at run time, a read-only.ts line that names two commands, any
+ * other bin read outside those three shapes, or a read through a per-verb
+ * table (`geo`, `schedule`, `queue` and `compute`, whose tables are compared
+ * with their declarations instead).
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
@@ -85,15 +89,36 @@ function readsIn(source: string): Set<string> {
   return reads;
 }
 
+const BRAIN_SOURCE = readFileSync(join(CLI, "brain.ts"), "utf8");
+
+/** The commands the bin treats as writing: `MUTATING_COMMANDS`, the `MUTATING_WITH_FLAGS` rows and `hygiene`'s repair forms. */
+const WRITING_COMMANDS = new Set([
+  ...[.../MUTATING_COMMANDS = new Set\(\[([\s\S]*?)\]\)/.exec(BRAIN_SOURCE)![1]!.replace(/\/\/.*$/gm, "").matchAll(/"([a-z-]+)"/g)].map((m) => m[1]!),
+  ...[...BRAIN_SOURCE.matchAll(/^ {2}([a-z-]+): \(args\) => /gm)].map((m) => m[1]!),
+  "hygiene",
+]);
+
+/**
+ * Writing commands that refuse a flag the bin reads for every writing command,
+ * so the bin's read never lets the flag through to them. `geo` refuses any
+ * flag outside its per-verb table, and `--dry-run` is not in it.
+ */
+const BIN_READ_REFUSED: Record<string, string[]> = { geo: ["dry-run"] };
+
 /**
  * Reads the bin entry makes for one command: its `MUTATING_WITH_FLAGS` row in
- * brain.ts, and each read-only.ts line that names that command alone
- * (`command === "<word>"`). A line that names two commands is not attributed.
+ * brain.ts, each read-only.ts line that names that command alone
+ * (`command === "<word>"`), and, for a writing command, each brain.ts line
+ * that starts `if (mutates`. A read-only.ts line that names two commands is
+ * not attributed.
  */
 function binReads(word: string): Set<string> {
   const reads = new Set<string>();
-  const brain = readFileSync(join(CLI, "brain.ts"), "utf8");
+  const brain = BRAIN_SOURCE;
   for (const m of brain.matchAll(/^ {2}([a-z-]+): \(args\) => (.*)$/gm)) if (m[1] === word) for (const r of readsIn(m[2]!)) reads.add(r);
+  if (WRITING_COMMANDS.has(word)) {
+    for (const m of brain.matchAll(/^\s*if \(mutates\b(.*)$/gm)) for (const r of readsIn(m[1]!)) if (!BIN_READ_REFUSED[word]?.includes(r)) reads.add(r);
+  }
   for (const line of readFileSync(join(CLI, "read-only.ts"), "utf8").split("\n")) {
     const named = [...line.matchAll(/command === "([a-z-]+)"/g)].map((m) => m[1]);
     if (named.length === 1 && named[0] === word) for (const r of readsIn(line)) reads.add(r);
@@ -154,20 +179,41 @@ describe("read check", () => {
     expect(readsIn(`flags.limit; flags["max-tokens"]; stringFlag(flags, "mode"); repeatedFlag(args, "tag"); args.includes("--dry-run")`))
       .toEqual(new Set(["limit", "max-tokens", "mode", "tag", "dry-run"]));
     expect(binReads("tags")).toEqual(new Set(["apply", "dry-run"]));
-    expect(binReads("index")).toEqual(new Set(["embeddings", "on-commit", "forget-cache"]));
+    expect(binReads("index")).toEqual(new Set(["dry-run", "embeddings", "on-commit", "forget-cache"]));
+    expect(binReads("process")).toEqual(new Set(["dry-run"]));
+    expect(binReads("search")).toEqual(new Set());
+    expect(binReads("geo")).toEqual(new Set());
+    expect(sorted(WRITING_COMMANDS)).toEqual(sorted([
+      "accept-mtime", "add", "archive", "config", "geo", "graph", "hygiene", "import", "index", "maintain", "process",
+      "registry", "render", "scratch", "setup", "skills", "storage", "sync", "tags",
+    ]));
   });
 });
 
 /**
  * Declared flags a command's help block does not name, one sorted list per
  * command. A change here is a reviewed diff: document the flag, or explain why
- * it stays undocumented. None is a help-block edit for #4834.
+ * it stays undocumented. None is a help-block edit for #4834. Each `dry-run`
+ * here is the bin's read for a writing command, which skips the
+ * read-only-mount refusal; the command itself does not read it.
  */
 const UNDOCUMENTED: Record<string, string[]> = {
+  "accept-mtime": ["dry-run"],
+  add: ["dry-run"],
+  graph: ["dry-run"],
+  import: ["dry-run"],
+  index: ["dry-run"],
   list: ["include-archived"],
+  maintain: ["dry-run"],
   module: ["action", "stdin"],
+  process: ["dry-run"],
   queue: ["root"],
+  registry: ["dry-run"],
+  render: ["dry-run"],
   schedule: ["root"],
+  scratch: ["dry-run"],
+  setup: ["dry-run"],
+  skills: ["dry-run"],
 };
 
 /** The `--flag` names in a text, before a bare `--` that ends the flags. */

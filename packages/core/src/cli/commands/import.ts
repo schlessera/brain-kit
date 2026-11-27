@@ -27,7 +27,7 @@ function deriveTitle(raw: string, filename: string): string {
 
 export const importCommand: CoreCommand = {
   summary: "Mechanical frontmatter stamping for imported markdown",
-  flags: { boolean: [], value: ["stamp"] },
+  flags: { boolean: ["dry-run"], value: ["stamp"] },
   helpBlock: HELP,
   async run(args, cli) {
     const { flags } = parseArgs(args);

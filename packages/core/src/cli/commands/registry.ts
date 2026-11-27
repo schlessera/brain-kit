@@ -15,7 +15,7 @@ optional where / sort / split). The table is written between
 
 export const registryCommand: CoreCommand = {
   summary: "Regenerate _index.md registry tables from the children's frontmatter",
-  flags: { boolean: ["check"], value: [] },
+  flags: { boolean: ["check", "dry-run"], value: [] },
   helpBlock: HELP,
   async run(args, cli): Promise<number> {
     const { flags, args: positional } = parseArgs(args);

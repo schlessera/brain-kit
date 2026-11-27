@@ -12,7 +12,7 @@ Safe to re-run.`;
 
 export const setupCommand: CoreCommand = {
   summary: "Idempotent setup: git hooks, skills sync, bin links",
-  flags: { boolean: [], value: [] },
+  flags: { boolean: ["dry-run"], value: [] },
   helpBlock: HELP,
   async run(_args, cli) {
     const root = cli.brain.root;

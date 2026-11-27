@@ -24,7 +24,7 @@ const HELP = `brain index — update the search index (incremental by default)
 
 export const indexCommand: CoreCommand = {
   summary: "Update the search index (incremental by default)",
-  flags: { boolean: ["compact", "embeddings", "force", "incremental", "on-commit"], value: ["forget-cache"] },
+  flags: { boolean: ["compact", "dry-run", "embeddings", "force", "incremental", "on-commit"], value: ["forget-cache"] },
   helpBlock: HELP,
   async run(args, cli) {
     const { flags } = parseArgs(args);

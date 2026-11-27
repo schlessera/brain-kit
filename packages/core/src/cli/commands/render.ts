@@ -206,7 +206,7 @@ export function validateRenderInput(args: string[], root: string): void {
 export const renderCommand: CoreCommand = {
   summary: "Render a document to PDF, PNG, or standalone HTML",
   flags: {
-    boolean: ["blocks", "no-running-title", "scaffold", "scratch"],
+    boolean: ["blocks", "dry-run", "no-running-title", "scaffold", "scratch"],
     value: ["allow-host", "as", "format", "kind", "out", "title", "width"],
   },
   helpBlock: HELP,

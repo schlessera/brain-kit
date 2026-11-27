@@ -172,7 +172,7 @@ function printSubgraph(nodes: number, edges: number): void {
 export const graphCommand: CoreCommand = {
   summary: "Inspect and rebuild the derived wiki-link graph",
   flags: {
-    boolean: ["no-isolates"],
+    boolean: ["dry-run", "no-isolates"],
     value: ["center", "community", "depth", "direction", "mode", "root", "stale-days"],
   },
   helpBlock: HELP,
