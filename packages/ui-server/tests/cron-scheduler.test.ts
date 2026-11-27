@@ -3,7 +3,6 @@ import { Database } from "bun:sqlite";
 import { readFileSync } from "fs";
 
 // Drive the real writer and status reader; fixture SQL only seeds history.
-import type { BrainClient } from "../src/brain/client";
 import { recordCronRun, createCronScheduler } from "../src/cron/scheduler";
 
 describe("cron scheduler logic", () => {
@@ -25,7 +24,7 @@ describe("cron scheduler logic", () => {
       ).run("sync", 1000 + i * 100, 1000 + i * 100 + 50, 50);
     }
 
-    const status = createCronScheduler({ db, brain: {} as BrainClient }).getCronStatus();
+    const status = createCronScheduler({ db }).getCronStatus();
     expect(status.find((job) => job.name === "sync")!.lastRunAt).toBe(1400);
   });
 
@@ -37,13 +36,36 @@ describe("cron scheduler logic", () => {
       "INSERT INTO cron_runs (job_name, started_at, status) VALUES (?, ?, 'error')"
     ).run("validate", 2000);
 
-    const status = createCronScheduler({ db, brain: {} as BrainClient }).getCronStatus();
+    const status = createCronScheduler({ db }).getCronStatus();
     expect(status.find((job) => job.name === "sync")!.lastStatus).toBe("success");
     expect(status.find((job) => job.name === "validate")!.lastStatus).toBe("error");
   });
 
+  // The whole status listing, pinned for an empty history and for one holding
+  // the base jobs and a module job (#4681): the reader is unchanged by the
+  // removal of the in-process runner.
+  test("the status listing is exactly the base jobs, then every recorded job by name", () => {
+    const never = { lastRunAt: null, lastStatus: null, lastDurationMs: null, lastError: null };
+    expect(createCronScheduler({ db }).getCronStatus()).toEqual([
+      { name: "sync", ...never },
+      { name: "validate", ...never },
+    ]);
+    const seed = db.prepare(
+      "INSERT INTO cron_runs (job_name, started_at, finished_at, status, duration_ms, error_message) VALUES (?, ?, ?, ?, ?, ?)"
+    );
+    seed.run("sync", 1000, 1040, "success", 40, null);
+    seed.run("sync", 2000, 2050, "error", 50, "brain sync failed (exit 2): the loom is tangled");
+    seed.run("validate", 1500, 1520, "success", 20, null);
+    seed.run("jobs-scrape", 1800, null, "running", null, null);
+    expect(createCronScheduler({ db }).getCronStatus()).toEqual([
+      { name: "sync", lastRunAt: 2000, lastStatus: "error", lastDurationMs: 50, lastError: "brain sync failed (exit 2): the loom is tangled" },
+      { name: "validate", lastRunAt: 1500, lastStatus: "success", lastDurationMs: 20, lastError: null },
+      { name: "jobs-scrape", lastRunAt: 1800, lastStatus: "running", lastDurationMs: null, lastError: null },
+    ]);
+  });
+
   test("no runs returns a null lastRunAt", () => {
-    const status = createCronScheduler({ db, brain: {} as BrainClient }).getCronStatus();
+    const status = createCronScheduler({ db }).getCronStatus();
     expect(status.find((job) => job.name === "sync")!.lastRunAt).toBeNull();
   });
 });

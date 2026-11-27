@@ -3,6 +3,8 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
+import { SYNC_JOB_COMMAND } from "../src/cron/emit";
+import { runJob } from "../src/cron/run-job";
 import { createCronScheduler } from "../src/cron/scheduler";
 import { createUiDb } from "../src/db/client";
 
@@ -28,27 +30,25 @@ function brainWithCli(source: string): string {
   return root;
 }
 
-/** triggerJob starts the run without awaiting it; wait for its row to settle. */
-async function settledSync(cron: ReturnType<typeof createCronScheduler>) {
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    const sync = cron.getCronStatus().find((s) => s.name === "sync")!;
-    if (sync.lastStatus !== "running" || Date.now() > deadline) return sync;
-    await Bun.sleep(10);
-  }
+/** Run the crontab's sync job through its runner, then read its cron status row. */
+async function scheduledSync(root: string) {
+  const dbPath = join(root, "brain-ui.db");
+  const discard = { write: () => {} };
+  const code = await runJob({ jobName: "sync", command: [...SYNC_JOB_COMMAND], dbPath, exec: {},
+    childEnv: { PATH: `${join(root, "node_modules", ".bin")}:${process.env.PATH}` }, stdout: discard, stderr: discard });
+  const db = createUiDb(dbPath);
+  try { return { code, sync: createCronScheduler({ db }).getCronStatus().find((s) => s.name === "sync")! }; }
+  finally { db.close(); }
 }
 
+// The scheduled sync runs through the crontab's job runner (#4681).
 describe("cron sync job", () => {
   test("a brain sync that exits non-zero is recorded as an error", async () => {
     const root = brainWithCli(
       `if (args[0] === "sync") { console.error("no agent runner configured"); process.exit(1); }\n`
     );
-    const db = createUiDb(":memory:");
-    const cron = createCronScheduler({ db, brain: createBrainClient({ brainPath: root }) });
-
-    expect(await cron.triggerJob("sync")).toBe(true);
-
-    const sync = await settledSync(cron);
+    const { code, sync } = await scheduledSync(root);
+    expect(code).toBe(1);
     expect(sync.lastRunAt).not.toBeNull();
     expect(sync.lastStatus).toBe("error");
     expect(sync.lastError).toContain("no agent runner configured");
@@ -56,12 +56,8 @@ describe("cron sync job", () => {
 
   test("a brain sync that exits 0 is recorded as a success", async () => {
     const root = brainWithCli(`console.log("Already in sync");\n`);
-    const db = createUiDb(":memory:");
-    const cron = createCronScheduler({ db, brain: createBrainClient({ brainPath: root }) });
-
-    expect(await cron.triggerJob("sync")).toBe(true);
-
-    const sync = await settledSync(cron);
+    const { code, sync } = await scheduledSync(root);
+    expect(code).toBe(0);
     expect(sync.lastRunAt).not.toBeNull();
     expect(sync.lastStatus).toBe("success");
   });

@@ -680,12 +680,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   });
   bootCleanup.push(() => activity.close());
   activity.runtime.setBoot(runtimeProbes);
-  const cron = createCronScheduler({
-    db,
-    brain,
-    log: observability.logger("cron"),
-    activity: activity.store,
-  });
+  const cron = createCronScheduler({ db });
   const registry =
     options.registry ??
     createBackendRegistry({
