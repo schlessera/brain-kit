@@ -494,15 +494,15 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     }
   };
   for (const path of envelope.readPaths) bindBack(path);
-  // The resolver configuration, when it links into a masked directory (a
-  // systemd-resolved `resolv.conf` under `/run`), stays readable for a
-  // networked command. Only that one regular file: any other link from
-  // `/etc` into a mask could re-expose a socket or a secret.
   if (envelope.providerRelay) {
     if (!envelope.credentials) throw new WorkerHostError("only a credentialed maintenance worker reaches the provider relay");
     argv.push("--ro-bind", serverSocketDirectory(envelope.providerRelay, "relay.sock", brain), WORKER_PROVIDER_RELAY_DIR);
   }
   if (envelope.githubRelay) argv.push("--ro-bind", serverSocketDirectory(envelope.githubRelay, "github.sock", brain, "the module GitHub relay"), WORKER_MODULE_GITHUB_DIR);
+  // The resolver configuration, when it links into a masked directory (a
+  // systemd-resolved `resolv.conf` under `/run`), stays readable for a
+  // networked command. Only that one regular file: any other link from
+  // `/etc` into a mask could re-expose a socket or a secret.
   if (envelope.network) {
     try {
       if (lstatSync("/etc/resolv.conf").isSymbolicLink() && statSync("/etc/resolv.conf").isFile()) bindBack("/etc/resolv.conf");

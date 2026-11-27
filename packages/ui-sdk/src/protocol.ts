@@ -47,10 +47,12 @@ export interface SessionScoped {
   sessionId?: string;
   /**
    * Host-generated id of the turn this frame belongs to (rev 2, additive).
-   * Multi-session hosts stamp it on every scoped frame; clients MAY echo it
-   * on interactive replies (approvals, ask-user, location) so round-trips
-   * correlate by `turnId + requestId`. RESERVED for now: servers stamp it,
-   * but no shipped client echoes it back yet — hosts must not require it.
+   * Hosts stamp it on every scoped frame. A client that declares protocol
+   * revision {@link PROTOCOL_REV_CLIENT_ECHO} (3) or later in its
+   * `client_hello` MUST echo it on every interactive reply (approvals,
+   * ask-user, location), so round-trips correlate by `turnId + requestId`;
+   * a host refuses such a reply without it. A client that declares nothing
+   * is treated as revision 2 and is not required to echo.
    */
   turnId?: string;
 }
