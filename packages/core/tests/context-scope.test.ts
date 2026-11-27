@@ -339,15 +339,40 @@ describe("evaluation: a scoped project-evidence task against targeted reads", ()
       if (lost.length > 0) expect({ path: excerpt.path, form: excerpt.form }).not.toEqual({ path: excerpt.path, form: "section" });
       missing.push(...lost.map((fact) => `${excerpt.path}: ${fact} (${excerpt.form})`));
     }
-    // What this fixture measures today (#370's section expansion): the raft
-    // status hit stays a snippet, so its next action needs the targeted read;
-    // the sail-repairs status arrives as its whole section.
-    expect(missing).toEqual(["projects/active/raft/status.md: Get permission and the tools, then cut and join the timber (snippet)"]);
-    expect(coverageNote(coverage)).toContain("- Partial (read in full for the rest): projects/active/raft/status.md (snippet)");
+    // With room, both status files arrive whole (#3683): the raft status is
+    // one chunk with its short latest-session section folded in, and its
+    // match cannot be placed in one section, so the hit widens to the span.
+    expect(missing).toEqual([]);
+    expect(coverage.excerpts.map((e) => e.form)).toEqual(["section", "section"]);
+    // The widened raft excerpt names its source lines: its first heading to its last line.
+    const raftFile = fs.readFileSync(join(brain.root, "projects/active/raft/status.md"), "utf8").split("\n");
+    const raftLines: [number, number] = [raftFile.indexOf("## Latest session (2026-06-30)") + 1, raftFile.indexOf("Calypso offers the tools.") + 1];
+    expect(raftLines[0]).toBeGreaterThan(1);
+    expect(coverage.excerpts.find((e) => e.path === "projects/active/raft/status.md")!.lines).toEqual(raftLines);
+    expect(coverage.excerpts.find((e) => e.path === "projects/active/sail-repairs/status.md")!.lines).toBeUndefined();
+    const raft = text.slice(text.indexOf("(projects/active/raft/status.md)"));
+    expect(raft).toContain("#### Latest session (2026-06-30)\nChecked the pine deck frame joinery");
+    expect(raft).toContain("#### Next action\nGet permission and the tools, then cut and join the timber.");
+    expect(coverageNote(coverage)).not.toContain("- Partial");
+    expect(coverage.budgetExhausted).toBe(false);
     // Nothing outside the two files is offered, and the briefing costs less
     // than the two reads, which also carry frontmatter.
     expect(text).not.toContain("## Identity");
     expect(estimateTokens(text)).toBeLessThan(estimateTokens([...reads.values()].join("\n\n")));
+  });
+
+  test("on a tight budget the raft's whole span does not fit: it stays a snippet, and coverage says so", async () => {
+    const { text, coverage } = await assemble({ query: "project status next action", maxTokens: 300, scope: { include: STATUS, exclude: [FOCUS, REGISTRY] } });
+    expect(coverage.excerpts).toEqual([
+      { path: "projects/active/raft/status.md", lane: "search", form: "snippet" },
+      { path: "projects/active/sail-repairs/status.md", lane: "search", form: "section" },
+    ]);
+    expect(estimateTokens(text)).toBeLessThanOrEqual(300);
+    expect(text).not.toContain("#### Latest session");
+    expect(text).not.toContain("Get permission and the tools, then cut and join the timber");
+    expect(coverageNote(coverage)).toContain("- Partial (read in full for the rest): projects/active/raft/status.md (snippet)");
+    // A span left out for want of room is budget left short, as a cut is.
+    expect(coverage.budgetExhausted).toBe(true);
   });
 
   test("a folder scope is ranked, not enumerated: the note says so, and the archived project is neither returned nor claimed", async () => {
