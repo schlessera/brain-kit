@@ -733,6 +733,29 @@ describe("local graph and graph meta cost (#4789)", () => {
     }
   });
 
+  test("neighbours are visited in id order even where link text and row order disagree with it", () => {
+    // Out-links whose target text sorts opposite to the target ids, and
+    // in-links inserted in descending source order: neither the links
+    // primary key nor idx_links_target_id yields ascending ids by itself.
+    const LEDGER = 1600;
+    const reversed = brain((db) => {
+      const entries: Doc[] = [];
+      for (let i = 0; i < LEDGER; i++) {
+        entries.push({ id: 100 + i, path: `ledger/entry-${String(LEDGER - 1 - i).padStart(4, "0")}.md`, title: `Ledger ${i}`, type: "note", updated: "2015-07-12", asset: "markdown" });
+      }
+      insertDocs(db, [VOYAGE[0], VOYAGE[2], ...entries]);
+      const link = db.query("INSERT INTO links (source_id, target, target_id) VALUES (?, ?, ?)");
+      for (const entry of entries) link.run(1, entry.path, entry.id);
+      for (let i = LEDGER - 1; i >= 0; i--) link.run(100 + i, "crew/penelope.md", 3);
+    });
+    const out = ok(queries.readGraphNeighborhood({ brainPath: reversed, center: "crew/odysseus.md", direction: "out" }));
+    expect(out.truncated).toBe(true);
+    expect(ids(out.nodes).sort((a, b) => a - b)).toEqual([1, ...Array.from({ length: 1499 }, (_, i) => 100 + i)]);
+    const inbound = ok(queries.readGraphNeighborhood({ brainPath: reversed, center: "crew/penelope.md", direction: "in" }));
+    expect(inbound.truncated).toBe(true);
+    expect(ids(inbound.nodes).sort((a, b) => a - b)).toEqual([3, ...Array.from({ length: 1499 }, (_, i) => 100 + i)]);
+  });
+
   test("a truncated UI neighborhood keeps the first nodes in the pinned visiting order", () => {
     const ui = ok(queries.readGraphNeighborhood({ brainPath: fleetBrain(), center: "crew/odysseus.md" }));
     expect(ui.truncated).toBe(true);
