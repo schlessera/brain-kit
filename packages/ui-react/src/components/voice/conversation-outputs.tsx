@@ -1,6 +1,6 @@
 import { Button, Callout, SpokenTurn, TextButton, UncertainWord } from "@schlessera/brain-ui-kit";
 import { TranscriptQualifiers, TranscriptSymbols } from "@schlessera/brain-ui-kit/internal";
-import type { TranscriptEntry } from "../../lib/transcript-timeline.js";
+import { transcriptTimelineFor } from "../../lib/transcript-timeline.js";
 import { conversationService, type ConversationRecognition, type ConversationClientOutput } from "../../voice/conversation-client.js";
 import type { ChatMessage } from "../../stores/chat-state.js";
 import { useStore } from "zustand";
@@ -70,18 +70,23 @@ export function ConversationOutput({ output, restored = false, arrivalKey, cutOf
   </div>;
 }
 
-/** Exact host task/turn evidence, never a guessed association with recognized input. */
-export function ConversationTaskContext({ message, sessionId, result, entries = [], onReveal }: { message: ChatMessage; sessionId?: string | null; result?: boolean; entries?: TranscriptEntry[]; onReveal?: (key: string) => void }) {
+/**
+ * Exact host task/turn evidence, never a guessed association with recognized input.
+ * It selects only the key of the entry its button reveals (#4752), so a
+ * write that leaves that key alone does not re-render it, and the bubble
+ * that draws it keeps its memo.
+ */
+export function ConversationTaskContext({ message, sessionId, result, onReveal }: { message: ChatMessage; sessionId?: string | null; result?: boolean; onReveal?: (key: string) => void }) {
   const root = useBrainUiRoot();
   const activeSession = useStore(root.stores.chat, s => s.activeSessionId);
   const owner = sessionId === undefined ? activeSession : sessionId;
   const work = useStore(root.connection.conversation.state, s => s.work);
   const receipt = Object.values(work).find(w => w.provenance === "contextual" && w.sessionId === owner
     && ((message.turnId ?? message.streamTurnId) ? w.turnId === (message.turnId ?? message.streamTurnId) : !!message.requestId && w.requestId === message.requestId));
-  if (!receipt && (result || message.source !== "voice-context")) return null;
-  const linked = receipt && entries.find(e => e.kind === "message" && e.sessionId === owner
+  const linked = useStore(transcriptTimelineFor(root.stores.chat).state, s => onReveal && receipt ? s.entries.find(e => e.kind === "message" && e.sessionId === owner
     && e.message.role === (result ? "user" : "assistant") && (result ? e.message.source === "voice-context" : e.section !== "progress" && e.message.parts.some(p => p.kind === "text" && p.text.length > 0))
-    && (e.message.requestId === receipt.requestId || !!receipt.turnId && (e.message.turnId ?? e.message.streamTurnId) === receipt.turnId));
+    && (e.message.requestId === receipt.requestId || !!receipt.turnId && (e.message.turnId ?? e.message.streamTurnId) === receipt.turnId))?.key : undefined);
+  if (!receipt && (result || message.source !== "voice-context")) return null;
   const states: Record<string, string> = { queued: "Queued", running: "Running", completed: "Complete", error: "Failed", refused: "Refused", unknown: "State unknown", cancelled: "Cancelled", denied: "Denied", withdrawn: "Withdrawn" };
   return <div className="py-2 text-sm text-foreground" data-conversation-task={result ? undefined : ""} data-conversation-task-result={result ? "" : undefined} style={{ overflowWrap: "anywhere" }}>
     <span>{result ? "Task result" : "Conversation task"}{receipt ? ` · ${states[receipt.state] ?? receipt.state}` : " · State unavailable"}</span><TranscriptQualifiers
@@ -91,7 +96,7 @@ export function ConversationTaskContext({ message, sessionId, result, entries = 
       {receipt?.reason && <p>{receipt.reason}</p>}
     </TranscriptQualifiers>
     {receipt?.reason && ["error", "refused", "unknown"].includes(receipt.state) && <p>{receipt.reason}</p>}
-    {linked && onReveal ? <Button label={result ? "View request" : "View result"} tone="ghost" block={false} reach onClick={() => onReveal(linked.key)} /> : result ? <p>Request details unavailable</p> : null}
+    {linked !== undefined && onReveal ? <Button label={result ? "View request" : "View result"} tone="ghost" block={false} reach onClick={() => onReveal(linked)} /> : result ? <p>Request details unavailable</p> : null}
   </div>;
 }
 
