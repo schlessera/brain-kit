@@ -2,6 +2,7 @@
 import { chmodSync, mkdtempSync, mkdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
+import { repoArtifactMask } from "./native-proof/repo-artifact-mask.js";
 
 /** `integrated` runs the app-level proof of #2751 on the same owned volumes, for the named backends. */
 export function referencePoolDockerArgs(root: string, artifact: string, apparmor: boolean, bun: string, integrated?: { backends: string[] }, candidate?: string): string[] {
@@ -18,6 +19,7 @@ export function referencePoolDockerArgs(root: string, artifact: string, apparmor
     "--mount", `type=bind,source=${dirname(artifact)},target=/proof-runs`,
     "--mount", `type=bind,source=${bun},target=/usr/local/bin/bun,readonly`,
     "--mount", `type=bind,source=${root},target=/repo,readonly`,
+    ...repoArtifactMask(root, artifact),
     "--workdir=/repo", "--entrypoint=/bin/sh", NATIVE_PROOF_IMAGE, "/repo/scripts/native-proof/stable-run.sh", basename(artifact), "host",
     "python3", "/repo/scripts/native-proof/reference-pool-fixture.py", ...(integrated ? ["reference-integration.native.ts"] : [])];
 }

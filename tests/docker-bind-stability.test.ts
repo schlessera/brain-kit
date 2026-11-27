@@ -54,3 +54,10 @@ test("native diagram producer copies private inputs without binding fresh host p
     expect(args.filter(value => value.includes(",readonly"))).toHaveLength(3);
   }
 });
+
+test("a proof run under the checkout is masked at its second name below /repo (#4301)", () => {
+  const repo = "/srv/odysseus/brain-kit", bun = "/opt/bun/bun";
+  const argv = nativeHostDockerArgs(repo, `${repo}/tmp/native-host-proof/run-claude-uid1000-ithaca`, "1000", "claude", false, false, bun);
+  expect(argv.join(" "), "NATIVE_HOST_REPO_ARTIFACT_MASKED").toContain("--mount type=tmpfs,destination=/repo/tmp/native-host-proof,tmpfs-mode=0555");
+  expect(nativeHostDockerArgs(repo, "/var/tmp/run-outside", "1000", "claude", false, false, bun).join(" "), "OUTSIDE_CHECKOUT_NOTHING_TO_MASK").not.toContain("type=tmpfs,destination=/repo");
+});

@@ -6,6 +6,7 @@ import { verifyIndexReleaseReproduction } from "./native-proof/verify-index-rele
 import { EXPECTED_FAILURE_PREFIX, runExpectedFailureControl } from "./expected-failure-log.js";
 
 import { ownedCleanupComplete } from "./native-proof/verify-owned-remove.js";
+import { repoArtifactMask } from "./native-proof/repo-artifact-mask.js";
 
 export const NATIVE_PROOF_IMAGE = "brain-kit-native-runtime:1";
 export const NATIVE_PROOF_NAME = "native managed hosted admission";
@@ -27,6 +28,7 @@ export function nativeHostDockerArgs(root: string, artifact: string, uid: string
         "--mount", `type=bind,source=${dirname(artifact)},target=/proof-runs`,
         "--mount", `type=bind,source=${bun},target=/usr/local/bin/bun,readonly`,
         "--mount", `type=bind,source=${root},target=/repo,readonly`,
+        ...repoArtifactMask(root, artifact),
         "--mount", `type=bind,source=${lease},target=/repo/tmp/workspace-operation`,
         "--workdir=/repo", "--entrypoint=/bin/sh", NATIVE_PROOF_IMAGE, "/repo/scripts/native-proof/stable-run.sh", basename(artifact), "host", "python3", "/repo/scripts/native-proof/fixture.py", backend, uid];
 }

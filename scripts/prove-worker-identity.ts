@@ -9,6 +9,7 @@ import { ownedPruneVariant, ownedPruneDiagnosticSelected, bootPruneCaptureVarian
 import { dbRepeatStageVariant } from "./native-proof/db-repeat-variant.js";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
 import { WORKER_FILESYSTEM_FILTER_PROGRAM } from "../packages/ui-sdk/src/server/worker-filesystem-filter.js";
+import { repoArtifactMask } from "./native-proof/repo-artifact-mask.js";
 
 /** Fixed, diagnostic-only source variant; never changes the checked-out product files. */
 export function collectorInventoryVariant(collectorSource: string, hostSource: string) {
@@ -73,6 +74,7 @@ export function workerIdentityDockerArgs(source: string, artifact: string, conta
     "--mount", `type=bind,source=${dirname(artifact)},target=/proof-runs`,
     "--mount", `type=bind,source=${dirname(artifact)},target=/fixture-runs,readonly`,
     "--mount", `type=bind,source=${source},target=/repo,readonly`,
+    ...repoArtifactMask(source, artifact),
     "--mount", `type=bind,source=${bun},target=/usr/local/bin/bun,readonly`,
     "--workdir=/repo", "--entrypoint=/bin/sh", image, "/repo/scripts/native-proof/stable-run.sh", basename(artifact), "identity",
     ...(variants.db ? ["db"] : []), ...(variants.boot ? ["boot"] : []), ...(variants.prune ? ["prune"] : []), ...(variants.inventory ? ["inventory"] : []), ...(variants.scratch ? ["scratch"] : []), "--", "/bin/sh", "/setup.sh"];
