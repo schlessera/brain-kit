@@ -4,7 +4,7 @@ import {
   boundHistory, HISTORY_LIMITS, HISTORY_PREAMBLE, historicalResultKey,
 } from "../src/voice/session-history";
 
-import { STARTUP_CONTEXT_LIMITS, liveContext, conversationHistory, selectResync } from "../src/voice/conversation-history";
+import { STARTUP_CONTEXT_LIMITS, liveContext, selectResync } from "../src/voice/conversation-history";
 import type { ConversationHistoryEnvelope, HistoricalItem } from "@schlessera/brain-ui-sdk/server";
 const prov = { providerId: "gpt-live", conversationId: "ithaca-old", epoch: 1 };
 const typed = (ref: string, text: string, role: "user" | "assistant" = "user"): HistoricalItem => ({ ref, kind: "typed", role, text });
@@ -161,7 +161,7 @@ for (const engine of ["gemini", "gpt"] as const) test(`${engine}: dynamic alloca
   const resync = {work, results};
   const limits = STARTUP_CONTEXT_LIMITS[engine];
   const noHistory = liveContext(scope, { signal: new AbortController().signal, resync }, limits);
-  expect(noHistory.blocks).toEqual([conversationHistory(scope,resync,limits)]);
+  expect(noHistory.blocks).toEqual([selectResync(scope,resync,limits).text]);
   const envelope = env([...results.map(r => ({ ref: r.requestId, kind: "host_fact" as const, text:r.facts, outcome:"completed" as const, result:r, completeness:"retained_bounded" as const })), typed("latest", "Which oar was that?")]);
   const combined = liveContext(scope, {signal:new AbortController().signal,resync,history:envelope}, limits);
   expect(combined.blocks.join("")).toContain("Which oar was that?");

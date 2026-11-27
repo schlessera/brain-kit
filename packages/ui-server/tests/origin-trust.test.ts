@@ -16,7 +16,7 @@ import { queryGovernanceEvents } from "../src/governance/events.js";
 import { occurrence } from "../src/governance/occurrence.js";
 import { safetyProjection, pruneSafetyDetail } from "../src/governance/safety-store.js";
 import { prepareTurnEgress } from "../src/brain/turn-egress.js";
-import { originTrustMatch, type OriginTrust } from "../src/brain/origin-trust.js";
+import { originTrustMatchSnapshot, type OriginTrust } from "../src/brain/origin-trust.js";
 import { connectedSafetySession } from "./helpers/connected-safety.js";
 function get(socketPath: string, target: string): Promise<number> {
   return new Promise((resolve, reject) => { const r = request({ socketPath, path: target }, response => {
@@ -218,8 +218,8 @@ test('review4: IPv6 Settings selector reaches an exact real opaque tunnel',async
 test('review4: exact DNS parent never authorizes its subdomain',()=>{
  const t=trust({id:'ithaca',label:'Ithaca',incomingContent:true,recipientWhileRestricted:true,selector:{kind:'web_origin',scheme:'https',host:'ithaca.example.org',port:443}});
  const destination={host:'ithaca.example.org',port:443,method:'GET',protocol:'https:'};
- expect(originTrustMatch(t.live,destination,'recipientWhileRestricted','0')).not.toBeNull();
- expect(originTrustMatch(t.live,{...destination,host:'sub.ithaca.example.org'},'recipientWhileRestricted','0'),'DNS_SUBDOMAIN_NEVER_INHERITS_PARENT_TRUST').toBeNull();
+ expect(originTrustMatchSnapshot(t.live.read(),destination,'recipientWhileRestricted','0')).not.toBeNull();
+ expect(originTrustMatchSnapshot(t.live.read(),{...destination,host:'sub.ithaca.example.org'},'recipientWhileRestricted','0'),'DNS_SUBDOMAIN_NEVER_INHERITS_PARENT_TRUST').toBeNull();
 });
 
 test('review6: explicit recipient approval survives independently of a source-only rule',async()=>{

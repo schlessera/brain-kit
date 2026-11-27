@@ -1,7 +1,7 @@
 /** Storage notice transactions, shared by the write worker and inline callers. */
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
+import { isHumanOwner, isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { noticeTimeZone, localHour } from "../inbox/notify.js";
 import { processAlive } from "../brain/writer-gate.js";
 import { readStoredHistory } from "./history-data.js";
@@ -16,7 +16,7 @@ export function setup(db: Database, { brain, self: SELF }: { brain: string; self
 }) {
   function owner(id: string, now: number) {
     const principal = resolvePrincipal(db, id);
-    return principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, now);
+    return principal && isHumanOwner(principal) && isUsablePrincipal(principal, now);
   }
   function reap(now: number) {
     const rows = db.query("SELECT * FROM storage_notice_receipts WHERE brain = ? AND state = 'sending'").all(brain) as Receipt[];

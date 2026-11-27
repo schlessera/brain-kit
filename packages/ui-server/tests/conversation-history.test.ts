@@ -1,6 +1,6 @@
 /** Startup-context byte bounds at their exact edges (#3200). Pure; no transport. */
 import { expect, test } from "bun:test";
-import { conversationHistory, STARTUP_CONTEXT_LIMITS } from "../src/voice/conversation-history";
+import { selectResync, STARTUP_CONTEXT_LIMITS } from "../src/voice/conversation-history";
 import { maximalResync, previousFormatter, RESYNC_PREFIX, rewrittenAggregate, utf8 } from "./helpers/startup-context";
 
 const scope = { conversationId: "ithaca", epoch: 2 };
@@ -10,7 +10,7 @@ test("every byte ceiling is honored exactly, omission marker included", () => {
   const small = { ...resync, work: resync.work.slice(-12) };
   let previous = 0;
   for (let maxBytes = 120; maxBytes <= 9_000; maxBytes += 7) {
-    const text = conversationHistory(scope, small, { maxBytes, maxFactBytes: 16_000 });
+    const text = selectResync(scope, small, { maxBytes, maxFactBytes: 16_000 }).text;
     expect(utf8(text)).toBeLessThanOrEqual(maxBytes);
     // Once the newest outcome fits, more room never loses it at a marker boundary.
     // (The count of older shells may fall when a whole newest fact starts to fit.)
@@ -32,7 +32,7 @@ test("the explicit fact ceiling binds even when the total would fit", () => {
   const work = [0, 1, 2].map(i => ({ conversationId: "ithaca", epoch: 1, utteranceId: `u${i}`, requestId: `r${i}`, turnId: `t${i}`,
     state: "completed" as const, delivery: "discarded" as const, recognized: `Ask ${i}.`, submitted: `Ask ${i}.` }));
   const results = work.map((w, i) => ({ conversationId: "ithaca", epoch: 1, requestId: w.requestId, turnId: w.turnId, facts: fact(i) }));
-  const text = conversationHistory(scope, { work, results }, STARTUP_CONTEXT_LIMITS.gpt);
+  const text = selectResync(scope, { work, results }, STARTUP_CONTEXT_LIMITS.gpt).text;
   expect(utf8(text)).toBeLessThan(STARTUP_CONTEXT_LIMITS.gpt.maxBytes - 1_000); // total had room for all three
   // 2,602 serialized bytes each: the newest fits 5,000; any second one would make 5,204.
   expect(JSON.parse(text.slice(RESYNC_PREFIX.length))).toEqual([
@@ -45,7 +45,7 @@ test("the explicit fact ceiling binds even when the total would fit", () => {
 test("a rewritten block names every source result it does not carry, never a bare shell (#3200 review)", () => {
   const resync = rewrittenAggregate(30);
   expect(utf8(previousFormatter(scope, resync))).toBeGreaterThan(STARTUP_CONTEXT_LIMITS.gemini.maxBytes); // forces a rewrite
-  const text = conversationHistory(scope, resync, STARTUP_CONTEXT_LIMITS.gemini);
+  const text = selectResync(scope, resync, STARTUP_CONTEXT_LIMITS.gemini).text;
   expect(utf8(text)).toBeLessThanOrEqual(STARTUP_CONTEXT_LIMITS.gemini.maxBytes);
   const entries = JSON.parse(text.slice(RESYNC_PREFIX.length));
   expect(entries[0]).toEqual({ omitted: "older_outcomes" });
@@ -73,7 +73,7 @@ test("rewritten blocks never blank a joined result; fitting blocks keep the prev
     for (const limits of [STARTUP_CONTEXT_LIMITS.gemini, STARTUP_CONTEXT_LIMITS.gpt]) {
       const previous = previousFormatter(scope, { work, results });
       const previousFacts = JSON.parse(previous.slice(RESYNC_PREFIX.length)).reduce((sum: number, e: { hostResult?: string }) => sum + (e.hostResult ? utf8(JSON.stringify(e.hostResult)) : 0), 0);
-      const text = conversationHistory(scope, { work, results }, limits);
+      const text = selectResync(scope, { work, results }, limits).text;
       if (utf8(previous) <= limits.maxBytes && previousFacts <= limits.maxFactBytes) { expect(text).toBe(previous); identical++; continue; }
       rewritten++;
       expect(utf8(text)).toBeLessThanOrEqual(limits.maxBytes);

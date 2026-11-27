@@ -54,7 +54,7 @@ import type { WsHost } from "./host.js";
 import type { HostWork, HostWorkOutcome } from "./turns.js";
 import { MAX_RETAINED_RESULT_CHARS } from "./conversation-storage.js";
 import { handleChatMessage } from "./run-session.js";
-import type { Principal } from "../db/principals.js";
+import { isHumanOwner, type Principal } from "../db/principals.js";
 import type { LivePersonaService, PersonaSnapshot } from "../voice/personas.js";
 import type { LivePersonaStatus } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -274,18 +274,14 @@ export class ConversationHost {
 
   // --- personas (#3617) ---
 
-  private static human(principal: Principal): boolean {
-    return principal.authMethod !== "delegated" && (principal.kind === "owner" || principal.kind === "ambient");
-  }
-
   /** For `server_hello`: the last status, only for a human session. */
   livePersona(principal: Principal): LivePersonaStatus | undefined {
-    return this.personas && ConversationHost.human(principal) ? this.personas.cached() : undefined;
+    return this.personas && isHumanOwner(principal) ? this.personas.cached() : undefined;
   }
 
   /** Track a human session for `live_persona`, and correct its hello once the files are read. */
   viewerOpened(ws: WSContext, connection: ConnectionState, principal: Principal, sent: LivePersonaStatus | undefined): void {
-    if (!this.personas || !ConversationHost.human(principal)) return;
+    if (!this.personas || !isHumanOwner(principal)) return;
     this.viewers.set(ws, connection);
     void this.personas.status().then(status => {
       if (this.viewers.get(ws) === connection && JSON.stringify(status) !== JSON.stringify(sent)) {

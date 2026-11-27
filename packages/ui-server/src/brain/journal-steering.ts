@@ -108,18 +108,6 @@ function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (pat
   return { paths, unavailable: [...unavailable].sort() };
 }
 
-/** Existing retained-object reader, also used by historical journal fixtures. */
-export function journalSteeringInputs(snapshots: readonly JournalSnapshot[], read: (hash: string, maximum: number) => Buffer, options: JournalSteeringOptions = {}) {
-  const inventory = steeringInventory(snapshots, undefined, options);
-  let step = inventory.next();
-  while (!step.done) {
-    let bytes: Buffer | undefined;
-    try { if (step.value.hash) bytes = read(step.value.hash, 1024 * 1024); } catch { /* Explicit unavailable classification. */ }
-    step = inventory.next(bytes);
-  }
-  return step.value;
-}
-
 /** Native admission needs no CAS copy of unchanged configuration inputs. */
 export async function nativeJournalSteeringInputs(snapshots: readonly JournalSnapshot[], read: (entry: JournalSnapshotEntry, maximum: number) => Promise<Buffer>, lookup?: (path: string) => JournalSnapshotEntry | undefined, options: JournalSteeringOptions = {}) {
   const inventory = steeringInventory(snapshots, lookup, options);

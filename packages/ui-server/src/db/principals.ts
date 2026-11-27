@@ -327,6 +327,21 @@ export function listLivePrincipals(db: Database, now: number): Principal[] {
   ).map(rowToPrincipal);
 }
 
+/**
+ * The human who owns this brain: a principal of kind `owner` or `ambient`
+ * that did not authenticate by delegation. Every human-owner check outside
+ * `app.ts` uses this one rule; it says nothing about usability, which callers
+ * that need it check with `isUsablePrincipal`.
+ */
+export function isHumanOwner(principal: Principal | null | undefined): boolean {
+  return (
+    principal !== undefined &&
+    principal !== null &&
+    principal.authMethod !== "delegated" &&
+    (principal.kind === "owner" || principal.kind === "ambient")
+  );
+}
+
 export function isUsablePrincipal(row: Principal, now: number): boolean {
   assertPrincipalTimestamp(row, "created_at", row.createdAt, false);
   assertPrincipalTimestamp(row, "expires_at", row.expiresAt, false);
