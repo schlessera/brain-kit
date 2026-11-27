@@ -6,9 +6,11 @@ import { afterEach, expect, test, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, renameSync, symlinkSync, openSync, closeSync, constants } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { watchdogMs } from "../../../scripts/test-deadlines";
+import { queryGovernanceEvents } from "../src/governance/events.js";
 import { Hono } from "hono";
 import { createKeyedLock, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-import { createTrustSettings } from "../src/brain/trust-settings.js";
+import { createTrustSettings, TRUST_PROJECTION_LOCK_KEY } from "../src/brain/trust-settings.js";
 import { createTrustSettingsRoutes } from "../src/routes/trust-settings.js";
 import { createUiDb } from "../src/db/client.js";
 import { openSqliteWriter } from "../src/db/write-worker.js";
@@ -446,9 +448,10 @@ test("Settings HTTP admission bounds queued lock waiters and recovers when reque
 test("qualified origin removal notifies live fences at the durable revision before its enforced receipt", async () => {
   const f=await fixture({originEnforcement:true});const draft=await f.prepare();
   const added=await f.commit(draft);expect(added.receipt).toMatchObject({stage:"committed",enforcement:"enforced"});
-  const removing=await f.prepare({action:"remove",ruleId:rule.id});let fenced=false;
-  const release=f.settings.live.subscribe(()=>{fenced=true;expect(f.settings.live.read().rules).toEqual([]);expect(f.settings.live.revision()).toBe("2");});
-  try {const removed=await f.commit(removing);expect(fenced,"ENFORCED_REMOVAL_JOINS_LIVE_FENCE").toBe(true);expect(removed.receipt).toMatchObject({stage:"committed",enforcement:"enforced",currentRule:"removed"});expect(removed.capabilities).toMatchObject({originRules:true,recipientRules:true,repositoryRules:false});}finally{release();}
+  const removing=await f.prepare({action:"remove",ruleId:rule.id});const fences:{rules:unknown[];revision:string}[]=[];
+  // The policy watch may fence the published removal first (restricted, at the old revision); the durable revision must follow before the receipt.
+  const release=f.settings.live.subscribe(()=>{const p=f.settings.live.read();fences.push({rules:p.rules,revision:p.revision});});
+  try {const removed=await f.commit(removing);expect(fences.at(-1),"ENFORCED_REMOVAL_JOINS_LIVE_FENCE").toEqual({rules:[],revision:"2"});expect(fences.every(fence=>fence.rules.length===0)).toBe(true);expect(removed.receipt).toMatchObject({stage:"committed",enforcement:"enforced",currentRule:"removed"});expect(removed.capabilities).toMatchObject({originRules:true,recipientRules:true,repositoryRules:false});}finally{release();}
 });
 
 test("post-publication invalid policy cannot claim an enforced origin removal",async()=>{
@@ -461,7 +464,7 @@ test("post-publication invalid policy cannot claim an enforced origin removal",a
 
 test("review: valid trust edits outside Settings cannot remain silently active",async()=>{
  const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,initial);
- expect(()=>f.settings.live.read(),"OUTSIDE_PUBLICATION_FENCES_STALE_TRUST").toThrow();
+ expect(f.settings.live.read().rules,"OUTSIDE_PUBLICATION_FENCES_STALE_TRUST").toEqual([]);expect(f.settings.live.read().ruleInstances[rule.id]).toBeUndefined();
  await f.settings.live.refresh();expect(f.settings.live.read().rules).toEqual([]);
 });
 
@@ -504,7 +507,7 @@ test('review5: unchanged large policy uses a cheap per-chunk revision fence',asy
  const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,readFileSync(f.path,'utf8')+'\n'+ 'Ithaca. '.repeat(12000));const p=f.settings.live.read();const read=fs.readSync;let reads=0;
  const spy=spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{reads++;return Reflect.apply(read,fs,args);}) as typeof fs.readSync);
  try{for(let i=0;i<16;i++)expect(f.settings.live.revision()).toBe(p.revision);expect(reads,'UNCHANGED_CHUNKS_NEVER_REREAD_POLICY').toBe(0);
- writeFileSync(f.path,initial);expect(()=>f.settings.live.revision(),'CHEAP_FENCE_STILL_DETECTS_REMOVAL').toThrow();expect(reads).toBeGreaterThan(0);
+ writeFileSync(f.path,initial);expect(f.settings.live.read().rules,'CHEAP_FENCE_STILL_DETECTS_REMOVAL').toEqual([]);expect(reads).toBeGreaterThan(0);
  }finally{spy.mockRestore();}
 });
 
@@ -518,83 +521,393 @@ test('review5: refresh rechecks current generation after its durable projection 
 
 test('review7: a second reader recovers after the writer commits the same file generation',async()=>{
  const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());const second=createTrustSettings({...f.options,originEnforcement:true});expect(second.live.read().rules).toHaveLength(1);
- writeFileSync(f.path,initial);expect(()=>second.live.read()).toThrow();await f.settings.live.refresh();
+ writeFileSync(f.path,initial);expect(second.live.read().rules).toEqual([]);await f.settings.live.refresh();
  expect(second.live.read().rules,'SECOND_READER_RECOVERS_WITHOUT_EXPLICIT_REFRESH').toEqual([]);expect(second.live.revision()).toBe('2');
 });
 
-test("unchanged durable trust refresh does not queue the held brain lock", async () => {
+/** Counts withLock calls per key; a live refresh that queues resolves `queued[key]`. */
+function countLocks(lock: ReturnType<typeof createKeyedLock>) {
+  const original = lock.withLock.bind(lock), calls: Record<string, number> = {};
+  const queued: Record<string, Promise<void>> = {}, resolvers: Record<string, () => void> = {};
+  for (const key of [BRAIN_LOCK_KEY, TRUST_PROJECTION_LOCK_KEY]) queued[key] = new Promise<void>(resolve => { resolvers[key] = resolve; });
+  lock.withLock = (key, fn, options) => { calls[key] = (calls[key] ?? 0) + 1; resolvers[key]?.(); return original(key, fn, options); };
+  return { calls: (key: string) => calls[key] ?? 0, queued: (key: string) => queued[key]! };
+}
+
+test("unchanged durable trust refresh queues neither the held brain lock nor the trust projection lock", async () => {
   const f = await fixture({ originEnforcement: true });
   await f.commit(await f.prepare());
   const committed = f.settings.live.read();
   const release = await f.lock.acquire(BRAIN_LOCK_KEY);
-  const original = f.lock.withLock.bind(f.lock);
-  let calls = 0;
-  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) calls++; return original(key, fn, options); };
+  const locks = countLocks(f.lock);
   let pending: ReturnType<typeof f.settings.live.refresh> | undefined;
   try {
     pending = f.settings.live.refresh();
-    expect(calls, "UNCHANGED_REFRESH_NEVER_QUEUES_BRAIN_LOCK").toBe(0);
+    expect(locks.calls(BRAIN_LOCK_KEY), "UNCHANGED_REFRESH_NEVER_QUEUES_BRAIN_LOCK").toBe(0);
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY), "UNCHANGED_REFRESH_NEVER_QUEUES_TRUST_PROJECTION_LOCK").toBe(0);
     expect(await pending).toEqual(committed);
     expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
   } finally { release(); await pending; }
 });
 
-test("diverged trust refresh queues the held brain lock and publishes a new revision after release", async () => {
+test("changed out-of-band trust refresh completes while the brain lock stays held", async () => {
   const f = await fixture({ originEnforcement: true });
   await f.commit(await f.prepare());
   const before = f.settings.live.read();
   writeFileSync(f.path, initial);
   const release = await f.lock.acquire(BRAIN_LOCK_KEY);
-  const original = f.lock.withLock.bind(f.lock);
-  let calls = 0, completed = false;
-  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) calls++; return original(key, fn, options); };
+  const locks = countLocks(f.lock);
+  try {
+    const outcome = await Promise.race([f.settings.live.refresh(), locks.queued(BRAIN_LOCK_KEY).then(() => "queued" as const)]);
+    expect(outcome, "CHANGED_POLICY_REFRESH_NEVER_QUEUES_BRAIN_LOCK").not.toBe("queued");
+    expect(outcome).toMatchObject({ rules: [], policyHash: hash(initial), error: null, revision: String(BigInt(before.revision) + 1n) });
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY)).toBe(1);
+    expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+    expect(f.settings.live.read().ruleInstances[rule.id], "REMOVED_RULE_KEEPS_NO_INSTANCE").toBeUndefined();
+  } finally { release(); }
+});
+
+test("diverged trust refresh queues the held trust projection lock and publishes a new revision after release", async () => {
+  const f = await fixture({ originEnforcement: true });
+  await f.commit(await f.prepare());
+  const before = f.settings.live.read();
+  writeFileSync(f.path, initial);
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  const locks = countLocks(f.lock);
+  let completed = false;
   const pending = f.settings.live.refresh().then(value => { completed = true; return value; });
   try {
-    expect(calls, "CHANGED_POLICY_STILL_QUEUES_BRAIN_LOCK").toBe(1);
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY), "CHANGED_POLICY_QUEUES_TRUST_PROJECTION_LOCK").toBe(1);
     await Promise.resolve();
     expect(completed).toBe(false);
-    expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+    expect(f.lock.heldKeys).toContain(TRUST_PROJECTION_LOCK_KEY);
   } finally { release(); }
   const after = await pending;
   expect(after.rules).toEqual([]);
   expect(BigInt(after.revision)).toBe(BigInt(before.revision) + 1n);
 });
 
-test("ADMISSION_NEVER_WAITS_ON_HELD_INDEX_LOCK", async () => {
+test("errored durable trust row queues the held trust projection lock even when its policy hash matches disk", async () => {
   const f = await fixture({ originEnforcement: true });
   await f.commit(await f.prepare());
+  const valid = readFileSync(f.path, "utf8"), healthy = f.settings.live.read();
+  writeFileSync(f.path, "---\nschema_version: [\n---\n");
+  await f.settings.live.refresh();
+  writeFileSync(f.path, valid);
+  const errored = f.db.query("SELECT policy_hash, error FROM trust_settings_projection").get();
+  expect(errored).toEqual({ policy_hash: hash(valid), error: "policy_unavailable" });
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  const locks = countLocks(f.lock);
+  let completed = false;
+  const pending = f.settings.live.refresh().then(value => { completed = true; return value; });
+  try {
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY), "ERRORED_ROW_WITH_MATCHING_HASH_QUEUES_TRUST_PROJECTION_LOCK").toBe(1);
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    expect(f.lock.heldKeys).toContain(TRUST_PROJECTION_LOCK_KEY);
+  } finally { release(); }
+  expect(await pending).toEqual(healthy);
+  expect(f.db.query("SELECT error FROM trust_settings_projection").get()).toEqual({ error: null });
+});
+
+test("missing durable trust row without a policy file queues the held trust projection lock", async () => {
+  const f = await fixture({ originEnforcement: true });
+  rmSync(f.path);
+  expect(f.db.query("SELECT count(*) n FROM trust_settings_projection").get()).toEqual({ n: 0 });
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  const locks = countLocks(f.lock);
+  let completed = false;
+  const pending = f.settings.live.refresh().then(value => { completed = true; return value; });
+  try {
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY), "MISSING_ROW_IS_NOT_DURABLE_EVIDENCE_AND_QUEUES_TRUST_PROJECTION_LOCK").toBe(1);
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    expect(f.lock.heldKeys).toContain(TRUST_PROJECTION_LOCK_KEY);
+  } finally { release(); }
+  expect(await pending).toMatchObject({ revision: "0", rules: [], policyHash: null, error: null });
+  expect(f.db.query("SELECT revision, policy_hash, error FROM trust_settings_projection").get()).toEqual({ revision: "0", policy_hash: null, error: null });
+});
+
+test("a Settings commit holds the trust projection lock from its base check through its own projection", async () => {
+  let paused!: () => void, resume!: () => void;
+  const reached = new Promise<void>(resolve => { paused = resolve; }), held = new Promise<void>(resolve => { resume = resolve; });
+  const f = await fixture({ originEnforcement: true, checkpoint: async stage => { if (stage === "renamed") { paused(); await held; } } });
+  const draft = await f.prepare(), committing = f.commit(draft);
+  let refreshing: Promise<unknown> | undefined;
+  try {
+    await reached;
+    expect(readFileSync(f.path, "utf8")).toBe(draft.review.proposed);
+    // Nothing else holds the key: the paused commit itself must.
+    expect(f.lock.heldKeys, "COMMIT_PUBLICATION_SERIALIZES_TRUST_PROJECTION").toContain(TRUST_PROJECTION_LOCK_KEY);
+    const locks = countLocks(f.lock);
+    let completed = false;
+    refreshing = f.settings.live.refresh().then(value => { completed = true; return value; });
+    expect(locks.calls(TRUST_PROJECTION_LOCK_KEY)).toBe(1);
+    await Promise.resolve();
+    expect(completed).toBe(false);
+  } finally { resume(); await Promise.allSettled([committing, refreshing]); }
+  const saved = await committing, live = await refreshing as { revision: string };
+  expect(saved.receipt).toMatchObject({ stage: "committed", publishedTrustRevision: "1" });
+  expect(live.revision, "LIVE_REFRESH_OBSERVES_THE_COMMITTED_REVISION").toBe("1");
+  const proof = JSON.parse((f.db.query("SELECT proof FROM trust_settings_operations WHERE request_id=?").get(draft.receipt.requestId) as { proof: string }).proof);
+  expect(proof).toMatchObject({ expectedTrustRevision: "0", publishedTrustRevision: "1" });
+});
+
+for (const policy of ["unchanged", "changed"] as const) test(`ADMISSION_NEVER_WAITS_ON_HELD_INDEX_LOCK with ${policy} trust policy`, async () => {
+  const f = await fixture({ originEnforcement: true });
+  await f.commit(await f.prepare());
+  const before = f.settings.live.read();
+  if (policy === "changed") writeFileSync(f.path, initial);
   const { WsHost } = await import("../src/ws/host");
   const { runSession } = await import("../src/ws/run-session");
   const { createSessionCatalog } = await import("../src/ws/session-catalog");
   const { createStaticBackendRegistry } = await import("../src/agent/backend");
   const { makeFakeBackend } = await import("./helpers/fake-backend");
   const { testAuthorization } = await import("./helpers/principal");
-  let started = 0, queued!: () => void;
-  const blocked = new Promise<void>(resolve => { queued = resolve; });
-  const original = f.lock.withLock.bind(f.lock);
-  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) queued(); return original(key, fn, options); };
-  const policy = createGovernancePolicyReader(f.root).load();
-  const backend = makeFakeBackend({ id: "pi", async startTurn() { started++; } });
+  let started = 0, admitted: ReturnType<typeof f.settings.live.read> | undefined;
+  const locks = countLocks(f.lock);
+  const governance = createGovernancePolicyReader(f.root).load();
+  const backend = makeFakeBackend({ id: "pi", async startTurn() { started++; admitted = f.settings.live.read(); } });
   const host = new WsHost({ registry: createStaticBackendRegistry([backend], "pi"), catalog: createSessionCatalog(() => f.db), originTrust: f.settings.live,
-    governedTurns: { async begin() { return { sandbox: { profile: "strict", areas: [], noteFacts: {} }, policy, async end() { return null; } }; }, refresh() {}, async close() {}, async bindSession() {}, async exposures() { return []; }, facts() { return { policyProfile: "strict", policy }; } } as never });
+    governedTurns: { async begin() { return { sandbox: { profile: "strict", areas: [], noteFacts: {} }, policy: governance, async end() { return null; } }; }, refresh() {}, async close() {}, async bindSession() {}, async exposures() { return []; }, facts() { return { policyProfile: "strict", policy: governance }; } } as never });
   const release = await f.lock.acquire(BRAIN_LOCK_KEY);
   const running = runSession(host, { authorization: testAuthorization(), text: "Plan Ithaca", attachments: [] });
   try {
-    const finished = await Promise.race([running.then(() => true), blocked.then(() => false)]);
+    const finished = await Promise.race([running.then(() => true), locks.queued(BRAIN_LOCK_KEY).then(() => false)]);
     expect(started, "ADMISSION_NEVER_WAITS_ON_HELD_INDEX_LOCK").toBe(1);
     expect(finished, "SESSION_FINISHES_BEFORE_INDEX_LOCK_RELEASE").toBe(true);
     expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+    expect(admitted, "ADMISSION_OBSERVES_THE_CURRENT_DURABLE_TRUST").toMatchObject(policy === "unchanged" ? before
+      : { rules: [], policyHash: hash(initial), error: null, revision: String(BigInt(before.revision) + 1n) });
   } finally { release(); await running; host.close(); }
+});
+
+/** Real proxy, two trusted streaming origins and a governed turn subscribed to `trust`. */
+async function activeTurn(f: Awaited<ReturnType<typeof fixture>>, trust: ReturnType<typeof createTrustSettings>["live"]) {
+  const { request } = await import("node:http");
+  const { prepareTurnEgress } = await import("../src/brain/turn-egress");
+  const { createGovernanceWrites } = await import("../src/governance/event-writes");
+  const { connectedSafetySession } = await import("./helpers/connected-safety");
+  const { createEffectiveSafety } = await import("../src/governance/effective-safety");
+  const { resolveGovernancePolicy } = await import("@schlessera/brain-common/internal/governance-policy");
+  const serve = () => {
+    const state = { hits: 0, streams: [] as ReadableStreamDefaultController<Uint8Array>[] };
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { state.hits++;
+      return new Response(new ReadableStream<Uint8Array>({ start(c) { state.streams.push(c); c.enqueue(new TextEncoder().encode("first")); } })); } });
+    return { server, state, send: (text: string) => { for (const stream of state.streams) try { stream.enqueue(new TextEncoder().encode(text)); } catch { /* Closed. */ } } };
+  };
+  const ithaca = serve(), argo = serve();
+  const source = (id: string, port: number) => ({ ...rule, id, selector: { kind: "web_origin" as const, scheme: "http" as const, host: "127.0.0.1", port } });
+  const removed = source("ithaca", ithaca.server.port!), kept = source("argo", argo.server.port!);
+  await f.commit(await f.prepare({ action: "create", rule: removed }));
+  await f.commit(await f.prepare({ action: "create", rule: kept }));
+  connectedSafetySession(f.db, "voyage", "turn-voyage");
+  const writes = createGovernanceWrites(f.db, f.writer), controller = new AbortController();
+  const safety = createEffectiveSafety(f.db, { turnId: "turn-voyage", sessionId: () => "voyage", policyHash: null, writes, trust, authority: () => ({ current: true, epoch: "1" }) });
+  const proxy = await prepareTurnEgress({ policy: resolveGovernancePolicy({ schema_version: 1 }), trust, controller, turnId: "turn-voyage", sessionId: () => "voyage",
+    model: () => null, profile: "governed", origin: "interactive", governanceDb: f.db, governanceWrites: writes, record: writes.record,
+    bridge: { emit() {}, requestPermission: async () => ({ behavior: "deny", message: "Athena declines" }), admissionSafety: safety } });
+  const connections: Promise<void>[] = [];
+  const through = (url: string) => {
+    let body = "";
+    const waiters: [string, () => void][] = [];
+    const closed = new Promise<void>(resolve => {
+      const req = request({ socketPath: proxy.socketPath, path: url }, res => {
+        res.on("data", chunk => { body += chunk.toString(); for (const [text, wake] of waiters) if (body.includes(text)) wake(); });
+        res.on("close", resolve); res.on("error", () => resolve());
+      });
+      req.on("error", () => resolve()); req.end();
+    });
+    connections.push(closed);
+    const saw = (text: string) => new Promise<void>(resolve => { if (body.includes(text)) resolve(); else waiters.push([text, resolve]); });
+    return { closed, saw, receives: (text: string) => Promise.race([saw(text).then(() => true), closed.then(() => false)]) };
+  };
+  const relay = async () => {
+    const operation = proxy.inference("POST", new URL("https://api.anthropic.com/v1/messages"), new AbortController().signal);
+    try { return await operation.admit(); } finally { operation.finish("completed"); }
+  };
+  const close = async () => { proxy.stop(); await Promise.all(connections); await proxy.settled(); ithaca.server.stop(true); argo.server.stop(true); };
+  const onlyKept = () => writeFileSync(f.path, `---\n${JSON.stringify({ schema_version: 1, taint: { trusted_sources: [kept] } })}\n---\nThe voyage policy.\n`);
+  /** This turn's durable egress receipts for one origin port, once at least one is recorded. */
+  const receipts = async (port: number) => {
+    const read = () => queryGovernanceEvents(f.db, { turnId: "turn-voyage", kinds: ["egress_connection"], limit: 100 })
+      .map(event => event.payload as Record<string, unknown>).filter(payload => payload.port === port);
+    const deadline = Date.now() + watchdogMs(5000);
+    while (!read().length && Date.now() < deadline) await Bun.sleep(10);
+    return read();
+  };
+  /** The removed origin has exactly one receipt, the source-trust revocation; the kept origin has none. */
+  const expectRevoked = async (name: string) => {
+    expect(await receipts(ithaca.server.port!), name).toMatchObject([{ outcome: "cancelled", reason: "source_trust_changed", trustedSource: true }]);
+    expect((await receipts(ithaca.server.port!)).length).toBe(1);
+    expect(queryGovernanceEvents(f.db, { turnId: "turn-voyage", kinds: ["egress_connection"], limit: 100 })
+      .filter(event => (event.payload as Record<string, unknown>).port === argo.server.port), "KEPT_SOURCE_HAS_NO_TERMINAL_RECEIPT").toEqual([]);
+  };
+  return { ithaca, argo, removed, kept, through, relay, close, onlyKept, controller, expectRevoked };
+}
+const ended = (closed: Promise<void>) => Promise.race([closed.then(() => true), Bun.sleep(watchdogMs(5000)).then(() => false)]);
+
+test("an out-of-band source removal during an active turn fences only the removed source, with no further read", async () => {
+  const f = await fixture({ originEnforcement: true });
+  const turn = await activeTurn(f, f.settings.live);
+  let release: (() => void) | undefined;
+  try {
+    const a = turn.through(turn.ithaca.server.url.href), b = turn.through(turn.argo.server.url.href);
+    await Promise.all([a.saw("first"), b.saw("first")]);
+    const before = f.settings.live.read(), birth = before.ruleInstances[turn.kept.id];
+    expect(await turn.relay()).toBe(true);
+    // A concurrent publication holds the projection while the hand edit lands;
+    // nothing reads trust afterwards except the turn's own policy watch.
+    release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+    turn.onlyKept();
+    expect(await ended(a.closed), "REMOVED_SOURCE_ENDS_WITHOUT_ANOTHER_TRUST_READ").toBe(true);
+    await turn.expectRevoked("REMOVED_SOURCE_RECEIPT_IS_SOURCE_TRUST_CHANGED");
+    const uncertain = f.settings.live.read();
+    expect(uncertain, "UNCERTAIN_VIEW_KEEPS_ONLY_UNCHANGED_DURABLE_RULES").toMatchObject({ revision: before.revision, policyHash: before.policyHash, rules: [turn.kept] });
+    expect(uncertain.ruleInstances[turn.removed.id]).toBeUndefined();
+    turn.argo.send("second");
+    expect(await b.receives("second"), "UNRELATED_SOURCE_SURVIVES_UNCERTAINTY").toBe(true);
+    expect(await turn.relay(), "RELAY_ADMITTED_WHILE_UNCERTAIN").toBe(true);
+    release(); release = undefined;
+    await Bun.sleep(0);
+    const recoveredAt = watchdogMs(5000) + Date.now();
+    while (f.settings.live.read().revision === before.revision && Date.now() < recoveredAt) await Bun.sleep(10);
+    const recovered = f.settings.live.read();
+    expect(recovered, "AUTOMATIC_RECOVERY_PUBLISHES_THE_EDIT").toMatchObject({ rules: [turn.kept], revision: String(BigInt(before.revision) + 1n), error: null });
+    expect(recovered.ruleInstances[turn.removed.id]).toBeUndefined();
+    expect(recovered.ruleInstances[turn.kept.id], "UNRELATED_SOURCE_KEEPS_ITS_INSTANCE").toBe(birth);
+    turn.argo.send("third");
+    expect(await b.receives("third"), "UNRELATED_SOURCE_SURVIVES_RECOVERY").toBe(true);
+    expect(await turn.relay(), "RELAY_ADMITTED_AFTER_RECOVERY").toBe(true);
+    const after = turn.through(turn.argo.server.url.href);
+    expect(await after.receives("first"), "UNRELATED_SOURCE_ADMITS_AFTER_RECOVERY").toBe(true);
+    expect(turn.controller.signal.aborted).toBe(false);
+  } finally { release?.(); await turn.close(); }
+});
+
+test("a healthy source chunk and a relay during an unreconciled out-of-band edit keep their admission", async () => {
+  const f = await fixture({ originEnforcement: true });
+  const turn = await activeTurn(f, f.settings.live);
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  try {
+    const b = turn.through(turn.argo.server.url.href);
+    await b.saw("first");
+    turn.onlyKept();
+    // The relay's admission is the first trust read after the edit.
+    expect(await turn.relay(), "RELAY_ADMITTED_WHILE_UNCERTAIN").toBe(true);
+    turn.argo.send("second");
+    expect(await b.receives("second"), "UNRELATED_SOURCE_CHUNK_SURVIVES_UNCERTAINTY").toBe(true);
+  } finally { release(); await turn.close(); }
+});
+
+test("a removed source's next chunk is refused with the exact source-trust receipt", async () => {
+  const f = await fixture({ originEnforcement: true });
+  const turn = await activeTurn(f, f.settings.live);
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  try {
+    const a = turn.through(turn.ithaca.server.url.href);
+    await a.saw("first");
+    turn.onlyKept();
+    // This received chunk is the first trust read after the edit.
+    turn.ithaca.send("second");
+    expect(await a.receives("second"), "REMOVED_SOURCE_CHUNK_IS_REFUSED").toBe(false);
+    await turn.expectRevoked("REMOVED_SOURCE_CHUNK_RECEIPT_IS_SOURCE_TRUST_CHANGED");
+  } finally { release(); await turn.close(); }
+});
+
+test("a removal observed then restored before the projection still ends the observed source", async () => {
+  const f = await fixture({ originEnforcement: true });
+  const turn = await activeTurn(f, f.settings.live);
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  try {
+    const a = turn.through(turn.ithaca.server.url.href);
+    await a.saw("first");
+    const valid = readFileSync(f.path, "utf8"), birth = f.settings.live.read().ruleInstances[turn.removed.id];
+    turn.onlyKept();
+    expect(f.settings.live.read().ruleInstances[turn.removed.id]).toBeUndefined();
+    expect(await ended(a.closed), "OBSERVED_REMOVAL_ENDS_ITS_SOURCE_BEFORE_ANY_PROJECTION").toBe(true);
+    await turn.expectRevoked("OBSERVED_REMOVAL_RECEIPT_IS_SOURCE_TRUST_CHANGED");
+    writeFileSync(f.path, valid);
+    expect(f.settings.live.read().ruleInstances[turn.removed.id], "RESTORED_RULE_WAS_NEVER_DURABLY_REMOVED").toBe(birth);
+  } finally { release(); await turn.close(); }
+});
+
+test("a peer reader's projection notifies this reader's own fences", async () => {
+  const f = await fixture({ originEnforcement: true });
+  await f.commit(await f.prepare());
+  const peer = createTrustSettings({ ...f.options, originEnforcement: true });
+  const seen: (string | undefined)[] = [];
+  const unsubscribe = f.settings.live.subscribe(() => { seen.push(f.settings.live.read().ruleInstances[rule.id]); });
+  try {
+    writeFileSync(f.path, initial);
+    await peer.live.refresh();
+    expect(f.settings.live.read().revision).toBe("2");
+    await Promise.resolve();
+    expect(seen.length, "PEER_PROJECTION_NOTIFIES_THIS_READERS_FENCES").toBe(1);
+    expect(seen[0], "NOTIFIED_FENCE_SEES_THE_REMOVAL").toBeUndefined();
+  } finally { unsubscribe(); }
+});
+
+test("two live readers reconcile one out-of-band edit once, behind a bounded lock wait that retries by itself", async () => {
+  let clock = 1_000_000;
+  const f = await fixture({ originEnforcement: true, now: () => clock, recoveryWaitMs: 50 });
+  await f.commit(await f.prepare());
+  const second = createTrustSettings({ ...f.options, originEnforcement: true });
+  const before = f.settings.live.read();
+  expect(second.live.read()).toEqual(before);
+  const waits: Promise<unknown>[] = [], original = f.lock.withLock.bind(f.lock);
+  f.lock.withLock = (key, fn, options) => { const pending = original(key, fn, options); if (key === TRUST_PROJECTION_LOCK_KEY) waits.push(pending); return pending; };
+  const release = await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);
+  try {
+    writeFileSync(f.path, initial);
+    for (let i = 0; i < 8; i++) {
+      expect(f.settings.live.read()).toMatchObject({ revision: before.revision, rules: [] });
+      expect(second.live.read().rules).toEqual([]);
+    }
+    expect(waits.length, "ONE_RECOVERY_PER_READER_WHILE_UNCERTAIN").toBe(2);
+    const settled = Promise.allSettled(waits).then(results => results.map(result => result.status));
+    expect(await Promise.race([settled, Bun.sleep(watchdogMs(5000)).then(() => "still waiting")]), "RECOVERY_LOCK_WAIT_IS_BOUNDED").toEqual(["rejected", "rejected"]);
+    expect(f.lock.heldKeys, "TIMED_OUT_RECOVERY_NEVER_RELEASES_THE_HOLDER").toContain(TRUST_PROJECTION_LOCK_KEY);
+    expect(f.settings.live.read().rules, "STILL_RESTRICTED_AFTER_A_FAILED_RECOVERY").toEqual([]);
+    expect(waits.length, "FAILED_RECOVERY_WAITS_FOR_ITS_RETRY_DELAY").toBe(2);
+  } finally { release(); }
+  // No further read and no clock advance: each reader's retry timer reconciles.
+  const next = String(BigInt(before.revision) + 1n);
+  const durable = () => (f.db.query("SELECT revision FROM trust_settings_projection").get() as { revision: string }).revision;
+  const deadline = Date.now() + watchdogMs(5000);
+  while (durable() !== next && Date.now() < deadline) await Bun.sleep(10);
+  expect(durable(), "FAILED_RECOVERY_RETRIES_WITHOUT_ANOTHER_READ").toBe(next);
+  await Promise.allSettled(waits);
+  expect(f.settings.live.read()).toMatchObject({ rules: [], revision: next, error: null });
+  expect(second.live.read().revision, "TWO_READERS_PUBLISH_ONE_REVISION").toBe(next);
+});
+
+test("a live recovery queued behind a Settings publication adds no second revision", async () => {
+  let paused!: () => void, resume!: () => void;
+  const reached = new Promise<void>(resolve => { paused = resolve; }), held = new Promise<void>(resolve => { resume = resolve; });
+  const f = await fixture({ originEnforcement: true, checkpoint: async stage => { if (stage === "renamed") { paused(); await held; } } });
+  const draft = await f.prepare(), committing = f.commit(draft);
+  const waits: Promise<unknown>[] = [], original = f.lock.withLock.bind(f.lock);
+  try {
+    await reached;
+    f.lock.withLock = (key, fn, options) => { const pending = original(key, fn, options); if (key === TRUST_PROJECTION_LOCK_KEY) waits.push(pending); return pending; };
+    expect(f.settings.live.read(), "PUBLISHED_RULE_WAITS_FOR_ITS_PROJECTION").toMatchObject({ revision: "0", rules: [] });
+    expect(waits.length).toBe(1);
+  } finally { resume(); await Promise.allSettled([committing, ...waits]); }
+  const saved = await committing;
+  await Promise.all(waits);
+  expect(saved.receipt).toMatchObject({ stage: "committed", publishedTrustRevision: "1" });
+  expect(f.settings.live.read(), "RECOVERY_BEHIND_PUBLICATION_ADDS_NO_REVISION").toMatchObject({ revision: "1", rules: [rule] });
 });
 
 for(const timeout of [false,true])test(`review10: turn trust refresh releases governed resources before the lock holder on ${timeout?'timeout':'cancel'}`,async()=>{
  const f=await fixture({originEnforcement:true});const {WsHost}=await import('../src/ws/host');const {runSession}=await import('../src/ws/run-session');const {createSessionCatalog}=await import('../src/ws/session-catalog');const {createStaticBackendRegistry}=await import('../src/agent/backend');const {makeFakeBackend}=await import('./helpers/fake-backend');const {testAuthorization}=await import('./helpers/principal');
  await f.commit(await f.prepare());writeFileSync(f.path,initial);
- let held=0,entered!:()=>void,started=0;const reached=new Promise<void>(r=>{entered=r;});const original=f.lock.withLock.bind(f.lock);f.lock.withLock=(key,fn,opts)=>{if(key===BRAIN_LOCK_KEY)entered();return original(key,fn,opts);};
+ let held=0,entered!:()=>void,started=0;const reached=new Promise<void>(r=>{entered=r;});const original=f.lock.withLock.bind(f.lock);f.lock.withLock=(key,fn,opts)=>{if(key===TRUST_PROJECTION_LOCK_KEY)entered();return original(key,fn,opts);};
  const policy=createGovernancePolicyReader(f.root).load();const backend=makeFakeBackend({id:'pi',async startTurn(){started++;}});const host=new WsHost({registry:createStaticBackendRegistry([backend],'pi'),catalog:createSessionCatalog(()=>f.db),turnTimeoutMs:5000,originTrust:f.settings.live,governedTurns:{async begin(){held++;return {sandbox:{profile:'strict',areas:[],noteFacts:{}},policy,async end(){held--;return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:'strict',policy};}} as never});
- const release=await f.lock.acquire(BRAIN_LOCK_KEY);let running:Promise<void>|undefined;
+ const release=await f.lock.acquire(TRUST_PROJECTION_LOCK_KEY);let running:Promise<void>|undefined;
  try{running=runSession(host,{authorization:testAuthorization(),text:'Plan Ithaca',attachments:[]});await reached;if(!timeout)host.coordinator.cancelAll('Odysseus cancels');const done=await Promise.race([running.then(()=>true),Bun.sleep(timeout?6000:200).then(()=>false)]);
- expect(done,'CANCELLED_REFRESH_NEVER_WAITS_FOR_UNRELATED_HOLDER').toBe(true);expect(held).toBe(0);expect(host.coordinator.isTurnActive()).toBe(false);expect(started).toBe(0);expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+ expect(done,'CANCELLED_REFRESH_NEVER_WAITS_FOR_UNRELATED_HOLDER').toBe(true);expect(held).toBe(0);expect(host.coordinator.isTurnActive()).toBe(false);expect(started).toBe(0);expect(f.lock.heldKeys).toContain(TRUST_PROJECTION_LOCK_KEY);
  }finally{release();await running;host.close();}
 });
 
