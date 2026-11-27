@@ -11,6 +11,7 @@ import {
   type StorageScene,
 } from "../fixtures/storage-view.js";
 import { paneTime, storagePaneFixture } from "../fixtures/storage-pane.js";
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 let ui: BrainUiRoot,
   renderer: Root,
   host: HTMLDivElement,
@@ -1025,6 +1026,8 @@ test("Opening the pane announces no empty selection that could talk over the mod
 });
 test("List-only keyboard pass: drill, go up, find, inspect, select and review without the map", async () => {
   await scene("dense", 1280);
+  // The table is drawn busy before its first page arrives; wait for the row.
+  await expect.poll(() => row("Brain files").elements().length).toBe(1);
   row("Brain files").element().focus();
   await userEvent.keyboard("{Enter}");
   await expect.poll(() => document.activeElement?.textContent).toBe("Brain files");
@@ -1191,7 +1194,13 @@ for (const s of MATRIX) {
       await expect(subject).toMatchScreenshot(`storage-${s.name}-${cell}`);
     });
   }
-  test(`Proof matrix ${s.name}: list-only keyboard, 200% zoom at 320, greyscale`, async () => {
+  // The Tab walk presses one real Tab per stop, and each Tab repaints the
+  // pane at 200% zoom: drill-smaller's 200-row page takes 11-15 s on an idle
+  // runner and about 30 s with every CPU busy. Vitest's 15 s default cut it
+  // off under load, and its still-running body then pressed Tab into the
+  // next case (#4969). This timeout only catches a hang, so it is sized well
+  // above the loaded walk.
+  test(`Proof matrix ${s.name}: list-only keyboard, 200% zoom at 320, greyscale`, { timeout: watchdogMs(120_000) }, async () => {
     await matrixScene(s, 320, "dark", 2);
     expect(host.scrollWidth, "STORAGE_NO_HORIZONTAL_OVERFLOW_200").toBeLessThanOrEqual(host.clientWidth + 1);
     const root = s.dialog ? (page.getByRole("dialog").element() as HTMLElement) : host;
