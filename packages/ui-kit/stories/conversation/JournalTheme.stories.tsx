@@ -20,12 +20,21 @@ const changes: TurnJournalChange[] = [
   ...observations.map(({ sequence }) => ({ sequence, path: "notes/crossing.md", scope: "", class: "content" as const, actor: "agent" as const, before: version, after: version, overlappingTurnIds: ["athena-journal"], conflict: { versions: observations, latest: observations[1]! } })),
 ];
 const details: TurnJournalDetails = { turnId, sessionId: "ithaca", summary, changes, missing: ["ithaca", "pylos"].map(name => ({ path: `workspaces/${name}/brain.config.ts`, reason: "configuration_inputs_not_fully_identified" as const })), outwardActions: ["approved", "declined"].map((decision, i) => ({ id: i + 1, at: summary.observedAt!, tool: "Bash", action: "git_push", target: "github.com/odysseus/voyage.git", decision: decision as "approved" | "declined", historyRewrite: false, revertible: false })) };
+// #4216: the journal's two Google classes, reversible calls in their own section
+// and irreversible ones with the outward receipts, in the operation's words.
+const draft = "r-8f2c41d9e0b7a6c5";
+const google = (id: number, operation: string, decision: "allowed" | "approved" | "declined", target: string, tainted: boolean, admission: "session_allowance" | null) =>
+  ({ id, at: summary.observedAt!, callId: `call-${id}`, tool: "brain_google_gmail", operation, effect: "reversible" as const, target, tainted, decision, admission, revertible: false as const, undoAvailable: false as const });
+const googleDetails: TurnJournalDetails = { ...details,
+  googleActions: [google(11, "gmail.modify", "allowed", "gmail.modify", true, "session_allowance"), google(12, "gmail.draft.save", "approved", draft, true, null), google(13, "gmail.modify", "declined", "gmail.modify", true, null)],
+  outwardActions: [...(["approved", "refused"] as const).map((decision, i) => ({ id: 21 + i, at: summary.observedAt!, tool: "brain_google_gmail", action: "google_write" as const, target: i ? "gmail.trash" : draft, decision, historyRewrite: false, revertible: false as const, google: { callId: `call-${21 + i}`, operation: i ? "gmail.trash" : "gmail.draft.send", effect: "irreversible" as const } })), ...details.outwardActions!],
+};
 
-function JournalTheme({ onOperation }: { width: number; onOperation: (body: unknown) => void }) {
+function JournalTheme({ onOperation, withGoogle = false }: { width: number; onOperation: (body: unknown) => void; withGoogle?: boolean }) {
   const [root] = useState(() => {
     const root = createBrainUiRoot({ storage: null, request: async (input, init) => {
       const url = new URL(String(input), location.href);
-      if (url.pathname.endsWith("/journal")) return Response.json(details);
+      if (url.pathname.endsWith("/journal")) return Response.json(withGoogle ? googleDetails : details);
       if (url.pathname.endsWith("/preview")) return Response.json({ inline: true, before: "Ithaca\r\n", after: url.pathname.includes("/1/") ? "Athena reviews the crossing.\n" : "Athena charts the return.\r\n" });
       if (url.pathname.endsWith("/plan")) return Response.json({ turnId, action: url.searchParams.get("action") ?? "revert", paths: url.searchParams.get("action") === "restore" ? [] : changes.slice(0, 2).map(change => ({ path: change.path, state: "eligible", reason: null, quarantined: false })) });
       if (url.pathname.endsWith("/revert") && init?.method === "POST") {
@@ -130,3 +139,29 @@ export const Phone = meta.story({
   },
 });
 export const Desktop = Phone.extend(atWidth(1280));
+
+export const GooglePhone = meta.story({
+  args: { withGoogle: true },
+  play: async ({ args, userEvent, globals }) => {
+    await painted(args.width, globals.theme);
+    const screen = within(document.body);
+    const disclosure = screen.getByRole("button", { name: /3 changed files/ });
+    disclosure.focus(); await userEvent.keyboard("{Enter}");
+    const reversible = await screen.findByRole("heading", { name: "Reversible Google calls" });
+    const outward = screen.getByRole("heading", { name: "Outward actions" });
+    await expect(reversible.compareDocumentPosition(outward) & Node.DOCUMENT_POSITION_FOLLOWING, "reversible calls sit ahead of the outward receipts").toBeTruthy();
+    const section = reversible.closest<HTMLElement>("[data-google-journal-calls]")!;
+    await expect([...section.querySelectorAll("li")].map(li => li.textContent)).toEqual([
+      "Gmail label change · Allowed for this chatReview recommended: the chat had read text other people wrote.",
+      `Gmail draft save · Approved on its card · ${draft}Review recommended: the chat had read text other people wrote.`,
+      "Gmail label change · Declined",
+    ]);
+    const receipts = [...outward.closest("section")!.querySelectorAll("li")].map(li => li.textContent?.trim());
+    await expect(receipts.slice(0, 2)).toEqual([`Gmail send · Approved · ${draft}`, "Gmail trash · Refused"]);
+    await expect(screen.queryByRole("button", { name: /Revert.*(Gmail|Google)|Undo/ })).toBeNull();
+    await bounds(section, "reversible Google calls");
+    await bounds(outward.closest<HTMLElement>("section")!, "outward receipts");
+    await accessible(document.querySelector<HTMLElement>("[data-turn-journal]")!);
+  },
+});
+export const GoogleDesktop = GooglePhone.extend(atWidth(1280));
