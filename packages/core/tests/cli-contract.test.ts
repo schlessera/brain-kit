@@ -11,7 +11,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
-import { withoutSigning } from "./git-fixture";
+import { git, withoutSigning } from "./git-fixture";
 import { packageVersion } from "../src/package-version";
 
 let root: string;
@@ -545,10 +545,6 @@ describe("sync", () => {
     // GIT_CONFIG_COUNT outranks the repository-local setting below, and both
     // the fixture's commit and the one `brain sync` makes would try to sign.
     const unsigned = withoutSigning(keylessEnv(brain));
-    const git = (...args: string[]) => {
-      const result = Bun.spawnSync(["git", "-C", brain, ...args], { env: unsigned });
-      if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
-    };
     try {
       writeFileSync(
         join(brain, "brain.config.ts"),
@@ -564,14 +560,14 @@ export default defineConfig({
       );
       writeFileSync(join(brain, ".gitignore"), "node_modules\nbrain.db\nbrain.db-*\n.agents/skills/\n.claude/skills/\n");
       Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", remote]);
-      git("init", "-q", "-b", "main");
-      git("config", "user.name", "Odysseus");
-      git("config", "user.email", "odysseus@example.test");
-      git("config", "commit.gpgsign", "false");
-      git("add", "-A");
-      git("commit", "-qm", "fixture");
-      git("remote", "add", "origin", remote);
-      git("push", "-q", "origin", "main");
+      git(brain, "init", "-q", "-b", "main");
+      git(brain, "config", "user.name", "Odysseus");
+      git(brain, "config", "user.email", "odysseus@example.test");
+      git(brain, "config", "commit.gpgsign", "false");
+      git(brain, "add", "-A");
+      git(brain, "commit", "-qm", "fixture");
+      git(brain, "remote", "add", "origin", remote);
+      git(brain, "push", "-q", "origin", "main");
       writeFileSync(join(brain, "survey.xyz"), "eagle survey grid\n");
 
       // An output flag is not a verb: `--human` is the text…

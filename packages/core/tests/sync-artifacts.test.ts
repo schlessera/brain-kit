@@ -18,7 +18,7 @@ import {
   type AssessedFile,
   type IgnorePlan,
 } from "../src/lib/sync/artifacts.js";
-import { withoutSigning } from "./git-fixture";
+import { git, withoutSigning } from "./git-fixture";
 
 const ARTIFACT = [".DS_Store", "*.swp", "*~", "*.log", "tmp/*"];
 const dirs: string[] = [];
@@ -42,11 +42,6 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function git(cwd: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", "-C", cwd, ...args]);
-  if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
-  return result.stdout.toString().trim();
-}
 
 /** A repository with one commit, a local empty hooks directory, and Odysseus as its author. */
 function repo(files: Record<string, string> = { "notes.md": "# Notes\n" }): string {

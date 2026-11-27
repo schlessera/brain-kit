@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFixtureApp } from "./helpers/native-app-fixture";
@@ -8,7 +8,7 @@ import { testServerConfig } from "./helpers/test-config";
 import { createRecordingObservability } from "../src/observability";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { privateMaintenanceTest } from "./helpers/private-maintenance-test";
-import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
+import { installFakeBrain } from "./helpers/fake-brain-cli";
 // Real createApp wiring, databases and password verification; the explicit
 // offline storage fixture does not claim native filesystem qualification.
 test("createApp isolates login and passkey option buckets (#1364)", async () => {
@@ -57,13 +57,7 @@ test("two differently configured apps isolate exec wrappers and login/passkey bu
       { name: "pylos", password: "Telemachus sails to Pylos" },
     ].map(async ({ name, password }) => {
       const brainPath = join(root, name);
-      const binDir = join(brainPath, "node_modules", ".bin");
-      mkdirSync(binDir, { recursive: true });
-      const bin = join(binDir, "brain");
-      writeFileSync(bin, `#!/usr/bin/env bun\n` +
-        `if (process.argv.includes("--version")) console.log("${MIN_BRAIN_CLI_VERSION}");\n` +
-        `else console.log(JSON.stringify({ results: [], warnings: [] }));\n`);
-      chmodSync(bin, 0o755);
+      installFakeBrain(brainPath, { body: "console.log(JSON.stringify({ results: [], warnings: [] }));" });
       const wrapper = join(brainPath, `${name}.sh`);
       // Log only searches: boot pruning has its own concurrent maintenance
       // output and must not overwrite this request's wrapper evidence.
