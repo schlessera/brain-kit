@@ -215,7 +215,8 @@ test("Claude resolves one SDK environment per turn while XDG planning receives n
   const probe = spyOn(workerHostBoundary, "probeAsync").mockResolvedValue({ ok: true });
   const homes: { prepared?: string; sdk?: string }[] = [];
   const prepare = spyOn(internal, "prepareWorkerSandboxAsync").mockImplementation(async (brain, options) => {
-    homes.push({ prepared: options?.home });
+    // The option no longer exists; a caller passing it anyway would still show here.
+    homes.push({ prepared: (options as { home?: string } | undefined)?.home });
     return { brain, restricted: false, areas: [], scratchAliasesRemoved: [], home: { mode: "xdg" } };
   });
   const queryFn = (({ options }: Parameters<typeof query>[0]) => {
