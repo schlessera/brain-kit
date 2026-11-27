@@ -43,9 +43,7 @@ export const safetyUnavailableSchema = z.strictObject({ version:z.literal(1), re
 export const safetyCapabilitiesSchema = z.strictObject({ version:z.literal(1), read:z.literal(true), review:z.boolean(), originRules:z.boolean(), repositoryRules:z.literal(false), recipientRules:z.boolean(),
   readOnlyReason:z.enum(["review_unavailable","owner_required"]).nullable(), detectorVersion:z.literal(1), limits:z.strictObject({ pageRecords:z.literal(100), frameBytes:z.literal(262144), cursorBytes:z.literal(512), cursorLifetimeMs:z.literal(300000),
     reviewBodyBytes:z.literal(16384).optional(), reviewLifetimeMs:z.literal(900000).optional(), receiptLifetimeMs:z.literal(86400000).optional() }) });
-export const SESSION_SAFETY_CAPABILITY = "sessionSafetyHistory";
-export const SAFETY_READ_CAPABILITIES = safetyCapabilitiesSchema.parse({version:1,read:true,review:false,originRules:false,repositoryRules:false,recipientRules:false,readOnlyReason:"review_unavailable",detectorVersion:1,
-  limits:{pageRecords:100,frameBytes:262144,cursorBytes:512,cursorLifetimeMs:300000}});
+export { SESSION_SAFETY_CAPABILITY, SAFETY_READ_CAPABILITIES } from "./safety-capabilities.js";
 export type SafetySessionKey = z.infer<typeof safetySessionKeySchema>;
 export type SafetyTarget = z.infer<typeof safetyTargetSchema>;
 export type SafetyIdentity = z.infer<typeof safetyIdentitySchema>;

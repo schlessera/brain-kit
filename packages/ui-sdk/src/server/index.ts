@@ -5,6 +5,7 @@ export type {
   InputSafetyAdmissionCheck,
   InputSafetyDispatchTicket,
   InputSafetyOutputStatus,
+  ToolDispatchAdmission,
   BackendActivityEvent,
   ActivityQuery,
   ActivityQueryResult,
@@ -30,12 +31,11 @@ export type {
 export {
   BackendBusyError,
   BackendRequestError,
-  SUBSCRIPTION_AUTH_INSTRUCTIONS,
-  SUBSCRIPTION_RELOGIN_PROCEDURE,
+  admitToolDispatch,
   assertTurnPosture,
   isCompletedAutonomousToolCall,
-  subscriptionAuthAction,
 } from "./backend.js";
+export { SUBSCRIPTION_AUTH_INSTRUCTIONS, SUBSCRIPTION_RELOGIN_PROCEDURE, subscriptionAuthAction } from "../protocol.js";
 
 export type {
   BackendLogFn,
@@ -58,6 +58,8 @@ export { BackendProfileConfigError, defineBackendModule } from "./backend-module
 
 export type { ExecWrapperConfig, KillableProcess, WrappedKillOptions } from "./exec-wrapper.js";
 export { safeStartupTiming } from "./startup-timing.js";
+export { textOfParts, textParts } from "./content-text.js";
+export { autonomousYieldLatch, isSessionUuid, usageTokenCount } from "./turn-rules.js";
 export { killWrapped } from "./exec-wrapper.js";
 
 export { probeVersionCommand } from "./version-probe.js";

@@ -21,6 +21,7 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { WsHost } from "../src/ws/host.js";
 import { createTurnBudgets } from "../src/brain/turn-budgets.js";
 import { parseServerMessage } from "@schlessera/brain-ui-sdk/schemas";
+import { until } from "../../../tests/helpers/until";
 for (const adapter of ["claude", "pi"] as const)
   for (const mode of adapter === "claude" ? ["token", "usd", "sdk", "unavailable", "late"] : ["token", "usd"])
     test(`actual ${adapter} completed response crosses the host ${mode === "unavailable" ? "unavailable accounting" : mode === "sdk" ? "SDK backstop" : mode === "usd" ? "USD budget" : mode === "late" ? "USD budget in a commit that lands after the response" : "token fallback"} and stops with ${mode === "unavailable" ? "budget_unavailable" : "budget_exceeded"}, preserving partial work`, async () => {
@@ -130,12 +131,8 @@ for (const adapter of ["claude", "pi"] as const)
           expect(app.db.query("SELECT model FROM governance_events WHERE kind='budget_warning' AND turn_id=?").get(failure.turnId!), "MODEL_CONFIGURED_BUDGET_WARNING").toEqual({ model: adapter === "pi" ? "pi-runtime-main" : "configured-main" });
           app.db.query("INSERT INTO activity_run_rollups(run_id,origin,name,session_id,started_at,cost_usd,effective_cost_usd,input_tokens) VALUES('retained','session','invoke_agent','ithaca',?,4000,0,1)").run(Date.now());
           handlers.onMessage({ data: JSON.stringify({ type: "chat_message", sessionId: "ithaca", text: "Continue the return", requestId: "admission-request" }) } as MessageEvent, ws);
-          const until = Date.now() + 5000;
-          while (!frames().some(frame => frame.type === "error" && frame.requestId === "admission-request") || host.coordinator.isTurnActive()) {
-            if (Date.now() > until)
-              throw Error(JSON.stringify(frames()));
-            await Bun.sleep(5);
-          }
+          await until(() => frames().some(frame => frame.type === "error" && frame.requestId === "admission-request") && !host.coordinator.isTurnActive(),
+            () => JSON.stringify(frames()), 5000);
           expect(called, "BUDGET_RETAINED_ACTIVITY_REFUSES_BEFORE_BACKEND").toBe(1);
           expect(app.db.query("SELECT model FROM governance_events WHERE kind='budget_block' AND json_extract(payload,'$.stage')='admission' ORDER BY id DESC LIMIT 1").get(), "MODEL_CONFIGURED_ADMISSION_REFUSAL").toEqual({model: "configured-main"});
           expect(frames().findLast(frame => frame.type === "error")).toMatchObject({ failure: { errorClass: "budget_exceeded", budgetScope: "session" } });

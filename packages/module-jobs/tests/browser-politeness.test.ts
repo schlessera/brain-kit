@@ -1,12 +1,14 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tempDirs } from "../../../tests/helpers/temp";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import puppeteer, { type Browser } from "puppeteer-core";
 import { ScrapeClient } from "@schlessera/brain-scrape";
 import { BuiltInAdapter } from "../src/adapters/builtin.js";
 import { openDatabase } from "../src/db.js";
 import { runScrape } from "../src/scrape.js";
+
+const tempDir = tempDirs();
 
 const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH ?? [
   "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser",
@@ -33,7 +35,7 @@ describe.skipIf(!executablePath)("jobs-owned browser policy (real runner and Chr
 
   async function run(path: string, mixed: boolean) {
     hits = [];
-    const dir = mkdtempSync(join(tmpdir(), "jobs-browser-policy-"));
+    const dir = tempDir("jobs-browser-policy-");
     const saved = { url: process.env.SCRAPE_CHROME_URL, respect: process.env.SCRAPE_RESPECT_ROBOTS };
     process.env.SCRAPE_CHROME_URL = `http://127.0.0.1:${new URL(chrome.wsEndpoint()).port}`;
     // This legacy HTTP setting must not grant new blanket browser permission.
@@ -55,7 +57,6 @@ describe.skipIf(!executablePath)("jobs-owned browser policy (real runner and Chr
       route.mockRestore(); urls.mockRestore();
       if (saved.url === undefined) delete process.env.SCRAPE_CHROME_URL; else process.env.SCRAPE_CHROME_URL = saved.url;
       if (saved.respect === undefined) delete process.env.SCRAPE_RESPECT_ROBOTS; else process.env.SCRAPE_RESPECT_ROBOTS = saved.respect;
-      rmSync(dir, { recursive: true, force: true });
     }
   }
 

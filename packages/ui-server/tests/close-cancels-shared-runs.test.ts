@@ -10,7 +10,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, w
 import { tmpdir } from "os";
 import { join } from "path";
 import { createStaticBackendRegistry } from "../src/agent/backend";
-import { resolveServerConfig } from "../src/config/env";
+import { testServerConfig } from "./helpers/test-config";
 import { createRecordingObservability } from "../src/observability/index";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
@@ -58,7 +58,7 @@ ${afterMs === null ? "setInterval(() => {}, 1000);" : `await Bun.sleep(${afterMs
 
 async function appFor(root: string) {
   const app = await createApp({
-    config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: ":memory:", BRAIN_PATH: root, BRAIN_UI_PRICING_DISCOVERY: "0" }),
+    config: testServerConfig({ brain: root, db: ":memory:" }),
     observability: createRecordingObservability(),
     registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
   });

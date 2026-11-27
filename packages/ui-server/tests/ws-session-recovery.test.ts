@@ -38,6 +38,7 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 import { removeDbFile } from "./helpers/test-host";
 import { recoveryDeadline } from "./helpers/recovery-deadline";
 import { testAuthorization, testPrincipal } from "./helpers/principal";
+import { until } from "../../../tests/helpers/until";
 
 const QUESTIONS: AskUserQuestion[] = [{
   question: "Which harbour first?",
@@ -57,14 +58,6 @@ const FORM: AskUserFormSpec = {
   prompt: "Plan the crossing",
   nodes: [{ id: "course", kind: "single", prompt: "Which course?", options: [{ label: "Coast" }, { label: "Open sea" }] }],
 };
-
-async function until(cond: () => boolean, timeoutMs = 3000): Promise<void> {
-  const start = Date.now();
-  while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error("until: timed out");
-    await new Promise((r) => setTimeout(r, 2));
-  }
-}
 
 /** One turn the test drives: it holds until `finish`, and can raise interactions. */
 interface Turn {

@@ -7,6 +7,21 @@ import type {
   AgentBackend,
   BackendCapabilities,
 } from "@schlessera/brain-ui-sdk/server";
+import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+
+type ResultFrame = Extract<ServerMessage, { type: "result" }>;
+
+/**
+ * The terminal frame a scripted turn emits, in its current shape with
+ * `outcome` (#4836). An override set to `undefined` drops that key:
+ * `{ outcome: undefined }` keeps the older shape, which the host still reads
+ * through its own branch.
+ */
+export function resultFrame(sessionId: string, overrides: Partial<ResultFrame> = {}): ResultFrame {
+  const frame: ResultFrame = { type: "result", sessionId, outcome: "success", costUsd: 0, durationMs: 1, numTurns: 1, isError: false, ...overrides };
+  for (const [key, value] of Object.entries(overrides)) if (value === undefined) delete (frame as Partial<ResultFrame>)[key as keyof ResultFrame];
+  return frame;
+}
 
 const DEFAULT_CAPABILITIES: BackendCapabilities = {
   resume: true,

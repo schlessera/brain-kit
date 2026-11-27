@@ -1,23 +1,21 @@
 /** Opening jobs.db must not write, so WAL readers proceed while a writer holds the lock (#4809). */
 import { afterEach, expect, test } from "bun:test";
+import { tempDirs } from "../../../tests/helpers/temp";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../src/db";
 import { reviewJobs } from "../src/review-operation";
 import { ingestJobs } from "../src/scrape";
 
-const dirs: string[] = [];
+const tempDir = tempDirs();
+
 const handles: Database[] = [];
 afterEach(() => {
   for (const db of handles.splice(0)) db.close();
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 function seededRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), "jobs-open-lock-"));
-  dirs.push(root);
+  const root = tempDir("jobs-open-lock-");
   const db = openDatabase(join(root, "jobs.db"));
   try {
     ingestJobs(db, [
@@ -51,8 +49,7 @@ test("a fresh database holds exactly one metadata row, the schema version", () =
 });
 
 test("an existing database keeps its previously seeded threshold rows untouched", () => {
-  const root = mkdtempSync(join(tmpdir(), "jobs-open-lock-"));
-  dirs.push(root);
+  const root = tempDir("jobs-open-lock-");
   const path = join(root, "jobs.db");
   openDatabase(path).close();
   const legacy = new Database(path, { readwrite: true });

@@ -19,6 +19,7 @@ import { createSessionCatalog } from "../src/ws/session-catalog";
 import { BrainUiClient } from "@schlessera/brain-ui-sdk/client";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
+import { until } from "../../../tests/helpers/until";
 
 function fakeSocket(): WSContext & { frames: () => any[] } {
   const sent: string[] = [];
@@ -26,14 +27,6 @@ function fakeSocket(): WSContext & { frames: () => any[] } {
     send: (data: string) => sent.push(data),
     frames: () => sent.map((s) => JSON.parse(s)),
   } as WSContext & { frames: () => any[] };
-}
-
-async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
-  const start = Date.now();
-  while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error("until: timed out");
-    await new Promise((r) => setTimeout(r, 5));
-  }
 }
 
 let cleanup: (() => void) | null = null;
