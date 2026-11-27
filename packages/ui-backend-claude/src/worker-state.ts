@@ -253,7 +253,7 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
       if (options.resume && transcripts.length > 0) observation = { usedBytes: total, allowanceBytes: allowance, observedAt: Date.now() };
     },
     /**
-     * `rewrite` observes this turn’s answer links for promotion. All transcript
+     * `prepare` observes this turn’s answer links for promotion. All transcript
      * bytes stay exactly as the runtime wrote them (#2049).
      */
     async prepareCopyOut(root, prepare, signal) {
@@ -264,9 +264,7 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
         if (!isSessionId(id) || (id !== options.resume && existing.has(id))) continue;
         const name = `${project}/${file}`, bytes = regular(join(root, name), allowance);
         const prefix = initial.has(name) ? { length: initialLength.get(name)!, hash: initial.get(name)! } : undefined;
-        const texts: string[] = [];
-        rewriteAppendedAnswers(bytes, prefix, text => { texts.push(text); return text; });
-        for (const text of texts) { signal?.throwIfAborted(); await prepare(text); }
+        for (const { text } of appendedAnswerTexts(bytes, prefix)) { signal?.throwIfAborted(); await prepare(text); }
       }
     },
     persist(root, rewrite, memory) {
@@ -300,11 +298,10 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
         // belongs to host metadata; copy out the exact runtime bytes.
         if (rewrite && !file.includes("/")) {
           const display = sessionReplay(saved, brain, id);
-          rewriteAppendedAnswers(read, prefix, (text, messageId, part) => {
+          for (const { messageId, part, text } of appendedAnswerTexts(read, prefix)) {
             const next = rewrite(text);
-            if (messageId !== undefined) display.retainText(messageId, part!, text, next);
-            return text;
-          });
+            if (messageId !== undefined) display.retainText(messageId, part, text, next);
+          }
         }
         const bytes = read;
         if (initial.get(name) === hash(bytes)) continue;
@@ -349,29 +346,22 @@ export function workerStateLimit(limits: WorkerStateLimits): WorkerNoteLimit {
 }
 
 /**
- * The transcript with the answer text of the lines appended after `prefix`
- * passed through `rewrite` (#1655). A transcript whose saved prefix changed is
- * returned as it is: nothing but this run's own lines may be rewritten.
+ * The assistant text parts of the lines appended after `prefix`, in order
+ * (#1655). A transcript whose saved prefix changed yields none: only this
+ * run's own lines are observed. It reads; it never returns transcript bytes (#4688).
  */
-export function rewriteAppendedAnswers(bytes: Buffer, prefix: { length: number; hash: string } | undefined,
-  rewrite: (text: string, messageId?: string, part?: number) => string): Buffer {
+export function appendedAnswerTexts(bytes: Buffer, prefix: { length: number; hash: string } | undefined): { messageId?: string; part: number; text: string }[] {
   const start = prefix?.length ?? 0;
-  if (prefix && (bytes.length < start || hash(bytes.subarray(0, start)) !== prefix.hash)) return bytes;
-  let changed = false;
-  const lines = bytes.subarray(start).toString("utf8").split("\n").map(line => {
-    if (!line.includes("\"assistant\"")) return line;
+  if (prefix && (bytes.length < start || hash(bytes.subarray(0, start)) !== prefix.hash)) return [];
+  const texts: { messageId?: string; part: number; text: string }[] = [];
+  for (const line of bytes.subarray(start).toString("utf8").split("\n")) {
+    if (!line.includes("\"assistant\"")) continue;
     let record: { type?: unknown; uuid?: string; message?: { content?: unknown } };
-    try { record = JSON.parse(line); } catch { return line; }
-    if (record?.type !== "assistant" || !Array.isArray(record.message?.content)) return line;
-    let touched = false;
-    for (const [index, part] of (record.message.content as Array<{ type?: unknown; text?: unknown }>).entries()) {
-      if (part?.type !== "text" || typeof part.text !== "string") continue;
-      const next = rewrite(part.text, record.uuid, index);
-      if (next !== part.text) { part.text = next; touched = true; }
+    try { record = JSON.parse(line); } catch { continue; }
+    if (record?.type !== "assistant" || !Array.isArray(record.message?.content)) continue;
+    for (const [part, content] of (record.message.content as Array<{ type?: unknown; text?: unknown }>).entries()) {
+      if (content?.type === "text" && typeof content.text === "string") texts.push({ messageId: record.uuid, part, text: content.text });
     }
-    if (!touched) return line;
-    changed = true;
-    return JSON.stringify(record);
-  });
-  return changed ? Buffer.concat([bytes.subarray(0, start), Buffer.from(lines.join("\n"))]) : bytes;
+  }
+  return texts;
 }

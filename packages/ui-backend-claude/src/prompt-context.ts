@@ -54,13 +54,18 @@ export function acknowledgeClaudeContext(brainPath: string, sessionId: string, o
   const path = join(root, project, `${sessionId}.jsonl`);
   if (!existsSync(path)) return;
   const lines = regular(path, 64 * 1024 * 1024).toString("utf8").split("\n");
-  for (const line of lines) {
-    if (!line) continue;
-    const entry = JSON.parse(line);
-    if (entry.type !== "user" || entry.uuid !== owned.id) continue;
+  // The owned entry was appended by this turn: walk back from the end and parse
+  // only lines naming its id. An unparsable candidate is skipped, not thrown:
+  // leaving the turn unacknowledged only repeats facts on the next prompt.
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index]!;
+    if (!line.includes(owned.id)) continue;
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    if (entry?.type !== "user" || entry.uuid !== owned.id) continue;
     const content = entry.message?.content;
     const text = typeof content === "string" ? content : Array.isArray(content)
       ? content.filter((part: any) => part.type === "text").map((part: any) => part.text).join("") : undefined;
-    if (text === owned.text) claudePromptContext(brainPath, sessionId).acknowledge(owned.id);
+    if (text === owned.text) { claudePromptContext(brainPath, sessionId).acknowledge(owned.id); return; }
   }
 }

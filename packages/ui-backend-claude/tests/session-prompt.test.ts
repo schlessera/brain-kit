@@ -3,6 +3,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { installTestHome } from "../../../scripts/test-home.js";
+import { createClaudeSdkTurn } from "../src/sdk-options.js";
 const root = resolve(import.meta.dir, "../../..");
 for (const snapshot of ["snapshot-on", "snapshot-off"]) test(`resumed real Claude requests retain system and prior bytes with ${snapshot} while changed facts use owned new-tail context`, async () => {
   const scratch = mkdtempSync(join(tmpdir(), "claude-session-prefix-"));
@@ -46,3 +48,34 @@ for (const snapshot of ["snapshot-on", "snapshot-off"]) test(`resumed real Claud
     expect(history.filter((entry: any) => entry.role === "user").map((entry: any) => entry.content), "CLAUDE_OWNED_REPLAY_USER_TEXT").toEqual(original);
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }, 180000);
+
+// Keyless: the prepared user message carries the capabilities fact; no runtime starts (#4719).
+test("the capabilities fact reports the GitHub, Apify, attachment and turn-temp handlers pi reports", async () => {
+  const home = installTestHome(), brain = mkdtempSync(join(tmpdir(), "claude-capabilities-"));
+  const handler = async () => ({}) as never;
+  const facts = async (bridge: Record<string, unknown>) => {
+    const turn = createClaudeSdkTurn({ backend: { brainPath: brain },
+      req: { prompt: "Odysseus asks which tools are at hand.", client: { formFactor: "phone", viewportWidth: 390 }, bridge: { emit() {}, ...bridge } } as never,
+      profile: { requiredEnvKeys: [], buildEnv: () => ({}) } as never,
+      abortController: new AbortController(), allowedTools: [], confirmPatterns: [],
+      turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
+    });
+    try {
+      if (typeof turn.prompt === "string") throw new Error("Expected an owned SDK user message");
+      let text = "";
+      for await (const message of turn.prompt) {
+        const content = message.message.content;
+        text = typeof content === "string" ? content : content.map(part => part.type === "text" ? part.text : "").join("");
+      }
+      return JSON.parse(text.split("\n").find(line => line.startsWith("capabilities: "))!.slice("capabilities: ".length));
+    } finally { await turn.finishWorker(); }
+  };
+  try {
+    const without = await facts({});
+    expect({ github: without.github, apify: without.apify, attachments: without.attachments }, "MISSING_HANDLERS_REPORTED").toEqual({ github: false, apify: false, attachments: false });
+    expect(typeof without.turnTemp).toBe("boolean");
+    const withHandlers = await facts({ github: handler, apify: handler, readAttachment: handler });
+    expect({ github: withHandlers.github, apify: withHandlers.apify, attachments: withHandlers.attachments }, "PRESENT_HANDLERS_REPORTED").toEqual({ github: true, apify: true, attachments: true });
+    expect(Object.keys(withHandlers).slice(-4), "NEW_KEYS_FOLLOW_EXISTING_ORDER").toEqual(["apify", "attachments", "github", "turnTemp"]);
+  } finally { rmSync(brain, { recursive: true, force: true }); home.dispose(); }
+});

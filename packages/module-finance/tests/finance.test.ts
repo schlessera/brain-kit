@@ -10,6 +10,7 @@ import type { LoadedModule } from "@schlessera/brain";
 import manifest, { configSchema } from "../src/module";
 import {
   buildPortfolio,
+  checkSync,
   computeClient,
   loadLedgers,
   renderLedgerTables,
@@ -196,6 +197,37 @@ describe("the generated region (#403)", () => {
       expect(syncFiles(opts, AS_OF).files).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("sync and its hygiene check share one plan (#4718)", () => {
+  /** Fixtures synced once, then one ledger's and the dashboard's regions made stale. */
+  function staleCopy(): string {
+    const root = mkdtempSync(join(tmpdir(), "finance-plan-"));
+    cpSync(resolve(import.meta.dir, "fixtures"), root, { recursive: true });
+    writeFileSync(join(root, "clients/_index.md"), "---\ntitle: Clients\ntype: index\n---\n\n# Clients\n");
+    syncFiles({ ...OPTS, root }, AS_OF);
+    for (const path of ["clients/ithaca-shipwrights/ledger.md", "clients/_index.md"]) {
+      const file = join(root, path);
+      const source = readFileSync(file, "utf8");
+      const stale = source.replace(/(<!-- brain:generated:[a-z-]+ -->)[\s\S]*?(<!-- \/brain:generated:)/, "$1\nstale\n$2");
+      expect(stale).not.toBe(source);
+      writeFileSync(file, stale);
+    }
+    return root;
+  }
+
+  test("checkSync lists exactly what syncFiles writes, and nothing after it", () => {
+    const expected = ["clients/ithaca-shipwrights/ledger.md", "clients/_index.md"];
+    const checked = staleCopy(), synced = staleCopy();
+    try {
+      expect(checkSync({ ...OPTS, root: checked }, AS_OF)).toEqual(expected);
+      expect(syncFiles({ ...OPTS, root: synced }, AS_OF).files).toEqual(expected);
+      expect(checkSync({ ...OPTS, root: synced }, AS_OF)).toEqual([]);
+    } finally {
+      rmSync(checked, { recursive: true, force: true });
+      rmSync(synced, { recursive: true, force: true });
     }
   });
 });

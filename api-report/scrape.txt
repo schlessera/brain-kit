@@ -196,6 +196,10 @@ signatures (every public export and the types it is made of)
         maxRedirects?: number;
         addressPolicy?: AddressPolicy;
         lookup?: AddressLookup;
+        maxAgeMs?: number;
+        failureMaxAgeMs?: number;
+        maxEntries?: number;
+        now?: () => number;
     }
   RobotsDisallowedError (packages/scrape/src/politeness/robots.ts)
     export class RobotsDisallowedError extends Error {

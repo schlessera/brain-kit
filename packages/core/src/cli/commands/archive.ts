@@ -1,8 +1,5 @@
-import type { Database } from "bun:sqlite";
-
-import { archiveDocument } from "../../lib/archiver.js";
+import { archiveWithReindex } from "../../lib/ops/write.js";
 import { brainRelativeArgument } from "../../lib/safe-path.js";
-import { indexAll } from "../../lib/indexer.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 
@@ -20,24 +17,12 @@ export const archiveCommand: CoreCommand = {
       throw new UsageError("Usage: brain archive <path> [--dry-run]");
     }
 
-    const dryRun = flags["dry-run"] === true;
-    // Reindex hook: archiveDocument opens its own db (fallback path) and calls
-    // this with it, so the archiver stays decoupled from the indexer.
-    const reindex = dryRun
-      ? undefined
-      : (db: Database) =>
-          indexAll(db, {
-            root: cli.brain.root,
-            taxonomy: cli.brain.taxonomy,
-            force: false,
-            quiet: true,
-          });
-
-    const result = await archiveDocument(cli.brain.root, relPath, {
-      dryRun,
-      reindex,
-      embeddingDimensions: embeddingDims(cli.embeddings),
-    });
+    // No db: the archiver opens its own handle with the configured width and
+    // migrates the vector schema before it reindexes.
+    const result = await archiveWithReindex(
+      { root: cli.brain.root, taxonomy: cli.brain.taxonomy, embeddingDimensions: embeddingDims(cli.embeddings) },
+      { path: relPath, dryRun: flags["dry-run"] === true }
+    );
 
     emit(cli.json, result, () => {
       const prefix = result.dryRun ? "Would archive" : "Archived";
