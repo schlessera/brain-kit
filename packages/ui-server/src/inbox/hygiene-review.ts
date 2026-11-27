@@ -11,7 +11,7 @@ import { hygieneEffectSchema, hygieneInputSchema, hygieneMediaPlanSchema, hygien
 import type { MediaEffects } from "./media-effects.js";
 import type { BrainClient } from "../brain/client.js";
 import type { ReferenceWorktreeHygiene } from "../brain/reference-worktree-hygiene.js";
-import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
+import { isHumanOwner, isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxResolver } from "./resolve.js";
 import { createInboxStore } from "./store.js";
 import { MAX_WS_MESSAGE_BYTES } from "../ws/shrink.js";
@@ -46,7 +46,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   let scanning: { principalId: string; controller: AbortController } | null = null;
   function authority(principalId: string) {
     const p = resolvePrincipal(db, principalId);
-    if (!p || !isUsablePrincipal(p, now()) || !["owner", "ambient"].includes(p.kind)) throw new HygieneAuthorityError("Human review authority is required");
+    if (!p || !isUsablePrincipal(p, now()) || !isHumanOwner(p)) throw new HygieneAuthorityError("Human review authority is required");
   }
   /**
    * The review's one backlog: the CLI's Markdown findings and the host's

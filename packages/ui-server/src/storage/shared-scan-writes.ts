@@ -2,7 +2,7 @@
 import type { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { processAlive } from "../brain/writer-gate.js";
-import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
+import { isHumanOwner, isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { bucket, type Source } from "./history-model.js";
 export const url = import.meta.url;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -29,7 +29,7 @@ export function results(row: Row): Result[] {
 }
 export function setup(db: Database, { brain, self: SELF }: { brain: string; self: { pid: number; start: string } }, authorized = (id: string) => {
   const principal = resolvePrincipal(db, id);
-  return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now());
+  return !!principal && isHumanOwner(principal) && isUsablePrincipal(principal, Date.now());
 }) {
   const row = () => db.query("SELECT * FROM storage_scan_leases WHERE brain = ?").get(brain) as Row | null;
   function authorize(principal: string) { if (!authorized(principal)) throw Error("storage-scan-owner-revoked"); }

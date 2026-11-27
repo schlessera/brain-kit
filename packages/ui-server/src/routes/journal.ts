@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { readJsonBody } from "../middleware/body-limit.js";
 import type { AppEnv } from "../app-env.js";
+import { isHumanOwner } from "../db/principals.js";
 import type { CodeChangeHistory } from "../brain/code-change-history.js";
 import type { TurnJournal } from "../brain/turn-journal.js";
 
@@ -22,7 +23,7 @@ export function createJournalRoutes({ journal, codeHistory }: { journal: TurnJou
     .get("/sessions/:sessionId/turns/:turnId/journal/code/preview", async c => {
       c.header("Cache-Control", "private, no-store");
       const principal = c.get("principal");
-      if (!principal || !["owner", "ambient"].includes(principal.kind)) return c.json({ error: "Owner authorization required." }, 403);
+      if (!principal || !isHumanOwner(principal)) return c.json({ error: "Owner authorization required." }, 403);
       const checkout = c.req.query("checkout");
       if (!checkout) return c.json({ error: "Choose a checkout receipt." }, 400);
       try { return c.json(await journal.codePreview(c.req.param("sessionId"), c.req.param("turnId"), checkout)); }
@@ -31,14 +32,14 @@ export function createJournalRoutes({ journal, codeHistory }: { journal: TurnJou
     .get("/sessions/:sessionId/turns/:turnId/journal/code/revert/:id", c => {
       c.header("Cache-Control", "private, no-store");
       const principal = c.get("principal");
-      if (!principal || !["owner", "ambient"].includes(principal.kind)) return c.json({ error: "Owner authorization required." }, 403);
+      if (!principal || !isHumanOwner(principal)) return c.json({ error: "Owner authorization required." }, 403);
       const result = codeHistory?.read(c.req.param("id"), principal.id, c.req.param("sessionId"), c.req.param("turnId"));
       return result ? c.json(result) : c.json({ error: "No such code history operation." }, 404);
     })
     .post("/sessions/:sessionId/turns/:turnId/journal/code/revert", async c => {
       c.header("Cache-Control", "private, no-store");
       const principal = c.get("principal");
-      if (!principal || !["owner", "ambient"].includes(principal.kind)) return c.json({ error: "Owner authorization required." }, 403);
+      if (!principal || !isHumanOwner(principal)) return c.json({ error: "Owner authorization required." }, 403);
       let request: unknown;
       try { request = await readJsonBody(c); } catch { return c.json({ error: "Invalid code history selection." }, 400); }
       if (request instanceof Response) return request;

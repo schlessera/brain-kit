@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { AppEnv } from "../app-env.js";
+import { isHumanOwner } from "../db/principals.js";
 import { getDictationSettings } from "../db/settings.js";
 import type { SettingsWrites } from "../db/settings-writes.js";
 import { Hono } from "hono";
@@ -45,7 +46,7 @@ export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono<AppEnv> {
     .put("/voice/dictation/settings", async (c) => {
       c.header("Cache-Control", "no-store");
       const principal = c.get("principal");
-      if (principal?.kind !== "owner" && principal?.kind !== "ambient") return c.json({ error: "owner_required" }, 403);
+      if (!isHumanOwner(principal)) return c.json({ error: "owner_required" }, 403);
       const match = c.req.header("If-Match");
       if (match === undefined) return c.json({ error: "dictation_settings_stale", message: "If-Match is required.", current: getDictationSettings(db) }, 428);
       const body = await readJsonBody<any>(c).catch(() => null);

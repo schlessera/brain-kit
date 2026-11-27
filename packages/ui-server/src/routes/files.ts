@@ -5,7 +5,7 @@ import type { Database } from "bun:sqlite";
 import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import type { AppEnv } from "../app-env.js";
 import { readJsonBody } from "../middleware/body-limit.js";
-import type { Principal } from "../db/principals.js";
+import { isHumanOwner, type Principal } from "../db/principals.js";
 import { getUntrustedMark, listUntrustedMarks, markKey, type UntrustedMark } from "../files/untrusted-marks.js";
 import { createUntrustedMarkWrites } from "../files/untrusted-mark-writes.js";
 import type { SqliteWriter } from "../db/write-worker.js";
@@ -143,9 +143,6 @@ async function rangeResponse(
  * the storage and history routes use. Every other authenticated principal is
  * a reader.
  */
-function isHumanOwner(principal: Principal | undefined): boolean {
-  return principal !== undefined && (principal.kind === "owner" || principal.kind === "ambient");
-}
 
 /**
  * Whether `path` names a file this request may read: the `GET /files/content`

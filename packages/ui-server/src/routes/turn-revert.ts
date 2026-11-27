@@ -1,18 +1,13 @@
 import { Hono } from "hono";
 import { readJsonBody } from "../middleware/body-limit.js";
+import { requireHumanOwner } from "../middleware/require-owner.js";
 import type { AppEnv } from "../app-env.js";
 import type { TurnRevertRequest, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { RevertUnavailable, type TurnReverts } from "../brain/turn-revert.js";
 /** Only a current authenticated human principal can start or reconcile a history effect. */
 export function createTurnRevertRoutes(reverts: TurnReverts): Hono<AppEnv> {
   const routes = new Hono<AppEnv>();
-  routes.use("/sessions/:sessionId/turns/:turnId/revert*", async (c, next) => {
-    c.header("Cache-Control", "private, no-store");
-    const principal = c.get("principal");
-    if (!principal) return c.json({ error: "Authentication required." }, 401);
-    if (!["owner", "ambient"].includes(principal.kind)) return c.json({ error: "User history action unavailable." }, 403);
-    await next();
-  });
+  routes.use("/sessions/:sessionId/turns/:turnId/revert*", requireHumanOwner("User history action unavailable."));
   routes.get("/sessions/:sessionId/turns/:turnId/revert/plan", c => {
     const action = c.req.query("action") ?? "revert";
     if (!["revert", "restore"].includes(action)) return c.json({error:"Invalid history action."},400);

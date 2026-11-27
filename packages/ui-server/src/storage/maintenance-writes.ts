@@ -1,7 +1,7 @@
 /** Maintenance receipt writes on the shared FULL write connection. */
 import type { Database } from "bun:sqlite";
 import type { StorageMaintenanceReceipt } from "@schlessera/brain-ui-sdk/protocol";
-import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
+import { isHumanOwner, isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { StorageUnavailable } from "./coordinator.js";
 import { STORAGE_MAINTENANCE_LIMITS } from "./maintenance.js";
 import { recordStorageEvent } from "./events.js";
@@ -9,7 +9,7 @@ import { hashScope } from "./history-model.js";
 export const url = import.meta.url;
 export function setup(db: Database, { brain, self: SELF }: { brain: string; self: { pid: number; start: string } }, authorized = (id: string) => {
   const principal = resolvePrincipal(db, id);
-  return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now());
+  return !!principal && isHumanOwner(principal) && isUsablePrincipal(principal, Date.now());
 }) {
   const authorize = (principal: string) => { if (!authorized(principal)) throw new StorageUnavailable(403, "Storage maintenance requires current human-owner access."); };
   // The events timeline keys brains like the history does.
