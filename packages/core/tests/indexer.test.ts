@@ -5,8 +5,10 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
+  symlinkSync,
   unlinkSync,
   utimesSync,
   writeFileSync,
@@ -15,7 +17,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 
 import { chunkContextKey, forgetCachedEnrichment, getAssetFiles, indexAll, type IndexStats } from "../src/lib/indexer";
-import { loadAssetCache, loadContextCache } from "../src/lib/indexer/caches";
+import { forgetAssetEntries, loadAssetCache, loadContextCache, pruneSidecarCaches } from "../src/lib/indexer/caches";
 import { JOURNAL_SIZE_LIMIT_BYTES, openDatabase, migrateVecSchema } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { collectStats } from "../src/lib/stats";
@@ -221,6 +223,27 @@ function sidecarLines(root: string, file: string): string[] {
 }
 
 describe("incremental indexing (default mode)", () => {
+  test("stats.deleted counts a removed note, a removed asset, and nothing a --force wipe already removed", async () => {
+    const root = makeCorpus({
+      "notes/alpha.md": md("Alpha", "alpha body"),
+      "notes/beta.md": md("Beta", "beta body"),
+      "notes/gamma.md": md("Gamma", "gamma body"),
+      "assets/logo.png": FAKE_PNG,
+      "assets/chart.png": Buffer.concat([FAKE_PNG, Buffer.from([0x01])]),
+    });
+    await runIndex(root, withEnrichment());
+    unlinkSync(join(root, "notes/alpha.md"));
+    expect((await runIndex(root)).deleted).toBe(1);
+    unlinkSync(join(root, "assets/logo.png"));
+    expect((await runIndex(root)).deleted).toBe(1);
+    unlinkSync(join(root, "notes/beta.md"));
+    expect((await runIndex(root, { force: true })).deleted).toBe(0);
+    const db = await openRead(root);
+    const paths = db.prepare("SELECT path FROM documents ORDER BY path").all();
+    db.close();
+    expect(paths).toEqual([{ path: "assets/chart.png" }, { path: "notes/gamma.md" }]);
+  });
+
   test("second run reports everything unchanged and keeps row ids stable", async () => {
     const root = makeCorpus({
       "notes/alpha.md": md("Alpha", "quixotic content about zeppelins"),
@@ -1119,6 +1142,117 @@ describe("sidecar cache pruning", () => {
     writeCacheFile(cachePath, "not json at all\n");
     await runIndex(root);
     expect(readFileSync(cachePath, "utf-8")).toContain("not json at all");
+  });
+
+  test("a brain with no context cache scans no chunk to prune it", async () => {
+    const root = makeCorpus({ "note.md": mdSections("Note", ["zeppelin", "blimp"]) });
+    await runIndex(root);
+    expect(existsSync(join(root, ".brain-cache/contexts.jsonl"))).toBe(false);
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    const statements: string[] = [];
+    const { prepare, query } = db;
+    db.prepare = ((sql: string, ...rest: unknown[]) => {
+      statements.push(sql);
+      return (prepare as (...args: unknown[]) => unknown).call(db, sql, ...rest);
+    }) as typeof db.prepare;
+    db.query = ((sql: string) => {
+      statements.push(sql);
+      return query.call(db, sql);
+    }) as typeof db.query;
+    const warnings: string[] = [];
+    const chunkScans: string[][] = [];
+    try {
+      expect(db.prepare("SELECT COUNT(*) AS n FROM chunks").get()).toEqual({ n: 2 });
+      // No file at all, then a file that holds no entry.
+      for (const text of [null, "\n"]) {
+        if (text !== null) writeCacheFile(join(root, ".brain-cache/contexts.jsonl"), text);
+        statements.length = 0;
+        expect(pruneSidecarCaches(db, root, (m) => warnings.push(m))).toEqual({ assets: 0, contexts: 0 });
+        chunkScans.push(statements.filter((sql) => /\bfrom\s+chunks\b/i.test(sql)));
+      }
+    } finally {
+      db.prepare = prepare;
+      db.query = query;
+      db.close();
+    }
+    expect(warnings).toEqual([]);
+    expect(chunkScans).toEqual([[], []]);
+    expect(readFileSync(join(root, ".brain-cache/contexts.jsonl"), "utf-8")).toBe("\n");
+  });
+
+  test("context lines of a deleted document and an edited section go; renamed and untouched ones stay", async () => {
+    const root = makeCorpus({
+      "notes/gone.md": mdSections("Gone", ["zeppelin", "airship"]),
+      "notes/moved.md": mdSections("Moved", ["blimp", "dirigible"]),
+      "notes/edited.md": mdSections("Edited", ["glider", "kite"]),
+      "notes/kept.md": mdSections("Kept", ["balloon", "parachute"]),
+    });
+    await runIndex(root, withEnrichment());
+    const db = await openRead(root);
+    const keys = db
+      .prepare("SELECT d.path, d.title, c.heading, c.content FROM chunks c JOIN documents d ON d.id = c.document_id ORDER BY d.path, c.heading")
+      .all() as { path: string; title: string; heading: string; content: string }[];
+    db.close();
+    const keyOf = (path: string, heading: string) => {
+      const row = keys.find((r) => r.path === path && r.heading === heading)!;
+      return chunkContextKey(row.title, row.heading, row.content);
+    };
+    const before = readContextCache(root);
+    expect(before.length).toBe(8);
+    const dropped = new Set([
+      keyOf("notes/gone.md", "About zeppelin"), keyOf("notes/gone.md", "About airship"), keyOf("notes/edited.md", "About kite"),
+    ]);
+
+    unlinkSync(join(root, "notes/gone.md"));
+    renameSync(join(root, "notes/moved.md"), join(root, "notes/relocated.md"));
+    writeFileSync(
+      join(root, "notes/edited.md"),
+      mdSections("Edited", ["glider", "kite"]).replace("kite ".repeat(120).trim(), "kite ".repeat(119) + "string")
+    );
+    const stats = await runIndex(root);
+    expect(stats.deleted).toBe(2);
+    expect(readContextCache(root)).toEqual(before.filter((e) => !dropped.has(e.k)));
+  });
+
+  test("a line whose key is not a string is left alone and does not stop the prune", async () => {
+    const root = makeCorpus({ "note.md": mdSections("Note", ["oar", "mast"]), "assets/logo.png": FAKE_PNG });
+    await runIndex(root, withEnrichment());
+    const assets = join(root, ".brain-cache/assets.jsonl");
+    const contexts = join(root, ".brain-cache/contexts.jsonl");
+    const odd = JSON.stringify({ k: 7, v: "a key that is a number" });
+    const liveAssets = sidecarLines(root, ".brain-cache/assets.jsonl");
+    const liveContexts = sidecarLines(root, ".brain-cache/contexts.jsonl");
+    writeCacheFile(assets, [...liveAssets, odd, JSON.stringify({ k: "deadbeef:Gone", v: "stale" })].sort().join("\n") + "\n");
+    writeCacheFile(contexts, [...liveContexts, JSON.stringify({ k: "stale-context", v: "stale" })].sort().join("\n") + "\n");
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    const warnings: string[] = [];
+    try {
+      expect(pruneSidecarCaches(db, root, (m) => warnings.push(m))).toEqual({ assets: 1, contexts: 1 });
+    } finally {
+      db.close();
+    }
+    expect(warnings).toEqual([]);
+    expect(sidecarLines(root, ".brain-cache/assets.jsonl")).toEqual([...liveAssets, odd].sort());
+    expect(sidecarLines(root, ".brain-cache/contexts.jsonl")).toEqual(liveContexts);
+    expect(forgetAssetEntries(root, "deadbeef")).toBe(0);
+    expect(sidecarLines(root, ".brain-cache/assets.jsonl")).toEqual([...liveAssets, odd].sort());
+  });
+
+  test("a linked cache directory still refuses pruning when no cache file exists", async () => {
+    const root = makeCorpus({ "note.md": md("Note", "Body text.") });
+    await runIndex(root);
+    const elsewhere = mkdtempSync(join(tmpdir(), "brain-kit-indexer-linked-cache-"));
+    fixtures.push(elsewhere);
+    rmSync(join(root, ".brain-cache"), { recursive: true, force: true });
+    symlinkSync(elsewhere, join(root, ".brain-cache"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    const warnings: string[] = [];
+    try {
+      pruneSidecarCaches(db, root, (m) => warnings.push(m), { assets: false });
+    } finally {
+      db.close();
+    }
+    expect(warnings).toEqual(["  Could not prune sidecar caches: .brain-cache in the brain root is not a directory"]);
   });
 });
 
