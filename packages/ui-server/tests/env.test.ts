@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 
 import { ENV_VARS, resolveCronConfig, resolveServerConfig, resolveStandalonePricingConfig, subprocessEnv } from "../src/config/env";
 
@@ -83,6 +84,14 @@ describe("config/env resolveCronConfig", () => {
     expect(config.pricing.brainPath).toBe(config.brainPath);
     // Only the brain path is the cron's own; the switch and TTL stay the standalone resolver's.
     expect(config.pricing).toEqual({ ...resolveStandalonePricingConfig(env), brainPath: "/data/brain" });
+  });
+
+  test("the cron bin prices a gated job's relay budget from its resolved CronConfig", () => {
+    // Structural: the bin's relay budget cannot be built without a gated job on
+    // the container paths, so pin the one call that decides its brain (#4761).
+    const bin = readFileSync(new URL("../src/bin/brain-ui-cron.ts", import.meta.url), "utf8");
+    expect(bin).toContain("createModelPricing(config.pricing)");
+    expect(bin).not.toContain("resolveStandalonePricingConfig");
   });
 
   test("prices relay spend from BRAIN_PATH when it is set", () => {
