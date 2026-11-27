@@ -102,11 +102,18 @@ describe("verifyPrivateSocketDirectory", () => {
     });
   }
 
-  // Ownership rows need a group other than the process's own: root can choose
-  // one, an ordinary user only one of its supplementary groups. Elsewhere they
-  // are not exercised.
-  const otherGroup = process.getuid?.() === 0 ? (process.getgid!() + 1)
-    : process.getgroups?.().find(group => group !== process.getgid?.());
+  // Ownership rows need a group other than the process's own that this
+  // process may actually assign: root can choose one, an ordinary user only a
+  // supplementary group its user namespace maps. Elsewhere they are not
+  // exercised.
+  const otherGroup = (() => {
+    const candidates = process.getuid?.() === 0 ? [process.getgid!() + 1]
+      : (process.getgroups?.() ?? []).filter(group => group !== process.getgid?.());
+    const probe = mkdtempSync(join(tmpdir(), "private-socket-group-"));
+    try {
+      return candidates.find(group => { try { chownSync(probe, -1, group); return true; } catch { return false; } });
+    } finally { rmSync(probe, { recursive: true, force: true }); }
+  })();
   test.skipIf(otherGroup === undefined)("under a separate identity, refuses a directory or socket of another group", async () => {
     const directory = await layout(true);
     chownSync(directory.dir, -1, otherGroup!);
