@@ -9,6 +9,7 @@
  * factory must account for gog-internal retries before inferring non-delivery.
  */
 import type { GoogleError, GoogleErrorCode } from "../catalog.js";
+import { PRE_REQUEST_FAILURES } from "../pre-request.js";
 
 /** gog v0.48.1's exit codes, by the class name gog gives each. */
 export const GOG_EXIT_CODES = Object.freeze({
@@ -38,18 +39,8 @@ export function gogError(code: GoogleErrorCode, reason: string | null): GoogleEr
   return { code, reason, message: MESSAGES[code] };
 }
 
-/**
- * The code/reason pairs proven to end gog before any request reached Google.
- * `spawn_failed` is caught before a child exists (`runGogProcess`,
- * `packages/common/src/google/gog/runner.ts:94-108`). At gog 44364d31 a
- * missing credentials file is exit 10 before any HTTP (`GmailSendCmd.runRaw`,
- * `internal/cmd/gmail_send.go:259-292`; `stableExitCode`,
- * `internal/cmd/exit_codes.go:54-126`). Exit 2 is not here: gog's usage
- * errors are pre-request, but the Go runtime also exits 2 on an unrecovered
- * panic or fatal error, which can follow a request (gog re-panics,
- * `executeWithRuntime`, `internal/cmd/root.go:125-175`).
- */
-export const GOG_PRE_REQUEST_FAILURES: readonly string[] = Object.freeze(["transport_incompatible/spawn_failed", "unavailable/config"]);
+/** The code/reason pairs proven to end gog before any request reached Google, with their sources (`PRE_REQUEST_FAILURES`, `../pre-request.ts`). */
+export const GOG_PRE_REQUEST_FAILURES: readonly string[] = PRE_REQUEST_FAILURES;
 
 /** Whether this error is one of `GOG_PRE_REQUEST_FAILURES`: nothing reached Google. */
 export function isGogPreRequestFailure(error: Pick<GoogleError, "code" | "reason">): boolean {

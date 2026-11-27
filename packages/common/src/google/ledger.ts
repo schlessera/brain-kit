@@ -6,13 +6,13 @@ import { dirname, isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { GOOGLE_OPERATIONS, type GoogleOperation } from "./catalog.js";
-import { GOG_PRE_REQUEST_FAILURES } from "./gog/errors.js";
+import { PRE_REQUEST_FAILURES } from "./pre-request.js";
 
-// Only the pairs proven pre-request release a reservation (GOG_PRE_REQUEST_FAILURES,
+// Only the pairs proven pre-request release a reservation (PRE_REQUEST_FAILURES,
 // with its sources). HTTP refusals may follow an earlier accepted attempt
 // inside gog's retry transport, and exit 2 may be a crash after the request.
 // Never release an outcome_unknown code, even for a matching reason.
-const retryableSendCauses = GOG_PRE_REQUEST_FAILURES;
+const retryableSendCauses = PRE_REQUEST_FAILURES;
 const key = z.string().min(1).max(2048);
 const scopeSchema = z.strictObject({ principal_id: key, brain_id: key, account_identity: key });
 export interface GoogleApprovalScope { principal_id: string; brain_id: string; account_identity: string }
