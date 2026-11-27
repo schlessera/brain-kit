@@ -6,7 +6,6 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSy
 import { tmpdir } from "os";
 import { basename, join } from "path";
 
-import { loadAuditDocs } from "./auditor.js";
 import type { BrainContext } from "./context.js";
 import type { Database } from "bun:sqlite";
 import { hasDocumentsColumn, openDatabase } from "./db.js";
@@ -118,7 +117,7 @@ async function refreshProjection(projection: Projection, brain: BrainContext, pa
 
 async function detect(projection: Projection, brain: BrainContext, now: Date) {
   const detection = await detectCandidates(projection.db, brain, now);
-  return { ...detection, findings: canonicalFindings(detection.candidates), docs: new Map(loadAuditDocs(projection.db).map(d => [d.path, d])) };
+  return { ...detection, findings: canonicalFindings(detection.candidates), docs: new Map(detection.docs.map(d => [d.path, d])) };
 }
 type RepairDetection = Awaited<ReturnType<typeof detect>>;
 

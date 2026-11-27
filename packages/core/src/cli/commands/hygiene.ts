@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { relative, sep } from "path";
 
-import { audit, loadAuditDocs } from "../../lib/auditor.js";
+import { audit } from "../../lib/auditor.js";
 import { openDatabase } from "../../lib/db.js";
 import {
   canonicalFindings,
@@ -210,13 +210,13 @@ async function detectAndReconcile(cli: CliContext, opts: Omit<ReconcileOptions, 
   const db = openDatabase(cli.brain.dbPath);
   try {
     await indexAll(db, { root: cli.brain.root, taxonomy: cli.brain.taxonomy, force: false, quiet: true });
-    let { candidates, failedChecks, media } = await detectCandidates(db, cli.brain, opts.now);
+    let { candidates, failedChecks, media, docs: indexed } = await detectCandidates(db, cli.brain, opts.now);
     let propagation: PropagationReviewReport | undefined;
     if (!opts.dryRun && !opts.dispositions && !failedChecks.length && cli.brain.config?.hygiene?.propagation?.enabled === true) {
       propagation = await reviewPropagations(cli.brain, candidates.filter(c => c.category === "propagation").map(c => c.path), { now: opts.now });
-      if (propagation.changedFiles.length) ({ candidates, failedChecks, media } = await detectCandidates(db, cli.brain, opts.now));
+      if (propagation.changedFiles.length) ({ candidates, failedChecks, media, docs: indexed } = await detectCandidates(db, cli.brain, opts.now));
     }
-    const docs = new Map(loadAuditDocs(db).map((d) => [d.path, d]));
+    const docs = new Map(indexed.map((d) => [d.path, d]));
     const result = reconcile(cli.brain.root, candidates, docs, { ...opts, failedChecks, media: mediaPolicy(cli.brain.config) });
     if (propagation) {
       result.changedFiles = [...new Set([...result.changedFiles, ...propagation.changedFiles])];
