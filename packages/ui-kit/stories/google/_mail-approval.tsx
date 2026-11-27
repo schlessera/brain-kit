@@ -74,7 +74,7 @@ export async function holds(canvasElement: HTMLElement, width: "narrow" | "deskt
   await expect(containment(card, untrusted), "untrusted text is on screen, and only inside a field or text block").toEqual({ unguarded: [], guarded: untrusted });
 }
 
-/** A node's text as drawn: text as written, each hidden-character chip as its marker, gutter numbers and screen-reader words left out. */
+/** A node's text as drawn: text as written, each hidden-character chip as the marker it shows (never its `data-hidden-char`), gutter numbers and screen-reader words left out. */
 function drawnText(el: Element): string {
   let out = "";
   for (const child of el.childNodes) {
@@ -82,7 +82,7 @@ function drawnText(el: Element): string {
     if (child.nodeType !== Node.ELEMENT_NODE) continue;
     const e = child as Element;
     if (e.hasAttribute("data-line-number") || e.classList.contains("bk-sr-only")) continue;
-    out += e.hasAttribute("data-hidden-char") ? e.getAttribute("data-hidden-char")! : drawnText(e);
+    out += drawnText(e);
   }
   return out;
 }

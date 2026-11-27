@@ -34,10 +34,11 @@ function draw(element: ReactElement): Document {
 }
 
 /**
- * What a body container draws, read as text: each text node as written, each
- * hidden-character chip as its marker, the gutter's numbers and the screen
- * reader's words left out. It reads whatever the container holds, so a body
- * drawn some other way is read as it is drawn.
+ * What a body container draws, read as text: each text node as written, a
+ * hidden-character chip as the marker it shows (its visible child, never its
+ * `data-hidden-char`), the gutter's numbers and the screen reader's words left
+ * out. It reads whatever the container holds, so a body drawn some other way
+ * is read as it is drawn.
  */
 function drawnText(el: Element): string {
   let out = "";
@@ -46,7 +47,7 @@ function drawnText(el: Element): string {
     if (child.nodeType !== 1) continue;
     const e = child as Element;
     if (e.hasAttribute("data-line-number") || e.classList.contains("bk-sr-only")) continue;
-    out += e.hasAttribute("data-hidden-char") ? e.getAttribute("data-hidden-char")! : drawnText(e);
+    out += drawnText(e);
   }
   return out;
 }
@@ -443,6 +444,9 @@ const MARKUP = "strong, em, del, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, li,
 /** The assertions every drawn body makes, whatever card drew it. */
 function drawsAsSent(body: Element, drawn: string, lines: number) {
   expect(drawnBody(body)).toBe(drawn);
+  // Each chip shows the marker it is named for; the drawn text above read only what it shows.
+  const chips = [...body.querySelectorAll("[data-hidden-char]")];
+  expect(chips.map((chip) => drawnText(chip))).toEqual(chips.map((chip) => chip.getAttribute("data-hidden-char")));
   const rows = [...body.querySelectorAll("[data-google-body-line]")];
   expect(rows.map((row) => row.querySelector("[data-line-number]")?.textContent)).toEqual(Array.from({ length: lines }, (_, i) => String(i + 1)));
   // Each line keeps every space and tab: `break-spaces`, inline, on the element holding the line's text.
@@ -574,6 +578,64 @@ describe("the draft delete body, expanded", () => {
     expect(clamp.className, "the clamp is gone").toBe("");
     expect([...host.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Show whole draft");
     drawsAsSent(clamp, drawn, lines);
+  });
+});
+
+describe("the draft delete clamp, when its content grows", () => {
+  test("a line that re-wraps inside the fixed clamp offers Show whole draft", async () => {
+    const win = new Window();
+    const saved = new Map<string, PropertyDescriptor | undefined>();
+    const layout = new Map<string, PropertyDescriptor | undefined>();
+    const observers: { targets: Set<Element>; measure: () => void }[] = [];
+    class Watch {
+      targets = new Set<Element>();
+      constructor(readonly measure: () => void) { observers.push(this); }
+      observe(el: Element) { this.targets.add(el); }
+      unobserve(el: Element) { this.targets.delete(el); }
+      disconnect() { this.targets.clear(); }
+    }
+    for (const [key, value] of Object.entries({ window: win, document: win.document, navigator: win.navigator, HTMLElement: win.HTMLElement, ResizeObserver: Watch, IS_REACT_ACT_ENVIRONMENT: true })) {
+      saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+    }
+    // The clamp is a fixed six 18px rows (108px) and never resizes; only its content's height changes.
+    const proto = win.HTMLElement.prototype as unknown as object;
+    let content = 108;
+    for (const key of ["scrollHeight", "clientHeight"] as const) {
+      layout.set(key, Object.getOwnPropertyDescriptor(proto, key));
+      Object.defineProperty(proto, key, {
+        configurable: true,
+        get(this: Element) {
+          if (!this.hasAttribute("data-google-body-clamp")) return 0;
+          return key === "clientHeight" ? 108 : content;
+        },
+      });
+    }
+    const host = win.document.createElement("div") as unknown as HTMLElement;
+    win.document.body.appendChild(host as never);
+    const root = createRoot(host);
+    const offered = () => [...host.querySelectorAll("button")].some((b) => b.textContent === "Show whole draft");
+    try {
+      act(() => root.render(<GoogleMailApprovalCard operation="gmail.draft.delete" tainted={false} draftId={DRAFT_ID} message={withBody("Penelope,\n\nThe loom: unpick it at night.\nDay 1: the Great Bear.\nDay 2: the same.\nO.")} />));
+      const clamp = bodyOf(host);
+      expect(offered(), "six rows fit: nothing to show").toBe(false);
+      // A font load re-wraps one line: the content is seven rows, the clamp is still 108px.
+      content = 126;
+      const lines = clamp.firstElementChild!;
+      act(() => observers.filter((o) => o.targets.has(lines)).forEach((o) => o.measure()));
+      expect(clamp.hasAttribute("data-cut"), "the clamp measured the cut").toBe(true);
+      expect(offered(), "the hidden row can be read").toBe(true);
+    } finally {
+      act(() => root.unmount());
+      for (const [key, descriptor] of layout) {
+        if (descriptor) Object.defineProperty(proto, key, descriptor);
+        else Reflect.deleteProperty(proto, key);
+      }
+      for (const [key, descriptor] of saved) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+        else Reflect.deleteProperty(globalThis, key);
+      }
+    }
   });
 });
 

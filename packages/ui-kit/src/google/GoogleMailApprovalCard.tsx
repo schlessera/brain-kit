@@ -486,6 +486,8 @@ function ClampedBody({ body }: { body: string }) {
     if (typeof ResizeObserver === "undefined") return;
     const watch = new ResizeObserver(measure);
     watch.observe(el);
+    // The clamp's own box is fixed, so content that grows inside it (a font load re-wrapping a line) only shows on the content's box.
+    if (el.firstElementChild) watch.observe(el.firstElementChild);
     return () => watch.disconnect();
   }, [open, body]);
   return (
