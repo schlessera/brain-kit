@@ -6,7 +6,6 @@ import { describe, expect, test } from "bun:test";
 import {
   BAR_CAP,
   TREND_CAP,
-  VALUE_BUDGET,
   composeStatsAnswer,
   cost,
   judgedPair,
@@ -14,6 +13,16 @@ import {
   type StatsSection,
 } from "../src/lib/stats/compose-stats.js";
 import { actionableTrends, corpusStats, emptyRuntime, runtimeStats, statsHistory } from "./stats-fixtures.js";
+
+/**
+ * Characters a receipt value may take at 320px with `RECEIPT_KEY_WIDTH`:
+ * 24 on a plain row and 21 on a toned one, whose cue glyph takes three
+ * (measured at the default key width in
+ * `packages/ui-kit/tests/visual/receipt-value-budget.visual.tsx`: 28 and 25,
+ * less the 22px this column adds). One figure per row keeps every value
+ * inside it, so no number ever breaks across lines.
+ */
+const VALUE_BUDGET = { plain: 24, toned: 21 } as const;
 
 const ok = <T>(value: T) => ({ ok: true as const, value });
 const failed = (error: string) => ({ ok: false as const, error });

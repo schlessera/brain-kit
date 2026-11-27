@@ -63,7 +63,7 @@ type DraftSaveView =
   | { state: "saving" | "saved" | "unsaved" | "conflict" | "unavailable" | "too_large" | "full" | "refused"; copy: string; word: string };
 
 /** A saving state is printed only once a save has been out this long (D52 §5). */
-export const SAVING_SHOWN_AFTER_MS = 600;
+const SAVING_SHOWN_AFTER_MS = 600;
 
 /**
  * What the line under the composer says. `saved` is printed only when the

@@ -57,7 +57,7 @@ export type DraftIndicatorView =
   };
 
 /** Why Open other version did not open it (#4567), in the indicator's words. */
-export const VERSION_SWITCH_COPY = {
+const VERSION_SWITCH_COPY = {
   cancelled: "Other version not opened: you moved away first",
   failed: "Couldn't open the other version",
   missing: "The other version isn't on this device any more",
@@ -220,5 +220,3 @@ export function draftIndicatorView(input: DraftIndicatorInput): DraftIndicatorVi
   return { key: "saving", state: "active", stateLabel: "Saving draft…", summary: "Saving draft…", facts: [] };
 }
 
-/** Every state except saved and absent is work a reload could lose: the leave guards hold for it. */
-export const draftIndicatorAtRisk = (view: DraftIndicatorView): boolean => view.key !== "none" && view.key !== "saved";
