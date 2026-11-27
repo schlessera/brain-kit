@@ -60,43 +60,61 @@ export function embeddingTextKey(title: string, heading: string, content: string
   return createHash("sha256").update(chunkTextForEmbedding(title, heading, content, context)).digest("hex");
 }
 
+/** The connection's temp table a `--force` run carries its markdown vectors in. */
+const CARRY_TABLE = "temp.carried_vectors";
+
 /**
  * Hold on to the markdown vectors a `--force` rebuild is about to drop.
  *
  * The rebuild re-chunks every document with new ids, but most chunks come out
  * with the same text and, through the context cache, the same context. Their
- * vectors are reused by the embedding phase instead of paid for again. Kept in
- * memory for the run only: no second copy of any vector is stored.
+ * vectors are reused by the embedding phase instead of paid for again. They
+ * are copied, one row at a time, into a temp table keyed by a hash of the text
+ * each was embedded from, so no vector is held in memory between rows; the
+ * table lives for the run only (`dropCarriedVectors`).
  *
  * Only when the configured provider produced the stored vectors, at its
  * dimensions. A different provider means a different vector space, and
- * `--force` is then exactly the full re-embed it asks for.
+ * `--force` is then exactly the full re-embed it asks for. Returns whether a
+ * carry table now exists.
  */
-export function carryMarkdownVectors(db: Database, provider: EmbeddingProvider): Map<string, Float32Array> {
-  const carried = new Map<string, Float32Array>();
-  if (!hasVecSupport(db)) return carried;
-  if (!embeddingIdentityMatches(getMeta(db, "embedding_model"), provider.id)) return carried;
-  if (getMeta(db, "embedding_dimensions") !== String(provider.dimensions)) return carried;
-  let rows: Array<{ title: string; heading: string; content: string; context: string | null; embedding: Uint8Array }>;
+export function carryMarkdownVectors(db: Database, provider: EmbeddingProvider): boolean {
+  dropCarriedVectors(db);
+  if (!hasVecSupport(db)) return false;
+  if (!embeddingIdentityMatches(getMeta(db, "embedding_model"), provider.id)) return false;
+  if (getMeta(db, "embedding_dimensions") !== String(provider.dimensions)) return false;
+  db.run(`CREATE TABLE ${CARRY_TABLE} (text_key TEXT PRIMARY KEY, embedding BLOB NOT NULL)`);
   try {
-    rows = db
-      .prepare(
-        `SELECT d.title, c.heading, c.content, c.context, v.embedding
-         FROM vec_chunks v JOIN chunks c ON c.id = v.chunk_id
-         JOIN documents d ON d.id = c.document_id
-         WHERE d.asset_type = 'markdown'`
-      )
-      .all() as typeof rows;
+    const rows = db.prepare(
+      `SELECT d.title, c.heading, c.content, c.context, v.embedding
+       FROM vec_chunks v JOIN chunks c ON c.id = v.chunk_id
+       JOIN documents d ON d.id = c.document_id
+       WHERE d.asset_type = 'markdown'`
+    );
+    const insert = db.prepare(`INSERT OR REPLACE INTO ${CARRY_TABLE} (text_key, embedding) VALUES (?, ?)`);
+    db.transaction(() => {
+      for (const row of rows.iterate() as Iterable<{ title: string; heading: string; content: string; context: string | null; embedding: Uint8Array }>) {
+        if (row.embedding.byteLength !== provider.dimensions * Float32Array.BYTES_PER_ELEMENT) continue;
+        insert.run(embeddingTextKey(row.title, row.heading, row.content, row.context), row.embedding);
+      }
+    })();
   } catch {
-    return carried; // vec_chunks may not exist yet
+    dropCarriedVectors(db); // vec_chunks may not exist yet
+    return false;
   }
-  for (const row of rows) {
-    // Copied out: the blob's offset need not be 4-byte aligned.
-    const vector = new Float32Array(new Uint8Array(row.embedding).buffer);
-    if (vector.length !== provider.dimensions) continue;
-    carried.set(embeddingTextKey(row.title, row.heading, row.content, row.context), vector);
-  }
-  return carried;
+  return true;
+}
+
+/** The carried vector for one embedding text key, or null when none was carried. */
+export function carriedVector(db: Database, key: string): Float32Array | null {
+  const row = db.query(`SELECT embedding FROM ${CARRY_TABLE} WHERE text_key = ?`).get(key) as { embedding: Uint8Array } | null;
+  // Copied out: the blob's offset need not be 4-byte aligned.
+  return row ? new Float32Array(new Uint8Array(row.embedding).buffer) : null;
+}
+
+/** Drop the run's carry table, if there is one. */
+export function dropCarriedVectors(db: Database): void {
+  db.run(`DROP TABLE IF EXISTS ${CARRY_TABLE}`);
 }
 
 /**
