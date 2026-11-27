@@ -1,5 +1,5 @@
 /** Repository-only check selection. Product CLI/MCP contracts are unaffected. */
-import { appendFileSync, existsSync, readFileSync, readdirSync, readlinkSync, lstatSync, realpathSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, openSync, readFileSync, readdirSync, readlinkSync, lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { closureSelects, discoverBrowserClosures, listBrowserSpecs, type BrowserClosures } from "./browser-input-closure";
@@ -201,44 +201,96 @@ export const ROOT_CONSUMERS = [
 ] as const;
 type RootCategory = "browser" | "layout" | "endurance" | "captures" | "runtime";
 interface ConsumerSelection { tests: string[]; categories: Set<RootCategory>; global: boolean; reason?: string; }
+
+/** How a plan reads file content. Tests inject a counting reader. */
+export interface TreeReader {
+  readFile(path: string): Buffer;
+  readlink(path: string): string;
+  decode(bytes: Buffer): string;
+}
+const fileReader: TreeReader = { readFile: path => readFileSync(path), readlink: path => readlinkSync(path), decode: bytes => bytes.toString("utf8") };
+
+/** One plan's view of the tree: one listing, and each file's content read at most
+ * once and only when asked for. A file that contains a NUL byte keeps its bytes
+ * and is never decoded; a symlink's content is its target text.
+ */
+export class TreeView {
+  #tracked?: string[]; #listed?: string[];
+  readonly #contents = new Map<string, string | Buffer>();
+  constructor(readonly root: string, readonly reader: TreeReader = fileReader) {}
+  tracked(): readonly string[] { return this.#tracked ??= git(this.root, ["ls-files", "-z"]).split("\0").filter(Boolean); }
+  /** Tracked files, then untracked files that are not ignored, once each. */
+  listed(): readonly string[] {
+    // Include local, not-yet-added inputs in local preflight as well.
+    return this.#listed ??= [...new Set([...this.tracked(), ...git(this.root, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean)])];
+  }
+  content(path: string): string | Buffer {
+    let content = this.#contents.get(path);
+    if (content === undefined) {
+      const full = join(this.root, path);
+      if (lstatSync(full).isSymbolicLink()) content = this.reader.readlink(full);
+      else { const bytes = this.reader.readFile(full); content = bytes.indexOf(0) === -1 ? this.reader.decode(bytes) : bytes; }
+      this.#contents.set(path, content);
+    }
+    return content;
+  }
+}
+
+/** `/\bword\b/` over the bytes of a file that is never decoded: UTF-8 maps ASCII bytes to themselves and nothing else to a word character. */
+function hasWord(bytes: Buffer, word: string): boolean {
+  const isWord = (byte?: number) => byte !== undefined && byte < 0x80 && /\w/.test(String.fromCharCode(byte));
+  for (let at = bytes.indexOf(word); at !== -1; at = bytes.indexOf(word, at + 1)) if (!isWord(bytes[at - 1]) && !isWord(bytes[at + word.length])) return true;
+  return false;
+}
+
 /** Conservative reverse string/import closure, including helpers and symlink targets.
  * Any unreadable tracked input or escaping link invalidates the entire scan.
  */
 export function rootConsumers(root: string, changed: readonly string[],
-  rules: readonly { prefix: string; categories: readonly RootCategory[] }[] = ROOT_CONSUMERS): ConsumerSelection {
+  rules: readonly { prefix: string; categories: readonly RootCategory[] }[] = ROOT_CONSUMERS, view = new TreeView(root)): ConsumerSelection {
   const categories = new Set<RootCategory>(), selected = new Set<string>();
   try {
-    const paths = git(root, ["ls-files", "-z"]).split("\0").filter(Boolean);
-    // Include local, not-yet-added inputs in local preflight as well.
-    paths.push(...git(root, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean));
-    const texts = new Map<string, string>();
-    for (const path of new Set(paths)) {
+    const paths = view.listed();
+    // Every listed path is validated before any selection; this needs metadata, not content.
+    for (const path of paths) {
       const full = join(root, path), stat = lstatSync(full);
       if (!stat.isFile() && !stat.isSymbolicLink()) throw new Error("Unknown consumer input");
       const target = realpathSync(full);
       if (relative(root, target).startsWith("..") || !relative(root, target)) throw new Error("Escaping consumer input");
       // Permission bits are checked too: root can otherwise read chmod(000) files.
       if (!(lstatSync(target).mode & 0o444)) throw new Error("Unreadable consumer input");
-      const text = stat.isSymbolicLink() ? readlinkSync(full) : readFileSync(full, "utf8");
-      texts.set(path, text.includes("\0") ? "" : text);
+      // Opening without reading keeps the refusal for a file this process cannot read.
+      if (!stat.isSymbolicLink()) closeSync(openSync(full, "r"));
     }
-    // Index path/name tokens once; extensionless imports and basename/string
-    // references deliberately overinclude colliding names rather than omit them.
-    const references = new Map<string, Set<string>>();
-    const imports = new Map<string, Set<string>>();
-    for (const [path, text] of texts) {
-      for (const literal of text.matchAll(/["'`]([^"'`\r\n]+)["'`]/g)) {
-        const name = basename(literal[1]!);
-        const owners = imports.get(name) ?? new Set<string>(); owners.add(path); imports.set(name, owners);
+    const listed = new Set(paths);
+    const text = (path: string) => { const content = view.content(path); return typeof content === "string" ? content : ""; };
+    // Index path/name tokens on the first lookup, and only for names a closure can
+    // reach: the basenames of listed paths. Extensionless imports and
+    // basename/string references deliberately overinclude colliding names rather than omit them.
+    let tokenIndex: { references: Map<string, Set<string>>; imports: Map<string, Set<string>> } | undefined;
+    const lookup = () => {
+      if (tokenIndex) return tokenIndex;
+      const names = new Set(paths.map(path => basename(path)));
+      const stems = new Set([...names].map(name => name.replace(/\.[^. /]+$/, "")));
+      const references = new Map<string, Set<string>>();
+      const imports = new Map<string, Set<string>>();
+      for (const path of paths) {
+        const content = text(path);
+        for (const literal of content.matchAll(/["'`]([^"'`\r\n]+)["'`]/g)) {
+          const name = basename(literal[1]!);
+          if (!stems.has(name)) continue;
+          const owners = imports.get(name) ?? new Set<string>(); owners.add(path); imports.set(name, owners);
+        }
+        for (const token of content.matchAll(/[A-Za-z0-9_@.-]+/g)) {
+          const key = token[0].replace(/^[.]+|[.]+$/g, "");
+          if (!key || !names.has(key)) continue;
+          const owners = references.get(key) ?? new Set<string>(); owners.add(path); references.set(key, owners);
+        }
       }
-      for (const token of text.matchAll(/[A-Za-z0-9_@.-]+/g)) {
-        const key = token[0].replace(/^[.]+|[.]+$/g, "");
-        if (!key) continue;
-        const owners = references.get(key) ?? new Set<string>(); owners.add(path); references.set(key, owners);
-      }
-    }
+      return tokenIndex = { references, imports };
+    };
     for (const input of changed) {
-      if (!texts.has(input)) throw new Error(`Missing changed consumer input: ${input}`);
+      if (!listed.has(input)) throw new Error(`Missing changed consumer input: ${input}`);
       const matches = rules.filter(rule => input.startsWith(rule.prefix));
       if (new Set(matches.map(rule => JSON.stringify([...rule.categories].sort()))).size > 1) throw new Error("Conflicting consumers");
       for (const rule of matches) for (const category of rule.categories) categories.add(category);
@@ -248,9 +300,10 @@ export function rootConsumers(root: string, changed: readonly string[],
         const dependency = pending[index]!;
         // Test consumers are execution leaves. Referencing a test inventory
         // from a runner/config does not make that runner a consumer of its code.
-        if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(dependency) && !/(?:\bmodule\.exports\b|\bexports\.|\bexport\s+(?:\{|\*|(?:async\s+)?(?:function|class|const|let|var|type|interface|enum)|default))/m.test(texts.get(dependency) ?? "")) continue;
+        if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(dependency) && !/(?:\bmodule\.exports\b|\bexports\.|\bexport\s+(?:\{|\*|(?:async\s+)?(?:function|class|const|let|var|type|interface|enum)|default))/m.test(text(dependency))) continue;
         const name = basename(dependency);
         if (!/^[A-Za-z0-9_@.-]+$/.test(name)) throw new Error(`Unknown reference spelling: ${dependency}`);
+        const { references, imports } = lookup();
         const owners = new Set([...(references.get(name) ?? []), ...(imports.get(name.replace(/\.[^. /]+$/, "")) ?? [])]);
         for (const path of owners) {
           if (closure.has(path)) continue;
@@ -279,13 +332,13 @@ export function rootConsumers(root: string, changed: readonly string[],
  * independent Bun test. Text references deliberately include prose and strings;
  * basename matching catches relative imports and extensionless command names.
  */
-export function independentTests(root: string, changed: readonly string[]): string[] | undefined {
+export function independentTests(root: string, changed: readonly string[], view = new TreeView(root)): string[] | undefined {
   const prose = (path: string) => /\.(md|mdx|txt)$/.test(path) || path === "LICENSE";
   const candidates = changed.filter(path => !prose(path) || path.startsWith("tests/") || /^packages\/[^/]+\/(src|fixtures|tests|skills|migrations|assets)\//.test(path));
   if (!candidates.length || candidates.some(path => !(/^(?:packages\/[^/]+\/|tests\/)/.test(path)) || path.split("/").slice(0, -1).some(part => part.startsWith(".") || part.toLowerCase() === "node_modules") ||
     !/(?:\.test|\.spec|_test|_spec)\.(?:[cm]?[jt]s|[jt]sx)$/i.test(path))) return undefined;
   try {
-    const tracked = git(root, ["ls-files", "-z"]).split("\0").filter(Boolean);
+    const tracked = view.tracked(), trackedSet = new Set(tracked);
     // Expanded build inventories catch glob includes/extends without literal
     // basename references. Tests emitted as package code are not independent.
     for (const configPath of tracked.filter(path => /^packages\/[^/]+\/tsconfig\.build\.json$/.test(path))) {
@@ -295,22 +348,30 @@ export function independentTests(root: string, changed: readonly string[]): stri
       const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, dirname(path));
       if (parsed.errors.length || parsed.fileNames.some(path => candidates.includes(relative(root, path).replaceAll("\\", "/")))) return undefined;
     }
+    const stems: [file: string, stem: string, bytes: Buffer][] = [];
     for (const file of candidates) {
-      if (!tracked.includes(file) || !lstatSync(join(root, file)).isFile() || /\bexport\b/.test(readFileSync(join(root, file), "utf8"))) return undefined;
+      if (!trackedSet.has(file) || !lstatSync(join(root, file)).isFile()) return undefined;
+      const content = view.content(file);
+      if (typeof content === "string" ? /\bexport\b/.test(content) : hasWord(content, "export")) return undefined;
       const stem = basename(file).replace(/\.[^.]+$/, "");
-      // Any other tracked file can consume this input, including another changed
-      // test. Unreadable/deleted paths and unknown modes refuse the optimization.
-      for (const other of tracked) if (other !== file && (lstatSync(join(root, other)).isSymbolicLink() ? readlinkSync(join(root, other)) : readFileSync(join(root, other), "utf8")).includes(stem)) return undefined;
+      stems.push([file, stem, Buffer.from(stem)]);
+    }
+    // Any other tracked file can consume this input, including another changed
+    // test. Unreadable/deleted paths and unknown modes refuse the optimization.
+    // One pass serves every candidate.
+    for (const other of tracked) {
+      const content = view.content(other);
+      for (const [file, stem, bytes] of stems) if (other !== file && (typeof content === "string" ? content.includes(stem) : content.includes(bytes))) return undefined;
     }
     return candidates.sort();
   } catch { return undefined; }
 }
 
 export function planChecks(changed: readonly string[], packages: readonly Workspace[], root = resolve(import.meta.dir, ".."), enableConsumerSelection = true,
-  listSpecs: (root: string) => SpecPair[] = listBrowserSpecs): CheckPlan {
+  listSpecs: (root: string) => SpecPair[] = listBrowserSpecs, view = new TreeView(root)): CheckPlan {
   // Explicit roots identify a real harness; two-argument synthetic workspace diagnostics stay conservative.
   const explicitRoot = arguments.length >= 3;
-  const plan = planBeforeBrowserClosures(changed, packages, root, enableConsumerSelection, explicitRoot);
+  const plan = planBeforeBrowserClosures(changed, packages, root, enableConsumerSelection, explicitRoot, undefined, view);
   // Category selection and spec repetition read one listing: Vitest lists its files once per plan.
   let listing: SpecPair[] | undefined, unavailable: unknown;
   const list = (from: string) => {
@@ -365,15 +426,15 @@ export function determinismTests(root: string, changed: readonly string[]): stri
  * endurance and captures categories. Skips the synchronous Vitest listing
  * that closure discovery runs (#2465).
  */
-export function planUnitChecks(changed: readonly string[], packages: readonly Workspace[], root: string, graph?: UnitImportGraph): CheckPlan {
-  return planBeforeBrowserClosures(changed, packages, root, true, true, graph);
+export function planUnitChecks(changed: readonly string[], packages: readonly Workspace[], root: string, graph?: UnitImportGraph, view = new TreeView(root)): CheckPlan {
+  return planBeforeBrowserClosures(changed, packages, root, true, true, graph, view);
 }
 
-function planBeforeBrowserClosures(changed: readonly string[], packages: readonly Workspace[], root: string, enableConsumerSelection: boolean, explicitRoot: boolean, graph?: UnitImportGraph): CheckPlan {
+function planBeforeBrowserClosures(changed: readonly string[], packages: readonly Workspace[], root: string, enableConsumerSelection: boolean, explicitRoot: boolean, graph: UnitImportGraph | undefined, view: TreeView): CheckPlan {
   const fileTests = Object.entries(FILE_INPUT_TESTS)
     .filter(([, inputs]) => changed.some(path => inputs.some(input => input.test(path))))
     .map(([test]) => test);
-  const leaves = root && enableConsumerSelection ? independentTests(root, changed) : undefined;
+  const leaves = root && enableConsumerSelection ? independentTests(root, changed, view) : undefined;
   if (leaves) {
     const affected = [...new Set(leaves.filter(file => file.startsWith("packages/")).map(file => file.split("/")[1]!))].sort();
     if (affected.every(dir => packages.some(pkg => pkg.dir === dir))) {
@@ -393,7 +454,7 @@ function planBeforeBrowserClosures(changed: readonly string[], packages: readonl
     path.startsWith(".changeset/") || path.startsWith("docs/") ||
     path.startsWith(".github/ISSUE_TEMPLATE/") || path === "LICENSE";
   const rootPaths = enableConsumerSelection ? changed.filter(path => /^(?:scripts|tests|experiments|website)\//.test(path)) : [];
-  const consumers = rootPaths.length ? rootConsumers(root, rootPaths) : { tests: [], categories: new Set<RootCategory>(), global: false };
+  const consumers = rootPaths.length ? rootConsumers(root, rootPaths, ROOT_CONSUMERS, view) : { tests: [], categories: new Set<RootCategory>(), global: false };
   const global = consumers.global || changed.some(path =>
     path.startsWith(".github/workflows/") || path === "bun.lock" || path === "package.json" || path === ".changeset/config.json" ||
     (!path.startsWith("packages/") && !path.startsWith("template/") &&

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync, chmodSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { changedFiles, FAST_TESTS, FILE_INPUT_TESTS, planChecks, planUnitChecks, planFromEnvironment, workspaces, proofSelections, rootConsumers, ROOT_CONSUMERS, unitShards, determinismShards, browserDeterminismShards, selectBrowserClosures, proofCadence } from "../scripts/ci-plan";
+import { changedFiles, FAST_TESTS, FILE_INPUT_TESTS, planChecks, planUnitChecks, planFromEnvironment, workspaces, proofSelections, rootConsumers, ROOT_CONSUMERS, TreeView, type TreeReader, unitShards, determinismShards, browserDeterminismShards, selectBrowserClosures, proofCadence } from "../scripts/ci-plan";
 
 import { planPartitions } from "../scripts/determinism-plan";
 import { FILE_COST_SECONDS } from "../scripts/test-shards";
@@ -470,6 +470,78 @@ test("internal symlink aliases retain target and transitive test consumers", () 
   symlinkSync("fixtures/tide.json", join(f.dir, "tests/tide-alias.json"));
   f.write("tests/alias.test.ts", 'const fixture = "./tide-alias.json";'); f.git("add", ".");
   expect(rootConsumers(f.dir, ["tests/fixtures/tide.json"]).tests, "SYMLINK_TARGET_CONSUMER_REQUIRED").toEqual(["tests/alias.test.ts"]);
+});
+
+/** Counts every content read and every decode a plan makes through its one view of the tree (#4669). */
+function countingReader(root: string) {
+  const reads = new Map<string, number>(), decoded = new Set<string>();
+  const count = (path: string) => { const relativePath = path.slice(root.length + 1); reads.set(relativePath, (reads.get(relativePath) ?? 0) + 1); return relativePath; };
+  let current = "";
+  const reader: TreeReader = {
+    readFile: path => { current = count(path); return readFileSync(path); },
+    readlink: path => { count(path); return readlinkSync(path); },
+    decode: bytes => { decoded.add(current); return bytes.toString("utf8"); },
+  };
+  return { reads, decoded, view: () => new TreeView(root, reader) };
+}
+
+describe("one view of the tree per plan (#4669)", () => {
+  /** A fixture repository holding more than 200 tracked files besides the changed leaf. */
+  function largeFixture() {
+    const f = fixture();
+    for (let index = 0; index < 240; index++) f.write(`scripts/bulk/module-${index}.ts`, `export const value${index} = "module-${index}";\n`);
+    f.write("tests/leaf.test.ts", 'import { value1 } from "../scripts/bulk/module-1";\ntest("leaf", () => {});\n');
+    f.git("add", ".");
+    return f;
+  }
+
+  test("a changed test leaf that exports nothing reads no other file's content", () => {
+    const f = largeFixture(), counter = countingReader(f.dir);
+    const tracked = f.git("ls-files").split("\n").length;
+    expect(tracked, "FIXTURE_HOLDS_OVER_200_TRACKED_FILES").toBeGreaterThan(200);
+    const selection = rootConsumers(f.dir, ["tests/leaf.test.ts"], ROOT_CONSUMERS, counter.view());
+    expect(selection).toEqual({ tests: ["tests/leaf.test.ts"], categories: new Set(), global: false });
+    expect([...counter.reads.values()].reduce((sum, count) => sum + count, 0), "LEAF_READS_FEWER_THAN_100_CONTENTS").toBeLessThan(100);
+  });
+
+  test("an unreadable unrelated file still makes a leaf's selection global before any lookup", () => {
+    const f = largeFixture();
+    chmodSync(join(f.dir, "scripts/bulk/module-7.ts"), 0);
+    try {
+      expect(rootConsumers(f.dir, ["tests/leaf.test.ts"], ROOT_CONSUMERS, countingReader(f.dir).view()), "UNREADABLE_UNRELATED_FILE_GLOBAL")
+        .toEqual({ tests: [], categories: new Set(), global: true, reason: "Error: Unreadable consumer input" });
+    } finally { chmodSync(join(f.dir, "scripts/bulk/module-7.ts"), 0o644); }
+  });
+
+  test("an unrelated symlink that leaves the repository still makes a leaf's selection global before any lookup", () => {
+    const f = largeFixture(), outside = fixture();
+    symlinkSync(join(outside.dir, "packages/core/src/note.ts"), join(f.dir, "scripts/bulk/outside.ts")); f.git("add", ".");
+    expect(rootConsumers(f.dir, ["tests/leaf.test.ts"], ROOT_CONSUMERS, countingReader(f.dir).view()), "ESCAPING_UNRELATED_SYMLINK_GLOBAL")
+      .toEqual({ tests: [], categories: new Set(), global: true, reason: "Error: Escaping consumer input" });
+  });
+
+  test("a plan of three changed tests reads each file's content at most once and never decodes a file with a NUL byte", () => {
+    const f = fixture(), changed = ["tests/first.test.ts", "tests/second.test.ts", "tests/third.test.ts"];
+    for (const path of changed) f.write(path, 'test("independent", () => {});\n');
+    for (let index = 0; index < 20; index++) f.write(`tests/helpers/helper-${index}.ts`, `export const helper${index} = ${index};\n`);
+    mkdirSync(join(f.dir, "tests/fixtures"), { recursive: true });
+    writeFileSync(join(f.dir, "tests/fixtures/image.bin"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0xff, 0xfe, 0x41]));
+    f.git("add", ".");
+    const independent = countingReader(f.dir);
+    expect(planChecks(changed, workspaces(f.dir), f.dir, true, () => [], independent.view()).unitTests, "THREE_INDEPENDENT_LEAVES").toEqual(expect.arrayContaining(changed));
+    const tracked = f.git("ls-files").split("\n");
+    // One pass over the tree serves all three candidates: every tracked file is read, none twice.
+    expect(Object.fromEntries(independent.reads), "EVERY_TRACKED_CONTENT_READ_ONCE").toEqual(Object.fromEntries(tracked.map(path => [path, 1])));
+    expect(independent.decoded.has("tests/fixtures/image.bin"), "NUL_FILE_NOT_DECODED").toBe(false);
+
+    // A binary file naming the second candidate refuses the leaf shortcut; the root-consumer closure that follows reuses the view.
+    writeFileSync(join(f.dir, "tests/fixtures/image.bin"), Buffer.concat([Buffer.from([0x89, 0, 0xff]), Buffer.from("second.test"), Buffer.from([0])]));
+    const referred = countingReader(f.dir);
+    const plan = planChecks(changed, workspaces(f.dir), f.dir, true, () => [], referred.view());
+    expect(plan.global, "REFERRED_LEAVES_PLAN_NARROW").toBe(false);
+    expect([...referred.reads].filter(([, count]) => count > 1), "NO_CONTENT_READ_TWICE").toEqual([]);
+    expect(referred.decoded.has("tests/fixtures/image.bin"), "NUL_FILE_NOT_DECODED").toBe(false);
+  });
 });
 
 test("category closure selection preserves full commands and independent exhaustive cadence", () => {
