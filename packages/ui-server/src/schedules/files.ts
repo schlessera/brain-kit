@@ -17,7 +17,7 @@ import { constants } from "node:fs";
 import { link, lstat, open, readdir, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
-import { assertChain, closeChain, directoryChain, errno, type RefuseChain } from "../files/anchored-chain.js";
+import { assertChain, closeChain, directoryChain, errno, type Directory, type RefuseChain } from "../files/anchored-chain.js";
 import { DEFINITIONS_DIR, MAX_DEFINITION_FILE_BYTES, RETIRED_DIR } from "./definition.js";
 
 export class ScheduleFileConflictError extends Error {}

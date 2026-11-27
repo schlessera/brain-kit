@@ -32,7 +32,7 @@ import {
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { LiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
 import { getLivePersonaSelection } from "../db/settings.js";
-import { assertChain, closeChain, directoryChain, errno, type RefuseChain } from "../files/anchored-chain.js";
+import { assertChain, closeChain, directoryChain, errno, type Directory, type RefuseChain } from "../files/anchored-chain.js";
 import type { SettingsWrites } from "../db/settings-writes.js";
 
 const PERSONA_DIR = "_voice/personas";
