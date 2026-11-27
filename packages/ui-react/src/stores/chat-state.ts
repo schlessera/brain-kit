@@ -769,6 +769,31 @@ export function offersAlwaysAllow(tool: Pick<ToolCall, "approvalKind" | "approva
   return tool.approvalKind !== "command" && tool.approvalKind !== "policy" && tool.approvalRememberable !== false;
 }
 
+const networkApprovalToolCache = new WeakMap<PendingNetworkApproval, ToolCall>();
+
+function projectNetworkApprovalTool(item: PendingNetworkApproval): ToolCall {
+  const cached = networkApprovalToolCache.get(item);
+  if (cached) return cached;
+  const projected: ToolCall = {
+    id: item.toolUseId,
+    name: item.toolName,
+    input: item.input,
+    inputJson: JSON.stringify(item.input, null, 2),
+    status: "pending_approval",
+    approvalKind: "command",
+    approvalRememberable: false,
+    ...(item.description ? { approvalDescription: item.description } : {}),
+    ...(item.turnId ? { approvalTurnId: item.turnId } : {}),
+    ...(item.revision ? { approvalRevision: item.revision } : {}),
+    approvalOrigin: item.origin,
+    ...(item.network ? { approvalNetwork: item.network } : {}),
+    ...(item.sending ? { approvalSending: true } : {}),
+    ...(item.restored ? { restored: true as const } : {}),
+  };
+  networkApprovalToolCache.set(item, projected);
+  return projected;
+}
+
 /**
  * Every tool call waiting on the user, across every buffer (D37: an approval
  * that arrived while you were reading something else cannot only exist as a
@@ -784,25 +809,7 @@ export function pendingApprovals(state: Pick<ChatState, "buffers" | "draft">): A
     }
     for (const item of chat.networkApprovals ?? []) {
       if (item.readOnly) continue;
-      out.push({
-        key,
-        tool: {
-          id: item.toolUseId,
-          name: item.toolName,
-          input: item.input,
-          inputJson: JSON.stringify(item.input, null, 2),
-          status: "pending_approval",
-          approvalKind: "command",
-          approvalRememberable: false,
-          ...(item.description ? { approvalDescription: item.description } : {}),
-          ...(item.turnId ? { approvalTurnId: item.turnId } : {}),
-          ...(item.revision ? { approvalRevision: item.revision } : {}),
-          approvalOrigin: item.origin,
-          ...(item.network ? { approvalNetwork: item.network } : {}),
-          ...(item.sending ? { approvalSending: true } : {}),
-          ...(item.restored ? { restored: true as const } : {}),
-        },
-      });
+      out.push({ key, tool: projectNetworkApprovalTool(item) });
     }
   };
   for (const [id, chat] of Object.entries(state.buffers)) scan(id, chat);

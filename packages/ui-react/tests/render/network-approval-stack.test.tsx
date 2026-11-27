@@ -18,6 +18,7 @@ import type { ClientMessage, NetworkApprovalOffer } from "@schlessera/brain-ui-s
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { openRestoredCards } from "../../src/lib/restored-approvals.js";
+import { snapshotSource } from "../../src/lib/handoff.js";
 import { replyToNetworkApproval } from "../../src/lib/tool-approval.js";
 import { pendingApprovals } from "../../src/stores/chat-store.js";
 import { ChatApprovalStack } from "../../src/components/chat/approval-stack.js";
@@ -492,6 +493,64 @@ describe("network approval stack (#4967, #3595)", () => {
       if (realHeight) Object.defineProperty(window, "innerHeight", realHeight);
       if (realVV) Object.defineProperty(window, "visualViewport", realVV);
       else Reflect.deleteProperty(window, "visualViewport");
+      root.dispose();
+    }
+  });
+
+  test("pendingApprovals is referentially stable for useShallow, snapshotSource counts networkApprovals, and origin-only cards use unscoped Allow", () => {
+    const root = createBrainUiRoot({ storage: null });
+    const sent: ClientMessage[] = [];
+    const send = (msg: ClientMessage) => { sent.push(msg); return true; };
+    const chat = root.stores.chat.getState();
+    chat.setActiveSession("ithaca");
+    chat.requestToolApproval(
+      "ithaca",
+      "net-origin-only",
+      "Network",
+      { host: "legacy.example", port: 443 },
+      "Allow legacy.example?",
+      "command",
+      false,
+      "turn-legacy",
+      undefined,
+      { origin: "https://legacy.example:443", revision: "rev-legacy" }
+    );
+
+    const view = render(
+      <BrainUiProvider root={root}>
+        <ChatApprovalStack send={send} armingMs={0} />
+      </BrainUiProvider>
+    );
+
+    try {
+      // 1. Referential stability for ActivityPage's useShallow((s) => pendingApprovals(s).map((a) => a.tool)).
+      const snap1 = pendingApprovals(root.stores.chat.getState());
+      const snap2 = pendingApprovals(root.stores.chat.getState());
+      expect(snap1).toHaveLength(1);
+      expect(snap1[0]!.tool, "PENDING_APPROVAL_TOOL_STABLE_REF").toBe(snap2[0]!.tool);
+
+      // 2. Handoff snapshot counts open networkApprovals.
+      expect(snapshotSource(root.stores.chat.getState().buffers["ithaca"]).pendingApprovals, "HANDOFF_COUNTS_NETWORK_APPROVALS").toBe(1);
+
+      // 3. Origin-only card without network.scopes renders a working unscoped Allow button (no dead scoped buttons).
+      expect(view.queryByRole("button", { name: /Allow once/i })).toBeNull();
+      expect(view.queryByRole("button", { name: /for this chat/i })).toBeNull();
+      const allowBtn = view.getByRole("button", { name: "Allow legacy.example" });
+      fireEvent.click(allowBtn);
+      expect(sent, "LEGACY_UNSCOPED_ALLOW_SENT").toEqual([
+        {
+          type: "tool_approval",
+          toolUseId: "net-origin-only",
+          turnId: "turn-legacy",
+          revision: "rev-legacy",
+          channel: "card",
+        },
+      ]);
+      // Once marked sending, pendingApprovals emits a fresh ToolCall ref with approvalSending: true.
+      const snap3 = pendingApprovals(root.stores.chat.getState());
+      expect(snap3[0]!.tool).not.toBe(snap1[0]!.tool);
+      expect(snap3[0]!.tool.approvalSending).toBe(true);
+    } finally {
       root.dispose();
     }
   });

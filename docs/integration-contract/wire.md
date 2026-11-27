@@ -3940,7 +3940,7 @@ Three optional capability booleans are added to `client_hello.capabilities` and
 ignore unknown fields):
 
 - `approvalUpdates` (#4966): the client handles in-place `tool_approval_request`
-  updates carrying the same `toolUseId` and a higher positive-integer `revision`.
+  updates carrying the same `toolUseId` and an updated opaque `revision` string.
 - `networkApprovalScopes` (#3595): the client supports `network.scopes` on
   `tool_approval_request` and sending `networkScope` (`"once" | "origin" | "session"`)
   on `tool_approval`.

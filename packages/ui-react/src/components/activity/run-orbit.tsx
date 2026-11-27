@@ -28,8 +28,15 @@ export function useOrbitAgents(spans: ActivitySpan[]) {
   const runSession = spans.find(span => !span.parentSpanId)?.sessionId;
   // The pending tool ids of each run session, as flat `session\0toolId`
   // strings: equal on every frame that changes no approval (#4750).
-  const waitingIds = useRootStore("chat", useShallow(s => [...new Set(spans.map(span => span.sessionId ?? runSession))].flatMap(session =>
-    !session ? [] : (s.buffers[session]?.messages ?? []).flatMap(message => message.toolCalls.filter(awaitsDecision).map(tool => `${session}\0${tool.id}`)))));
+  const waitingIds = useRootStore("chat", useShallow(s => [...new Set(spans.map(span => span.sessionId ?? runSession))].flatMap(session => {
+    if (!session) return [];
+    const buffer = s.buffers[session];
+    if (!buffer) return [];
+    return [
+      ...buffer.messages.flatMap(message => message.toolCalls.filter(awaitsDecision).map(tool => `${session}\0${tool.id}`)),
+      ...(buffer.networkApprovals ?? []).filter(item => !item.readOnly).map(item => `${session}\0${item.toolUseId}`),
+    ];
+  })));
   return useMemo(() => {
     const parent = new Map(spans.map(span => [span.spanId, span]));
     const pending = new Map<string, Set<string>>();

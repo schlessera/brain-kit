@@ -905,6 +905,15 @@ export class TurnCoordinator {
   ): boolean {
     const p = this.#pendingApprovals.get(toolUseId);
     if (!p) return false;
+    if (p.request.networkCard?.signal?.aborted) {
+      this.expireApproval(toolUseId, "The network request stopped waiting.", "operation_cancelled", entry => entry === p);
+      return false;
+    }
+    const refusal = p.revalidate?.();
+    if (refusal) {
+      this.expireApproval(toolUseId, refusal, "safety_changed", entry => entry === p);
+      return false;
+    }
     this.#pendingApprovals.delete(toolUseId);
     p.request.networkCard?.onGrantedByGrant?.(scope, grantedClasses);
     this.recordApprovalOutcome(toolUseId, {
@@ -919,9 +928,10 @@ export class TurnCoordinator {
     return true;
   }
 
-  /** Settle every pending non-managed Network approval in `sessionId` matching `predicate`. */
+  /** Settle every pending non-managed Network approval in `sessionId` (or `sourceTurnId` when unbound) matching `predicate`. */
   settleSiblingNetworkApprovals(
     sessionId: string | null,
+    sourceTurnId: string,
     excludeToolUseId: string,
     predicate: (req: PermissionRequest) => boolean,
     scope: NetworkApprovalScope | undefined,
@@ -931,7 +941,7 @@ export class TurnCoordinator {
     let settled = 0;
     for (const [id, p] of [...this.#pendingApprovals]) {
       if (id === excludeToolUseId) continue;
-      if (sessionId !== null ? p.turn.sessionId !== sessionId : p.turn.sessionId !== null) continue;
+      if (sessionId !== null ? p.turn.sessionId !== sessionId : p.turnId !== sourceTurnId) continue;
       if (p.request.toolName !== "Network" || !p.request.networkCard) continue;
       if (p.request.network?.managedReference) continue;
       if (!predicate(p.request)) continue;
@@ -1260,10 +1270,10 @@ export class TurnCoordinator {
   }
 
   /** Resolve/reject every pending interactive request belonging to one turn. */
-  drainPendingForTurn(turn: RunningTurn, reason: string): void {
-    // Timeout drains cards before abort listeners run, so the card and any
-    // later question retain the same terminal reason.
-    const ended = turn.timedOutTurnId === turn.turnId || turn.hostStop?.turnId === turn.turnId || turn.cancelled || turn.abortController?.signal.aborted;
+  drainPendingForTurn(turn: RunningTurn, reason: string, options?: { terminal?: boolean }): void {
+    // Timeout and budget stops drain cards before abort listeners run, so the
+    // card and any later question retain the same terminal reason.
+    const ended = options?.terminal === true || turn.timedOutTurnId === turn.turnId || turn.hostStop?.turnId === turn.turnId || turn.cancelled || turn.abortController?.signal.aborted;
     if (ended && this.#drained.get(turn)?.turnId !== turn.turnId)
       this.#drained.set(turn, { turnId: turn.turnId, reason });
     for (const [id, p] of [...this.#pendingApprovals, ...this.#claimedApprovals]) {

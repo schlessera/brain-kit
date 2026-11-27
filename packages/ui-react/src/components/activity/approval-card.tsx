@@ -60,7 +60,7 @@ export function approvalOutcome(
       ? requestedScope
       : undefined;
   const revision = tool?.approvalRevision;
-  const targetName = tool?.approvalNetwork
+  const targetName = tool?.approvalNetwork || tool?.approvalOrigin
     ? formatNetworkOriginLabel(tool.approvalOrigin, tool.approvalNetwork, tool.input)
     : tool
       ? tool.name
@@ -121,7 +121,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
       ? ["once"]
       : networkOffer.scopes
     : undefined;
-  const networkLabel = networkOffer
+  const networkLabel = networkOffer || p.tool.approvalOrigin
     ? formatNetworkOriginLabel(p.tool.approvalOrigin, networkOffer, p.tool.input)
     : undefined;
   const sending = p.tool.approvalSending === true;

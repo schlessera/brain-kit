@@ -27,6 +27,7 @@ import { createGovernanceWrites } from "../src/governance/event-writes.js";
 import { queryGovernanceEvents } from "../src/governance/events.js";
 import { occurrence } from "../src/governance/occurrence.js";
 import { contactedHosts } from "../src/governance/session-taint.js";
+import { sessionHistoryGeneration } from "../src/governance/safety-store.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { WsHost } from "../src/ws/host.js";
@@ -160,7 +161,7 @@ async function openScopeHarness() {
       record: (event) => writes.record(event),
       networkRefusal: (id) => host.coordinator.networkRefusal(options.turnId, id),
       settleSiblings: (predicate, scope, reason, excludeToolUseId, grantedClasses) =>
-        host.coordinator.settleSiblingNetworkApprovals(turn.sessionId, excludeToolUseId, predicate, scope, reason, grantedClasses),
+        host.coordinator.settleSiblingNetworkApprovals(turn.sessionId, turn.turnId, excludeToolUseId, predicate, scope, reason, grantedClasses),
       onGrantsChanged: (sid) => host.broadcastNetworkGrants(sid),
       emitStandingReceipt: ({ connectionId, scope, reason }) => {
         if (!turn.sessionId) return;
@@ -535,18 +536,20 @@ describe("network approval scopes (#3595)", () => {
       h.host.clients.add(foreignWs, foreign.id);
       h.host.clients.setCapabilities(foreignWs as never, { networkGrants: true });
 
-      // Insert future-schema-version, managed:, and malformed grantedClasses rows directly.
+      // Insert future-schema-version, managed:, and malformed grantedClasses rows using the live historyGeneration
+      // so the schema_version, safeParse, and managed: guards themselves (not generation mismatch) reject them.
+      const currentGen = sessionHistoryGeneration(h.db, "t1", "session-sec");
       h.db.query(`INSERT INTO governance_events (session_id, turn_id, at, kind, schema_version, actor, payload) VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .run("session-sec", "t1", Date.now(), "network_grant", 99, "user", JSON.stringify({
-          grantId: "ng_future_v99", scope: "session", grantedClasses: ["web_fetch"], historyGeneration: "0", toolUseId: "t-v99", principalId: h.principal.id,
+          grantId: "ng_future_v99", scope: "session", grantedClasses: ["web_fetch"], historyGeneration: currentGen, toolUseId: "t-v99", principalId: h.principal.id,
         }));
       h.db.query(`INSERT INTO governance_events (session_id, turn_id, at, kind, schema_version, actor, payload) VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .run("session-sec", "t1", Date.now(), "network_grant", 1, "user", JSON.stringify({
-          grantId: "ng_bad_managed", scope: "origin", origin: "managed:connect://api.github.com:443", transport: "connect", scheme: "connect", host: "api.github.com", port: 443, grantedClasses: ["web_fetch"], historyGeneration: "0", toolUseId: "t-bad", principalId: h.principal.id,
+          grantId: "ng_bad_managed", scope: "origin", origin: "managed:connect://api.github.com:443", transport: "connect", scheme: "connect", host: "api.github.com", port: 443, grantedClasses: ["web_fetch"], historyGeneration: currentGen, toolUseId: "t-bad", principalId: h.principal.id,
         }));
       h.db.query(`INSERT INTO governance_events (session_id, turn_id, at, kind, schema_version, actor, payload) VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .run("session-sec", "t1", Date.now(), "network_grant", 1, "user", JSON.stringify({
-          grantId: "ng_bad_classes", scope: "session", grantedClasses: "not-an-array", historyGeneration: "0", toolUseId: "t-bad2", principalId: h.principal.id,
+          grantId: "ng_bad_classes", scope: "session", grantedClasses: "not-an-array", historyGeneration: currentGen, toolUseId: "t-bad2", principalId: h.principal.id,
         }));
 
       // Invalid rows must not create a standing grant, so request 1 still asks for a card.
@@ -594,6 +597,93 @@ describe("network approval scopes (#3595)", () => {
       await t1.stop();
       upstream1.stop(true);
       upstream2.stop(true);
+      await h.close();
+    }
+  });
+
+  test("sibling settlement isolates concurrent unbound turns, revalidates/checks abort before granting, and terminal drain records reason before abort", async () => {
+    const h = await openScopeHarness();
+    try {
+      const turnA = { sessionId: null, turnId: "unbound-a", abortController: new AbortController(), queue: [], cancelled: false } as unknown as RunningTurn;
+      const turnB = { sessionId: null, turnId: "unbound-b", abortController: new AbortController(), queue: [], cancelled: false } as unknown as RunningTurn;
+      const decisions: Record<string, string> = {};
+      const abortedSignal = new AbortController();
+      abortedSignal.abort();
+
+      h.host.coordinator.openApproval("sib-other-chat", {
+        turn: turnB,
+        turnId: "unbound-b",
+        request: {
+          toolUseId: "sib-other-chat",
+          toolName: "Network",
+          input: {},
+          origin: "https://ithaca.example:443",
+          networkCard: { evaluateChange: () => "noop", revalidate: () => null, signal: new AbortController().signal },
+        },
+        revalidate: () => null,
+        resolve: (d) => { decisions["sib-other-chat"] = d.behavior; },
+      });
+      h.host.coordinator.openApproval("sib-aborted", {
+        turn: turnA,
+        turnId: "unbound-a",
+        request: {
+          toolUseId: "sib-aborted",
+          toolName: "Network",
+          input: {},
+          origin: "https://ithaca.example:443",
+          networkCard: { evaluateChange: () => "noop", revalidate: () => null, signal: abortedSignal.signal },
+        },
+        revalidate: () => null,
+        resolve: (d) => { decisions["sib-aborted"] = d.behavior; },
+      });
+      h.host.coordinator.openApproval("sib-stale-auth", {
+        turn: turnA,
+        turnId: "unbound-a",
+        request: {
+          toolUseId: "sib-stale-auth",
+          toolName: "Network",
+          input: {},
+          origin: "https://ithaca.example:443",
+          networkCard: { evaluateChange: () => "noop", revalidate: () => "Authority expired.", signal: new AbortController().signal },
+        },
+        revalidate: () => "Authority expired.",
+        resolve: (d) => { decisions["sib-stale-auth"] = d.behavior; },
+      });
+      h.host.coordinator.openApproval("sib-same-turn-valid", {
+        turn: turnA,
+        turnId: "unbound-a",
+        request: {
+          toolUseId: "sib-same-turn-valid",
+          toolName: "Network",
+          input: {},
+          origin: "https://ithaca.example:443",
+          networkCard: { evaluateChange: () => "noop", revalidate: () => null, signal: new AbortController().signal },
+        },
+        revalidate: () => null,
+        resolve: (d) => { decisions["sib-same-turn-valid"] = d.behavior; },
+      });
+
+      const settled = h.host.coordinator.settleSiblingNetworkApprovals(
+        null,
+        "unbound-a",
+        "source-id",
+        (req) => req.origin === "https://ithaca.example:443",
+        "origin",
+        "Covered by origin grant"
+      );
+      expect(settled, "ONLY_VALID_SAME_TURN_SIBLING_SETTLED").toBe(1);
+      expect(decisions["sib-other-chat"], "UNBOUND_OTHER_CHAT_UNTOUCHED").toBeUndefined();
+      expect(decisions["sib-aborted"], "ABORTED_SIBLING_EXPIRED_NOT_GRANTED").toBe("deny");
+      expect(decisions["sib-stale-auth"], "STALE_SIBLING_EXPIRED_NOT_GRANTED").toBe("deny");
+      expect(decisions["sib-same-turn-valid"], "VALID_SIBLING_GRANTED").toBe("allow");
+      expect(h.resolutions().find((r) => r.toolUseId === "sib-aborted")?.expiryCause).toBe("operation_cancelled");
+      expect(h.resolutions().find((r) => r.toolUseId === "sib-stale-auth")?.expiryCause).toBe("safety_changed");
+
+      // Terminal budget-style drain before abortController.abort() still records drainedReason (#1763/#3553).
+      h.host.coordinator.drainPendingForTurn(turnB, "Turn stopped: inference budget exceeded.", { terminal: true });
+      expect(turnB.cancelled).toBe(false);
+      expect(h.host.coordinator.drainedReason(turnB, "unbound-b"), "BUDGET_DRAIN_RECORDED_BEFORE_ABORT").toBe("Turn stopped: inference budget exceeded.");
+    } finally {
       await h.close();
     }
   });

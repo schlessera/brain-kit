@@ -195,7 +195,7 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,
     networkRefusal: toolUseId => host.coordinator.networkRefusal(turn.turnId,toolUseId),
     settleSiblings: (predicate, scope, reason, excludeToolUseId, grantedClasses) =>
-      host.coordinator.settleSiblingNetworkApprovals(turn.sessionId ?? null, excludeToolUseId, predicate, scope, reason, grantedClasses),
+      host.coordinator.settleSiblingNetworkApprovals(turn.sessionId ?? null, turn.turnId, excludeToolUseId, predicate, scope, reason, grantedClasses),
     onGrantsChanged: (sessionId) => host.broadcastNetworkGrants(sessionId),
     emitStandingReceipt: ({ connectionId, scope, reason }) => {
       host.sendToCapable("toolResolution", {

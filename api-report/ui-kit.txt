@@ -2555,6 +2555,7 @@ signatures (every public export and the types it is made of)
         hideSessionButton?: boolean;
         compact?: boolean;
         onSelectScope?: (scope: NetworkApprovalScopeChoice) => void;
+        onAllow?: () => void;
         onDeny?: () => void;
     }
   NetworkApprovalScopeChoice (packages/ui-kit/src/decisions/NetworkApprovalCard.tsx)

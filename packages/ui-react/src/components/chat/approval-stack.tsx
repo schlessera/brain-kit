@@ -63,7 +63,7 @@ function groupByOrigin(items: readonly PendingNetworkApproval[]): OriginGroup[] 
       ? ["once"]
       : oldest.network?.scopes?.length
         ? oldest.network.scopes
-        : ["once", "origin", "session"];
+        : [];
     groups.push({
       origin,
       originLabel: oldest.originLabel,
@@ -177,12 +177,18 @@ export function ChatApprovalStack({
   const allowAllLabel = showAllowAll ? `Allow all ${nonManagedWithSession.length} sites for this chat` : undefined;
   const anyArmed = groups.some((g) => armingMs > 0 && now - g.latestUpdatedAt < armingMs);
 
-  function decideGroup(group: OriginGroup, decision: { approved: true; scope: NetworkApprovalScopeChoice } | { approved: false }) {
+  function decideGroup(group: OriginGroup, decision: { approved: true; scope?: NetworkApprovalScopeChoice } | { approved: false }) {
     if (armingMs > 0 && Date.now() - group.latestUpdatedAt < armingMs) return;
     if (group.anySending) return;
     // Per #3595: `once` targets only the oldest pending connection; `origin`/`session` settle siblings server-side.
     if (decision.approved) {
-      replyToNetworkApproval(root, sessionId, send, group.oldest, { approved: true, scope: decision.scope });
+      replyToNetworkApproval(
+        root,
+        sessionId,
+        send,
+        group.oldest,
+        decision.scope !== undefined ? { approved: true, scope: decision.scope } : { approved: true }
+      );
     } else {
       // Deny applies to all currently waiting requests for this grouped origin.
       for (const item of group.items) {
@@ -204,7 +210,12 @@ export function ChatApprovalStack({
     if (key !== "a" && key !== "d") return;
     event.preventDefault();
     if (key === "a") {
-      // Keyboard shortcut `a` ALWAYS picks the narrowest advertised choice: once < origin < session (#3595).
+      // Keyboard shortcut `a` ALWAYS picks the narrowest advertised choice: once < origin < session (#3595),
+      // or legacy unscoped allow when the host did not advertise explicit scopes.
+      if (group.scopes.length === 0) {
+        decideGroup(group, { approved: true });
+        return;
+      }
       const narrowest: NetworkApprovalScopeChoice | undefined = group.scopes.includes("once")
         ? "once"
         : group.scopes.includes("origin")
@@ -269,6 +280,7 @@ export function ChatApprovalStack({
                 hideSessionButton={showAllowAll}
                 compact
                 onSelectScope={(scope) => decideGroup(group, { approved: true, scope })}
+                onAllow={() => decideGroup(group, { approved: true })}
                 onDeny={() => decideGroup(group, { approved: false })}
               />
             </div>

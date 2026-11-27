@@ -51,6 +51,8 @@ export interface NetworkApprovalCardProps {
   /** Compact mode for the stack above the composer. */
   compact?: boolean;
   onSelectScope?: (scope: NetworkApprovalScopeChoice) => void;
+  /** Unscoped legacy allow callback used when `scopes` is explicitly empty (`[]`). */
+  onAllow?: () => void;
   onDeny?: () => void;
 }
 
@@ -114,9 +116,10 @@ export function NetworkApprovalCard(p: NetworkApprovalCardProps) {
     );
   }
 
+  const legacyUnscoped = !p.managedReference && p.scopes !== undefined && p.scopes.length === 0;
   const scopes: readonly NetworkApprovalScopeChoice[] = p.managedReference
     ? ["once"]
-    : p.scopes && p.scopes.length > 0
+    : p.scopes !== undefined
       ? p.scopes
       : ["once", "origin", "session"];
   const offersOnce = scopes.includes("once");
@@ -225,6 +228,10 @@ export function NetworkApprovalCard(p: NetworkApprovalCardProps) {
     if (buttonsLocked) return;
     p.onSelectScope?.(scope);
   };
+  const fireAllow = () => {
+    if (buttonsLocked) return;
+    p.onAllow?.();
+  };
   const fireDeny = () => {
     if (buttonsLocked) return;
     p.onDeny?.();
@@ -277,6 +284,19 @@ export function NetworkApprovalCard(p: NetworkApprovalCardProps) {
             ariaDisabled={armed}
             style={allowMount}
             onClick={p.onSelectScope ? () => fireScope("once") : undefined}
+          />
+        ) : legacyUnscoped ? (
+          <Button
+            label={sending ? "Sending…" : `Allow${p.shortcuts ? ` ${p.shortcuts.allow}` : ""}`}
+            ariaLabel={sending ? `Sending approval for ${p.originLabel}` : `Allow ${p.originLabel}`}
+            tone="primary"
+            size="md"
+            center
+            block={false}
+            disabled={sending}
+            ariaDisabled={armed}
+            style={allowMount}
+            onClick={p.onAllow ? fireAllow : undefined}
           />
         ) : null}
         <Button

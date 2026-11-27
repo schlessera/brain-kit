@@ -174,7 +174,7 @@ async function openHarness(options: {
     record: (event) => writes.record(event),
     networkRefusal: (id) => host.coordinator.networkRefusal("turn-voyage", id),
     settleSiblings: (predicate, scope, reason, excludeToolUseId, grantedClasses) =>
-      host.coordinator.settleSiblingNetworkApprovals(turn.sessionId, excludeToolUseId, predicate, scope, reason, grantedClasses),
+      host.coordinator.settleSiblingNetworkApprovals(turn.sessionId, turn.turnId, excludeToolUseId, predicate, scope, reason, grantedClasses),
     onGrantsChanged: (sid) => host.broadcastNetworkGrants(sid),
   });
 

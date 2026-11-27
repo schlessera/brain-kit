@@ -30,7 +30,7 @@ export interface HandoffSnapshot {
  * settled and its ask and partial reply would join the handoff.
  */
 export function snapshotSource(
-  chat: Pick<SessionChat, "messages" | "isStreaming"> | undefined,
+  chat: (Pick<SessionChat, "messages" | "isStreaming"> & Partial<Pick<SessionChat, "networkApprovals">>) | undefined,
   runState?: "streaming" | "queued" | "idle"
 ): HandoffSnapshot {
   const all = chat?.messages ?? [];
@@ -50,10 +50,11 @@ export function snapshotSource(
     while (end > 0 && all[end - 1]!.role === "user") end--;
   }
   const messages = all.slice(0, end);
-  const pendingApprovals = all.reduce(
-    (n, message) => n + message.toolCalls.filter(awaitsDecision).length,
-    0
-  );
+  const pendingApprovals =
+    all.reduce(
+      (n, message) => n + message.toolCalls.filter(awaitsDecision).length,
+      0
+    ) + (chat?.networkApprovals?.filter((item) => !item.readOnly).length ?? 0);
   return { messages, running, pendingApprovals };
 }
 
