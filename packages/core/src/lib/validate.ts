@@ -124,34 +124,48 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
   const aliasMap = new Map<string, string[]>();
   // `supersedes` values as written, checked once every file is known.
   const supersedes = new Map<string, unknown>();
+  // One read and one parse per file. What the checks need later is kept per
+  // file, never the body: whether the fences are there, the parsed data (or
+  // the parse error) and the wiki-link targets.
+  const parsedFiles: Array<
+    | { path: string; block: boolean; data: Record<string, any>; links: string[] }
+    | { path: string; block: boolean; error: unknown }
+  > = [];
   for (const path of files) {
     fileMap.set(path, path);
+    const raw = readFileSync(resolve(root, path), "utf-8");
+    // Checked by the fences the indexer reads (#2507): a byte order mark
+    // before them is fine, a `----` line is not a fence.
+    const block = Boolean(frontmatterBlock(raw));
+    let parsed: { data: Record<string, any>; content: string };
     try {
-      const { data } = parseFrontmatter(readFileSync(resolve(root, path), "utf-8"), { dataOnly: true });
-      if (data.supersedes !== undefined) supersedes.set(path, data.supersedes);
-      if (Array.isArray(data.aliases)) {
-        for (const alias of data.aliases) {
-          const key = String(alias).toLowerCase().trim();
-          if (!key) continue;
-          const paths = aliasMap.get(key) ?? [];
-          paths.push(path);
-          aliasMap.set(key, paths);
-        }
-      }
-    } catch {
-      // frontmatter errors reported in the main loop
+      parsed = parseFrontmatter(raw, { dataOnly: true });
+    } catch (error) {
+      // Reported in the check loop below.
+      parsedFiles.push({ path, block, error });
+      continue;
     }
+    const { data } = parsed;
+    // Aliases and `supersedes` count whether or not the fences check passes,
+    // as they always have.
+    if (data.supersedes !== undefined) supersedes.set(path, data.supersedes);
+    if (Array.isArray(data.aliases)) {
+      for (const alias of data.aliases) {
+        const key = String(alias).toLowerCase().trim();
+        if (!key) continue;
+        const paths = aliasMap.get(key) ?? [];
+        paths.push(path);
+        aliasMap.set(key, paths);
+      }
+    }
+    parsedFiles.push({ path, block, data, links: block ? extractWikiLinks(parsed.content) : [] });
   }
 
   const resolveLink = createWikiLinkResolver(fileMap, taxonomy.dirAnchors);
   const describeUnresolved = createUnresolvedLinkDescriber(files);
-  for (const filePath of files) {
-    const fullPath = resolve(root, filePath);
-    const raw = readFileSync(fullPath, "utf-8");
-
-    // Check for frontmatter, by the fences the indexer reads (#2507): a
-    // byte order mark before them is fine, a `----` line is not a fence.
-    if (!frontmatterBlock(raw)) {
+  for (const file of parsedFiles) {
+    const filePath = file.path;
+    if (!file.block) {
       issues.push({
         file: filePath,
         level: "error",
@@ -160,22 +174,16 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
       });
       continue;
     }
-
-    let data: Record<string, any>;
-    let content: string;
-    try {
-      const parsed = parseFrontmatter(raw, { dataOnly: true });
-      data = parsed.data;
-      content = parsed.content;
-    } catch (e) {
+    if ("error" in file) {
       issues.push({
         file: filePath,
         level: "error",
-        message: `Invalid YAML frontmatter: ${e}`,
+        message: `Invalid YAML frontmatter: ${file.error}`,
         detail: { rule: "frontmatter-invalid" },
       });
       continue;
     }
+    const data = file.data;
     // The field a rule checks, with its value as written.
     const about = (field: string) => ({ field, value: rawValue(Object.hasOwn(data, field) ? data[field] : undefined) });
 
@@ -311,8 +319,7 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
 
     // Wiki-link validation — uses the indexer's resolver so warnings match
     // what the link graph will actually contain
-    const wikiLinks = extractWikiLinks(content);
-    for (const link of wikiLinks) {
+    for (const link of file.links) {
       const resolved =
         resolveLink(link, filePath) ??
         resolveAlias(link, aliasMap, filePath);
