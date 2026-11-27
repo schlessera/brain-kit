@@ -174,6 +174,11 @@ interface SchemaProtocol {
   conversationOutputRecordSchema: P.ConversationOutputRecord;
   serverConversationOutputSchema: P.ServerConversationOutput;
   conversationLimitsSchema: P.ConversationLimits;
+  /**
+   * Kept as `as z.ZodType<…>`: `satisfies` would publish the inferred zod type
+   * in place of `ZodType<DialogueEvidence>`. The entry holds its export; its
+   * inner shape is not compared through the cast.
+   */
   dialogueEvidenceSchema: P.DialogueEvidence;
   dialogueRecordSchema: P.DialogueRecord;
   dialoguePageSchema: P.DialoguePage;

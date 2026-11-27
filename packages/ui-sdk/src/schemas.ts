@@ -2088,7 +2088,7 @@ export const dialogueEvidenceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("request"), turnId: id, requestId: id.optional() }),
   z.object({ kind: z.literal("backend"), turnId: id, start: conversationSequence, end: conversationSequence, digest: z.string().regex(/^[a-f0-9]{64}$/), text: z.string().max(2000) }),
 ]).refine(e => e.kind !== "voice" || (e.event.kind === "input_fragment" ? (e.event.certainty === "known") === (e.event.confidence !== undefined)
-  : e.event.kind !== "unassigned_input_fragment" || !!e.event.sessionInterval !== !!e.event.timing), "Invalid dialogue evidence certainty or timing") satisfies z.ZodType<DialogueEvidence>;
+  : e.event.kind !== "unassigned_input_fragment" || !!e.event.sessionInterval !== !!e.event.timing), "Invalid dialogue evidence certainty or timing") as z.ZodType<DialogueEvidence>;
 export const dialogueRecordSchema = z.object({ sequence: conversationEpoch, identity: z.string().min(1).max(2048), evidence: dialogueEvidenceSchema }) satisfies z.ZodType<DialogueRecord>;
 export const dialoguePageSchema = z.object({ cursor:z.string().max(2048).optional(), ownerId: id, sessionId: id.optional(), generation: conversationEpoch,
   through: conversationSequence, records: z.array(dialogueRecordSchema).max(200), before: conversationSequence.optional(),
