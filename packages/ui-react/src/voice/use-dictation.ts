@@ -8,6 +8,7 @@ import { dictationFailure, dictationExplanation, endedNotice, speechError } from
 import { registerAsrClients } from "./asr-clients.js";
 import { endDictation, live, owners, release, stopping, type Capture } from "./dictation-capture.js";
 import { acknowledge, dictationTarget, freshDiscovery, invalidateDiscovery, isAcknowledged, loadDiscovery } from "./dictation-providers.js";
+import { createScreenWakeLock } from "./screen-wake-lock.js";
 
 /** V3 (#3690): a take with no speech for this long stops on its own, to review or to rest. */
 export const SILENCE_STOP_MS = 30_000;
@@ -115,6 +116,13 @@ export function useDictation() {
   const start = useCallback(async () => {
     if (root.authLock.state.getState().phase !== "active") return;
     const gen = ++startGenRef.current;
+    captureRef.current?.wakeLock?.release();
+    if (captureRef.current) captureRef.current.wakeLock = undefined;
+    const prior = owners.get(root.stores);
+    if (prior) {
+      prior.wakeLock?.release();
+      prior.wakeLock = undefined;
+    }
     const capture: Capture = { root: root.stores, client: null };
     captureRef.current = capture;
     owners.set(root.stores, capture);
@@ -244,7 +252,11 @@ export function useDictation() {
         return;
       }
       // Capture is live now — drop the connecting state so the field can show
-      // the honest "Listening" indicator.
+      // the honest "Listening" indicator, and hold a screen wake lock while
+      // dictation is active.
+      const wakeLock = createScreenWakeLock();
+      capture.wakeLock = wakeLock;
+      wakeLock.acquire();
       root.stores.voice.setState({ connecting: false, micPrompt: false, quiet: false });
       silenceRef.current = watchSilence(capture);
     } catch (err) {
@@ -280,6 +292,8 @@ export function useDictation() {
   const releaseCapture = useCallback((): AsrClient | null => {
     startGenRef.current++;
     silenceRef.current?.();
+    captureRef.current?.wakeLock?.release();
+    if (captureRef.current) captureRef.current.wakeLock = undefined;
     consentRef.current?.(false);
     consentRef.current = null;
     sessionAbortRef.current?.abort();

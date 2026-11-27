@@ -109,4 +109,29 @@ describe("DeepgramClient handshake", () => {
 
     expect(sockets[0]!.url).toBe(url);
   });
+
+  test("does not request navigator.wakeLock directly (dictation wake lock is owned by useDictation)", async () => {
+    stubBrowser();
+    let wakeLockRequests = 0;
+    Object.defineProperty(globalThis.navigator, "wakeLock", {
+      configurable: true,
+      writable: true,
+      value: {
+        request: async () => {
+          wakeLockRequests++;
+          return { release: async () => {}, addEventListener() {} };
+        },
+      },
+    });
+
+    const client = new DeepgramClient({
+      url: "wss://api.deepgram.com/v1/listen?model=nova-3",
+      token: "minted-grant-token",
+      onEvent: () => {},
+    });
+
+    await client.start();
+    expect(wakeLockRequests).toBe(0);
+    client.stop();
+  });
 });
