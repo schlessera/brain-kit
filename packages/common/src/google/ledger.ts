@@ -7,6 +7,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { GOOGLE_OPERATIONS, type GoogleOperation } from "./catalog.js";
 
+// The pinned gog exit mapping proves only these causes did not send. Unknown
+// exits and generic exit 1 must retain their reservation (google/gog/errors.ts).
+const retryableSendCauses = ["spawn_failed", "usage", "auth_required", "config", "not_found", "forbidden", "rate_limited"];
 const key = z.string().min(1).max(2048);
 const scopeSchema = z.strictObject({ principal_id: key, brain_id: key, account_identity: key });
 export interface GoogleApprovalScope { principal_id: string; brain_id: string; account_identity: string }
@@ -22,6 +25,8 @@ export interface GoogleLedger {
   sentDigest(account: string, digest: string): "pending" | "sent" | null;
   reserveSentDigest(account: string, digest: string, at: number): boolean;
   confirmSentDigest(account: string, digest: string): void;
+  /** Retain the transport cause; only proven failures allow a new reservation. */
+  failSentDigest(account: string, digest: string, cause: string): void;
   prepareStandalone(inverse: GoogleStandaloneInverse): void;
   settleStandalone(id: string, state: "confirmed" | "unknown" | "withdrawn", result?: { id: string; fingerprint: string }): void;
   list(brainId: string, principalId?: string): GoogleApproval[];
@@ -101,6 +106,11 @@ export function openGoogleLedger(path: string): GoogleLedger {
         CREATE TABLE IF NOT EXISTS standalone_inverses (
           id TEXT PRIMARY KEY, brain_id TEXT NOT NULL, account_identity TEXT NOT NULL, operation TEXT NOT NULL,
           state TEXT NOT NULL, inverse_json TEXT NOT NULL, precondition_json TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);`);
+      if (create) db.transaction(() => {
+        // Additive schema-v1 migration; old hosts still read pending/sent rows.
+        const columns = db.query<{ name: string }, []>("PRAGMA table_info(sent_digests)").all();
+        if (!columns.some(column => column.name === "cause")) db.exec("ALTER TABLE sent_digests ADD COLUMN cause TEXT");
+      }).immediate();
       return work(db);
     } finally { db.close(); }
   }
@@ -111,15 +121,19 @@ export function openGoogleLedger(path: string): GoogleLedger {
       return use(false, null, db => {
         // Schema-v1 ledgers predate sends. No table means no earlier send support.
         if (!db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sent_digests'").get()) return null;
-        const row = db.query<{ state: string }, [string, string]>("SELECT state FROM sent_digests WHERE account_identity=? AND digest=?").get(account, digest);
+        const row = db.query<{ state: string; cause?: string | null }, [string, string]>("SELECT * FROM sent_digests WHERE account_identity=? AND digest=?").get(account, digest);
         if (!row) return null;
         if (row.state !== "pending" && row.state !== "sent") throw new Error("Unreadable Google send digest");
+        if (row.state === "pending" && retryableSendCauses.includes(row.cause ?? "")) return null;
         return row.state;
       });
     },
     reserveSentDigest: (account, digest, at) => use(true, false, db => {
       digestKey(account, digest); z.number().int().nonnegative().parse(at);
-      return db.query("INSERT OR IGNORE INTO sent_digests VALUES(?,?,'pending',?)").run(account, digest, at).changes === 1;
+      return db.query(`INSERT INTO sent_digests (account_identity,digest,state,created_at,cause) VALUES(?,?,'pending',?,NULL)
+        ON CONFLICT(account_identity,digest) DO UPDATE SET created_at=excluded.created_at,cause=NULL
+        WHERE sent_digests.state='pending' AND sent_digests.cause IN (${retryableSendCauses.map(() => "?").join(",")})`)
+        .run(account, digest, at, ...retryableSendCauses).changes === 1;
     }),
     confirmSentDigest: (account, digest) => {
       const confirmed = use(false, false, db => {
@@ -129,6 +143,15 @@ export function openGoogleLedger(path: string): GoogleLedger {
         return true;
       });
       if (!confirmed) throw new Error("Google send digest store is missing");
+    },
+    failSentDigest: (account, digest, cause) => {
+      const recorded = use(false, false, db => {
+        digestKey(account, digest); key.parse(cause);
+        if (db.query("UPDATE sent_digests SET cause=? WHERE account_identity=? AND digest=? AND state='pending'").run(cause, account, digest).changes !== 1)
+          throw new Error("Google send digest is not pending");
+        return true;
+      });
+      if (!recorded) throw new Error("Google send digest store is missing");
     },
     prepareStandalone: inverse => use(true, undefined, db => db.transaction(() => {
       key.parse(inverse.id); key.parse(inverse.brain_id); key.parse(inverse.account_identity);

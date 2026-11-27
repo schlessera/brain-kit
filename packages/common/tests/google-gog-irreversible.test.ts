@@ -66,14 +66,14 @@ test("google delete and trash cannot confirm a different target or count", async
   expect(await trash.execute(() => null), "TRASH_COUNT_BOUND").toMatchObject({ ok: false, error: { code: "outcome_unknown" } });
 });
 
-test("google trash resolves a bounded exact message set and refuses label collisions", async () => {
+test("google trash resolves a bounded exact message set despite user label names matching system ids", async () => {
   const { ctx, fake } = setup();
   const trash = await prepareGmailTrash(ctx, { thread_ids: [FIRST] });
   expect(trash.payload.message_ids, "TRASH_RESOLVES_THREAD").toEqual([FIRST, SECOND]);
   expect(await trash.execute(() => null)).toMatchObject({ ok: true, result: { message_ids: [FIRST, SECOND] } });
   const labels = fixture("labels-list"); labels.labels.push({ id: "Label_77", name: "trash", type: "user" });
   fake.setScenario({ ...writesScenario(), "gmail.labels.list": { stdout: labels } });
-  await expect(prepareGmailTrash(ctx, { message_ids: [FIRST] }), "TRASH_LABEL_COLLISION").rejects.toMatchObject({ error: { code: "not_found" } });
+  await expect(prepareGmailTrash(ctx, { message_ids: [FIRST] }), "TRASH_SYSTEM_IDS_UNAMBIGUOUS").resolves.toMatchObject({ payload: { message_ids: [FIRST] } });
   const thread = fixture("thread-hall"); thread.thread.messages = Array.from({ length: 26 }, (_, i) => ({ ...thread.thread.messages[0], id: (0x19a0c3d2e4f50600n + BigInt(i)).toString(16) }));
   fake.setScenario({ ...writesScenario(), [`gmail.thread.get ${FIRST}`]: { stdout: thread } });
   await expect(prepareGmailTrash(ctx, { thread_ids: [FIRST] }), "TRASH_BOUND").rejects.toMatchObject({ error: { reason: "items_per_call" } });

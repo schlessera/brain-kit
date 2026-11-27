@@ -116,3 +116,30 @@ test("Google send digest unreadable state refuses without blocking unrelated app
   expect(ledger.sentDigest("penelope@example.com", digest), "DIGEST_CORRUPT_OTHER_ACCOUNT").toBeNull();
   expect(ledger.list("ithaca")).toEqual([]);
 });
+
+
+test("Google schema-v1 ledgers gain failure causes without losing pending or sent evidence", () => {
+  const path = resolve(scratch(), "ledger.sqlite"), ledger = openGoogleLedger(path), digest = "c".repeat(64);
+  cleanups.push(() => ledger.close());
+  ledger.reserveSentDigest("odysseus@example.com", digest, 1);
+  const db = new Database(path);
+  try { db.exec("ALTER TABLE sent_digests DROP COLUMN cause"); } finally { db.close(); }
+  expect(ledger.sentDigest("odysseus@example.com", digest), "DIGEST_OLD_PENDING_READABLE").toBe("pending");
+  expect(ledger.reserveSentDigest("odysseus@example.com", digest, 2), "DIGEST_MIGRATION_NO_RELEASE").toBe(false);
+  ledger.failSentDigest("odysseus@example.com", digest, "rate_limited");
+  expect(ledger.sentDigest("odysseus@example.com", digest)).toBeNull();
+  expect(ledger.reserveSentDigest("odysseus@example.com", digest, 3), "DIGEST_FAILED_REACQUIRED").toBe(true);
+  const second = openGoogleLedger(path);
+  try { expect(second.reserveSentDigest("odysseus@example.com", digest, 4), "DIGEST_RETRY_ATOMIC").toBe(false); } finally { second.close(); }
+  ledger.failSentDigest("odysseus@example.com", digest, "error");
+  expect(ledger.sentDigest("odysseus@example.com", digest), "DIGEST_GENERIC_UNKNOWN_RETAINED").toBe("pending");
+  expect(ledger.reserveSentDigest("odysseus@example.com", digest, 5)).toBe(false);
+  ledger.confirmSentDigest("odysseus@example.com", digest);
+  const read = new Database(path);
+  try {
+    expect(read.query("SELECT value FROM meta WHERE key='schema_version'").get()).toEqual({ value: "1" });
+    read.exec("ALTER TABLE sent_digests DROP COLUMN cause");
+  } finally { read.close(); }
+  expect(ledger.sentDigest("odysseus@example.com", digest), "DIGEST_OLD_SENT_READABLE").toBe("sent");
+  expect(ledger.reserveSentDigest("odysseus@example.com", digest, 6)).toBe(false);
+});

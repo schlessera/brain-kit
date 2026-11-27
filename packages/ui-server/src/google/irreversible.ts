@@ -9,11 +9,19 @@ import type { GoogleWriteFactories } from "./write-engine.js";
 const storeError = () => new GooglePreparationError({ code: "unavailable", reason: "digest_store_unavailable", message: "Send replay protection is unavailable; nothing was sent." });
 const replayError = (state: "pending" | "sent") => new GooglePreparationError(state === "sent"
   ? { code: "already_sent", reason: "digest_recorded", message: "These exact draft bytes have already been sent. They will not be sent again." }
-  : { code: "outcome_unknown", reason: "digest_pending", message: "These exact draft bytes may already have been sent. They will not be sent again." });
+  : { code: "outcome_unknown", reason: "digest_pending", message: "These exact draft bytes may already have been sent. Check Gmail’s Sent folder, or edit the draft to send new bytes. These bytes will not be sent again." });
 function card(operation: GoogleMailApproval["operation"], payload: unknown) {
   const result = GOOGLE_MAIL_APPROVAL_SCHEMA.safeParse({ operation, effect: "irreversible", tainted: false, entities: [],
     offers: { allow_always: false, allow_for_session: false }, payload });
-  if (!result.success || new TextEncoder().encode(JSON.stringify(result.data)).length > GOOGLE_APPROVAL_CARD_BYTES)
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    const path = issue?.path.map(String) ?? [];
+    const field = path.some(part => ["references", "in_reply_to", "thread_id"].includes(part)) ? "threading"
+      : path.some(part => ["to", "cc", "bcc", "from", "send_as", "reply_to"].includes(part)) ? "mailbox"
+      : path.includes("subject") ? "subject" : path.includes("body_text") ? "body" : "message";
+    throw new GooglePreparationError({ code: "draft_not_displayable", reason: "card_schema", message: `The draft's ${field} fields cannot be represented on an approval card. Correct them and make a new request.` });
+  }
+  if (new TextEncoder().encode(JSON.stringify(result.data)).length > GOOGLE_APPROVAL_CARD_BYTES)
     throw new GooglePreparationError({ code: "draft_not_displayable", reason: "card_too_large", message: "This change cannot be shown completely on one approval card." });
   return result.data;
 }
@@ -45,22 +53,33 @@ export function createGmailIrreversibleFactories(options: { credential: Pick<Goo
     return { operation: "gmail.draft.send", input: call.input, facts: prepared.facts, classificationFacts: prepared.classificationFacts,
       card: card("gmail.draft.send", payload), sendLock: prepared.sendLock,
       async execute(finalAdmission, cleanupAdmission) {
+        let reserved = false, notDispatched = false;
         const answer = await prepared.send(() => {
           const denied = finalAdmission();
           if (denied) return denied;
           // Synchronous and durable at the final spawn boundary. An ambiguous
           // dispatch retains pending forever; no retry can turn unknown clean.
           try {
-            if (!ledger().reserveSentDigest(accountIdentity, digest, Date.now()))
+            if (!ledger().reserveSentDigest(accountIdentity, digest, Date.now())) {
+              notDispatched = true;
               return replayError(ledger().sentDigest(accountIdentity, digest) ?? "pending").error;
-          } catch { return storeError().error; }
+            }
+            reserved = true;
+          } catch { notDispatched = true; return storeError().error; }
           return null;
         });
-        if (!answer.ok) return answer;
+        if (!answer.ok) {
+          if (notDispatched) return { ...answer, notDispatched: true };
+          if (reserved) {
+            try { ledger().failSentDigest(accountIdentity, digest, answer.error.reason ?? answer.error.code); }
+            catch { return { ok: false, error: { code: "outcome_unknown", reason: "digest_failure_recording_failed", message: "The send failure could not be recorded. Check Gmail's Sent folder, or edit the draft to send new bytes." } }; }
+          }
+          return answer;
+        }
         // Pending already blocks replay, including a crash or failure here.
         try { ledger().confirmSentDigest(accountIdentity, digest); }
         catch { return { ok: false, error: { code: "outcome_unknown", reason: "digest_confirmation_failed", message: "Google confirmed the send, but its receipt could not be finalized. These bytes will not be resent." } }; }
-        let deleted = false;
+        let deleted: boolean | null = false;
         try { deleted = await prepared.deleteSentDraft(cleanupAdmission); } catch { /* A confirmed send never becomes retryable on cleanup failure. */ }
         return { ok: true, result: { draft_id: call.input.draft_id, ...answer.value, draft_deleted: deleted } };
       } };

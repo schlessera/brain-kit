@@ -36,12 +36,15 @@ export async function prepareGmailSend(ctx: GmailWritePreparationContext, draftI
     facts: { items: 1, target_label_ids: labels, recipients: [...to, ...cc, ...bcc].map(m => m.address), self_addresses: [ctx.accountIdentity] },
     send: (finalAdmission: NonNullable<GogExecution["finalAdmission"]>) => ctx.transport.execute("gmail.draft.send",
       { raw: new Uint8Array(raw), ...(threadId ? { thread_id: threadId } : {}) }, { ...read.execution, finalAdmission }),
-    async deleteSentDraft(finalAdmission: NonNullable<GogExecution["finalAdmission"]>): Promise<boolean> {
+    async deleteSentDraft(finalAdmission: NonNullable<GogExecution["finalAdmission"]>): Promise<boolean | null> {
       // Another client can edit the draft during the send. Never delete those new bytes.
       const current = await readDraft(ctx, draftId);
       if (current.parsed.digest !== digest || current.threadId !== threadId) return false;
-      const answer = await ctx.transport.execute("gmail.draft.delete", { draft_id: draftId }, { ...read.execution, finalAdmission });
-      return answer.ok && answer.value.draft_id === draftId;
+      try {
+        const answer = await ctx.transport.execute("gmail.draft.delete", { draft_id: draftId }, { ...read.execution, finalAdmission });
+        if (!answer.ok) return answer.error.code === "outcome_unknown" ? null : false;
+        return answer.value.draft_id === draftId ? true : null;
+      } catch { return null; }
     } };
 }
 
@@ -58,12 +61,10 @@ export async function prepareGmailDelete(ctx: GmailWritePreparationContext, draf
 
 export async function prepareGmailTrash(ctx: GmailWritePreparationContext, input: GmailTrashInput) {
   const read = gmailWriteReader(ctx);
-  // gog's trash command resolves TRASH and INBOX through the mixed id/name
-  // directory, just like modify. Refuse a user label colliding with either.
-  const listed = await ctx.transport.execute("gmail.labels.list", {}, read.execution);
-  if (!listed.ok) throw new GooglePreparationError(listed.error);
-  if (listed.value.some(l => ["TRASH", "INBOX"].some(id => l.id !== id && l.name?.toLowerCase() === id.toLowerCase())))
-    return fail("not_found", null, "No such Gmail thread, message or draft was found.");
+  // Pinned gog resolves exact IDs before lowercased names: uppercase TRASH
+  // and INBOX cannot collide with user names (fetchLabelNameToID,
+  // internal/cmd/gmail_labels.go:389-405; resolveLabelIDs,
+  // internal/cmd/gmail_labels_utils.go:15-38, gog 44364d31).
   let ids = [...(input.message_ids ?? [])];
   if (input.thread_ids) {
     for (const id of input.thread_ids) {

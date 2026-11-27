@@ -3686,15 +3686,20 @@ body, with the SHA-256 of the retained raw bytes. Its payload additively include
 `account_alias` and `recipient_matches` (`{ field: "to" | "cc" | "bcc",
 address, entry }[]`), naming each policy match. These two fields are optional
 for earlier card producers; production supplies both, and denied recipients
-never reach a shown card. gog validates the raw sender
+never reach a shown card. A field that the card schema cannot represent
+refuses as `draft_not_displayable/card_schema`, naming the field class (mailbox,
+threading, subject, body or message); the total serialized byte bound remains
+`draft_not_displayable/card_too_large`. gog validates the raw sender
 against the connected account and its verified send-as identities; the host
 never overrides it. The host resolves `self` conservatively to the primary
 account address; it does not infer verified aliases from a draft.
 
 A card-owned draft lock refuses concurrent save, delete and send before their
 pre-read (`draft_locked`). A lost or expired lock refuses that card as
-`unavailable/state_unavailable`. On allow, the host reacquires its account
-write lock and re-prepares; any payload change refuses as
+`unavailable/card_lock_expired`: the owner must make a new request. On allow,
+the host reacquires its account write lock, checks again for another card’s
+send lock (including saves and deletes whose cards opened earlier), and
+re-prepares; any payload change refuses as
 `policy_denied/prepared_changed`. It sends the retained bytes on stdin with
 `gmail send --raw-file -` and the draft's thread id, never `drafts send`.
 
@@ -3702,23 +3707,41 @@ An account-scoped digest reservation commits immediately before dispatch.
 Successful send confirms the digest before attempting to delete the draft.
 A recorded send refuses as the additive `already_sent/digest_recorded` code;
 an uncertain reserved send refuses as `outcome_unknown/digest_pending`,
-including after process restart. The ledger stores no body, address headers
+including after process restart. The refusal tells the owner to check Gmail’s
+Sent folder or edit the draft to send new bytes. The schema-v1 ledger gains a
+nullable `sent_digests.cause` column, migrated on writes; old ledgers remain
+readable. Failed pending rows retain their cause. Only `spawn_failed`, `usage`,
+`auth_required`, `config`, `not_found`, `forbidden` and `rate_limited` permit a
+new card to reserve the same digest atomically. All other causes, including
+gog’s generic exit 1, keep it pending. The pinned gog mappings are
+`stableExitCode` (`internal/cmd/exit_codes.go:54-126`) and `httpStatusExitCode`
+(`internal/cmd/exit_codes.go:143-163`), at 44364d31; the host maps them in
+`gogProcessError` (`packages/common/src/google/gog/errors.ts:56-84`). Failure
+to record the cause retains pending and returns
+`outcome_unknown/digest_failure_recording_failed`. A reservation refusal at
+dispatch records a refusal and retains its specific recovery message; nothing
+spawned on that call. The ledger stores no body, address headers
 or session content. An unreadable digest store refuses this send as
 `unavailable/digest_store_unavailable`; failed receipt confirmation retains
 the reservation and returns `outcome_unknown/digest_confirmation_failed`.
 
-The structured send result additively carries `draft_deleted: boolean`
+The structured send result additively carries `draft_deleted: boolean | null`
 (optional in the schema for existing producers; always present from the
-production factory). `false` means Google confirmed sending but draft cleanup
-did not complete. It never means the send should be repeated. Cleanup has its
+production factory). `true` confirms draft deletion, `false` means cleanup
+definitively did not delete it, and `null` means the deletion outcome is unknown
+(exit 8, timeout, signal or an unreadable response). Google confirmed sending
+in all three cases. It never means the send should be repeated. Cleanup has its
 own once-only final authority check and re-reads the draft digest before
 removal; changed drafts are retained. The call audit records
-`draft_cleanup_incomplete`. No write is retried.
+`draft_cleanup_incomplete`. No write is automatically retried.
 
 Draft deletion binds its card to the target draft's digest. Trash resolves
 threads to at most 25 exact message ids and pre-reads their labels. Both
-respect hidden threads and refuse before a card; a user label named like
-TRASH or INBOX also refuses trash, because gog resolves those names through
-the account's directory. Mismatched deletion ids or trash counts return
+respect hidden threads and refuse before a card. Pinned gog resolves the exact
+uppercase system ids TRASH and INBOX before lowercased label names, so user
+label names cannot redirect trash (`fetchLabelNameToID`,
+`internal/cmd/gmail_labels.go:389-405`; `resolveLabelIDs`,
+`internal/cmd/gmail_labels_utils.go:15-38`, at 44364d31). Mismatched deletion
+ids or trash counts return
 `outcome_unknown`. Trash remains irreversible until a separate disposable
 account proof establishes its inverse; this implementation does not claim it.

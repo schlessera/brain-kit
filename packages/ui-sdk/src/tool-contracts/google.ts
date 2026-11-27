@@ -201,7 +201,7 @@ const draftSaveSuccess = z.strictObject({ ...writeBase, tool: z.literal(GMAIL_TO
 const draftDeleteSuccess = z.strictObject({ ...writeBase, effect: z.literal("irreversible"), tool: z.literal(GMAIL_TOOL_NAMES.draft), operation: z.literal("gmail.draft.delete"),
   result: z.strictObject({ draft_id: draftId }) });
 const sendSuccess = z.strictObject({ ...writeBase, effect: z.literal("irreversible"), tool: z.literal(GMAIL_TOOL_NAMES.send), operation: z.literal("gmail.draft.send"),
-  result: z.strictObject({ draft_id: draftId, message_id: messageId, thread_id: threadId.nullable(), draft_deleted: z.boolean().optional() }) });
+  result: z.strictObject({ draft_id: draftId, message_id: messageId, thread_id: threadId.nullable(), draft_deleted: z.boolean().nullable().optional() }) });
 export const GOOGLE_WRITE_SUCCESS_SCHEMA = z.union([modifySuccess, trashSuccess, draftSaveSuccess, draftDeleteSuccess, sendSuccess]);
 export type GoogleWriteSuccess = z.infer<typeof GOOGLE_WRITE_SUCCESS_SCHEMA>;
 

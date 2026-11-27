@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
@@ -42,7 +43,7 @@ function fixture(mode: "allow" | "ask" = "allow", options: { hidden?: string[]; 
       resolveAccount: () => transport.resolveAccount(), currentPolicyHash: () => "ithaca", state, ready: () => true, currentPolicy: () => current,
       isDraftLocked: (account, draft, epoch, now) => isDraftSendLocked(db, "brain", account, draft, epoch, now), preparedWrites: createGmailWriteFactories({ db, credential, brainId: "brain", ledger: () => ledger }) } });
   cleanups.push(() => host.close?.());
-  return { db, fake, transport, turn, cards, ledger, owner, policy, state, call: (call: GoogleToolCall) => host.call(turn, call),
+  return { db, fake, transport, turn, cards, ledger, owner, policy, state, ledgerPath: resolve(dir, "ledger.db"), call: (call: GoogleToolCall) => host.call(turn, call),
     syncPolicy: () => { current = structuredClone(policy); },
     answer: (next: typeof answer) => { answer = next; },
     change: (kind: string) => { if (kind === "taint") tainted = true; if (kind === "untaint") tainted = false; if (kind === "routing") routing = "recipient_restricted";
@@ -72,6 +73,7 @@ test("google send dispatches the approved raw bytes once and deletes only after 
   expect(f.fake.callsOf("gmail.send")[0]!.argv).toContain(`--thread-id=${FIRST}`);
   expect(f.fake.callsOf("gmail.drafts.delete")).toHaveLength(1);
   expect(await f.call(send), "SEND_DIGEST_REPLAY_REFUSED").toMatchObject({ ok: false, error: { code: "already_sent" } });
+  expect(f.cards, "SEND_REPLAY_NO_CARD").toHaveLength(1);
   expect(f.fake.callsOf("gmail.send")).toHaveLength(1);
 });
 
@@ -152,18 +154,19 @@ test("google pending send card refuses racing draft save and delete then release
   expect(f.db.query("SELECT * FROM google_send_locks").all()).toEqual([]);
 });
 
-test("google send refuses a lost or expired card lock", async () => {
+for (const lost of [true, false]) test(`google send refuses a ${lost ? "lost" : "expired"} card lock`, async () => {
   const f = fixture();
-  f.answer(async () => { f.db.exec("DELETE FROM google_send_locks"); return { behavior: "allow" }; });
-  expect(await f.call(send), "SEND_LOST_LOCK").toMatchObject({ ok: false, error: { reason: "state_unavailable" } });
+  f.answer(async () => { f.db.exec(lost ? "DELETE FROM google_send_locks" : "UPDATE google_send_locks SET created_at=0,expires_at=1"); return { behavior: "allow" }; });
+  expect(await f.call(send), "SEND_LOST_LOCK").toMatchObject({ ok: false, error: { reason: "card_lock_expired", message: expect.stringContaining("new request") } });
   expect(f.fake.callsOf("gmail.send")).toHaveLength(0);
   expect(await f.call(trash), "SEND_LOST_LOCK_OTHER_OPERATION_USABLE").toMatchObject({ ok: true });
 });
 
 test("google failed draft cleanup after send keeps the digest and cannot resend", async () => {
   const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.drafts.delete": { exit: 8 } });
-  expect(await f.call(send), "SEND_CLEANUP_FAILURE_CONFIRMED").toMatchObject({ ok: true, result: { draft_deleted: false } });
+  expect(await f.call(send), "SEND_CLEANUP_FAILURE_CONFIRMED").toMatchObject({ ok: true, result: { draft_deleted: null } });
   expect(await f.call(send), "SEND_CLEANUP_FAILURE_NO_REPLAY").toMatchObject({ ok: false, error: { code: "already_sent" } });
+  expect(f.cards, "SEND_CLEANUP_REPLAY_NO_CARD").toHaveLength(1);
   expect(f.fake.callsOf("gmail.send")).toHaveLength(1); expect(f.fake.callsOf("gmail.drafts.delete")).toHaveLength(1);
 });
 
@@ -228,13 +231,16 @@ for (const [call, command] of [[send, "gmail.send"], [remove, "gmail.drafts.dele
   });
 
 test("google send cleanup refuses changed draft bytes and stale authority", async () => {
-  for (const change of ["draft", "safety"] as const) {
+  for (const change of ["draft", "thread", "safety"] as const) {
     const f = fixture(), execute = f.transport.execute.bind(f.transport);
     f.transport.execute = (async (operation, input, execution) => {
       const answer = await execute(operation, input, execution);
       if (operation === "gmail.draft.send") {
         if (change === "draft") setRaw(f, mail("To: penelope@example.com", "Keep this new draft."));
-        else f.change("safety");
+        else if (change === "thread") {
+          const draft = rawDraft(); draft.draft.message.threadId = SECOND;
+          f.fake.setScenario({ ...sendScenario(), [`gmail.drafts.get ${DRAFT}`]: { stdout: draft } });
+        } else f.change("safety");
       }
       return answer;
     }) as typeof f.transport.execute;
@@ -262,7 +268,9 @@ test("google send dispatch refuses a digest reserved by another host after appro
     if (operation === "gmail.draft.send") f.ledger.reserveSentDigest("odysseus@example.com", digest, 1);
     return execute(operation, input, execution);
   }) as typeof f.transport.execute;
-  expect(await f.call(send), "SEND_ATOMIC_RESERVATION").toMatchObject({ ok: false, error: { code: "outcome_unknown", reason: "digest_pending" } });
+  const result = await f.call(send);
+  expect(result, "SEND_ATOMIC_RESERVATION").toMatchObject({ ok: false, error: { code: "outcome_unknown", reason: "digest_pending", message: expect.stringContaining("Sent folder") } });
+  expect(f.db.query("SELECT json_extract(payload,'$.decision') decision FROM governance_events WHERE kind='outward_action' ORDER BY id").all(), "SEND_RESERVATION_REFUSAL_RECORDED").toEqual([{ decision: "approved" }, { decision: "refused" }]);
   expect(f.fake.callsOf("gmail.send")).toHaveLength(0); expect(f.fake.callsOf("gmail.drafts.delete")).toHaveLength(0);
 });
 
@@ -283,5 +291,92 @@ test("google send refuses the complete card byte bound even with a bounded body"
   const refs = Array.from({ length: 65 }, (_, i) => `<${"o".repeat(1890)}${i}@example.com>`).join(" ");
   setRaw(f, mail(`To: penelope@example.com\r\nIn-Reply-To: ${refs}\r\nReferences: ${refs}`, "O".repeat(32_768)));
   expect(await f.call(send), "SEND_COMPLETE_CARD_BOUND").toMatchObject({ ok: false, error: { code: "draft_not_displayable", reason: "card_too_large" } });
+  expect(f.cards).toHaveLength(0); expect(f.fake.callsOf("gmail.send")).toHaveLength(0);
+});
+
+
+test("google delete refuses bytes changed while its card is open", async () => {
+  const f = fixture();
+  f.answer(async () => { setRaw(f, mail("To: penelope@example.com", "Keep this new draft.")); return { behavior: "allow" }; });
+  expect(await f.call(remove), "DELETE_CARD_DIGEST_BOUND").toMatchObject({ ok: false, error: { reason: "prepared_changed" } });
+  expect(f.fake.callsOf("gmail.drafts.delete")).toHaveLength(0);
+});
+
+for (const call of [{ tool: "brain_google_gmail_draft", input: { action: "update", draft_id: DRAFT, body: "Keep weaving." } } as GoogleToolCall, remove])
+  test(`google ${call === remove ? "delete" : "save"} card opened before send refuses under its lock`, async () => {
+    const f = fixture();
+    const resolvers: Array<(d: PermissionDecision) => void> = [];
+    let shown!: () => void;
+    let nextCard = new Promise<void>(resolve => { shown = resolve; });
+    f.answer(() => new Promise(resolve => { resolvers.push(resolve); shown(); }));
+    const writing = f.call(call);
+    await nextCard;
+    nextCard = new Promise<void>(resolve => { shown = resolve; });
+    const sending = f.call(send);
+    await nextCard;
+    resolvers[0]!({ behavior: "allow" });
+    let written: Awaited<typeof writing>;
+    try { written = await writing; } finally { resolvers[1]!({ behavior: "allow" }); }
+    const sent = await sending;
+    expect(written, "OLDER_CARD_LOCK_REFUSAL").toMatchObject({ ok: false, error: { code: "draft_locked" } });
+    expect(f.fake.callsOf("gmail.drafts.update"), "OLDER_CARD_NO_SAVE").toHaveLength(0);
+    expect(sent, "SEND_SURVIVES_OLDER_CARD").toMatchObject({ ok: true });
+    expect(f.fake.callsOf("gmail.drafts.delete"), "ONLY_SEND_CLEANUP_DELETES").toHaveLength(1);
+  });
+
+for (const [exit, cause] of [[7, "rate_limited"], [2, "usage"], [4, "auth_required"], [10, "config"], [5, "not_found"], [6, "forbidden"], [null, "spawn_failed"]] as const)
+  test(`google definitive send failure ${cause} permits a newly approved retry`, async () => {
+    const f = fixture();
+    let spawnSpy: ReturnType<typeof spyOn> | undefined;
+    if (exit === null) {
+      const spawn = Bun.spawn;
+      spawnSpy = spyOn(Bun, "spawn").mockImplementation(((...args: Parameters<typeof Bun.spawn>) => {
+        if (Array.isArray(args[0]) && args[0].includes("--enable-commands-exact=gmail.send")) throw new Error("Ithaca fake spawn failure");
+        return Reflect.apply(spawn, Bun, args);
+      }) as typeof Bun.spawn);
+      cleanups.push(() => spawnSpy?.mockRestore());
+    } else f.fake.setScenario({ ...sendScenario(), "gmail.send": { exit } });
+    expect(await f.call(send)).toMatchObject({ ok: false });
+    spawnSpy?.mockRestore();
+    const ledgerDb = new Database(f.ledgerPath);
+    try { expect(ledgerDb.query("SELECT state,cause FROM sent_digests").all(), "SEND_FAILURE_CAUSE_DURABLE").toEqual([{ state: "pending", cause }]); }
+    finally { ledgerDb.close(); }
+    f.fake.setScenario(sendScenario());
+    expect(await f.call(send), "SEND_DEFINITIVE_FAILURE_RETRY").toMatchObject({ ok: true });
+    expect(f.cards, "SEND_RETRY_FRESH_CARD").toHaveLength(2);
+    expect(f.fake.callsOf("gmail.send")).toHaveLength(exit === null ? 1 : 2);
+    expect(await f.call(send)).toMatchObject({ ok: false, error: { code: "already_sent" } });
+    expect(f.cards).toHaveLength(2);
+  });
+
+for (const exit of [1, 8]) test(`google ambiguous send exit ${exit} stays pending with its cause`, async () => {
+  const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.send": { exit } });
+  expect(await f.call(send)).toMatchObject({ ok: false, error: { code: "outcome_unknown" } });
+  const ledgerDb = new Database(f.ledgerPath);
+  try { expect(ledgerDb.query("SELECT state,cause FROM sent_digests").all()).toEqual([{ state: "pending", cause: exit === 1 ? "error" : "retryable" }]); }
+  finally { ledgerDb.close(); }
+  expect(await f.call(send), "SEND_AMBIGUOUS_NOT_RELEASED").toMatchObject({ ok: false, error: { reason: "digest_pending", message: expect.stringContaining("edit the draft") } });
+  expect(f.cards).toHaveLength(1); expect(f.fake.callsOf("gmail.send")).toHaveLength(1);
+});
+
+test("google unavailable dispatch reservation records refusal with no dispatch claim", async () => {
+  const f = fixture();
+  const spy = spyOn(f.ledger, "reserveSentDigest").mockImplementation(() => { throw new Error("Ithaca store unavailable"); });
+  cleanups.push(() => spy.mockRestore());
+  expect(await f.call(send), "SEND_STORE_REFUSAL_MESSAGE").toMatchObject({ ok: false, error: { reason: "digest_store_unavailable", message: expect.stringContaining("nothing was sent") } });
+  expect(f.db.query("SELECT json_extract(payload,'$.decision') decision FROM governance_events WHERE kind='outward_action' ORDER BY id").all(), "SEND_STORE_REFUSAL_RECORDED").toEqual([{ decision: "approved" }, { decision: "refused" }]);
+  expect(f.fake.callsOf("gmail.send")).toHaveLength(0);
+});
+
+for (const [response, deleted] of [[{ exit: 6 }, false], [{ exit: 8 }, null], [{ signal: "SIGTERM" }, null], [{ stdout: { deleted: true, draftId: DRAFT, unexpected: true } }, null]] as const)
+  test(`google cleanup reports ${JSON.stringify(response)} honestly`, async () => {
+    const f = fixture(); f.fake.setScenario({ ...sendScenario(), "gmail.drafts.delete": response });
+    expect(await f.call(send), "SEND_CLEANUP_TRI_STATE").toMatchObject({ ok: true, result: { draft_deleted: deleted } });
+    expect(await f.call(send)).toMatchObject({ ok: false, error: { code: "already_sent" } });
+  });
+
+test("google oversized subject names its card schema field", async () => {
+  const f = fixture(); setRaw(f, mail().replace("Subject: Ithaca", `Subject: ${"O".repeat(501)}`));
+  expect(await f.call(send), "SEND_CARD_SCHEMA_REASON").toMatchObject({ ok: false, error: { reason: "card_schema", message: expect.stringContaining("subject") } });
   expect(f.cards).toHaveLength(0); expect(f.fake.callsOf("gmail.send")).toHaveLength(0);
 });

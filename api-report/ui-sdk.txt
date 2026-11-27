@@ -12214,7 +12214,7 @@ signatures (every public export and the types it is made of)
             ok: z.ZodLiteral<true>;
             operation: z.ZodLiteral<"gmail.draft.send">;
             result: z.ZodObject<{
-                draft_deleted: z.ZodOptional<z.ZodBoolean>;
+                draft_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                 draft_id: z.ZodString;
                 message_id: z.ZodString;
                 thread_id: z.ZodNullable<z.ZodString>;
@@ -12490,7 +12490,7 @@ signatures (every public export and the types it is made of)
         ok: z.ZodLiteral<true>;
         operation: z.ZodLiteral<"gmail.draft.send">;
         result: z.ZodObject<{
-            draft_deleted: z.ZodOptional<z.ZodBoolean>;
+            draft_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             draft_id: z.ZodString;
             message_id: z.ZodString;
             thread_id: z.ZodNullable<z.ZodString>;
