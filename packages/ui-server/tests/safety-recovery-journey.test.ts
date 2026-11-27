@@ -397,7 +397,7 @@ test("a fetch denied after its obligation failed to commit retains the audited a
 });
 
 test("a partial fetch write stays unresolved when its refusal cannot prove non-delivery", async () => {
-  for (const variant of ["reused", "cancelled", "contradicted"] as const) {
+  for (const variant of ["reused", "cancelled", "contradicted", "lost"] as const) {
     const f = await safetyHistoryFixture();
     try {
       const collector = await partialFetchWrite(f, "fetch");
@@ -405,14 +405,57 @@ test("a partial fetch write stays unresolved when its refusal cannot prove non-d
       if (variant === "contradicted") {
         await collector.refused?.("fetch", true);
         await expectRejection(collector.result("fetch", "WebFetch", "Harbour notes arrived after all", true));
+      } else if (variant === "lost") {
+        await collector.refused?.("fetch", true);
+        await collector.lost?.("fetch", "WebFetch", new Error("The harbour report was malformed"));
       } else await collector.refused?.("fetch", variant !== "cancelled");
       await f.writes.safetyEnd("voyage");
       const state = f.writes.safety(null, "ithaca");
       expect(state.restriction, variant).toBe("restricted");
-      if (variant === "contradicted") expect(state.coverage.state, variant).toBe("incomplete");
-      else expect(state.unresolvedCount, variant).toBe(1);
+      if (variant === "contradicted" || variant === "lost") expect(state.coverage.state, variant).toBe("incomplete");
+      expect(state.unresolvedCount, variant).toBe(1);
+      // After a restart the contradicted attempt is unknown again, never "never ran".
+      const restarted = createUiDb(f.path);
+      try {
+        const page = await new SafetyHistory(restarted, () => true, async () => {}).read(f.principal, { sessionId: "ithaca" }, null, 50, true, true, true);
+        expect(page.projection.unresolvedCount, `${variant}_RESTART_KEEPS_THE_INPUT_UNRESOLVED`).toBe(1);
+        expect(page.records.filter(record => record.kind === "exposure").map(record => record.state).at(-1), variant).not.toBe("not_delivered");
+      } finally { restarted.close(); }
     } finally { await f.close(); }
   }
+});
+
+/** Production order (#4514): the obligation failure stops the turn before
+ * begin() rejects, so teardown can start before the backend's hook returns
+ * its denial. The real permission hooks run here, and teardown starts at once. */
+test("a fetch whose obligation failed is settled by the hook's denial even when teardown starts first", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const controller = new AbortController();
+    let ended: Promise<void> | undefined;
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+      sessionId: () => "ithaca", shellProxied: () => true, signal: controller.signal,
+      stop: () => { controller.abort(); ended = f.writes.safetyEnd("voyage"); } });
+    const { hooks } = createPermissionWiring({
+      req: { prompt: "Read the harbour report", signal: controller.signal, bridge: { emit() {}, requestPermission: async () => ({ behavior: "allow" }), inputSafety: collector } },
+      allowedTools: ["WebFetch"], confirmPatterns: [], brainPath: f.root,
+      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never,
+      childEnv: {}, log() {},
+    });
+    f.db.run("CREATE TRIGGER sirens_jam_the_ledger BEFORE INSERT ON safety_obligations BEGIN SELECT RAISE(ABORT,'disk I/O error'); END");
+    const input = { url: "https://ithaca.example/harbour" };
+    const pre = hooks!.PreToolUse!.filter(group => !group.matcher || new RegExp(`^(?:${group.matcher})$`).test("WebFetch")).flatMap(group => group.hooks);
+    const outputs = await Promise.all(pre.map(hook => hook({ hook_event_name: "PreToolUse", tool_name: "WebFetch", tool_use_id: "fetch",
+      tool_input: input, cwd: f.root, session_id: "ithaca", transcript_path: "" }, "fetch", { signal: controller.signal })));
+    f.db.run("DROP TRIGGER sirens_jam_the_ledger");
+    expect(outputs.some(output => "hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse"
+      && output.hookSpecificOutput.permissionDecision === "deny"), "BACKEND_DENIES_THE_FETCH").toBe(true);
+    expect(ended, "TEARDOWN_STARTED_DURING_BEGIN").toBeDefined();
+    await ended;
+    expect(f.writes.safety(null, "ithaca").unresolvedCount, "TEARDOWN_WAITS_FOR_THE_DENIAL").toBe(0);
+    const history = await (await f.get("?nonDelivery=1")).json();
+    expect(history.records.filter((record: { kind: string }) => record.kind === "exposure").map((record: { state: string }) => record.state)).toEqual(["not_delivered"]);
+  } finally { await f.close(); }
 });
 
 test("a content search row with a clock time resolves against the one existing file it names (#4347)", async () => {
@@ -430,6 +473,22 @@ test("a content search row with a clock time resolves against the one existing f
       await collector.result(id, "Grep", JSON.stringify({ mode: "content", numFiles: 0, filenames: [], content: `${file}:1:Penelope sails at 10:30:00.`, numLines: 1, totalLines: 1 }), true);
       expect(f.writes.safety(null, "ithaca").unresolvedCount, `CLOCK_ROW_${id.toUpperCase()}`).toBe(id === "loom" ? 0 : 1);
     }
+  } finally { await f.close(); }
+});
+
+test("a strict worker's content search resolves candidates in the checkpoint it searched, not the live brain (#4347)", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const checkpoint = join(f.root, "checkpoint");
+    for (const [root, files] of [[f.root, ["notes/sail"]], [checkpoint, ["notes/sail", "notes/sail:2"]]] as const)
+      for (const file of files) { mkdirSync(join(root, file, ".."), { recursive: true }); writeFileSync(join(root, file), "Odysseus sails.\n"); }
+    const collector = createSafetyCollector(f.db, f.writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude", brainPath: f.root,
+      grepCheckpoint: { root: checkpoint, masked: [] }, sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+    collector.admitting?.("sail", "Grep");
+    await collector.begin("sail", "Grep", { pattern: "sirens", output_mode: "content" });
+    await collector.allowed?.("sail");
+    await collector.result("sail", "Grep", JSON.stringify({ mode: "content", numFiles: 0, filenames: [], content: "notes/sail:2:7:sirens", numLines: 1, totalLines: 1 }), true);
+    expect(f.writes.safety(null, "ithaca").unresolvedCount, "CHECKPOINT_AMBIGUITY_STAYS_UNKNOWN").toBe(1);
   } finally { await f.close(); }
 });
 

@@ -2,7 +2,7 @@
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { z } from "zod";
 import type {InputSafetyOutputStatus} from "@schlessera/brain-ui-sdk/server";
-import { statSync } from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
 import { posix } from "node:path";
 import { WORKER_AREA_ROOT, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
@@ -201,15 +201,30 @@ const grepOutput = z.object({ mode: z.enum(['content','files_with_matches','coun
 /** Host-owned evidence whether a search candidate names an existing file:
  * `undefined` whenever the host cannot tell. */
 export type ExistingFileLookup = (path: string) => boolean | undefined;
-/** Resolves candidates as the brain-relative paths the worker reports. A
- * path outside the brain (a worker view the host cannot name) is unknown. */
-export function brainFileLookup(brainPath: string | undefined): ExistingFileLookup {
+/** Resolves candidates as the brain-relative paths the worker reports, in
+ * the view the worker searched: a strict worker's read-only checkpoint
+ * mounted at the brain path (`view`), else the brain itself. A path outside
+ * the brain (a worker view the host cannot name), below a mask, or through
+ * a symlink is unknown: its target is not proven to be what the worker saw. */
+export function brainFileLookup(brainPath: string | undefined, view?: { root: string; masked: readonly string[] }): ExistingFileLookup {
   return path => {
     if (!brainPath || !path || path.includes("\0") || Buffer.byteLength(path) > 1024) return undefined;
     const relative = brainRelative(posix.normalize(path), brainPath);
     if (relative === null) return undefined;
-    try { return statSync(posix.join(brainPath, relative)).isFile(); }
-    catch (error) { return (error as { code?: string }).code === "ENOENT" || (error as { code?: string }).code === "ENOTDIR" ? false : undefined; }
+    if (view?.masked.some(mask => isWithin(posix.resolve(brainPath, mask), posix.join(brainPath, relative), { includeRoot: true }))) return undefined;
+    let current: string;
+    try { current = realpathSync(view?.root ?? brainPath); } catch { return undefined; }
+    const parts = relative.split("/");
+    for (const [index, part] of parts.entries()) {
+      current = posix.join(current, part);
+      let entry: ReturnType<typeof lstatSync>;
+      try { entry = lstatSync(current); }
+      catch (error) { const code = (error as { code?: string }).code; return code === "ENOENT" || code === "ENOTDIR" ? false : undefined; }
+      if (entry.isSymbolicLink()) return undefined;
+      if (index === parts.length - 1) return entry.isFile();
+      if (!entry.isDirectory()) return false;
+    }
+    return undefined;
   };
 }
 function soleExisting(candidates: readonly string[], existing: ExistingFileLookup | undefined): boolean {
