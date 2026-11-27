@@ -1,8 +1,9 @@
 import { Database, constants } from "bun:sqlite";
 import { chmodSync, mkdirSync, statSync } from "node:fs";
 import { dirname } from "node:path";
-import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
+import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./llm-defaults.js";
 import { nameKeys } from "./name-key.js";
+import { builtFtsTokenizer } from "./search-language.js";
 import { maintenanceConfigRoots } from "../config/env.js";
 
 /**
@@ -20,7 +21,7 @@ import { maintenanceConfigRoots } from "../config/env.js";
  */
 export const SCHEMA_VERSION = 16;
 
-/** Embedding identity written into index_metadata; defaults come from models.ts. */
+/** Embedding identity written into index_metadata; defaults come from llm-defaults.ts. */
 export interface SchemaOptions {
   embeddingModel?: string;
   embeddingDimensions?: number;
@@ -126,25 +127,70 @@ export function openDatabase(
   return db;
 }
 
-const documentColumns = new WeakMap<Database, { cookie: number; columns: Set<string> }>();
+/**
+ * What an index has, for the readers that ask before they use a later table
+ * or column. A read-only connection does not migrate, so a database from an
+ * older schema lacks later tables and columns until a writable command opens
+ * it.
+ */
+export interface IndexShape {
+  /** The columns of the `documents` table. */
+  documentColumns: ReadonlySet<string>;
+  /** The chunk full-text table (schema 13 and later). */
+  chunksFts: boolean;
+  /** The exact-name lookup table (schema 14 and later). */
+  nameKeys: boolean;
+  /** The `supersedes` table (schema 12 and later). */
+  supersedes: boolean;
+  /** The `vec_chunks` virtual table; reading it needs no extension and loads none. */
+  vecChunks: boolean;
+  /** Whether `documents_fts` has its own aliases column (schema 14 and later). */
+  ftsAliases: boolean;
+  /** The tokenizer `documents_fts` was built with; null when the table does not exist. */
+  ftsTokenizer: string | null;
+}
+
+const indexShapes = new WeakMap<Database, { cookie: number; shape: IndexShape }>();
 
 /**
- * Whether the `documents` table has a column. A read-only connection does
- * not migrate, so a database from an older schema lacks later columns until
- * a writable command opens it; readers of such a column check first. The
- * answer is cached per connection under SQLite's schema cookie, which any
- * connection's ALTER TABLE bumps, so a long-lived reader sees a migration
- * another process ran.
+ * The shape of the index on this connection. The answer is cached per
+ * connection under SQLite's schema cookie, which any connection's CREATE,
+ * DROP or ALTER TABLE bumps (this one's included), so a long-lived reader
+ * sees a migration another process ran.
+ */
+export function indexShape(db: Database): IndexShape {
+  const cookie = (db.query("PRAGMA schema_version").get() as { schema_version: number }).schema_version;
+  const cached = indexShapes.get(db);
+  if (cached && cached.cookie === cookie) return cached.shape;
+  const tables = new Map(
+    (
+      db
+        .prepare(
+          `SELECT name, sql FROM sqlite_master WHERE type = 'table'
+           AND name IN ('chunks_fts', 'name_keys', 'supersedes', 'vec_chunks', 'documents_fts')`
+        )
+        .all() as { name: string; sql: string | null }[]
+    ).map((row) => [row.name, row.sql ?? ""])
+  );
+  const shape: IndexShape = {
+    documentColumns: new Set((db.prepare("PRAGMA table_info(documents)").all() as { name: string }[]).map((c) => c.name)),
+    chunksFts: tables.has("chunks_fts"),
+    nameKeys: tables.has("name_keys"),
+    supersedes: tables.has("supersedes"),
+    vecChunks: tables.has("vec_chunks"),
+    ftsAliases: /\baliases\b/.test(tables.get("documents_fts") ?? ""),
+    ftsTokenizer: tables.has("documents_fts") ? builtFtsTokenizer(db) : null,
+  };
+  indexShapes.set(db, { cookie, shape });
+  return shape;
+}
+
+/**
+ * Whether the `documents` table has a column. Readers of a later column check
+ * first; the answer comes from {@link indexShape}.
  */
 export function hasDocumentsColumn(db: Database, name: string): boolean {
-  const cookie = (db.prepare("PRAGMA schema_version").get() as { schema_version: number }).schema_version;
-  let cached = documentColumns.get(db);
-  if (!cached || cached.cookie !== cookie) {
-    const columns = new Set((db.prepare("PRAGMA table_info(documents)").all() as { name: string }[]).map((c) => c.name));
-    cached = { cookie, columns };
-    documentColumns.set(db, cached);
-  }
-  return cached.columns.has(name);
+  return indexShape(db).documentColumns.has(name);
 }
 
 /**
@@ -450,7 +496,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
       | null;
     if (!table || !/\baliases\b/.test(table.sql)) {
       // Keep the tokenizer the table has: `search.language` chose it.
-      const tokenizer = table?.sql.match(/tokenize\s*=\s*'([^']*)'/i)?.[1] ?? "porter unicode61";
+      const tokenizer = builtFtsTokenizer(db) ?? "porter unicode61";
       db.run("DROP TABLE IF EXISTS documents_fts");
       db.run(`CREATE VIRTUAL TABLE documents_fts USING fts5(
         title, summary, content, tags, aliases,
@@ -518,10 +564,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
  * The triggers belong to `chunks`, so recreating the table keeps them.
  */
 export function createChunksFts(db: Database): void {
-  const documents = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'documents_fts'").get() as
-    | { sql: string }
-    | null;
-  const tokenizer = documents?.sql.match(/tokenize\s*=\s*'([^']*)'/i)?.[1] ?? "porter unicode61";
+  const tokenizer = builtFtsTokenizer(db) ?? "porter unicode61";
   db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     heading, content,
     content='chunks', content_rowid='id',
@@ -610,10 +653,7 @@ export async function loadVecSupport(db: Database): Promise<VecSupport> {
  */
 export function vecTableExists(db: Database): boolean {
   try {
-    const row = db
-      .prepare("SELECT 1 AS n FROM sqlite_master WHERE type = 'table' AND name = 'vec_chunks'")
-      .get() as { n: number } | null;
-    return row !== null;
+    return indexShape(db).vecChunks;
   } catch {
     return false;
   }
@@ -777,6 +817,16 @@ export function hasVecSupport(db: Database): boolean {
   }
 }
 
+/** True when at least one vector is stored (cheap EXISTS probe). */
+export function vecStoreHasRows(db: Database): boolean {
+  try {
+    const row = db.prepare("SELECT EXISTS(SELECT 1 FROM vec_chunks) AS n").get() as { n: number };
+    return row.n === 1;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Get a metadata value by key.
  */
@@ -795,7 +845,7 @@ export function getMeta(db: Database, key: string): string | null {
  *
  * Exact match aside, this accepts one legacy form: `index_metadata.embedding_model`
  * used to be seeded by the schema-v3 migration with the bare model name from
- * models.ts ("gemini-embedding-2"), while providers report a namespaced id
+ * llm-defaults.ts ("gemini-embedding-2"), while providers report a namespaced id
  * ("gemini:gemini-embedding-2"). A brain last embedded before the indexer began
  * recording `provider.id` therefore carries perfectly good vectors under a name
  * that can never compare equal — search-engine skips vector search forever, and
