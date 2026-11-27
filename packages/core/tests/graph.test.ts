@@ -1,13 +1,18 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
+import { createHash } from "crypto";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 
-import { openDatabase, SCHEMA_VERSION } from "../src/lib/db";
+import { getMeta, openDatabase, SCHEMA_VERSION, setMeta } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { runGraphPrecompute } from "../src/lib/graph/precompute";
+import { LAYOUT_ITERATIONS_COLD, LAYOUT_ITERATIONS_WARM, LAYOUT_NODE_CAP } from "../src/lib/graph/layout";
+import { LOUVAIN_SEED, PAGERANK_DAMPING } from "../src/lib/graph/metrics";
+import { graphRootKey, resolveGraphRoot } from "../src/lib/graph/root";
+import { readGraphMeta } from "../src/queries";
 import {
   getClusterGraph,
   getDiscoveryGraph,
@@ -222,6 +227,86 @@ describe("precompute", () => {
       db.run("UPDATE links SET target_id = NULL");
       runGraphPrecompute(db, { root, taxonomy: anchors });
       expect((await indexAll(db, { root, taxonomy: anchors, quiet: true })).graphNodes).toBe(8);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a body-only edit reuses the graph tables and keeps their provenance current", async () => {
+    const root = makeCorpus(CORPUS);
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
+    const options = { root, taxonomy, quiet: true };
+    try {
+      await indexAll(db, options);
+      const layout = db.prepare("SELECT * FROM graph_layouts ORDER BY document_id").all();
+      writeFileSync(join(root, "notes/beta.md"), md("Beta", "Links to [[gamma]].\n\nOne more line of body."));
+      const stats = await indexAll(db, options);
+      expect(stats.updated).toBe(1);
+      expect(stats.graphNodes).toBe(0);
+      expect(db.prepare("SELECT * FROM graph_layouts ORDER BY document_id").all()).toEqual(layout);
+      const meta = readGraphMeta({ brainPath: root });
+      expect(meta.ok && meta.value.stale).toBe(false);
+      const computedAt = getMeta(db, "graph_computed_at")!;
+      const { newest } = db.prepare("SELECT MAX(indexed_at) AS newest FROM documents").get() as { newest: string };
+      expect(Date.parse(computedAt)).toBeGreaterThanOrEqual(Date.parse(newest));
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a title, a tag or a link edit alone still rebuilds the graph tables", async () => {
+    const root = makeCorpus(CORPUS);
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
+    const options = { root, taxonomy, quiet: true };
+    try {
+      await indexAll(db, options);
+      writeFileSync(join(root, "notes/lonely.md"), md("Lonely renamed", "No links at all."));
+      expect((await indexAll(db, options)).graphNodes).toBe(8);
+      writeFileSync(join(root, "notes/lonely.md"), md("Lonely renamed", "No links at all.").replace("tags: [test]", "tags: [solitude]"));
+      expect((await indexAll(db, options)).graphNodes).toBe(8);
+      writeFileSync(join(root, "notes/lonely.md"), md("Lonely renamed", "Now links to [[alpha]].").replace("tags: [test]", "tags: [solitude]"));
+      expect((await indexAll(db, options)).graphNodes).toBe(8);
+      expect((await indexAll(db, options)).graphNodes).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("an index fingerprinted before the narrowed inputs rebuilds its graph once", async () => {
+    const root = makeCorpus(CORPUS);
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
+    const options = { root, taxonomy, quiet: true };
+    // The fingerprint as earlier releases computed it: revision 1, and every
+    // markdown row's type, status, updated, content_hash and indexed_at.
+    const fingerprint = (revision: number, columns: string): string => {
+      const rootKey = getMeta(db, "graph_root");
+      const resolved = resolveGraphRoot(db, { root, taxonomy });
+      expect(resolved ? graphRootKey(resolved) : null).toBe(rootKey);
+      const hash = createHash("sha256");
+      hash.update(JSON.stringify({
+        revision, root: resolved, anchors: taxonomy.dirAnchors,
+        damping: PAGERANK_DAMPING, seed: LOUVAIN_SEED,
+        direction: "out", cold: LAYOUT_ITERATIONS_COLD,
+        warm: LAYOUT_ITERATIONS_WARM, cap: LAYOUT_NODE_CAP,
+      }));
+      for (const sql of [
+        `SELECT ${columns} FROM documents WHERE asset_type = 'markdown' ORDER BY id`,
+        "SELECT source_id, target, target_id FROM links ORDER BY source_id, target",
+        "SELECT dt.document_id, t.name FROM document_tags dt JOIN tags t ON t.id = dt.tag_id ORDER BY dt.document_id, t.name",
+      ]) {
+        for (const row of db.prepare(sql).iterate()) hash.update(JSON.stringify(row) + "\n");
+      }
+      return hash.digest("hex");
+    };
+    try {
+      await indexAll(db, options);
+      expect((await indexAll(db, options)).graphNodes).toBe(0);
+      setMeta(db, "graph_input_hash", fingerprint(1, "id, path, title, type, status, updated, content_hash, indexed_at"));
+      expect((await indexAll(db, options)).graphNodes).toBe(8);
+      // The same narrowed inputs under the old revision are not reused either.
+      setMeta(db, "graph_input_hash", fingerprint(1, "id, path, title"));
+      expect((await indexAll(db, options)).graphNodes).toBe(8);
+      expect(getMeta(db, "graph_input_hash")).toBe(fingerprint(2, "id, path, title"));
     } finally {
       db.close();
     }
