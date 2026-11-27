@@ -27,7 +27,7 @@ export function saveConversationEpoch(db: Database, state: StoredConversationEpo
     if (old && old.principal_id !== state.principalId) throw new Error("Conversation ownership mismatch");
     // The durable account is read from the principal's own row, once (#4138):
     // deletion evidence after the login is pruned. A later save never rewrites it.
-    db.prepare(`INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,agent_provider_id,updated_at) VALUES(?,?,?,?,?,?,?)
+    db.query(`INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,agent_provider_id,updated_at) VALUES(?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET epoch=MAX(epoch,excluded.epoch),session_id=COALESCE(excluded.session_id,session_id),updated_at=excluded.updated_at`)
       .run(state.id, state.principalId, principalAccount(db, state.principalId), state.epoch, state.sessionId ?? null, state.agentProviderId ?? null, Date.now());
     db.exec(`DELETE FROM conversation_epochs WHERE id IN (SELECT id FROM conversation_epochs ORDER BY updated_at DESC LIMIT -1 OFFSET 64)
@@ -58,12 +58,12 @@ export function saveConversationTask(db: Database, principalId: string, receipt:
       : facts ? facts.slice(0, CONVERSATION_LIMITS.maxFactChars) : null;
     const count = db.query("SELECT COUNT(*) AS n FROM conversation_tasks WHERE conversation_id=?").get(receipt.conversationId) as { n: number };
     if (!old && count.n >= 4096) throw new Error("Durable conversation identity capacity exceeded");
-    db.prepare(`INSERT INTO conversation_tasks(conversation_id,epoch,native_handle,task_id,request_id,receipt,updated_at,result_facts) VALUES(?,?,?,?,?,?,?,?)
+    db.query(`INSERT INTO conversation_tasks(conversation_id,epoch,native_handle,task_id,request_id,receipt,updated_at,result_facts) VALUES(?,?,?,?,?,?,?,?)
       ON CONFLICT(conversation_id,epoch,native_handle) DO UPDATE SET receipt=excluded.receipt,updated_at=excluded.updated_at,result_facts=excluded.result_facts`)
       .run(receipt.conversationId, receipt.epoch, receipt.nativeHandle, receipt.taskId, receipt.requestId, JSON.stringify(receipt), Date.now(), resultFacts);
-    if (receipt.sessionId) db.prepare("UPDATE conversation_epochs SET session_id=? WHERE id=?").run(receipt.sessionId, receipt.conversationId);
+    if (receipt.sessionId) db.query("UPDATE conversation_epochs SET session_id=? WHERE id=?").run(receipt.sessionId, receipt.conversationId);
     // Keep all identities but only a bounded set of detailed receipts.
-    db.prepare(`UPDATE conversation_tasks SET receipt=NULL,result_facts=NULL WHERE conversation_id=? AND rowid NOT IN
+    db.query(`UPDATE conversation_tasks SET receipt=NULL,result_facts=NULL WHERE conversation_id=? AND rowid NOT IN
       (SELECT rowid FROM conversation_tasks WHERE conversation_id=? ORDER BY
         CASE WHEN json_extract(receipt,'$.state') IN ('queued','running') OR json_extract(receipt,'$.delivery')='pending' THEN 0 ELSE 1 END,
         updated_at DESC,rowid DESC LIMIT 64)`)
@@ -74,7 +74,7 @@ export function saveConversationTask(db: Database, principalId: string, receipt:
       .all(receipt.conversationId) as { rowid: number; result_facts: string }[];
     for (const row of rows) {
       retained += row.result_facts.length;
-      if (retained > MAX_RETAINED_RESULT_CHARS) db.prepare("UPDATE conversation_tasks SET result_facts=NULL WHERE rowid=?").run(row.rowid);
+      if (retained > MAX_RETAINED_RESULT_CHARS) db.query("UPDATE conversation_tasks SET result_facts=NULL WHERE rowid=?").run(row.rowid);
     }
   }).immediate();
 }
