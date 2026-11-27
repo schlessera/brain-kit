@@ -58,14 +58,14 @@ afterEach(() => {
 /** The note for this brain and home, from the generator itself. */
 function expectedNote(extra: worker.WorkerNoteLimit[] = [], sandbox?: worker.WorkerSandbox): string {
   // Its limits list comes from the same resolved plan each launch applies (#1660).
-  const resolved = sandbox ?? worker.prepareWorkerSandbox(brain, { home, maintenance });
+  const resolved = sandbox ?? worker.prepareWorkerSandbox(brain, { maintenance });
   return [worker.workerSandboxNote(resolved,
     { limits: [...worker.workerNoteLimits(worker.launchLimits({}).status), ...extra, worker.outputStagingLimit()] }),
     worker.workerCommandPolicyNote(resolved.commandPolicy, []), worker.workerOutwardNote()].filter(Boolean).join("\n\n");
 }
 
 async function claudeContext(sandbox?: worker.WorkerSandbox): Promise<{ append: string; text: string }> {
-  sandbox ??= worker.prepareWorkerSandbox(brain, { home, maintenance });
+  sandbox ??= worker.prepareWorkerSandbox(brain, { maintenance });
   const turn = createClaudeSdkTurn({
     backend: { brainPath: brain } as never,
     req: { ...(sandbox ? { workerSandbox: sandbox } : {}), prompt: "Return to Ithaca", turnBudgetMs: 180_000, bridge: {}, client: undefined } as never,
@@ -87,7 +87,7 @@ async function claudeContext(sandbox?: worker.WorkerSandbox): Promise<{ append: 
 
 /** The note pi's server side sends its worker, captured at the launch it would have made. */
 async function piTurnContext(sandbox?: worker.WorkerSandbox): Promise<{ note: string; text: string }> {
-  sandbox ??= worker.prepareWorkerSandbox(brain, { home, maintenance });
+  sandbox ??= worker.prepareWorkerSandbox(brain, { maintenance });
   const stagingBefore = worker.processStateLedger().outputStagingHeld;
   let received: { sandboxNote?: string } | undefined;
   let text: string | undefined;
@@ -175,7 +175,7 @@ test("a read-only refusal from the brain CLI repeats the note's rules", () => {
 
 
 test("governed notes reflect admitted host history and exactly the resolved protection, identically in Claude and pi", async () => {
-  const sandbox = { ...worker.prepareWorkerSandbox(brain, { home, maintenance }), profile: "governed" as const,
+  const sandbox = { ...worker.prepareWorkerSandbox(brain, { maintenance }), profile: "governed" as const,
     protection: { paths: [{ rel: "context/policies", reason: "governance rules", mode: "read_only" as const }], ancestors: [] },
     noteFacts: { history: { journal: true, userRevert: true } } };
   const note = worker.workerSandboxNote(sandbox);

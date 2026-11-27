@@ -9,13 +9,12 @@ import { createWorkerStartupView, type WorkerStartupView } from "./worker-startu
 import { createOutputStagingStorage } from "./worker-launcher.js";
 import { isEnvName, PROTECTED_TIER_A } from "./protected-paths.js";
 import { ProtectedMaintenanceOutputError } from "./protected-output-error.js";
+import { at, DIRECTORY, noFollowParent } from "./no-follow-walk.js";
 
 /** A named writable work area. Configuration executes at the original brain path, read-only. */
 export const WORKER_OUTPUT = "/tmp/brain-maintenance-output";
 type Entry = { type: "file" | "directory" | "symlink"; mode: number; members?: string[]; hash?: string; link?: string };
-const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 const FILE = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
-const at = (fd: number, name: string) => `/proc/self/fd/${fd}/${name}`;
 const equal = (a: Entry | undefined, b: Entry | undefined) => JSON.stringify(a) === JSON.stringify(b);
 const equalOutput = (a: Entry | undefined, b: Entry | undefined) => a?.type === "directory" && b?.type === "directory"
   ? equal({ ...a, members: undefined }, { ...b, members: undefined }) : equal(a, b);
@@ -72,17 +71,7 @@ function inventory(root: string): Map<string, Entry> {
   return result;
 }
 
-function parent(root: string, rel: string): { fd: number; name: string } {
-  const parts = rel.split("/");
-  if (parts.some(part => !part || part === "." || part === "..")) throw new Error("invalid maintenance output path");
-  let fd = openSync(root, DIRECTORY);
-  try {
-    for (const part of parts.slice(0, -1)) {
-      const next = openSync(at(fd, part), DIRECTORY); closeSync(fd); fd = next;
-    }
-    return { fd, name: parts.at(-1)! };
-  } catch (error) { closeSync(fd); throw error; }
-}
+const parent = (root: string, rel: string) => noFollowParent(root, rel, "invalid maintenance output path");
 
 /** One output file's bytes, opened without following links; null when absent or not a regular file. */
 function readOutputFile(root: string, rel: string, bound: number): Uint8Array | null {

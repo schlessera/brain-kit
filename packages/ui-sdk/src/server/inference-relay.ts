@@ -1,6 +1,6 @@
 import { inferenceUsageObserver } from "./inference-usage.js";
 import { chargeReceivedBytes, relayAllowance } from "./egress-accounting.js";
-import { readRelayResponse, readRelayRequestHead } from "./relay-response.js";
+import { readRelayResponse, readRelayRequestHead, RELAY_REQUEST_STRIPPED, RELAY_RESPONSE_STRIPPED } from "./relay-response.js";
 /**
  * The one network path out of a restricted (autonomous) worker (#676).
  *
@@ -73,14 +73,6 @@ export interface InferenceRelay {
   socketPath: string;
   stop(): void;
 }
-
-/** Headers a worker may not choose: credentials, routing and hop-by-hop. */
-const STRIPPED = new Set(["authorization", "x-api-key", "api-key", "x-goog-api-key", "cookie", "host",
-  "proxy-authorization", "proxy-connection", "connection", "keep-alive", "transfer-encoding", "te", "trailer",
-  "upgrade", "content-length", "forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto",
-  "accept-encoding"]);
-const RESPONSE_STRIPPED = new Set(["connection", "keep-alive", "transfer-encoding", "content-length",
-  "content-encoding", "set-cookie"]);
 
 export function startInferenceRelay(options: InferenceRelayOptions): InferenceRelay {
   const upstream = new URL(options.upstream);
@@ -182,7 +174,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         let offset = 0;
         for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
         const headers = new Headers();
-        for (const [name, value] of request.headers) if (!STRIPPED.has(name.toLowerCase())) headers.set(name, value);
+        for (const [name, value] of request.headers) if (!RELAY_REQUEST_STRIPPED.has(name.toLowerCase())) headers.set(name, value);
         let credentials: Readonly<Record<string, string>>;
         if (signal.aborted) {
           const cause=captureEgressFailure(signal,operation);
@@ -243,7 +235,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         }
         observeDiagnostic(() => options.observe?.({ method: request.method, path, outcome: "forwarded", status: response.status }));
         const out = new Headers();
-        for (const [name, value] of response.headers) if (!RESPONSE_STRIPPED.has(name.toLowerCase())) out.set(name, value);
+        for (const [name, value] of response.headers) if (!RELAY_RESPONSE_STRIPPED.has(name.toLowerCase())) out.set(name, value);
         if (!response.body) {
           const failure=incoming.fence();if(failure)return chargeDenied(failure);
           operation?.finish("completed");

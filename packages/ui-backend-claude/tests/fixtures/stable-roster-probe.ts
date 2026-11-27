@@ -70,7 +70,7 @@ try {
     if ([3, 8].includes(captures.length)) sessionId = undefined;
     active = { mode, tools: undefined, results: [], denials: [], calls: [], cards: 0 }; captures.push(active); pending = true; pendingRead = true;
     const controller = new AbortController();
-    const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: mode === "strict" ? "strict" : "governed", areas: [] });
+    const sandbox = prepareFixtureWorkerSandbox(brain, { profile: mode === "strict" ? "strict" : "governed", areas: [] });
     const view = createFixtureWorkerStartupView(brain);
     const unavailable = (name: string) => async () => { active.calls.push(name); throw new Error("PRIVILEGED_HANDLER_EXECUTED"); };
     const bridge: any = { emit() {}, checkpointPermission() {}, async requestPermission() { active.cards++; return { behavior: "allow" }; } };

@@ -5,11 +5,11 @@ import { prepareWorkerSandbox } from "../packages/ui-sdk/src/server/worker-launc
 import { createFixtureMaintenanceHost, createFixtureWorkerStartupView, prepareFixtureNativeWorkerOutput } from "../packages/ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 
 /** Keep the real launcher, tool hooks and inference transport; only storage acquisition is a fixture. */
-export function createMeasurementWorkerFixture(brain: string, home?: string) {
+export function createMeasurementWorkerFixture(brain: string) {
   const maintenance = createFixtureMaintenanceHost(brain);
   const output = spyOn(workerOutput, "prepareNativeWorkerOutput").mockImplementation(prepareFixtureNativeWorkerOutput);
   try {
-    const workerSandbox = prepareWorkerSandbox(brain, { home, maintenance });
+    const workerSandbox = prepareWorkerSandbox(brain, { maintenance });
     // Host setup creates writable-area mount points before the immutable input is acquired.
     const workerStartupView = createFixtureWorkerStartupView(brain);
     return { maintenance, request: { workerSandbox, workerStartupView }, cleanup() {

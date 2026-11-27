@@ -15,7 +15,6 @@ import { killWorker, registerWorker, workerStopCompletion } from "./maintenance-
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { basename, dirname, join } from "node:path";
-import { prepareWorkerOutput } from "./worker-output.js";
 import { prepareNativeMaintenanceIndex, authorizeNativeMaintenanceIndex, finishNativeMaintenanceIndex, prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { createWorkerPipes, createWorkerPipesSteps, fifoStream } from "./worker-pipes.js";
 import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, workerBootstrap, WorkerHostError, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
@@ -210,7 +209,7 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
       ...(input.credentials && input.maskEnvFiles ? { maskEnvFiles: true } : {}),
       ...(input.credentials && input.providerRelay ? { providerRelay: input.providerRelay } : {}),
       ...(input.githubRelay ? { githubRelay: input.githubRelay } : {}),
-      ...(home ? { home: { path: home, overlay: false } } : {}),
+      ...(home ? { home: { path: home } } : {}),
       readPaths: [process.execPath, ...(input.readPaths ?? [])],
       ...(input.maskPaths ? { maskPaths: input.maskPaths } : {}),
       ...(input.writeFiles ? { writeFiles: input.writeFiles } : {}),
@@ -485,26 +484,6 @@ export function* brainGitSteps(brain: string, args: readonly string[], options: 
     return (yield* runMaintenanceWorkerSteps({ ...options, brainPath: brain, command, ...(parent ? { readPaths: [parent] } : {}), env: { PATH: [dirname(git), "/usr/bin:/bin"].join(":"), GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" },
       credentials: false, tempKind: options.tempKind ?? "git", timeoutMs: options.timeoutMs ?? 10_000 })).exitCode;
   } catch (error) { if (error instanceof WorkerStateError) throw error; return 127; }
-}
-
-/**
- * Whether a credential-free maintenance worker (masks, read-write brain,
- * private network namespace) starts on this host for this brain. The
- * ordinary worker host probe does not cover the private network namespace.
- */
-export function probeMaintenanceWorker(brainPath: string, tempLimits?: WorkerStateLimits, tempDomain?: MaintenanceTempDomain, startupView?: WorkerStartupView): { ok: true } | { ok: false; requirement: string } {
-  let outputs: ReturnType<typeof prepareWorkerOutput> | undefined;
-  try {
-    outputs = prepareWorkerOutput(realpathSync(brainPath), { startupView });
-    const result = runMaintenanceWorkerSync({ brainPath, startupView: outputs.view, output: outputs.output,
-      command: ["/bin/sh", "-c", 'printf "qualified" > "$BRAIN_ROOT/.brain-maintenance-probe"'], env: { PATH: "/usr/bin:/bin" },
-      credentials: false, tempKind: "probe", ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), timeoutMs: 5_000 });
-    if (result.exitCode === 0) return { ok: true };
-    return { ok: false, requirement: `a credential-free maintenance worker could not start (${result.stderr.trim().slice(0, 300) || `exit ${result.exitCode}`})` };
-  } catch (error) {
-    if (error instanceof WorkerStateError) throw error;
-    return { ok: false, requirement: `a credential-free maintenance worker could not start (${error instanceof Error ? error.message : String(error)})` };
-  } finally { outputs?.cleanup(); }
 }
 
 /**

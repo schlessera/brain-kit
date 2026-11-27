@@ -66,7 +66,7 @@ try {
     for (turnIndex = 0; turnIndex < 3; turnIndex++) {
       queue = [...script[turnIndex]!];
       const controller = new AbortController();
-      const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] });
+      const sandbox = prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] });
       const view = createFixtureWorkerStartupView(brain);
       const turnId = `odysseus-attachment-${turnIndex}`;
       const budget = { used: 0 };
