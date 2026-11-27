@@ -99,7 +99,7 @@ describe("nextSnapshots allows", () => {
   test("the single-slot write creates the snapshot of its request", () => {
     const prior = stored(1, "returned");
     const result = nextSnapshots([prior], { outgoing: { requestId: "request-5", text: "Steer past Scylla", fileIds: [], state: "held" } }, AT);
-    const created = { snapshotId: "request-5", requestId: "request-5", text: "Steer past Scylla", fileIds: [], state: "held", createdAt: AT };
+    const created: DraftSnapshot = { snapshotId: "request-5", requestId: "request-5", text: "Steer past Scylla", fileIds: [], state: "held", createdAt: AT };
     expect(result).toEqual({ list: [prior, created], created: [created] });
   });
 
