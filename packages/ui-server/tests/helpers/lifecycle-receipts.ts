@@ -21,7 +21,7 @@ export function seedLifecycleReceipts(db: Database, store: ActivityStore) {
     const lifecycle = createTurnLifecycle(store, id, index % 2 ? "scheria" : "ithaca", at, () => {}, () => at + 300, id === "turn-anonymous" ? undefined : "odysseus");
     lifecycle.finish("success");
   });
-  if (!store.writeClientReceipt("turn-valid", "odysseus", timing)) throw new Error("the valid client receipt was refused");
+  if (!store.writeClientReceipt?.("turn-valid", "odysseus", timing)) throw new Error("the valid client receipt was refused");
   const receipt = db.query("UPDATE activity_turn_clients SET receipt = ? WHERE turn_id = ?");
   receipt.run(padded(MAX_CLIENT_TURN_RECEIPT_BYTES), "turn-at-cap");
   receipt.run(padded(MAX_CLIENT_TURN_RECEIPT_BYTES + 1), "turn-over-cap");
