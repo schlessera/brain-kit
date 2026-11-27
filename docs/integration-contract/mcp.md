@@ -54,7 +54,9 @@ to `true`, in both environment and flag settings. Other routes pin it off.
 The effective-setting gate checks the runtime's selected value before releasing
 a prompt. Existing sessions retain their original stdio roster and tool-search
 selection; an internal retained bridge-version marker keeps resumes on the same
-execution path. Discovery may insert only a referenced deferred definition,
+execution path. A session that retained tool search on resumes only through its
+relay to the first-party origin; a resume without it is refused by name rather
+than run with a changed roster. Discovery may insert only a referenced deferred definition,
 with earlier definitions' bytes and relative order preserved.
 
 Authoritative component of the [integration contract](../integration-contract.md).

@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import * as internal from "@schlessera/brain-ui-sdk/internal";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
 import { startBrainToolWorker, probeBrainBridgeInventory, brainWorkerTransport, createBrainToolForwarder, bridgeBrainVersion, BRAIN_INVENTORY_TIMEOUT_MS } from "../src/brain-tool-forwarder.js";
@@ -357,8 +358,58 @@ for (const cause of ["deadline", "caller abort"] as const) test(`a hung inventor
     if (cause === "caller abort") { await Bun.sleep(10); controller.abort(); }
     const verdict = await Promise.race([probe, Bun.sleep(3_000).then(() => "STILL_WAITING")]);
     expect(verdict, `HUNG_INVENTORY_${cause}_IS_UNAVAILABLE`).toBe("unavailable");
+    // Cleanup runs detached after the verdict; its exit wait is shortened here.
+    for (let waited = 0; waited < 2_000 && !(child.stdout.destroyed && child.stderr.destroyed); waited += 10) await Bun.sleep(10);
     expect([child.stdout.destroyed, child.stderr.destroyed], "HUNG_INVENTORY_PIPES_DISPOSED").toEqual([true, true]);
     expect(ledger.turnTempHeld, "HUNG_INVENTORY_ALLOWANCE_HELD").toBe(f.input.turnTempLimits.allowanceBytes);
+  } finally { child.exit.resolve(0); timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4894 round 4 F4: a rejected exit (lost supervision) closes the transport
+// once as well, so a pending call rejects at once instead of at its timeout.
+test("a rejected worker exit closes the transport once and fails a pending call at once", async () => {
+  const f = fixture(), child = worker(f.state);
+  child.stdin.on("data", chunk => {
+    for (const line of String(chunk).split("\n").filter(Boolean)) {
+      const message = JSON.parse(line);
+      if (message.method === "initialize") child.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: message.id,
+        result: { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "ithaca", version: "1" } } })}\n`);
+    }
+  });
+  const client = new Client({ name: "ithaca-host", version: "1" });
+  try {
+    const transport = brainWorkerTransport(child.launched);
+    await client.connect(transport);
+    let closes = 0, errors = 0;
+    const onclose = transport.onclose, onerror = transport.onerror;
+    transport.onclose = () => { closes++; onclose?.(); };
+    transport.onerror = error => { errors++; onerror?.(error); };
+    const pending = client.listTools().then(() => "resolved", () => "rejected");
+    child.exit.reject(new Error("Ithaca supervision was lost."));
+    expect(await Promise.race([pending, Bun.sleep(1_000).then(() => "STILL_WAITING")]), "REJECTED_EXIT_FAILS_PENDING_CALL").toBe("rejected");
+    child.stdout.end();
+    await Bun.sleep(0);
+    expect([closes, errors], "REJECTED_EXIT_CLOSES_ONCE_AND_REPORTS").toEqual([1, 1]);
+  } finally { child.stdout.end(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4894 round 4 F3: past its own bound the probe returns the stdio fallback at
+// once; a worker that will not die costs its detached cleanup, never the
+// verdict. The inventory deadline is shortened; the 5 s exit wait stays real.
+test("a missed inventory deadline returns the fallback without waiting for the worker's exit", async () => {
+  const f = fixture(), child = worker(f.state), ledger = internal.createStateLedger();
+  (child.launched as { kill: unknown }).kill = () => { throw new Error("Ithaca supervisor refused the signal."); };
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockResolvedValue(child.launched);
+  const nativeTimer = globalThis.setTimeout;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) =>
+    nativeTimer(callback, ms === BRAIN_INVENTORY_TIMEOUT_MS ? 20 : ms, ...args)) as typeof setTimeout);
+  try {
+    const started = performance.now();
+    const verdict = await Promise.race([probeBrainBridgeInventory({ ...f.input, reservation: () => ledger.reserve(undefined, f.input.turnTempLimits) }, f.signal),
+      Bun.sleep(2_000).then(() => "STILL_WAITING")]);
+    expect(verdict, "MISSED_DEADLINE_RETURNS_FALLBACK_AT_ONCE").toBe("unavailable");
+    expect(performance.now() - started, "FALLBACK_NOT_DELAYED_BY_THE_EXIT_WAIT").toBeLessThan(2_000);
+    expect(ledger.turnTempHeld, "DETACHED_CLEANUP_KEEPS_ALLOWANCE_UNTIL_EXIT").toBe(f.input.turnTempLimits.allowanceBytes);
   } finally { child.exit.resolve(0); timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
 });
 

@@ -64,7 +64,8 @@ test("a fast session on an unqualified route is refused before anything persists
 });
 
 /** Resolved native settings of a direct turn on the first-party API: no tier selects another route. */
-const FIRST_PARTY_SETTINGS = { effective: { env: {}, allowedProviders: ["anthropic"] }, sources: [{ source: "projectSettings", settings: { env: {} } }] };
+const FIRST_PARTY_SETTINGS = { effective: { env: {}, allowedProviders: ["anthropic"] },
+  sources: [{ source: "projectSettings", settings: { env: {} } }, { source: "policySettings", settings: { allowedProviders: ["anthropic"] } }] };
 
 function gate(outputSpeed: OutputSpeed | undefined, initialized: Record<string, unknown>, settings: unknown = FIRST_PARTY_SETTINGS) {
   const frames: ServerMessage[] = [], activity: unknown[] = [];
@@ -131,6 +132,14 @@ test("a direct fast turn is released only on positive proof that the runtime's f
     ["settings_errors", { ...FIRST_PARTY_SETTINGS, errors: [{ path: ".claude/settings.json", message: "Ithaca is not JSON" }] }, "could not read"],
     ["policy_absent", { effective: { env: {} }, sources: [] }, "policy is not in force"],
     ["policy_widened", { effective: { allowedProviders: ["anthropic", "customEndpoint"] }, sources: [] }, "policy is not in force"],
+    // #4894 round 4 F1: the runtime enforces the policy tier only.
+    ["project_only_pin", { effective: { env: {}, allowedProviders: ["anthropic"] },
+      sources: [{ source: "projectSettings", settings: { env: {}, allowedProviders: ["anthropic"] } }] }, "policy tier does not hold the first-party pin"],
+    ["admin_tier_displaced", { effective: { env: {}, allowedProviders: ["anthropic"] },
+      sources: [{ source: "projectSettings", settings: { allowedProviders: ["anthropic"] } }, { source: "policySettings", settings: { permissions: { deny: ["WebFetch"] } } }] },
+      "policy tier does not hold the first-party pin"],
+    ["admin_tier_merged", { effective: { env: {}, allowedProviders: ["anthropic"] },
+      sources: [{ source: "policySettings", settings: { allowedProviders: ["anthropic"], permissions: { deny: ["WebFetch"] } } }] }, "policy tier does not hold the first-party pin"],
     ["unreported", null, "no settings"],
     ["unreadable", new Error("Ithaca settings are sealed."), "could not be read"],
   ] as const) {

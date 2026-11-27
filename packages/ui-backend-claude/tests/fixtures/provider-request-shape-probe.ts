@@ -253,7 +253,10 @@ try {
   const socketRoute = { ANTHROPIC_UNIX_SOCKET: relay.socketPath, ANTHROPIC_BASE_URL: "http://localhost" };
   const projectEnv = scenario.startsWith("fast-direct-gateway") ? { ANTHROPIC_BASE_URL: model.url.origin }
     : scenario === "fast-direct-socket-project" ? socketRoute : {};
-  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ env: projectEnv }));
+  // The unpinned gateway control carries the pin in project settings only:
+  // the gate must refuse it, and the runtime still serves the route.
+  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ env: projectEnv,
+    ...(scenario === "fast-direct-gateway-unpinned" ? { allowedProviders: ["anthropic"] } : {}) }));
   const qualification: Record<string, unknown> = { watchdogMs: watchdogMs(45_000) };
   capture = captures[scenario] = { sessions: [], exchanges: [], appends: [], budgets: [], calls: [], qualification };
   turnIndex = 0; queue = [];
@@ -290,8 +293,10 @@ try {
     const check = promptGateCheck({ queryHandle: Promise.resolve(runtime), initialize: value => value.initializationResult(), sdkTurn: turn, relay: undefined,
       terminal, runtimeRequirements: [], phase: "qualification", abortController: new AbortController(), profileId: "fixture", log() {}, reportActivity() {}, reportRuntime() {} });
     try {
-      const settings = await (runtime as unknown as { getSettings(): Promise<{ effective?: { allowedProviders?: unknown } }> }).getSettings();
+      const settings = await (runtime as unknown as { getSettings(): Promise<{ effective?: { allowedProviders?: unknown }; sources?: Array<{ source?: unknown; settings?: Record<string, unknown> }> }> }).getSettings();
       qualification.effectiveAllowedProviders = settings?.effective?.allowedProviders ?? null;
+      qualification.settingsSources = (settings?.sources ?? []).map(entry => ({ source: entry.source, keys: Object.keys(entry.settings ?? {}).sort(),
+        allowedProviders: entry.settings?.allowedProviders ?? null }));
     } catch (error) { qualification.settingsError = String(error); }
     try { qualification.gateAllowed = await check(); } catch (error) { qualification.gateError = String(error); }
     qualification.gateRefusal = terminal.refused;

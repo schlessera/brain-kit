@@ -264,7 +264,13 @@ test("a direct fast turn's provider policy is in force and the runtime itself re
   // Policy in force: assembly pins it, the runtime reports it, the gate admits on that proof.
   expect(q("fast-direct-policy").managedSettings, "FAST_DIRECT_ASSEMBLY_PINS_FIRST_PARTY").toEqual({ allowedProviders: ["anthropic"] });
   expect(q("fast-direct-policy").effectiveAllowedProviders, "FAST_DIRECT_POLICY_IN_FORCE").toEqual(["anthropic"]);
-  expect(String(q("fast-direct-policy").gateRefusal?.message ?? ""), "FAST_DIRECT_POLICY_PASSES_ROUTE_PROOF").not.toContain("not_first_party");
+  // The control that passes the gate: admitted on the route proof itself, with
+  // no refusal, gate error or unreadable report, and the pin in the policy tier.
+  expect({ allowed: q("fast-direct-policy").gateAllowed, refusal: q("fast-direct-policy").gateRefusal ?? null,
+    gateError: q("fast-direct-policy").gateError ?? null, settingsError: q("fast-direct-policy").settingsError ?? null },
+  "FAST_DIRECT_POLICY_PASSES_ROUTE_PROOF").toEqual({ allowed: true, refusal: null, gateError: null, settingsError: null });
+  expect(q("fast-direct-policy").settingsSources.filter((entry: { source: string }) => entry.source === "policySettings"),
+    "FAST_DIRECT_PIN_IN_POLICY_TIER").toEqual([{ source: "policySettings", keys: ["allowedProviders"], allowedProviders: ["anthropic"] }]);
   expect(exchanges("fast-direct-policy")).toBe(0);
   // A socket in the inherited environment is named before anything starts.
   expect(q("fast-direct-socket-env").assemblyRefusal, "FAST_DIRECT_SOCKET_ENV_REFUSED_BY_NAME").toMatchObject({ errorClass: "fast_output_unavailable",
@@ -275,10 +281,18 @@ test("a direct fast turn's provider policy is in force and the runtime itself re
   // released, and the same route works without the pin.
   for (const name of ["fast-direct-socket-project", "fast-direct-gateway", "fast-direct-socket-injected"]) {
     expect(exchanges(name), `FAST_DIRECT_${name}_NO_REQUEST_LEAVES`).toBe(0);
-    const named = (q(name).results as Array<{ startup_failure_reason: unknown }>).some(result => result.startup_failure_reason === "provider_not_allowed")
-      || q(name).gateRefusal?.failure?.errorClass === "fast_output_unavailable";
-    expect(named, `FAST_DIRECT_${name}_REFUSED_BY_NAME`).toBe(true);
+    expect((q(name).results as Array<{ startup_failure_reason: unknown }>).map(result => result.startup_failure_reason),
+      `FAST_DIRECT_${name}_REFUSED_BY_THE_RUNTIME`).toContain("provider_not_allowed");
   }
-  for (const name of ["fast-direct-socket-unpinned", "fast-direct-gateway-unpinned"])
+  // Without the pin the route works, and the gate refuses it at its route
+  // check, for that check's reason: no policy at all, or a pin only project
+  // settings supplied (which the runtime does not enforce).
+  for (const [name, reason] of [["fast-direct-socket-unpinned", "policy is not in force"],
+    ["fast-direct-gateway-unpinned", "policy tier does not hold the first-party pin"]] as const) {
     expect(exchanges(name), `FAST_DIRECT_${name}_CONTROL_REACHES_UPSTREAM`).toBeGreaterThan(0);
+    expect({ allowed: q(name).gateAllowed, gateError: q(name).gateError ?? null, errorClass: q(name).gateRefusal?.failure?.errorClass },
+      `FAST_DIRECT_${name}_GATE_REACHED_ROUTE_CHECK`).toEqual({ allowed: false, gateError: null, errorClass: "fast_output_unavailable" });
+    expect(String(q(name).gateRefusal?.message), `FAST_DIRECT_${name}_REFUSED_FOR_ITS_ROUTE`).toContain(reason);
+  }
+  expect(q("fast-direct-gateway-unpinned").effectiveAllowedProviders, "PROJECT_PIN_IS_EFFECTIVE_BUT_NOT_ENFORCED").toEqual(["anthropic"]);
 });

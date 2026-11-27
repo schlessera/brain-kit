@@ -1601,8 +1601,11 @@ policy tier (`managedSettings: { allowedProviders: ["anthropic"] }`), and sets
 result. The runtime then refuses any other route (a custom base URL, a socket,
 a cloud or gateway provider) at startup and on contact. The prompt gate admits
 the turn only on positive proof that the policy is in force: a settings report
-with effective settings, sources, no errors, and `allowedProviders` exactly
-`["anthropic"]`. A `provider_not_allowed` startup refusal is reported as
+with effective settings, sources, no errors, `allowedProviders` exactly
+`["anthropic"]`, and a policy tier (`policySettings`) holding exactly that pin
+and nothing else. The runtime enforces only the policy tier, and the report
+names a source but not its origin, so a pin from project or user settings, or
+a policy tier an admin tier replaced or merged into, is refused by name. A `provider_not_allowed` startup refusal is reported as
 `fast_output_unavailable` (`not_first_party`). The pin is never set on a
 relayed turn, where the list would refuse the relay's own socket; the relay
 qualifies that route, and its settings conflict refuses the turn at any speed

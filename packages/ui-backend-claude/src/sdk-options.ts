@@ -171,10 +171,21 @@ export function directFastRouteRefusal(settings: unknown): string | undefined {
   if (!Array.isArray(report.sources)) return "not_first_party: the runtime reported no settings sources";
   if (report.errors !== undefined && (!Array.isArray(report.errors) || report.errors.length > 0)) return "not_first_party: the runtime reported settings it could not read";
   const allowed = (report.effective as { allowedProviders?: unknown }).allowedProviders;
-  if (!Array.isArray(allowed) || allowed.length !== 1 || allowed[0] !== "anthropic")
+  if (!isFastProviderPin(allowed))
     return "not_first_party: the runtime's first-party provider policy is not in force (a managed policy tier may replace it)";
+  // The runtime enforces the policy tier only, and the effective value can
+  // come from project or user settings. The report names a source but not
+  // its origin, so the policy tier must hold exactly the pin this turn set:
+  // an admin tier that replaced or merged into it never reads as the pin
+  // (#4894 round 4 F1).
+  const policy = (report.sources as unknown[]).filter(entry => !!entry && typeof entry === "object" && (entry as { source?: unknown }).source === "policySettings");
+  const pinned = policy.length === 1 ? (policy[0] as { settings?: unknown }).settings : undefined;
+  if (!pinned || typeof pinned !== "object" || Array.isArray(pinned) || Object.keys(pinned).length !== 1 || !isFastProviderPin((pinned as { allowedProviders?: unknown }).allowedProviders))
+    return "not_first_party: the runtime's provider policy tier does not hold the first-party pin this turn set (a managed policy tier replaced it, or another settings source supplied it)";
   return undefined;
 }
+
+const isFastProviderPin = (value: unknown) => Array.isArray(value) && value.length === 1 && value[0] === "anthropic";
 
 /**
  * The tool-search setting a new bridged session retains, and so the one its
@@ -527,6 +538,12 @@ function assembleClaudeSdkTurn(
     retained = retainSessionRequestShape(backend.brainPath, id, req.sessionId !== undefined,
       [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, bridgeEligible ? bridgedToolSearch(options.hostInference, inheritedEnv) : "false", bridgeEligible ? 1 : undefined);
     if (retained.toolSearch === "true") {
+      // Only the relay qualifies the route tool search needs; a direct turn's
+      // inherited URL does not show where its native settings send it. Turning
+      // the setting off would change the session's retained roster, so the
+      // resume is refused by name instead (#4306, #4894 round 4 F2).
+      if (!options.hostInference)
+        throw new Error("This session's tool search requires its relay to the first-party inference upstream, which this turn does not have.");
       if (!firstPartyInferenceUpstream(inheritedEnv))
         throw new Error("This session's tool search requires its qualified first-party inference upstream.");
       if (!retained.brainBridge) throw new Error("This session's tool search is not qualified for production MCP startup (#4306).");

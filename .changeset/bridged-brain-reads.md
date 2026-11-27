@@ -12,3 +12,5 @@ Apply the runtime exec-wrapper and shell-startup environment policy to brain sub
 The static read definitions ship as `@schlessera/brain/internal/read-definitions`, which loads under Node without `bun:sqlite`, so `@schlessera/brain-backend-claude` still imports under Node.
 
 The inventory check now has its own 8-second bound before a new chat's first request, falling back to stdio, and releases its turn-temp handle when the helper exits, so under a separate worker UID the verdict arrives at exit instead of after a 30-second wait. The forwarder treats the worker's exit as the end of its transport, so a crashed sandboxed `brain mcp` fails its calls at once.
+
+A session that retained tool search resumes only through its relay to the first-party origin and is refused by name otherwise. Past its bound the inventory check returns the stdio fallback at once while the worker's cleanup continues detached, and a rejected worker exit closes the forwarder transport too.

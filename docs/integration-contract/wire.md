@@ -1218,8 +1218,9 @@ turn the relay qualifies it, and a settings conflict there refuses the turn at
 any speed with its existing class. On a direct turn the runtime itself runs
 under a first-party-only provider policy that the host pins, and the turn is
 admitted only on positive proof that the policy is in force; a runtime that
-reports no such policy, settings errors, or a refused provider at startup
-refuses the session (`not_first_party`). A host whose admin managed tier
+reports no such policy, a pin that only project or user settings supply,
+settings errors, or a refused provider at startup refuses the session
+(`not_first_party`). A host whose admin managed tier
 replaces that policy therefore refuses direct fast sessions by name. The
 network path and TLS trust (for example `HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`)
 are not judged, on a direct turn as through the relay. A fast turn during which the runtime served any response at

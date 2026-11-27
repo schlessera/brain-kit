@@ -85,7 +85,9 @@ test("production assembly retains a gateway pin and confines a changed-upstream 
       expect(resumed.options.env!.ENABLE_TOOL_SEARCH).toBe("false");
       expect((resumed.options.settings as any).env.ENABLE_TOOL_SEARCH).toBe("false");
     } finally { await resumed.finishWorker(); }
-    expect(() => assemble("https://gateway.example.com", enabledId, false), "QUALIFIED_UPSTREAM_REQUIRED_ON_RESUME").toThrow("requires its qualified first-party inference upstream");
+    expect(() => assemble("https://gateway.example.com", enabledId, true), "QUALIFIED_UPSTREAM_REQUIRED_ON_RESUME").toThrow("requires its qualified first-party inference upstream");
+    // A direct resume is refused even when its inherited URL looks first-party.
+    expect(() => assemble("https://api.anthropic.com", enabledId, false), "RELAY_REQUIRED_ON_TOOL_SEARCH_RESUME").toThrow("requires its relay");
     const direct = assemble("https://gateway.example.com", gateway.options.sessionId!, false);
     try { expect(direct.options.env!.ENABLE_TOOL_SEARCH).toBe("false"); expect((direct.options.settings as any).env.ENABLE_TOOL_SEARCH).toBe("false"); }
     finally { await direct.finishWorker(); }

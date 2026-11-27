@@ -51,7 +51,9 @@ export function brainWorkerTransport(worker: Pick<LaunchedWorker, "stdin" | "std
       let closed = false;
       const closeOnce = () => { if (!closed) { closed = true; transport.onclose?.(); } };
       worker.stdout.on("end", closeOnce);
-      void worker.exited.then(closeOnce, error => transport.onerror?.(error));
+      // A rejected exit (a lost supervision) is reported and closes it too,
+      // so pending calls fail at once (#4894 round 4 F4).
+      void worker.exited.then(closeOnce, error => { transport.onerror?.(error); closeOnce(); });
     },
     async send(message: JSONRPCMessage) {
       await new Promise<void>((resolve, reject) => worker.stdin.write(serializeMessage(message), error => error ? reject(error) : resolve()));
@@ -272,6 +274,7 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
   const controller = new AbortController();
   const ownedSignal = AbortSignal.any([signal, controller.signal]);
   let resource: Awaited<ReturnType<ReturnType<typeof startBrainToolWorker>>> | undefined;
+  let missedDeadline = false;
   const timer = setTimeout(() => controller.abort(), BRAIN_INVENTORY_TIMEOUT_MS);
   // Every wait races one deadline: the product timeout or the caller's abort.
   // A supervisor that refuses the kill and a stdout that never ends can then
@@ -301,7 +304,7 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
       return { text, code: await exit };
     })();
     const read = await Promise.race([reading, deadline]);
-    if (read === "deadline") { void reading.catch(() => {}); return "unavailable"; }
+    if (read === "deadline") { void reading.catch(() => {}); missedDeadline = true; return "unavailable"; }
     const { text, code } = read;
     if (code !== 0 || ownedSignal.aborted) return "unavailable";
     const result = JSON.parse(text);
@@ -312,7 +315,14 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
       || !(module as { tools: unknown[] }).tools.every(name => typeof name === "string" && name.length > 0))) return "unavailable";
     return result.enabled.some((module: { tools: string[] }) => module.tools.length > 0) ? "module-tools" : "core-only";
   } catch { return "unavailable"; }
-  finally { clearTimeout(timer); controller.abort(); await resource?.close(); }
+  finally {
+    clearTimeout(timer); controller.abort();
+    // Past the deadline the fallback is returned at once: the worker's
+    // cleanup continues detached, bounded by its exit wait, and keeps the
+    // allowance until the exit is confirmed (#4894 round 4 F3).
+    if (missedDeadline) void resource?.close().catch(() => {});
+    else await resource?.close();
+  }
 }
 
 /** Each new session gets a fresh sandbox verdict before its roster is fixed. */
