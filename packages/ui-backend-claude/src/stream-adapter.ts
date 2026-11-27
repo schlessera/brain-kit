@@ -1,6 +1,6 @@
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { describeRetry } from "@schlessera/brain-ui-sdk/server";
+import { describeRetry, textOfParts } from "@schlessera/brain-ui-sdk/server";
 import type {
   BackendActivityEvent,
   ServerMessage,
@@ -145,10 +145,7 @@ export class StreamAdapter {
           this.usageLimitStop = true;
           this.apiError = this.failure(FIRST_PARTY_FAILURE_CLASSES.rate_limit, limitText, undefined);
         } else if (!parentToolUseId && msg.error) {
-          const text = msg.message.content
-            .map((block) => (block.type === "text" ? block.text : ""))
-            .join("")
-            .trim();
+          const text = textOfParts(msg.message.content, "").trim();
           if (!hostRefusal(text, statusFromText(text)) && AUTH_ERROR_CLASSES.has(msg.error)) {
             this.report({ kind: "auth_failure", errorClass: msg.error, ...(text ? { message: text } : {}) });
           }
@@ -205,10 +202,7 @@ export class StreamAdapter {
                 typeof block.content === "string"
                   ? block.content
                   : Array.isArray(block.content)
-                    ? block.content
-                        .filter((b: any) => b.type === "text")
-                        .map((b: any) => b.text)
-                        .join("\n")
+                    ? textOfParts(block.content, "\n")
                     : String(block.content ?? "");
 
               messages.push({

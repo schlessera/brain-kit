@@ -3514,6 +3514,8 @@ export "./server" (./src/server/index.ts)
   stitch
   subscriptionAuthAction
   sumModelUsage
+  textOfParts
+  textParts
   toleranceMetres
   toolBriefLines
   toolInputJsonSchema
@@ -30515,6 +30517,10 @@ signatures (every public export and the types it is made of)
     export function subscriptionAuthAction(errorClass: string): SubscriptionAuthAction;
   sumModelUsage (packages/ui-sdk/src/protocol.ts)
     export function sumModelUsage(perModel: Record<string, ModelUsage>): TurnUsage;
+  textOfParts (packages/ui-sdk/src/server/content-text.ts)
+    export function textOfParts(content: unknown, separator: string): string;
+  textParts (packages/ui-sdk/src/server/content-text.ts)
+    export function textParts(content: unknown): string[];
   toleranceMetres (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   toolBriefLines (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function toolBriefLines(contracts: readonly ToolContract[], available: (contract: ToolContract) => string | false | undefined): string[];

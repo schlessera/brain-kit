@@ -6525,3 +6525,19 @@ first supported consumer of the `@internal` `inputSafety` members
 unchanged. Both first-party backends call it at every final admission; the Pi
 in-process gate and the Claude `canUseTool` callback now also wait for pending
 recordings before the first validation. Provider requests are unchanged.
+
+<a id="content-text-helpers-additive-0450-4720"></a>
+
+## Content text helpers (additive, 0.45.0, #4720)
+
+`@schlessera/brain-ui-sdk/server` exports `textParts(content): string[]` and
+`textOfParts(content, separator): string`, `@experimental` backend toolkit
+until 1.0. A part counts when its `type` is `"text"` and its `text` is a
+string; anything else, including a non-array `content`, yields no parts.
+Both first-party backends read content arrays through them, each site passing
+the separator it used before. The one visible change: the Claude backend's
+session history joins a replayed tool result's text blocks with `"\n"`, as
+its live stream always did, where it joined them with `""`. Stored
+transcripts are not rewritten, no wire type changes, and the sites that compare
+text with the prompt as sent keep their separator, so provider requests are
+unchanged.

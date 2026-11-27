@@ -20,6 +20,16 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Content text helpers (additive, 0.45.0, #4720)
+
+`@schlessera/brain-ui-sdk/server` exports the `@experimental` backend toolkit
+helpers `textParts(content)` and `textOfParts(content, separator)`, which both
+first-party backends use to read the text parts of a runtime content array. A
+replayed Claude tool result of several text blocks now joins them with the
+newline it had live. See
+[the package API](integration-contract/package-api.md#content-text-helpers-additive-0450-4720).
+This ships in a minor.
+
 ## Final tool-dispatch admission helper (additive, 0.45.0, #4767)
 
 `@schlessera/brain-ui-sdk/server` exports the `@experimental` backend toolkit

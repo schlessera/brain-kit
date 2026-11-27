@@ -1,4 +1,5 @@
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { textOfParts } from "@schlessera/brain-ui-sdk/server";
 import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { directory, regular } from "./worker-state.js";
 import { homedir } from "node:os";
@@ -65,7 +66,7 @@ export function acknowledgeClaudeContext(brainPath: string, sessionId: string, o
     if (entry?.type !== "user" || entry.uuid !== owned.id) continue;
     const content = entry.message?.content;
     const text = typeof content === "string" ? content : Array.isArray(content)
-      ? content.filter((part: any) => part.type === "text").map((part: any) => part.text).join("") : undefined;
+      ? textOfParts(content, "") : undefined;
     if (text === owned.text) { claudePromptContext(brainPath, sessionId).acknowledge(owned.id); return; }
   }
 }

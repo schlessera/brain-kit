@@ -12,6 +12,7 @@ import {
   createToolPermissionRequest,
   decideToolPermission,
   requestToolPermission,
+  textParts,
   isCompletedAutonomousToolCall,
 } from "@schlessera/brain-ui-sdk/server";
 
@@ -811,7 +812,7 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
     if((input.hook_event_name==="PostToolUse"||input.hook_event_name==="PostToolUseFailure")&&req.bridge.inputSafety){
       const response=input.hook_event_name==="PostToolUse"?input.tool_response:input.error;
       const parts=response&&typeof response==="object"&&Array.isArray((response as {content?:unknown}).content)
-        ? ((response as {content:{type?:string;text?:string}[]}).content).filter(part=>part.type==="text"&&typeof part.text==="string").map(part=>part.text!):undefined;
+        ? textParts((response as {content:unknown}).content):undefined;
       // A failed web call can report an error after bytes have arrived. Its
       // failure hook has no delivery boundary for those bytes.
       const finalized = input.hook_event_name === "PostToolUse" ||
