@@ -49,6 +49,7 @@ import { basename, dirname, join, relative, resolve, sep } from "path";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { BRAIN_SCRATCH_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import { modeOf, WriteRefusedError, writeExclusive, writeFileSafely } from "./safe-path.js";
+import { isGitRepo } from "./sync/git.js";
 
 /**
  * Repo-relative scratch directory. Every mechanism that needs it reads this;
@@ -81,10 +82,6 @@ export class ScratchRedirectedError extends Error {
     super(`${SCRATCH_DIR}/ is redirected by a symlink, so nothing is written to or pruned from it: ${detail}`);
     this.name = "ScratchRedirectedError";
   }
-}
-
-function isGitRepo(root: string): boolean {
-  return existsSync(join(root, ".git")) || Bun.spawnSync(["git", "-C", root, "rev-parse", "--git-dir"]).exitCode === 0;
 }
 
 let emptyGitDir: string | null = null;
