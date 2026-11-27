@@ -111,7 +111,9 @@ counter. It retains ordinary G6 recipient narrowing, final admission fences
 and byte accounting; it cannot grant a contacted-host allowance. No worker
 header selects it. Network approval destinations carry `protocol` and the
 host-owned `managedReference` identity; pending approvals never coalesce a
-managed HTTPS acquisition with an opaque CONNECT to the same authority.
+managed HTTPS acquisition with an opaque CONNECT to the same authority, nor
+two managed acquisitions with each other: each managed fetch gets its own
+card, whose answer covers that fetch alone (#3595).
 CONNECT accepts explicit bracketed IPv6 authorities as well as canonical DNS
 and IPv4 hosts. `canonicalEgressHost` supplies one lowercase DNS or canonical bare
 IP comparison identity for host checks, cards and receipts. Resolution/dialing
@@ -6394,10 +6396,12 @@ needs its durable occurrence, and any other lost write, including a refused
 write such as a full recording queue, a lost connection audit or any loss
 outside a permanent gap, keeps its containment. The tolerated result names
 the lost write's reservation, and the collection's failure cause lists every
-contained loss by its reservation, earlier or later. An answered Network card
-treats its own operation's tolerated loss as its own input: neither that
-reservation nor a collection failure whose every listed loss is its own
-withdraws the card. Any other recording failure still does.
+contained loss by its reservation, earlier or later, and counts every one,
+past the list's bound too. An answered Network card treats its own
+operation's tolerated loss as its own input: neither that reservation nor a
+collection failure whose every counted loss is its own withdraws the card.
+Any other loss, including a new one under a failure that already stood,
+still does.
 
 Network approval markers exclude only the approved operation’s own occurrence
 and, when it creates the turn’s first collection, that same collection-start

@@ -131,10 +131,20 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
       attributes: { "tool.name": pending.request.toolName, "toolUse.id": msg.toolUseId, scope: networkScope } });
     networkScope = "once";
   }
-  // A wider scope needs the host's own commit, made while the card settles
-  // (`settleApproval`). A request that cannot commit one allows only this
-  // connection (#3595).
-  if ((networkScope === "origin" || networkScope === "session") && !pending.request.commitNetworkScope) networkScope = "once";
+  // A wider scope is two records (#3595): its proposal commits here, after
+  // the claim, as a remembered tool grant's storage does; the settlement
+  // writes the second while the card settles (`settleApproval`). A request
+  // that cannot keep a grant allows only this connection.
+  if ((networkScope === "origin" || networkScope === "session") && (!pending.request.proposeNetworkScope || !pending.request.settleNetworkScope)) networkScope = "once";
+  if (networkScope === "origin" || networkScope === "session") {
+    let proposed = false;
+    try { proposed = await pending.request.proposeNetworkScope!(networkScope); } catch { proposed = false; }
+    if (!proposed) {
+      coordinator.expireApproval(msg.toolUseId, "The network grant could not be recorded. Nothing was allowed; request a fresh decision.",
+        "grant_storage_failed", p => p === claimed);
+      return;
+    }
+  }
   coordinator.settleApproval(
     msg.toolUseId,
     pending,

@@ -867,13 +867,14 @@ export class TurnCoordinator {
       this.expireApproval(toolUseId, refusal, "safety_changed", p => p === claimed);
       return;
     }
-    // A wider Network scope (#3595) commits here, synchronously: after the
-    // card revalidated and before anyone learns it was granted. A grant that
-    // does not commit expires the card, and nothing is allowed.
+    // A wider Network scope (#3595) settles here, synchronously: after the
+    // card revalidated and before anyone learns it was granted. The hook
+    // only reads and submits; a grant that does not settle expires the card,
+    // and nothing is allowed.
     const scope = decision.behavior === "allow" ? decision.networkScope : undefined;
     if (scope === "origin" || scope === "session") {
       let committed = false;
-      try { committed = claimed.request.commitNetworkScope?.(scope) === true; } catch { committed = false; }
+      try { committed = claimed.request.settleNetworkScope?.(scope) === true; } catch { committed = false; }
       if (!committed) {
         this.expireApproval(toolUseId, "The network grant could not be recorded. Nothing was allowed; request a fresh decision.",
           "grant_storage_failed", p => p === claimed);

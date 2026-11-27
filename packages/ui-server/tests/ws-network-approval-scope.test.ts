@@ -28,9 +28,11 @@ const OFFER: NetworkApprovalOffer = { transport: "http", host: "aeaea.invalid", 
  * A turn raising one Network card for `net-aeaea`, as the turn proxy does:
  * no tool span, the offer when given, and the proxy's commit hook.
  */
-function setup(network?: NetworkApprovalOffer, commit?: (scope: "origin" | "session") => boolean) {
+/** The proxy's two grant hooks (#3595): the proposal the handler awaits, and the settlement inside the card's settlement. */
+interface GrantHooks { propose(scope: "origin" | "session"): Promise<boolean>; settle(scope: "origin" | "session"): boolean }
+function setup(network?: NetworkApprovalOffer, grant?: GrantHooks) {
   const db = createUiDb(":memory:");
-  const state: { decided: PermissionDecision | null; finish: () => void; commits: string[] } = { decided: null, finish: () => {}, commits: [] };
+  const state: { decided: PermissionDecision | null; finish: () => void; proposals: string[]; commits: string[] } = { decided: null, finish: () => {}, proposals: [], commits: [] };
   const backend = makeFakeBackend({
     id: "fake",
     capabilities: { permissions: true },
@@ -38,7 +40,8 @@ function setup(network?: NetworkApprovalOffer, commit?: (scope: "origin" | "sess
       bridge.emit({ type: "session_info", sessionId: "sess-aeaea", isNew: true });
       state.decided = await bridge.requestPermission({ toolUseId: "net-aeaea", toolName: "Network", kind: "command",
         input: { host: "aeaea.invalid", port: 8080, method: "GET", target: "aeaea.invalid:8080" }, ...(network ? { network } : {}),
-        ...(commit ? { commitNetworkScope: (scope: "origin" | "session") => { state.commits.push(scope); return commit(scope); } } : {}) });
+        ...(grant ? { proposeNetworkScope: (scope: "origin" | "session") => { state.proposals.push(scope); return grant.propose(scope); },
+          settleNetworkScope: (scope: "origin" | "session") => { state.commits.push(scope); return grant.settle(scope); } } : {}) });
       await new Promise<void>(r => (state.finish = r));
       bridge.emit({ type: "result", sessionId: "sess-aeaea", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
     },
@@ -61,12 +64,12 @@ function setup(network?: NetworkApprovalOffer, commit?: (scope: "origin" | "sess
     await until(() => client.frames("tool_approval_request").length === 1);
     return client.frames("tool_approval_request")[0].turnId;
   }
-  return { state, connect, raise };
+  return { state, connect, raise, host };
 }
 
 test("the card and its re-delivery carry the offer; a committed wider scope reaches the backend and the host outcome", async () => {
   let resolutionBeforeCommit = false;
-  const s = setup(OFFER, () => { resolutionBeforeCommit = card.frames("tool_resolution").length > 0; return true; });
+  const s = setup(OFFER, { propose: async () => true, settle: () => { resolutionBeforeCommit = card.frames("tool_resolution").length > 0; return true; } });
   const card = await s.connect();
   const turnId = await s.raise(card);
   expect(card.frames("tool_approval_request")[0].network, "NETWORK_OFFER_ON_THE_CARD").toEqual(OFFER);
@@ -76,14 +79,15 @@ test("the card and its re-delivery carry the offer; a committed wider scope reac
   reconnected.send({ type: "tool_approval", toolUseId: "net-aeaea", networkScope: "origin", channel: "card", turnId });
   await until(() => s.state.decided !== null);
   expect(s.state.decided, "OFFERED_SCOPE_REACHES_THE_BACKEND").toEqual({ behavior: "allow", networkScope: "origin" });
+  expect(s.state.proposals, "WIDER_SCOPE_PROPOSED_ONCE").toEqual(["origin"]);
   expect(s.state.commits, "WIDER_SCOPE_COMMITS_ONCE").toEqual(["origin"]);
   expect(resolutionBeforeCommit, "GRANT_COMMITS_BEFORE_ITS_OUTCOME_IS_PUBLISHED").toBe(false);
   await until(() => card.frames("tool_resolution").length === 1);
   expect(card.frames("tool_resolution")[0], "HOST_OUTCOME_KEEPS_THE_SCOPE").toMatchObject({ outcome: "granted", networkScope: "origin" });
 });
 
-test("a wider grant that cannot commit expires the card and publishes no granted scope", async () => {
-  const s = setup(OFFER, () => false);
+for (const failing of ["proposal", "settlement"] as const) test(`a wider grant whose ${failing} fails expires the card and publishes no granted scope`, async () => {
+  const s = setup(OFFER, { propose: async () => failing !== "proposal", settle: () => failing !== "settlement" });
   const client = await s.connect();
   const turnId = await s.raise(client);
   client.send({ type: "tool_approval", toolUseId: "net-aeaea", networkScope: "session", channel: "card", turnId });
@@ -101,13 +105,30 @@ test("a wider grant that cannot commit expires the card and publishes no granted
 });
 
 test("a scope the card did not offer narrows to this one connection and commits nothing", async () => {
-  const s = setup({ ...OFFER, scopes: ["once"] }, () => true);
+  const s = setup({ ...OFFER, scopes: ["once"] }, { propose: async () => true, settle: () => true });
   const client = await s.connect();
   const turnId = await s.raise(client);
   client.send({ type: "tool_approval", toolUseId: "net-aeaea", networkScope: "session", channel: "card", turnId });
   await until(() => s.state.decided !== null);
   expect(s.state.decided, "UNOFFERED_SCOPE_CREATES_NO_GRANT").toEqual({ behavior: "allow", networkScope: "once" });
+  expect(s.state.proposals).toEqual([]);
   expect(s.state.commits).toEqual([]);
+});
+
+test("a card that expires while its proposal is in flight never settles a grant", async () => {
+  const proposal = Promise.withResolvers<boolean>();
+  const s = setup(OFFER, { propose: () => proposal.promise, settle: () => true });
+  const client = await s.connect();
+  const turnId = await s.raise(client);
+  client.send({ type: "tool_approval", toolUseId: "net-aeaea", networkScope: "session", channel: "card", turnId });
+  await until(() => s.state.proposals.length === 1, "the proposal");
+  s.host.coordinator.expireApproval("net-aeaea", "Safety or authority changed while the card waited.", "safety_changed");
+  proposal.resolve(true);
+  await until(() => s.state.decided !== null);
+  expect(s.state.decided?.behavior).toBe("deny");
+  expect(s.state.commits, "EXPIRED_IN_FLIGHT_CARD_SETTLES_NO_GRANT").toEqual([]);
+  await until(() => client.frames("tool_resolution").length === 1);
+  expect(client.frames("tool_resolution")[0]).toMatchObject({ outcome: "expired" });
 });
 
 for (const reply of ["legacy reply", "scope on an unrelated card"] as const) test(`a ${reply} keeps the existing answer`, async () => {
@@ -126,7 +147,7 @@ test("a card that fails revalidation commits no grant and publishes no granted s
     timeoutHandle: setTimeout(() => {}, 0), queue: [], cancelled: false, lastResult: null } as unknown as RunningTurn;
   const commits: string[] = [], decisions: PermissionDecision[] = [];
   const request = { toolUseId: "net-aeaea", toolName: "Network", kind: "command" as const, input: {}, network: OFFER,
-    commitNetworkScope: (scope: "origin" | "session") => { commits.push(scope); return true; } };
+    proposeNetworkScope: async () => true, settleNetworkScope: (scope: "origin" | "session") => { commits.push(scope); return true; } };
   coordinator.openApproval("net-aeaea", { turn, turnId: "turn-aeaea", request, resolve: decision => { decisions.push(decision); },
     revalidate: () => "Safety or authority changed while the card waited." });
   const claimed = coordinator.claimApproval("net-aeaea")!;

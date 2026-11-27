@@ -95,7 +95,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
    * later connections skip the taint-specific Network question: `origin` for
    * the same transport, host and effective port, `session` for every one.
    */
-  network_grant: kind(1, z.strictObject({ scope: z.enum(["origin", "session"]), toolUseId: z.string().min(1).max(200),
+  network_grant: kind(1, z.strictObject({ state: z.enum(["proposed", "settled"]), scope: z.enum(["origin", "session"]), toolUseId: z.string().min(1).max(200),
     transport: networkOrigin.transport.optional(), host: networkOrigin.host.optional(), port: networkOrigin.port.optional() })
     // An origin grant names its whole origin; a session grant names none.
     .refine(grant => grant.scope === "origin" ? grant.transport !== undefined && grant.host !== undefined && grant.port !== undefined

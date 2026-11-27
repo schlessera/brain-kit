@@ -9,10 +9,16 @@ import { request } from "node:http";
 import { connect } from "node:net";
 import { resolveGovernancePolicy, type GovernancePolicyInput } from "@schlessera/brain-common/internal/governance-policy";
 import type { BackendBridge, PermissionDecision, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
-import { queryGovernanceEvents, recordGovernanceEvent, type GovernanceEventInput } from "../src/governance/events.js";
+import { openSqliteWriter } from "../src/db/write-worker.js";
+import { createGovernanceWrites } from "../src/governance/event-writes.js";
+import { bindTurnEvents, queryGovernanceEvents, recordGovernanceEvent, type GovernanceEventInput } from "../src/governance/events.js";
 import { contactedHosts, networkGrants } from "../src/governance/session-taint.js";
 import { prepareTurnEgress } from "../src/brain/turn-egress.js";
+import { until } from "../../../tests/helpers/until";
 
 type Db = ReturnType<typeof createUiDb>;
 function get(socketPath: string, target: string): Promise<number> {
@@ -64,7 +70,8 @@ const turn = (db: Db, bridge: BackendBridge, options: { sessionId?: string; poli
   prepareTurnEgress({ controller: options.controller ?? new AbortController(), policy: resolveGovernancePolicy(options.policy ?? { schema_version: 1 }),
     turnId: `turn-voyage-${++turns}`, sessionId: () => options.sessionId ?? "ithaca", model: () => "claude-haiku-4-5", profile: "governed",
     origin: options.origin ?? "interactive", bridge, record: options.record ?? (event => recordGovernanceEvent(db, event)), governanceDb: db });
-const grantRows = (db: Db) => queryGovernanceEvents(db, { kinds: ["network_grant"], limit: 20 }).map(event => event.payload as Record<string, unknown>);
+/** The settled grant rows: a grant needs one, beside its proposal (#3595). */
+const grantRows = (db: Db) => queryGovernanceEvents(db, { kinds: ["network_grant"], limit: 20 }).map(event => event.payload as Record<string, unknown>).filter(row => row.state === "settled");
 const connections = (db: Db) => queryGovernanceEvents(db, { sessionId: "ithaca", kinds: ["egress_connection"], limit: 50 }).map(event => event.payload as Record<string, unknown>);
 const island = (name: string, hits: string[], hostname = "127.0.0.2") => Bun.serve({ hostname, port: 0, fetch() { hits.push(name); return new Response(name); } });
 
@@ -148,7 +155,7 @@ test("an origin grant commits before admission and covers only its transport, ho
     cards.answer({ behavior: "allow", networkScope: "origin" });
     expect(await first).toBe(200);
     expect(grantedBeforeDispatch, "ORIGIN_GRANT_COMMITS_BEFORE_ADMISSION").toBe(true);
-    expect(grantRows(db)).toMatchObject([{ scope: "origin", transport: "http", host: "127.0.0.2", port: aeaea.port }]);
+    expect(grantRows(db)).toMatchObject([{ state: "settled", scope: "origin", transport: "http", host: "127.0.0.2", port: aeaea.port }]);
     expect(await get(proxy.socketPath, aeaea.url.href), "ORIGIN_GRANT_COVERS_ITS_ORIGIN").toBe(200);
     const otherPort = get(proxy.socketPath, pylos.url.href);
     await raised(cards.next(), otherPort, "ORIGIN_GRANT_EXCLUDES_ANOTHER_PORT");
@@ -333,14 +340,16 @@ test("only a stored grant this version understands is read back as one", () => {
   try {
     const insert = (version: number, payload: unknown) => db.query(`INSERT INTO governance_events (session_id, turn_id, at, kind, schema_version, actor, model, profile, payload)
       VALUES ('ithaca', 'turn-ithaca-old', 0, 'network_grant', ?, 'interactive', NULL, 'governed', ?)`).run(version, JSON.stringify(payload));
-    insert(1, { scope: "forever", toolUseId: "card-forever", transport: "http", host: "aeaea.invalid", port: 80 });
-    insert(1, { scope: "origin", toolUseId: "card-partial", host: "aeaea.invalid", port: 80 });
-    insert(1, { scope: "session", toolUseId: "card-extra", transport: "http", host: "aeaea.invalid", port: 80 });
-    insert(2, { scope: "session", toolUseId: "card-future" });
+    // A grant is a proposed and a settled row; each row below is written as both.
+    const grant = (version: number, payload: Record<string, unknown>) => { for (const state of ["proposed", "settled"]) insert(version, { state, ...payload }); };
+    grant(1, { scope: "forever", toolUseId: "card-forever", transport: "http", host: "aeaea.invalid", port: 80 });
+    grant(1, { scope: "origin", toolUseId: "card-partial", host: "aeaea.invalid", port: 80 });
+    grant(1, { scope: "session", toolUseId: "card-extra", transport: "http", host: "aeaea.invalid", port: 80 });
+    grant(2, { scope: "session", toolUseId: "card-future" });
     const grants = networkGrants(db, "ithaca");
     expect(grants.session, "UNSUPPORTED_GRANT_NEVER_REACHES_THE_SESSION").toBe(false);
     expect([...grants.origins], "MALFORMED_GRANT_NEVER_BECOMES_AN_ORIGIN").toEqual([]);
-    insert(1, { scope: "origin", toolUseId: "card-ok", transport: "connect", host: "aeaea.invalid", port: 443 });
+    grant(1, { scope: "origin", toolUseId: "card-ok", transport: "connect", host: "aeaea.invalid", port: 443 });
     expect(networkGrants(db, "ithaca").origins.size).toBe(1);
   } finally { db.close(); }
 });
@@ -350,8 +359,11 @@ const managed = (proxy: Awaited<ReturnType<typeof turn>>) => {
   const op = proxy.managedReference(new URL("https://github.com/"), new AbortController().signal);
   return { admitted: op.admit().finally(() => op.finish("denied")) };
 };
-const grantRow = (db: Db, payload: Record<string, unknown>) => recordGovernanceEvent(db, { kind: "network_grant", turnId: "turn-ithaca-earlier", sessionId: "ithaca",
-  actor: "interactive", model: null, profile: "governed", payload: { toolUseId: `card-${crypto.randomUUID()}`, ...payload } as never });
+const grantRow = (db: Db, payload: Record<string, unknown>) => {
+  const toolUseId = `card-${crypto.randomUUID()}`;
+  for (const state of ["proposed", "settled"]) recordGovernanceEvent(db, { kind: "network_grant", turnId: "turn-ithaca-earlier", sessionId: "ithaca",
+    actor: "interactive", model: null, profile: "governed", payload: { state, toolUseId, ...payload } as never });
+};
 
 test("a managed acquisition's card offers no scope, and its answer never covers a worker tunnel", async () => {
   const db = sessions();
@@ -415,4 +427,79 @@ test("a grant committed while a connection is already under way never covers it"
     expect(await early).toBe(403);
     expect(hits).toEqual(["Aeaea"]);
   } finally { gate.resolve(); cards.answer({ behavior: "deny", message: "cleanup" }); proxy.stop(); aeaea.stop(true); ogygia.stop(true); db.close(); }
+});
+
+test("a proposed grant row whose session could not read it never grants, even once its turn binds", async () => {
+  const db = sessions(); const hits: string[] = [];
+  const aeaea = island("Aeaea", hits);
+  const { bridge, cards } = cardBridge();
+  // Nausicaa's chat has no catalog row yet when its card is answered.
+  let proxy = await turn(db, bridge, { sessionId: "nausicaa" });
+  try {
+    const first = get(proxy.socketPath, aeaea.url.href);
+    await raised(cards.next(), first);
+    cards.answer({ behavior: "allow", networkScope: "session" });
+    expect(await first, "UNREADABLE_PROPOSAL_ADMITS_NOTHING").toBe(403);
+    await proxy.settled(); proxy.stop();
+    // Before its catalog row exists, the chat's records carry no session.
+    expect(queryGovernanceEvents(db, { kinds: ["egress_connection"], limit: 50 }).map(event => event.payload).at(0)).toMatchObject({ reason: "network_approval_unconfirmed" });
+    const rows = db.query("SELECT session_id, turn_id, payload FROM governance_events WHERE kind='network_grant'").all() as { session_id: string | null; turn_id: string; payload: string }[];
+    expect(rows.map(row => [row.session_id, JSON.parse(row.payload).state])).toEqual([[null, "proposed"]]);
+    // The catalog row lands and the turn's events bind to it: the proposal alone still grants nothing.
+    db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('nausicaa','nausicaa',0,0)").run();
+    expect(bindTurnEvents(db, rows[0]!.turn_id, "nausicaa")).toBeGreaterThanOrEqual(1);
+    expect(networkGrants(db, "nausicaa"), "UNSETTLED_GRANT_ROW_NEVER_GRANTS").toEqual({ session: false, origins: new Set() });
+    proxy = await turn(db, bridge, { sessionId: "nausicaa" });
+    const later = get(proxy.socketPath, aeaea.url.href);
+    await raised(cards.next(), later, "BOUND_PROPOSAL_ASKS_AGAIN");
+    cards.answer({ behavior: "deny", message: "Nausicaa declines" });
+    expect(await later).toBe(403);
+    expect(hits).toEqual([]);
+  } finally { cards.answer({ behavior: "deny", message: "cleanup" }); proxy.stop(); aeaea.stop(true); db.close(); }
+});
+
+test("with the write worker, grant records never touch the app connection", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-grant-writer-"));
+  const db = createUiDb(join(root, "ui.db"));
+  for (const id of ["ithaca"]) db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES (?,?,0,0)").run(id, id);
+  recordGovernanceEvent(db, { kind: "taint", turnId: "turn-ithaca-letters", sessionId: "ithaca", actor: "interactive", model: null, profile: "governed",
+    payload: { source: "web_fetch", tool: "WebFetch", detail: "https://suitors.example/letter" } });
+  const writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer);
+  const hits: string[] = [];
+  const aeaea = island("Aeaea", hits);
+  const { bridge, cards } = cardBridge();
+  const proxy = await prepareTurnEgress({ controller: new AbortController(), policy: resolveGovernancePolicy({ schema_version: 1 }), turnId: "turn-ithaca-writer",
+    sessionId: () => "ithaca", model: () => "claude-haiku-4-5", profile: "governed", origin: "interactive", bridge,
+    record: writes.record, governanceWrites: writes, governanceDb: db });
+  try {
+    const first = get(proxy.socketPath, aeaea.url.href);
+    await raised(cards.next(), first);
+    // From here on the app connection may only read.
+    db.exec("PRAGMA query_only = ON");
+    cards.answer({ behavior: "allow", networkScope: "origin" });
+    expect(await first, "GRANT_WRITES_STAY_OFF_THE_APP_CONNECTION").toBe(200);
+    await proxy.settled();
+    expect(queryGovernanceEvents(db, { kinds: ["network_grant"], limit: 10 }).map(event => (event.payload as { state: string }).state).sort()).toEqual(["proposed", "settled"]);
+    expect(await get(proxy.socketPath, aeaea.url.href), "WORKER_GRANT_COVERS_ITS_ORIGIN").toBe(200);
+    expect(cards.requests).toHaveLength(1);
+  } finally {
+    cards.answer({ behavior: "deny", message: "cleanup" }); proxy.stop(); await proxy.settled(); aeaea.stop(true);
+    db.exec("PRAGMA query_only = OFF"); await writer.close(); db.close(); rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("concurrent managed fetches to one host each get their own card and answer", async () => {
+  const db = sessions();
+  const { bridge, cards } = cardBridge();
+  const proxy = await turn(db, bridge);
+  try {
+    const first = managed(proxy), second = managed(proxy);
+    await until(() => cards.requests.length >= 2, () => `${cards.requests.length} cards`).catch(() => {});
+    expect(cards.requests.length, "CONCURRENT_MANAGED_FETCHES_EACH_GET_A_CARD").toBe(2);
+    expect(cards.requests[0]!.toolUseId).not.toBe(cards.requests[1]!.toolUseId);
+    for (const card of cards.requests) expect(card.description, "MANAGED_CARD_NEVER_PROMISES_THE_SESSION").not.toMatch(/rest of this session/);
+    cards.answer({ behavior: "allow" });
+    cards.answer({ behavior: "deny", message: "Penelope declines" });
+    expect([await first.admitted, await second.admitted]).toEqual([true, false]);
+  } finally { cards.answer({ behavior: "deny", message: "cleanup" }); proxy.stop(); db.close(); }
 });

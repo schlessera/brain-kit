@@ -114,16 +114,19 @@ const MAX_COLLECTION_LOSSES=64;
 function recordCollectionLoss(db:Database,where:"id"|"turn_id",key:string,reason:string|null,cause:SafetyFailureCause):void {
   const row=db.query<{failure_cause:string|null},[string]>(`SELECT failure_cause FROM safety_collections WHERE ${where}=?`).get(key);
   if(!row)return;
-  let next:SafetyFailureCause&{losses:string[]};
+  let next:SafetyFailureCause&{losses:string[];lossCount:number};
   try{
-    const first=row.failure_cause?JSON.parse(row.failure_cause) as SafetyFailureCause&{losses?:unknown}:null;
+    const first=row.failure_cause?JSON.parse(row.failure_cause) as SafetyFailureCause&{losses?:unknown;lossCount?:unknown}:null;
     const losses=!first?[]:Array.isArray(first.losses)?first.losses.filter((loss):loss is string=>typeof loss==="string")
       // A cause written before losses were listed names only its first loss.
       :[typeof first.reservation==="string"?first.reservation:""];
+    // Every contained loss counts, past the listed bound too; a cause
+    // written without the count counts what it listed.
+    const lossCount=(first&&typeof first.lossCount==="number"&&Number.isSafeInteger(first.lossCount)?first.lossCount:losses.length)+1;
     const loss=cause.reservation??"";
     if(losses.length<MAX_COLLECTION_LOSSES)losses.push(loss);else if(losses.length===MAX_COLLECTION_LOSSES)losses.push("");
-    next={...(first??cause),losses};
-  }catch{next={...cause,losses:[""]};}
+    next={...(first??cause),losses,lossCount};
+  }catch{next={...cause,losses:[""],lossCount:1};}
   const failure=reason===null?"COALESCE(failure,'recording_failed')":"CASE WHEN failure='capacity' THEN failure ELSE ? END";
   db.query(`UPDATE safety_collections SET failure=${failure},failure_cause=? WHERE ${where}=?`).run(...(reason===null?[]:[reason]),JSON.stringify(next),key);
 }
@@ -497,21 +500,29 @@ function safetyScope(db:Database,turnId:string|null,sessionId:string|null) {
 /** Pending input uses the aggregate's durable canonical membership, even before
  * its own reservation commits. Include an unbound turn with no collection yet. */
 /**
- * Every contained loss behind the scope's active recording failures (#4351),
- * each named by its reservation or "" when it had none. A latched brain, or
- * a failed collection whose cause lists no losses, contributes "".
+ * The contained losses behind the scope's active recording failures (#4351):
+ * `listed`, each named by its reservation or "" when it had none, and
+ * `total`, every loss counted, past the listed bound and the brain latch's
+ * count included. A failed collection whose cause lists none counts one "".
  */
-export function safetyFailureLosses(db:Database,turnId:string|null,sessionId:string|null):string[] {
- const losses:string[]=meta(db).failed?[""]:[];
+export function safetyFailureLosses(db:Database,turnId:string|null,sessionId:string|null):{listed:string[];total:number} {
+ const listed:string[]=[];let total=0;
+ if(meta(db).failed){
+  const latch=db.query<{count:number|null},[]>("SELECT count FROM safety_latch WHERE singleton=1").get();
+  listed.push("");total+=Math.max(1,latch?.count??1);
+ }
  const {scope,args}=safetyScope(db,turnId,sessionId);
  for(const c of db.query<{failure_cause:string|null},(string|null)[]>(`SELECT c.failure_cause FROM safety_collections c WHERE ${scope} AND c.failure IS NOT NULL AND c.ended=0`).all(...args)){
+  let named:string[]=[],count=0;
   try{
-   const listed=c.failure_cause?(JSON.parse(c.failure_cause) as {losses?:unknown}).losses:undefined;
-   if(Array.isArray(listed)&&listed.length)for(const loss of listed)losses.push(typeof loss==="string"?loss:"");
-   else losses.push("");
-  }catch{losses.push("");}
+   const cause=c.failure_cause?JSON.parse(c.failure_cause) as {losses?:unknown;lossCount?:unknown}:{};
+   if(Array.isArray(cause.losses))named=cause.losses.map(loss=>typeof loss==="string"?loss:"");
+   count=typeof cause.lossCount==="number"&&Number.isSafeInteger(cause.lossCount)?cause.lossCount:named.length;
+  }catch{named=[];count=0;}
+  if(!named.length)named=[""];
+  listed.push(...named);total+=Math.max(count,named.length);
  }
- return losses;
+ return {listed,total};
 }
 export function safetyScopeTurns(db:Database,turnId:string|null,sessionId:string|null):Set<string> {
  const {scope,args}=safetyScope(db,turnId,sessionId);
