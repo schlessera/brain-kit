@@ -3,7 +3,8 @@ import type { ServerMessage, SessionHistoryMessage } from "@schlessera/brain-ui-
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { rewriteLinkDestinations } from "@schlessera/brain-ui-sdk/internal/client";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
-import { createTurnClassifier, loadMessageBlocks } from "../src/classification/index.js";
+import { createTurnClassifier } from "../src/classification/index.js";
+import { loadMessageBlocks } from "../src/classification/blocks-store.js";
 import { createUiDb } from "../src/db/client.js";
 import { createSilentObservability } from "../src/observability/index.js";
 import { handleClientMessage } from "../src/ws/dispatch.js";
