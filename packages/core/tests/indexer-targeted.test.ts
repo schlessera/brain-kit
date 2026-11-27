@@ -2,10 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import type { Database, Statement } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { openDatabase } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
+import { countExecutions } from "./statement-counter";
 
 // Targeted runs (#2835) read only the named paths, yet must leave the index a
 // fresh build of the same Markdown would: every row, the link graph, the
@@ -63,32 +64,6 @@ async function fresh(root: string, name: string) {
   const db = open(root, name);
   await indexAll(db, options(root));
   return partitions(snapshot(db));
-}
-
-/**
- * Count every statement execution on `db`: each `get`, `all`, `run`,
- * `values` and `iterate` of a prepared or cached statement, and each direct
- * `run`/`exec`. Counting `prepare` alone would miss a statement prepared once
- * and executed per row.
- */
-function countExecutions(db: Database): { count: () => number; restore: () => void } {
-  let executions = 0;
-  const { prepare, query, run, exec } = db;
-  const counted = (statement: Statement) => {
-    for (const method of ["get", "all", "run", "values", "iterate"] as const) {
-      const original = (statement as any)[method];
-      (statement as any)[method] = function (this: unknown, ...args: unknown[]) { executions++; return original.apply(statement, args); };
-    }
-    return statement;
-  };
-  db.prepare = ((...args: Parameters<typeof prepare>) => counted(prepare.apply(db, args) as Statement)) as typeof prepare;
-  db.query = ((...args: Parameters<typeof query>) => counted(query.apply(db, args) as Statement)) as typeof query;
-  db.run = ((...args: Parameters<typeof run>) => { executions++; return run.apply(db, args); }) as typeof run;
-  db.exec = ((...args: Parameters<typeof exec>) => { executions++; return exec.apply(db, args); }) as typeof exec;
-  return {
-    count: () => executions,
-    restore: () => { db.prepare = prepare; db.query = query; db.run = run; db.exec = exec; },
-  };
 }
 
 describe("targeted index runs (#2835)", () => {
