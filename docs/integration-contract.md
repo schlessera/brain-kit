@@ -20,6 +20,15 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Final tool-dispatch admission helper (additive, 0.45.0, #4767)
+
+`@schlessera/brain-ui-sdk/server` exports the `@experimental` backend toolkit
+helper `admitToolDispatch(admission)` and its input type
+`ToolDispatchAdmission`: the host's last admission step for one tool call over
+the bridge's `inputSafety`, which both first-party backends now call. See
+[the package API](integration-contract/package-api.md#final-tool-dispatch-admission-helper-additive-0450-4767).
+This ships in a minor.
+
 ## Robots.txt cache lifetime (additive, 0.45.0, #4813)
 
 `RobotsCacheOptions` gains optional `maxAgeMs` (default 24 hours),

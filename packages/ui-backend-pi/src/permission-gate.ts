@@ -39,6 +39,7 @@ import {
   GITHUB_TOOL_NAMES,
   GITHUB_TOOL_NAME_LIST,
   WEB_TOOL_NAME_LIST,
+  admitToolDispatch,
   checkEditedApproval,
   createToolPermissionRequest,
   decideToolPermission,
@@ -128,16 +129,11 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           const visible=prepareOutwardPlan({toolName:event.toolName,shellToolName:"bash",input:event.input,autonomous:!!turn.autonomous}).classification.actions.length>0;
           return safetyAdmissionRefusal(turn.bridge?.admissionSafety)??(visible?revalidatePiAdmission(turn,event.toolName,event.toolCallId,event.input??{}):null);
         };
-        let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
         try{
-          const stale=validate();if(stale)throw new Error(stale);
-          ticket=event.toolName!=="bash"&&safety?.prepareDispatch?await safety.prepareDispatch(event.toolCallId):undefined;
-          if(event.toolName!=="bash"&&!ticket)await safety?.allowed?.(event.toolCallId,validate);
-          for (const pending of pendingPiAdmission(turn,event.toolName,event.toolCallId)) await pending;
-          const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
-          ticket?.commit(validate);
+          // Bash does not dispatch here: its tool takes the ticket after its rewrite and lock waits.
+          await admitToolDispatch({inputSafety:safety,toolUseId:event.toolCallId,validate,
+            pending:()=>pendingPiAdmission(turn,event.toolName,event.toolCallId),dispatchesNow:event.toolName!=="bash"});
         }catch(error){
-          try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}
           await safety?.refused?.(event.toolCallId,true);
           return {block:true,reason:error instanceof Error?error.message:'Safety recording refused this call.'};
         }

@@ -14,6 +14,7 @@ import { createBrainTools, DEFAULT_PI_ALLOWED_TOOLS, TOOL_RISK, toolLockFromKeye
 import { createTurnContext } from "../src/turn-context";
 import { makeEmptyBrain, makeIndexedBrain, resultText, type TempBrain } from "./helpers";
 import { makeMockBridge } from "./mock-bridge";
+import { staleAfterTicket } from "./stale-admission";
 
 // ExtensionContext is required by the ToolDefinition.execute signature but is
 // unused by the curated tools; a stub is fine for direct unit invocation.
@@ -111,6 +112,17 @@ describe("tool_call permission gate", () => {
       .toMatchObject({ block: true, reason: expect.stringContaining("does not run") });
     expect(allowed, "PI_GATE_ALLOW_IS_CHECKED").toEqual(["checked"]);
     expect(refused, "PI_GATE_BLOCKED_CALL_IS_REFUSED").toEqual(["unchecked"]);
+  });
+
+  test("a call whose safety goes stale during the wait after its dispatch ticket is blocked and refused", async () => {
+    // The final admission validates again after the last pending wait (#4767).
+    const turn = createTurnContext();
+    const { admissionSafety, inputSafety, log } = staleAfterTicket();
+    turn.bridge = { ...makeMockBridge({ decision: { behavior: "allow" } }).bridge, admissionSafety, inputSafety };
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+    const answer = await handler({ toolName: "write_file", toolCallId: "stale", input: { path: "a.md", content: "x" } });
+    expect(answer, "PI_GATE_STALE_AFTER_WAIT_BLOCKS").toMatchObject({ block: true, reason: expect.stringContaining("Safety or authority changed") });
+    expect(log, "PI_GATE_STALE_AFTER_WAIT_IS_REFUSED").toEqual(["prepare stale", "stale", "cancel", "refused stale true"]);
   });
 
   test("default brain_read_base executes in-process without an approval card", async () => {

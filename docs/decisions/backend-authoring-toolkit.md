@@ -50,6 +50,7 @@ only for first-party implementation sharing through an explicitly named
 | Claude `VOICE_ALLOWED_TOOLS` | Internal, Claude `/internal` | A tool list belongs to one runtime's names and permission posture. External authors must enforce or reject the documented turn posture, not copy this list as a universal policy. |
 | Claude `DEFAULT_ALLOWED_TOOLS`, `MUTATING_TOOLS` | Internal source; absent from the ordinary package entry point | Auto-allow and lock tables are runtime implementation policies. No additional cross-package export is needed. |
 | Pi `DEFAULT_PI_ALLOWED_TOOLS`, `TOOL_RISK` | Internal, Pi `/internal` | These are the pi runtime's default grant list and risk/lock classification. Pi has no separate exported voice list; voice uses the host-supplied restricted posture. |
+| `admitToolDispatch`, `ToolDispatchAdmission` | Public, SDK `/server`, `@experimental` (#4767) | Both backends end every tool admission with the same sequence over the bridge's `inputSafety`: wait for pending recordings, validate, take a dispatch ticket (or `allowed` on a host without tickets), wait, validate, commit, then expose the allowance synchronously. It was written out five times and drifted; a backend that skipped a wait or the second check could dispatch on stale safety state. The permission decision before it, the pending-recordings source and the refusal bookkeeping stay with each adapter. |
 
 `handleTurnTemp`, `TurnTempAccess` and `TurnTempPurgeRecord` join the public
 experimental `/server` toolkit in #1703. Both backends use the same scoped

@@ -3341,6 +3341,7 @@ export "./server" (./src/server/index.ts)
   type ToolAdapter
   type ToolComponentContract
   type ToolContract
+  type ToolDispatchAdmission
   type ToolInput
   type ToolPayload
   type ToolPermissionApproval
@@ -3423,6 +3424,7 @@ export "./server" (./src/server/index.ts)
   type WorkerLimitsStatus
   type WrappedKillOptions
   type WriteLock
+  admitToolDispatch
   apifyOperationOf
   assertLiveConversationProvider
   assertLiveConversationSession
@@ -15193,6 +15195,15 @@ signatures (every public export and the types it is made of)
         readonly input: Input;
         readonly brief: (visibleName: string) => string;
     }
+  ToolDispatchAdmission (packages/ui-sdk/src/server/backend.ts)
+    export interface ToolDispatchAdmission {
+        inputSafety: BackendBridge["inputSafety"] | undefined;
+        toolUseId: string;
+        validate: InputSafetyAdmissionCheck;
+        pending: () => Iterable<Promise<unknown>>;
+        dispatchesNow: boolean;
+        expose?: () => undefined;
+    }
   ToolInput (packages/ui-sdk/src/tool-contracts/contract.ts)
     export type ToolInput<Contract> = Contract extends ToolContract<string, infer Input> ? z.infer<Input> : never;
   ToolPayload (packages/ui-sdk/src/tool-contracts/contract.ts)
@@ -15909,6 +15920,8 @@ signatures (every public export and the types it is made of)
         acquire(): Promise<() => void>;
         withLock<T>(fn: () => Promise<T> | T): Promise<T>;
     }
+  admitToolDispatch (packages/ui-sdk/src/server/backend.ts)
+    export function admitToolDispatch(admission: ToolDispatchAdmission): Promise<void>;
   apifyOperationOf (packages/common/src/apify-operations.ts)
     export function apifyOperationOf(name: string): ApifyOperation | undefined;
   approvalDisplaySchema (packages/ui-sdk/src/schemas.ts)

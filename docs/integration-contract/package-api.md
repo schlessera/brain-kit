@@ -6504,3 +6504,24 @@ for old backends. Updated backends prefer `prepareDispatch`; a genuinely old
 host without it uses `allowed()` plus a final backend check. If that old host
 records allowance before a late refusal, it may conservatively retain a gap;
 no compatibility fallback permits a stale dispatch or clears possible exposure.
+
+<a id="final-tool-dispatch-admission-helper-additive-0450-4767"></a>
+
+## Final tool-dispatch admission helper (additive, 0.45.0, #4767)
+
+`@schlessera/brain-ui-sdk/server` exports `admitToolDispatch(admission)` and
+`ToolDispatchAdmission`, `@experimental` backend toolkit until 1.0. It performs
+the sequence above for one call: wait for the call site's pending safety
+recordings, run its synchronous validator, take a `prepareDispatch` ticket (on
+a host without it, `allowed(toolUseId, validate)`), wait again, validate again,
+`commit(validate)`, then run the optional synchronous `expose` callback with no
+await after the commit. `dispatchesNow: false` skips the ticket and `allowed`
+for a call that dispatches at a later admission step (Pi `bash`). A refusal
+reason is thrown as an `Error`; any throw before `expose` cancels the ticket
+and propagates, and recording the refusal stays with the caller. A throw from
+`expose` propagates and leaves the committed ticket alone. The helper is the
+first supported consumer of the `@internal` `inputSafety` members
+`prepareDispatch` and `allowed`; their tags and the bridge contract are
+unchanged. Both first-party backends call it at every final admission; the Pi
+in-process gate and the Claude `canUseTool` callback now also wait for pending
+recordings before the first validation. Provider requests are unchanged.
