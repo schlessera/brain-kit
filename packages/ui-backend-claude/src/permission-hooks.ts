@@ -7,10 +7,12 @@ import type { HookCallback, Options, PermissionResult } from "@anthropic-ai/clau
 import { type AdmissionSafety, type AdmissionSafetySnapshot, type CompiledWorkerCommandPolicy, compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, toolAdmissionSafety, outwardAdmissionRefusal, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import {
+  admitToolDispatch,
   checkEditedApproval,
   createToolPermissionRequest,
   decideToolPermission,
   requestToolPermission,
+  textParts,
   isCompletedAutonomousToolCall,
 } from "@schlessera/brain-ui-sdk/server";
 
@@ -731,7 +733,6 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   // instead.
   const callbackAdmissions=new Map<string,number>();
   const canUseTool: typeof decideToolUse = async (toolName,input,opts) => {
-    let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
     try {
       admit(opts.toolUseID,toolName,callbackAdmissions);
       const cached=ctx.shownOutward.get(opts.toolUseID);
@@ -744,16 +745,11 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
       if(result?.behavior==='allow'){
         const effective=result.updatedInput??input;
         const validate=()=>{req.signal.throwIfAborted();opts.signal?.throwIfAborted();return safetyAdmissionRefusal(safety,before)??(outward(toolName,effective).classification.actions.length?outwardAdmissionRefusal(safety,before):null);};
-        const stale=validate();if(stale)throw new Error(stale);
-        ticket=req.bridge.inputSafety?.prepareDispatch?await req.bridge.inputSafety.prepareDispatch(opts.toolUseID):undefined;
-        if(!ticket)await req.bridge.inputSafety?.allowed?.(opts.toolUseID,validate);
-        for (const pending of safety?.pendingRecording?.(before,req.signal)??[]) await pending;
-        const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
-        ticket?.commit(validate);
+        await admitToolDispatch({inputSafety:req.bridge.inputSafety,toolUseId:opts.toolUseID,validate,
+          pending:()=>safety?.pendingRecording?.(before,req.signal)??[],dispatchesNow:true});
       }
       return result;
     }catch(error){
-      try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}
       turnLock.releaseForTool(opts.toolUseID);await refuse(opts.toolUseID);
       try{ctx.observe(outward(toolName,input),toolName,input,opts.toolUseID,'refused');}catch{/* Unavailable diagnostics cannot turn a deny into a rejected hook. */}
       return {behavior:'deny',message:error instanceof Error?error.message:'Host tool admission is unavailable.'};
@@ -816,7 +812,7 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
     if((input.hook_event_name==="PostToolUse"||input.hook_event_name==="PostToolUseFailure")&&req.bridge.inputSafety){
       const response=input.hook_event_name==="PostToolUse"?input.tool_response:input.error;
       const parts=response&&typeof response==="object"&&Array.isArray((response as {content?:unknown}).content)
-        ? ((response as {content:{type?:string;text?:string}[]}).content).filter(part=>part.type==="text"&&typeof part.text==="string").map(part=>part.text!):undefined;
+        ? textParts((response as {content:unknown}).content):undefined;
       // A failed web call can report an error after bytes have arrived. Its
       // failure hook has no delivery boundary for those bytes.
       const finalized = input.hook_event_name === "PostToolUse" ||

@@ -30,6 +30,7 @@ import type {
   MessagePart,
   SessionHistoryMessage,
 } from "@schlessera/brain-ui-sdk/server";
+import { textOfParts } from "@schlessera/brain-ui-sdk/server";
 
 import { failureFromPiError } from "./turn-failure.js";
 import { isPiSessionId, piSessionHeader } from "./session-storage.js";
@@ -111,7 +112,7 @@ async function readPiHistory(cwd: string, sessionId: string, sessionDir?: string
       const message = structuredClone(entry.message);
       if (context && message.role === "user") {
         const content = message.content;
-        const wire = typeof content === "string" ? content : content.filter(part => part.type === "text").map(part => (part as { text: string }).text).join("");
+        const wire = typeof content === "string" ? content : textOfParts(content, "");
         const text = (userText ??= context.userTexts())(entry.id, wire);
         message.content = typeof content === "string" ? text : [
           { type: "text", text }, ...content.filter(part => part.type !== "text"),
@@ -286,10 +287,7 @@ export function stripImageNotes(text: string): string {
 
 /** Join the text parts of a pi content array (images/other parts ignored). */
 function textOf(content: (TextContent | ImageContent)[]): string {
-  return content
-    .filter((p): p is TextContent => p.type === "text")
-    .map((p) => p.text)
-    .join("");
+  return textOfParts(content, "");
 }
 
 function firstLine(text: string | undefined): string | null {

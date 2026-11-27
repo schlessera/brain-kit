@@ -42,8 +42,7 @@ function guardedStream(source: { pause(): unknown; resume(): unknown }, wait: ()
   return { on, resume, afterQueued };
 }
 
-export const WORKER_EGRESS_DIR = "/run/brain-egress";
-export const WORKER_EGRESS_SOCKET = `${WORKER_EGRESS_DIR}/proxy.sock`;
+export { WORKER_EGRESS_DIR, WORKER_EGRESS_SOCKET } from "./egress-paths.js";
 /** What the worker bootstrap sets so a tool's network reaches the turn proxy; a tool spawn must keep them. */
 export const WORKER_EGRESS_TRANSPORT_ENV = Object.freeze(["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
   "http_proxy", "https_proxy", "all_proxy", "no_proxy", "GIT_SSH_COMMAND"]);
