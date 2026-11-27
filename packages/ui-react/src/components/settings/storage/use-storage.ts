@@ -41,6 +41,7 @@ export function useStorage(root: BrainUiRoot) {
     maintenance = useStore(inventory, (s) => s.maintenance),
     receipt = useStore(inventory, (s) => s.receipt),
     announcement = useStore(inventory, (s) => s.announcement);
+  // The store's actions: created with it, so stable for the pane's lifetime.
   const { setError, setSnapshot, setReceipt, setAnnouncement, acceptStatus, current } = inventory.getState();
   const [busy, setBusy] = useState(false);
   const [owner, setOwner] = useState<"all" | "brain" | "app" | "operator">("all"),
@@ -183,6 +184,7 @@ export function useStorage(root: BrainUiRoot) {
     validThreshold,
     where,
     content,
+    setError,
   ]);
   async function action(work: (signal: AbortSignal) => Promise<void>) {
     const controller = inventory.getState().lifetime();
@@ -288,7 +290,7 @@ export function useStorage(root: BrainUiRoot) {
       );
     }, 250);
     return () => clearTimeout(timer);
-  }, [selection.length, selectedBytes]);
+  }, [selection.length, selectedBytes, setAnnouncement]);
   function applyReceipt(next: StorageRemovalReceipt) {
     setReceipt((previous) =>
       previous?.review.id === next.review.id &&
@@ -331,7 +333,7 @@ export function useStorage(root: BrainUiRoot) {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [api, receipt]);
+  }, [api, receipt, setReceipt]);
   const overSelectionLimit =
     selectedBytes > (capability?.limits.totalBytes ?? 0);
   const newest =

@@ -38,7 +38,7 @@ type Updater<T> = T | ((previous: T) => T);
 const apply = <T,>(next: Updater<T>, previous: T): T =>
   typeof next === "function" ? (next as (previous: T) => T)(previous) : next;
 
-export interface StorageInventoryState {
+interface StorageInventoryState {
   status: StorageStatus | null;
   snapshot: StorageSnapshot | null;
   capability: StorageRemovalCapability | null;
@@ -187,5 +187,3 @@ const realTimer = {
   set: (run: () => void, ms: number) => setTimeout(run, ms),
   clear: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
-
-export type StorageInventory = ReturnType<typeof createStorageInventory>;
