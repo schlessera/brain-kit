@@ -15,7 +15,6 @@ import {
 } from "../src/activity/store";
 import { createUiDb } from "../src/db/client";
 import { createActivityRoutes } from "../src/routes/activity";
-import { setDetailRetentionDays } from "../src/db/settings";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = 1_800_000_000_000; // fixed clock — computeRuntimeStats takes `now`
@@ -239,7 +238,6 @@ describe("runtime stats: lifetime from sessions, windowed from rollups", () => {
 describe("runtime stats: retention labelling", () => {
   test("the window carries the detail-retention cutoff and whether it falls inside", () => {
     const { db } = seeded();
-    setDetailRetentionDays(db, 7);
 
     const wide = computeRuntimeStats(db, { days: 30, now: NOW }).window;
     expect(wide.detailRetention.days).toBe(7);
@@ -253,7 +251,6 @@ describe("runtime stats: retention labelling", () => {
 
   test("pruning takes detail, not rollups: the sums hold and the pruned count says what is gone", () => {
     const { db, store } = seeded();
-    setDetailRetentionDays(db, 7);
     const before = computeRuntimeStats(db, { days: 30, now: NOW }).window;
     expect(before.detailPrunedRuns).toBe(0);
 

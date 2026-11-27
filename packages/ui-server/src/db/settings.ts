@@ -22,8 +22,6 @@ const BILLING_OVERRIDES_KEY = "models.billing";
 const DEFAULT_MODEL_KEY = "models.default";
 const CUSTOM_OPENROUTER_KEY = "models.customOpenRouter";
 const THINKING_OVERRIDES_KEY = "models.thinking";
-const DETAIL_RETENTION_KEY = "activity.retention.detailDays";
-const DETAIL_RETENTION_DEFAULT_DAYS = 7;
 
 export function getSetting<T>(db: Database, key: string, fallback: T, log?: Logger): T {
   const row = db
@@ -175,21 +173,6 @@ export function getAutoAllowedTools(db: Database, log?: Logger): string[] {
 
 export function setAutoAllowedTools(db: Database, tools: string[]): void {
   setSetting(db, TOOL_AUTO_ALLOW_KEY, [...new Set(tools.filter(Boolean))].sort());
-}
-
-/** Minimum days a finished run keeps its detail (spans/events) before the
- *  digest-covered prune may take it. 0 is valid (prune as soon as covered);
- *  anything non-numeric or negative degrades to the default. */
-export function getDetailRetentionDays(db: Database, log?: Logger): number {
-  const value = getSetting<unknown>(db, DETAIL_RETENTION_KEY, DETAIL_RETENTION_DEFAULT_DAYS, log);
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return DETAIL_RETENTION_DEFAULT_DAYS;
-  }
-  return value;
-}
-
-export function setDetailRetentionDays(db: Database, days: number): void {
-  setSetting(db, DETAIL_RETENTION_KEY, days);
 }
 
 const DICTATION_KEY = "voice.dictation";
