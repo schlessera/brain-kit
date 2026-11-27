@@ -61,9 +61,7 @@ export "./internal/apify" (./src/internal-apify.ts)
   type ApifyPrepareResult
   type ApifyPricingSummary
   ApifyProfileError
-  ApifyProfileInputError
   type ApifyProfileTarget
-  type ApifyProfiledInput
   type ApifyProposalState
   type ApifyProviderExposure
   type ApifyProviderRouting
@@ -116,7 +114,6 @@ export "./internal/apify" (./src/internal-apify.ts)
   micros
   openApifyLedger
   profileFor
-  profileInput
   qualifyProfile
   sha256
   utcDay

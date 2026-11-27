@@ -1,6 +1,6 @@
 import { BaseAdapter } from "./base.js";
 import type { RawJob } from "../types.js";
-import type { AdapterRunOptions } from "@schlessera/brain-scrape";
+import { parseRssItems, type AdapterRunOptions } from "@schlessera/brain-scrape";
 
 const RSS_URL = "https://weworkremotely.com/remote-jobs.rss";
 
@@ -20,7 +20,7 @@ export class WeWorkRemotelyAdapter extends BaseAdapter {
         headers: { Accept: "application/rss+xml, application/xml, text/xml" },
       }));
 
-      const items = this.parseRssItems(page.body);
+      const items = parseRssItems(page.body);
       // The FULL feed is ingested every run (single cheap request) so the
       // upsert refreshes last_seen_at on jobs that are still live. The cursor
       // only tracks the newest publication date for run metadata.

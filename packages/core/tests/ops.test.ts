@@ -4,17 +4,19 @@
  * what each write leaves on disk and in the index (#1349).
  */
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
-import { existsSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
-import { join } from "path";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import * as fs from "fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from "fs";
+import { dirname, isAbsolute, join, relative } from "path";
 
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { initContext, type BrainContext } from "../src/lib/context";
 import { openDatabase } from "../src/lib/db";
-import { getMarkdownFiles } from "../src/lib/indexer";
-import { indexStaleness } from "../src/lib/ops/staleness";
+import { chunkContextKey, getMarkdownFiles, indexAll } from "../src/lib/indexer";
+import { CONTEXT_CACHE_PATH } from "@schlessera/brain-common/internal/cache-location";
+import { cachedStaleness, indexStaleness, STALENESS_MIN_TTL_MS } from "../src/lib/ops/staleness";
 import { contextBriefing, listDocuments, readDocument, searchDocuments } from "../src/lib/ops/read";
 import { addDocument, archiveWithReindex, splitTags, updateDocumentFields } from "../src/lib/ops/write";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
@@ -196,5 +198,248 @@ describe("write operations", () => {
     expect(done.moved).toBe(true);
     expect(existsSync(join(root, path))).toBe(false);
     expect(row(db, done.path)?.status).toBe("archived");
+  });
+});
+
+/**
+ * A write indexes only the paths it changed (#4778): the indexer's parse phase
+ * reads those files and takes the rest of the brain from the index.
+ */
+describe("write operations index only the paths they change", () => {
+  let root: string;
+  let brain: BrainContext;
+  let db: Database;
+  const deps = () => ({ db, root, taxonomy: brain.taxonomy });
+
+  beforeAll(async () => {
+    root = makeTempBrain();
+    for (let n = 1; n <= 30; n++) {
+      const name = String(n).padStart(2, "0");
+      const day = n === 8 ? "The crew eat the lotus and forget home." : `Day ${name} at sea.`;
+      writeFileSync(join(root, `notes/log-${name}.md`), `---\ntitle: Ship's log ${name}\ntype: note\n---\n\n${day}\n`);
+    }
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    brain = await initContext({ root });
+    expect(getMarkdownFiles(root, brain.taxonomy).length).toBeGreaterThanOrEqual(50);
+    db = openDatabase(brain.dbPath);
+  });
+
+  afterAll(() => {
+    db?.close();
+    cleanup(root);
+  });
+
+  /** The brain's markdown files read through `readFileSync` while `run` runs, repo-relative and once each. */
+  async function markdownReads<T>(run: () => Promise<T>): Promise<{ result: T; reads: string[] }> {
+    const bases = [realpathSync(root), root];
+    const reads = new Set<string>();
+    const original = fs.readFileSync;
+    const spy = spyOn(fs, "readFileSync").mockImplementation(((path: unknown, ...rest: unknown[]) => {
+      if (typeof path === "string" && path.endsWith(".md")) {
+        for (const base of bases) {
+          const rel = relative(base, path);
+          if (!rel.startsWith("..") && !isAbsolute(rel)) { reads.add(rel); break; }
+        }
+      }
+      return (original as (...a: unknown[]) => unknown)(path, ...rest);
+    }) as typeof fs.readFileSync);
+    try {
+      return { result: await run(), reads: [...reads].sort() };
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  /** The paths a keyword search finds for `query`. */
+  const found = async (query: string) => (await searchDocuments(
+    { db, brain },
+    { query, mode: "fts", includeArchived: true, assetsOnly: false, limit: 10, upcoming: false }
+  )).results.map((r) => r.path);
+
+  test("updateDocumentFields reads the updated note and no other", async () => {
+    const path = "notes/log-07.md";
+    const { reads } = await markdownReads(() => updateDocumentFields(deps(), { path, appendContent: "Nausicaa finds the raft on the shore." }));
+    expect(reads).toEqual([path]);
+    expect(await found("Nausicaa")).toEqual([path]);
+  });
+
+  test("addDocument reads the file it created and no other", async () => {
+    const { result, reads } = await markdownReads(() => addDocument(deps(), { content: "Aeolus ties the winds in an oxhide bag.", type: "note", title: "The bag of winds" }));
+    expect(result.indexed).toBe(true);
+    expect(reads).toEqual([result.path]);
+    expect(await found("oxhide")).toEqual([result.path]);
+  });
+
+  test("archiveWithReindex reads the archived note, and moves its row when it moves the file", async () => {
+    const inPlace = "notes/log-08.md";
+    const kept = await markdownReads(() => archiveWithReindex(deps(), { path: inPlace, dryRun: false }));
+    expect(kept.result.moved).toBe(false);
+    expect(kept.reads).toEqual([inPlace]);
+    expect(row(db, inPlace)?.status).toBe("archived");
+    expect(await found("lotus")).toEqual([inPlace]);
+
+    const from = "projects/active/sail-repairs/materials.md";
+    const moved = await markdownReads(() => archiveWithReindex(deps(), { path: from, dryRun: false }));
+    expect(moved.result.moved).toBe(true);
+    // The document is read once to rewrite it; the indexer reads the new path only.
+    expect(moved.reads).toEqual([moved.result.path, from].sort());
+    expect(row(db, from)).toBeNull();
+    expect(row(db, moved.result.path)?.status).toBe("archived");
+    expect(await found("sealant")).toEqual([moved.result.path]);
+  });
+
+  test("a targeted write keeps a row another run committed after its scan", async () => {
+    // Another process indexes a new note while this write's run is between
+    // its scan and its persist: the parse read of the updated note is that
+    // moment.
+    const target = "notes/log-13.md";
+    const other = "notes/written-alongside.md";
+    writeFileSync(join(root, other), "---\ntitle: Written alongside\ntype: note\n---\n\nThe Sirens sing from the meadow.\n");
+    const original = fs.readFileSync;
+    let reads = 0;
+    const spy = spyOn(fs, "readFileSync").mockImplementation(((path: unknown, ...rest: unknown[]) => {
+      if (typeof path === "string" && path.endsWith(target) && ++reads === 2) {
+        const second = new Database(brain.dbPath);
+        try {
+          second.prepare("INSERT INTO documents (path, title, type, created, updated, content, indexed_at, asset_type) VALUES (?, ?, 'note', '2026-07-12', '2026-07-12', '', ?, 'markdown')")
+            .run(other, "Written alongside", new Date().toISOString());
+        } finally {
+          second.close();
+        }
+      }
+      return (original as (...a: unknown[]) => unknown)(path, ...rest);
+    }) as typeof fs.readFileSync);
+    try {
+      await updateDocumentFields(deps(), { path: target, summary: "The Sirens' meadow" });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(reads).toBe(2);
+    expect(row(db, other)).not.toBeNull();
+  });
+
+  test("a write keeps the cached context of a note on disk that the index does not hold yet", async () => {
+    const note = "notes/log-11.md";
+    const chunk = db.prepare("SELECT d.title, c.heading, c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? LIMIT 1")
+      .get(note) as { title: string; heading: string; content: string };
+    const line = `${JSON.stringify({ k: chunkContextKey(chunk.title, chunk.heading, chunk.content), v: "the eleventh day at sea" })}\n`;
+    const cache = join(root, CONTEXT_CACHE_PATH);
+    // The note leaves and its row goes; then it comes back out of band with
+    // its context line, as a merge from another clone brings both.
+    const aside = join(root, "..", `${relative(dirname(root), root)}-log-11.md`);
+    renameSync(join(root, note), aside);
+    await indexAll(db, { root, taxonomy: brain.taxonomy, force: false, quiet: true });
+    expect(row(db, note)).toBeNull();
+    renameSync(aside, join(root, note));
+    mkdirSync(dirname(cache), { recursive: true });
+    writeFileSync(cache, (existsSync(cache) ? readFileSync(cache, "utf8") : "") + line);
+
+    await updateDocumentFields(deps(), { path: "notes/log-12.md", summary: "Helios's cattle graze on Thrinacia" });
+    expect(readFileSync(cache, "utf8")).toContain(line);
+
+    await indexAll(db, { root, taxonomy: brain.taxonomy, force: false, quiet: true });
+    expect(row(db, note)).not.toBeNull();
+    expect(readFileSync(cache, "utf8")).toContain(line);
+  });
+
+  test("a note edited elsewhere stays counted stale after a write and is indexed by the next complete run", async () => {
+    const elsewhere = "notes/log-09.md";
+    writeFileSync(join(root, elsewhere), "---\ntitle: Ship's log 09\ntype: note\n---\n\nScylla takes six of the crew.\n");
+    const future = new Date(Date.now() + 60 * 60 * 1000);
+    utimesSync(join(root, elsewhere), future, future);
+    await updateDocumentFields(deps(), { path: "notes/log-10.md", summary: "Charybdis swallows the sea" });
+    expect(await found("Scylla")).toEqual([]);
+    // Counted by the staleness probe: the count drops by one when only this
+    // note's mtime goes back before the index run. (A write's own file can
+    // also count when it shares the run's millisecond, so compare, not pin.)
+    const counted = indexStaleness(db, root, brain.taxonomy).stale;
+    const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    utimesSync(join(root, elsewhere), past, past);
+    expect(counted - indexStaleness(db, root, brain.taxonomy).stale).toBe(1);
+    utimesSync(join(root, elsewhere), future, future);
+
+    await indexAll(db, { root, taxonomy: brain.taxonomy, force: false, quiet: true });
+    expect(await found("Scylla")).toEqual([elsewhere]);
+  });
+});
+
+test("addDocument on an index with no markdown rows builds the whole index", async () => {
+  const root = makeTempBrain();
+  try {
+    const brain = await initContext({ root });
+    const db = openDatabase(brain.dbPath);
+    try {
+      expect((db.prepare("SELECT COUNT(*) AS n FROM documents WHERE asset_type = 'markdown'").get() as { n: number }).n).toBe(0);
+      const outcome = await addDocument({ db, root, taxonomy: brain.taxonomy }, { content: "Hermes brings moly against the witch.", type: "note", title: "Moly" });
+      expect(outcome.indexed).toBe(true);
+      const indexed = (db.prepare("SELECT COUNT(*) AS n FROM documents WHERE asset_type = 'markdown'").get() as { n: number }).n;
+      expect(indexed).toBe(getMarkdownFiles(root, brain.taxonomy).length);
+    } finally {
+      db.close();
+    }
+  } finally {
+    cleanup(root);
+  }
+});
+
+/**
+ * The MCP staleness cache (#4790): an answer lasts the larger of 10 s and 20
+ * times the probe's own duration, on a controlled clock.
+ */
+describe("cachedStaleness", () => {
+  /** A clock and a probe that advances it by `ms` per call, counting calls. */
+  function probing(ms: number, answer: () => string | null = () => "stale") {
+    const clock = { now: 0, probes: 0 };
+    const cache = cachedStaleness(() => {
+      clock.probes++;
+      clock.now += ms;
+      return answer();
+    }, () => clock.now);
+    return { clock, cache };
+  }
+
+  test("a slow probe's answer lasts twenty times its duration", () => {
+    const { clock, cache } = probing(2_000);
+    expect(cache.read()).toBe("stale");
+    expect(clock.probes).toBe(1);
+    clock.now = 15_000;
+    expect(cache.read()).toBe("stale");
+    expect(clock.probes).toBe(1);
+    clock.now = 40_000;
+    cache.read();
+    expect(clock.probes).toBe(2);
+  });
+
+  test("a fast probe keeps the ten-second floor", () => {
+    const { clock, cache } = probing(5);
+    cache.read();
+    clock.now = STALENESS_MIN_TTL_MS - 1;
+    cache.read();
+    expect(clock.probes).toBe(1);
+    clock.now = 11_000;
+    cache.read();
+    expect(clock.probes).toBe(2);
+  });
+
+  test("reset makes the next read probe inside the lifetime", () => {
+    const { clock, cache } = probing(2_000);
+    cache.read();
+    clock.now = 3_000;
+    cache.reset();
+    cache.read();
+    expect(clock.probes).toBe(2);
+  });
+
+  test("a probe that throws answers null and is not retried before the lifetime passes", () => {
+    const { clock, cache } = probing(5, () => {
+      throw new Error("the index is locked");
+    });
+    expect(cache.read()).toBeNull();
+    clock.now = 5_000;
+    expect(cache.read()).toBeNull();
+    expect(clock.probes).toBe(1);
+    clock.now = 11_000;
+    expect(cache.read()).toBeNull();
+    expect(clock.probes).toBe(2);
   });
 });
