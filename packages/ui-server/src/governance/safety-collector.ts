@@ -24,7 +24,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
  // `refused`: the backend refused a call with this id, so nothing more for
  // that id is admitted or let run.
- type Operation={generation:symbol;tool:string;inputHashes:Set<string>;id:string;occurrences:string[];inputOccurrences:string[];resultStarted:boolean;done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;grepNote?:string;unqualifiedGrepContent?:boolean;owed:boolean;refused:boolean;uncertain:boolean;searchContext?:ReturnType<typeof searchOutputContext>;denial?:()=>void};
+ type Operation={generation:symbol;tool:string;inputHashes:Set<string>;id:string;occurrences:string[];inputOccurrences:string[];resultStarted:boolean;done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;grepNote?:string;unqualifiedGrepContent?:boolean;owed:boolean;refused:boolean;uncertain:boolean;searchContext?:ReturnType<typeof searchOutputContext>;denial?:()=>void;claimed?:boolean};
 
  const operations=new Map<string,Operation>();
  // What the backend reported about each id: how many times the runtime asked
@@ -61,11 +61,13 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // A result already exists when result() records it, and the runtime may keep
  // it in its own session (the Claude runtime replays it on resume), so every
  // failure there is a loss after delivery and the chat keeps a permanent gap.
- const fail=async(error:unknown,held=false)=>{
+ // `contradicted`: fetch inputs whose never-ran claim this failure voids;
+ // the failure notice's own write marks them unknown (#4514).
+ const fail=async(error:unknown,held=false,contradicted?:readonly string[])=>{
   const failures=[error];
   try{options.stop?.(error instanceof Error?error:new Error(String(error)));}catch(stop){failures.push(stop);}
   if(held&&failures.length===1&&error instanceof SafetyRecordingUnavailable&&error.beforeDelivery)throw error;
-  try{await writes.safetyFail(options.turnId,error);}
+  try{await writes.safetyFail(options.turnId,error,contradicted);}
   catch(notice){throw new AggregateError([...failures,notice],`Safety input refused: ${String(error)}; failure notice could not commit`);}
   if(failures.length>1)throw new AggregateError(failures,`Safety input refused: ${String(error)}`);
   throw error;
@@ -101,17 +103,15 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // Invalidating first also covers reports lost before result() and ensures
   // failure containment cannot stop the record's owner before this commits.
   const op=operations.get(toolUseId);if(op)op.uncertain=true;
-  // Any result under the ID, recorded or lost, contradicts any denial that
-  // proved its fetch never ran: the store makes those inputs unknown, before
-  // or after a racing denial and after the turn ended (#4514). A later
-  // not_delivered then finds an exposure and is refused. One that cannot
-  // commit leaves the chat's gap below.
-  if(op)try{await writes.safetyContradict(options.turnId,op.id);}catch{/* The failure notice below still gaps the chat. */}
+  // Any result under the ID, recorded or lost, voids any claim that its
+  // fetch never ran: the failure notice carries the contradiction in its
+  // own write, behind the in-process loss latch (#4514).
+  const contradicted=op?.occurrences;
   try{
    for(const name of new Set([tool,operations.get(toolUseId)?.tool]))if(name)
     await options.referenceReads?.observeResult(options.turnId,toolUseId,name,"",false);
-  }catch(observation){return fail(new AggregateError([error,observation],"Reference result uncertainty could not commit"));}
-  return fail(error);
+  }catch(observation){return fail(new AggregateError([error,observation],"Reference result uncertainty could not commit"),false,contradicted);}
+  return fail(error,false,contradicted);
  };
  const collector:NonNullable<BackendBridge["inputSafety"]>={
   forAdmission(toolUseId,tool,root){
@@ -192,7 +192,9 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    return recording(serial(toolUseId,async()=>{
    try{
     if(segments&&segments.length>256)throw new Error("Safety result segment capacity exceeded");
-    const op=operations.get(toolUseId);if(!op||op.tool!==tool||!op.admitted)throw new Error("Safety result has no admitted operation");
+    // A claimed operation's denial said it never ran: its result is a
+    // contradiction, rejected like one with no admitted operation (#4514).
+    const op=operations.get(toolUseId);if(!op||op.tool!==tool||!op.admitted||op.claimed)throw new Error("Safety result has no admitted operation");
     const outputHash=hash(JSON.stringify([output,finalized,segments??null,outputStatus===undefined?null:Object.fromEntries(Object.entries(outputStatus).sort(([a],[b])=>a<b?-1:a>b?1:0))]));
     const conflicting=op.done&&op.outputHash!==outputHash;
     if(op.done&&!conflicting)return;
@@ -247,6 +249,11 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    let call=calls.get(toolUseId);
    if(!call){if(calls.size>=2000)return;calls.set(toolUseId,call={tools:new Map(),allowed:false});}
    if(call.tools.has(toolName)||call.tools.size<2)call.tools.set(toolName,(call.tools.get(toolName)??0)+1);
+   // A later admission voids a claim that the ID's call never ran (#4514):
+   // its fetch inputs become unknown and the chat keeps a permanent gap. The
+   // turn goes on, as it does for a reused ID with a durable obligation.
+   const op=operations.get(toolUseId);
+   if(op?.claimed)void recording(writes.safetyFail(options.turnId,new Error(`Safety claim voided: ${toolName||"a call"} (${toolUseId}) was admitted again after its denial`),op.occurrences).catch(()=>{}));
   },
   // The backend refused a call with this id; a later begin() or allow for the
   // id is refused too, so a parallel hook or request cannot reopen it. The
@@ -271,6 +278,9 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    try{
     if(proves&&!op.done){
      const sameFetch=calls.get(toolUseId)?.tools.has(op.tool)&&fetchOnly(op);
+     // Claimed in this synchronous segment, before either never-ran write is
+     // awaited: any later admission or result then voids the claim (#4514).
+     if(sameFetch&&(op.owed?op.admitted:!op.admitted))op.claimed=true;
      if(op.owed)await discharge(op,sameFetch&&op.admitted?op.occurrences:undefined);
      // begin() committed every fetch input, then its obligation failed: the
      // call owes nothing, yet its inputs stay open unless this denial, which

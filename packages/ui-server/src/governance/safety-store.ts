@@ -417,19 +417,21 @@ export function dischargeSafetyObligation(db:Database,turnId:string,id:string,ne
  }
  db.query("DELETE FROM safety_obligations WHERE id=? AND collection_id=(SELECT id FROM safety_collections WHERE turn_id=? AND ended=0)").run(id,turnId);
 }
-/** A result under the operation's ID arrived or was lost: whatever its
- * denial proved, the fetch may have delivered input (#4514). Every fetch
- * input of the operation still open or settled as never delivered becomes
- * unknown. Runs on an ended collection too: each occurrence reserved its
- * terminal rows when it was written. */
-export function contradictSafetyNonDelivery(db:Database,turnId:string,operationId:string):void {
+/** A later event under a fetch's ID (an admission, a result, a lost
+ * result) voids any claim that it never ran (#4514): each of these fetch
+ * inputs still open or settled as never delivered becomes unknown. Keyed by
+ * the occurrence IDs the collector holds, never by prunable payload. Runs
+ * on an ended collection too: each occurrence reserved its terminal rows
+ * when it was written. */
+export function contradictSafetyNonDelivery(db:Database,turnId:string,occurrenceIds:readonly string[]):void {
+ if(!occurrenceIds.length)return;
  db.transaction(()=>{
   const c=collection(db,turnId);if(!c)return;
-  const rows=db.query<RecordRow,[string,string]>(`SELECT r.* FROM safety_records r WHERE r.collection_id=? AND r.kind='occurrence'
-   AND r.source='web_fetch' AND r.detector='tool_web_input' AND json_extract(r.payload,'$.occurrence.operationId')=?
+  const rows=db.query<RecordRow,string[]>(`SELECT r.* FROM safety_records r WHERE r.collection_id=? AND r.kind='occurrence'
+   AND r.source='web_fetch' AND r.detector='tool_web_input' AND r.id IN (${occurrenceIds.map(()=>"?").join(",")})
    AND coalesce((SELECT x.state FROM safety_records x WHERE x.occurrence_id=r.id AND x.kind='exposure'
-     ORDER BY length(x.sequence) DESC,x.sequence DESC LIMIT 1),r.state) IN ('open','not_delivered')`).all(c.id,operationId);
-  for(const row of rows)appendRecord(db,c,crypto.randomUUID(),"exposure",row.id,null,null,"interrupted_unknown",{operationId},Date.now());
+     ORDER BY length(x.sequence) DESC,x.sequence DESC LIMIT 1),r.state) IN ('open','not_delivered')`).all(c.id,...occurrenceIds);
+  for(const row of rows)appendRecord(db,c,crypto.randomUUID(),"exposure",row.id,null,null,"interrupted_unknown",{},Date.now());
  }).immediate();
 }
 /** Every call still owing its result in these collections becomes their

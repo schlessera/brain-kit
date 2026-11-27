@@ -19,6 +19,7 @@ import { createSafetyCollector } from "../src/governance/safety-collector";
 import { prepareTurnEgress } from "../src/brain/turn-egress";
 import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { queryGovernanceEvents } from "../src/governance/events";
+import { pruneSafetyDetail } from "../src/governance/safety-store";
 import { createSafetyStore } from "../../ui-react/src/stores/safety-state";
 import { safetyHistoryFixture } from "./helpers/safety-history-fixture";
 
@@ -425,41 +426,72 @@ test("a partial fetch write stays unresolved when its refusal cannot prove non-d
   }
 });
 
-/** A lost result contradicts any denial that proved the fetch never ran,
- * whenever it arrives: during the denial's own discharge, after it, or after
- * the turn ended (#4514). Fetch whose obligation failed, and one whose
- * obligation is durable. */
-for (const write of ["partial", "durable"] as const) for (const timing of ["during the discharge", "after the denial", "after the turn ended"] as const)
-  test(`a lost result ${timing} keeps a ${write} denied fetch unresolved after restart`, async () => {
+/** A later event under the ID voids any claim that the fetch never ran,
+ * whenever it arrives: a lost or finalized result, or a second admission,
+ * during the denial's own discharge, after it, or after the turn ended, and
+ * after the row's detail was pruned (#4514). Fetch whose obligation failed,
+ * and one whose obligation is durable. */
+const LATER_EVENTS = ["a lost result during the discharge", "a lost result after the denial", "a lost result after the turn ended",
+  "a second admission during the discharge", "a second admission after the denial", "a finalized result after the denial",
+  "a lost result after its detail was pruned"] as const;
+async function deniedFetch(f: Fixture, write: "partial" | "durable", writes: Fixture["writes"] = f.writes) {
+  if (write === "partial") return partialFetchWrite(f, "fetch", writes);
+  const collector = createSafetyCollector(f.db, writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
+    sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
+  collector.admitting?.("fetch", "WebFetch");
+  await collector.begin("fetch", "WebFetch", { url: "https://ithaca.example/harbour" });
+  return collector;
+}
+for (const write of ["partial", "durable"] as const) for (const event of LATER_EVENTS)
+  test(`${event} keeps a ${write} denied fetch unresolved after restart`, async () => {
     const f = await safetyHistoryFixture();
     try {
+      const during = event.endsWith("during the discharge");
       let enter!: () => void, release!: () => void;
       const entered = new Promise<void>(resolve => { enter = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });
       const writes = { ...f.writes, safetyDischarge: async (...args: Parameters<Fixture["writes"]["safetyDischarge"]>) => {
-        if (timing === "during the discharge") { enter(); await gate; }
+        if (during) { enter(); await gate; }
         return f.writes.safetyDischarge(...args);
       } };
-      let collector: Awaited<ReturnType<typeof partialFetchWrite>>;
-      if (write === "partial") collector = await partialFetchWrite(f, "fetch", writes);
-      else {
-        collector = createSafetyCollector(f.db, writes, { turnId: "voyage", bindingId: f.bindingId, backendId: "claude",
-          sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal });
-        collector.admitting?.("fetch", "WebFetch");
-        await collector.begin("fetch", "WebFetch", { url: "https://ithaca.example/harbour" });
-      }
-      const lose = () => collector.lost?.("fetch", "WebFetch", new Error("The harbour report was malformed"));
+      const collector = await deniedFetch(f, write, writes);
+      const later = async () => {
+        if (event.startsWith("a second admission")) collector.admitting?.("fetch", "WebFetch");
+        else if (event.startsWith("a finalized result")) await expectRejection(collector.result("fetch", "WebFetch", "Harbour notes arrived after all", true));
+        else await collector.lost?.("fetch", "WebFetch", new Error("The harbour report was malformed"));
+      };
       const denial = collector.refused?.("fetch", true);
-      if (timing === "during the discharge") { await entered; await lose(); release(); await denial; }
-      else { await denial; if (timing === "after the turn ended") await f.writes.safetyEnd("voyage"); await lose(); }
+      if (during) { await entered; await later(); release(); await denial; }
+      else {
+        await denial;
+        if (event.endsWith("after the turn ended")) await f.writes.safetyEnd("voyage");
+        if (event.endsWith("was pruned")) pruneSafetyDetail(f.db, Number.MAX_SAFE_INTEGER);
+        await later();
+      }
       await f.writes.safetyEnd("voyage");
       const restarted = createUiDb(f.path);
       try {
         const page = await new SafetyHistory(restarted, () => true, async () => {}).read(f.principal, { sessionId: "ithaca" }, null, 50, true, true, true);
-        expect(page.projection.unresolvedCount, "LOST_RESULT_KEEPS_THE_FETCH_UNRESOLVED").toBe(1);
-        expect(page.records.filter(record => record.kind === "exposure").map(record => record.state).at(-1), "LOST_RESULT_IS_NEVER_NEVER_RAN").toBe("interrupted_unknown");
+        expect(page.projection.unresolvedCount, "LATER_EVENT_KEEPS_THE_FETCH_UNRESOLVED").toBe(1);
+        expect(page.records.filter(record => record.kind === "exposure").map(record => record.state).at(-1), "LATER_EVENT_IS_NEVER_NEVER_RAN").toBe("interrupted_unknown");
       } finally { restarted.close(); }
     } finally { await f.close(); }
   });
+
+/** The contradiction rides the failure notice, behind the in-process loss
+ * latch: a reader never sees normal policy while its write is queued. */
+for (const write of ["partial", "durable"] as const) test(`a lost result restricts a ${write} denied fetch before its write commits`, async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    const collector = await deniedFetch(f, write);
+    await collector.refused?.("fetch", true);
+    const writer = await holdWriter(f);
+    const lost = collector.lost?.("fetch", "WebFetch", new Error("The harbour report was malformed"));
+    try {
+      for (let i = 0; i < 50; i++) await Promise.resolve();
+      expect(f.writes.safety(null, "ithaca").restriction, "QUEUED_CONTRADICTION_IS_ALREADY_RESTRICTED").toBe("restricted");
+    } finally { writer.release(); await writer.pending; await lost; }
+  } finally { await f.close(); }
+});
 
 /** Production order (#4514): the obligation failure stops the turn before
  * begin() rejects, so teardown can start before the backend's hook returns
@@ -507,7 +539,8 @@ test("ambiguous refusals and contradictory results stay unresolved", async () =>
       await collector.refused?.(id, id !== "cancelled");
       if (id === "late") {
         expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(3);
-        await collector.result(id, "WebFetch", "Interrupted after receiving harbour notes", false);
+        // The denial claimed the fetch never ran: its result is a contradiction (#4514).
+        await expectRejection(collector.result(id, "WebFetch", "Interrupted after receiving harbour notes", false), "Safety result has no admitted operation");
       }
     }
     expect(f.writes.safety(null, "ithaca").unresolvedCount).toBe(4);

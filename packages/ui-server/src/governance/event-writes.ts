@@ -45,15 +45,17 @@ export function setup(db: Database): WriteProcedures {
     safetyReady: (turnId:string,backendId:string,version:number) => acknowledgeSafety(db,turnId,backendId,version),
     safetyOblige: (turnId:string,id:string,toolUseId:string,tool:string) => openSafetyObligation(db,turnId,id,toolUseId,tool),
     safetyDischarge: (turnId:string,id:string,neverDelivered?:readonly string[]) => dischargeSafetyObligation(db,turnId,id,neverDelivered),
-    safetyContradict: (turnId:string,id:string) => contradictSafetyNonDelivery(db,turnId,id),
     safetyEnd: (turnId:string,loss=false) => {
       // Never seal an apparently complete epoch if its loss notice rolled
       // back. A failed retry leaves it open for restart classification.
       if(loss&&!retired(turnId))recordSafetyFailure(db,turnId,new SafetyUnavailable("Safety evidence was lost before its collection ended"),"safetyEnd");
       endSafetyCollection(db,turnId);
     },
-    safetyFail: (turnId:string|null,cause?:{name:string;message:string;stack?:string}) => {
+    safetyFail: (turnId:string|null,cause?:{name:string;message:string;stack?:string},contradicted?:readonly string[]) => {
       if(turnId&&retired(turnId))return null;
+      // The notice that gaps the chat also voids any never-ran claim for
+      // these fetch inputs (#4514). It cannot keep the notice from committing.
+      if(turnId&&contradicted?.length)try{contradictSafetyNonDelivery(db,turnId,contradicted);}catch{/* The gap below still restricts the chat. */}
       const error=cause?Object.assign(new Error(cause.message),{name:cause.name,stack:cause.stack}):new SafetyUnavailable("A safety producer failed; its evidence may be lost");
       return recordSafetyFailure(db,turnId,error,"safetyFail");
     },
@@ -99,14 +101,12 @@ export interface GovernanceWrites {
    * the only admission under its id, never allowed, proves it never ran. A
    * failure leaves the obligation, and so the gap. */
   safetyDischarge(turnId:string,obligationId:string,neverDelivered?:readonly string[]):Promise<void>;
-  /** A result under the operation's ID arrived or was lost: its fetch
-   * inputs still open or proved never delivered become unknown, even after
-   * the collection ended (#4514). */
-  safetyContradict(turnId:string,operationId:string):Promise<void>;
   /** Ends the turn's collection once its result records under way settle. */
   safetyEnd(turnId:string):Promise<void>;
   /** Marks the turn's chat failed (`cause` is error text only); the brain only when that cannot commit. */
-  safetyFail(turnId:string,cause?:unknown):Promise<void>;
+  /** `contradicted`: fetch inputs whose never-ran claim a later event under
+   * their ID voids (#4514); the notice's own write marks them unknown. */
+  safetyFail(turnId:string,cause?:unknown,contradicted?:readonly string[]):Promise<void>;
   safety(turnId:string|null,sessionId:string|null,excludedPending?:readonly string[]):SafetyProjection;
   /** Input recording must be settled and healthy before any provider delivery. */
   recordingAvailable(turnId:string|null,sessionId:string|null,excludedPending?:readonly string[]):boolean;
@@ -186,13 +186,13 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     logSafetyRecording("safety recording retained in process for the brain",{"safety.scope":"brain","safety.reason":"recording_failed",
       "safety.site":"retained","safety.turn_id":turnId,"error.message":notice instanceof Error?notice.message:String(notice)});
   };
-  const safetyFail=(turnId:string|null,cause?:unknown):Promise<void>=>{
+  const safetyFail=(turnId:string|null,cause?:unknown,contradicted?:readonly string[]):Promise<void>=>{
     const counted=!turnId||!retired(turnId);
     // A turn with no collection has no chat to carry the fact: the brain does.
     if(counted)retainSafetyLoss(db,turnId,turnId!==null&&!db.query("SELECT 1 FROM safety_collections WHERE turn_id=?").get(turnId));
     const wire=cause instanceof Error?{name:cause.constructor?.name&&cause.constructor.name!=="Error"?cause.constructor.name:cause.name,message:cause.message,stack:cause.stack}
       :cause===undefined?undefined:{name:"Error",message:String(cause)};
-    return call<"chat"|"brain"|null>("safetyFail",turnId,wire).then(scope=>{
+    return call<"chat"|"brain"|null>("safetyFail",turnId,wire,contradicted?.length?[...contradicted]:undefined).then(scope=>{
       // The chat now carries the durable fact; its in-process copy is redundant.
       if(scope==="chat"&&turnId)shared.lostTurns.delete(turnId);
       if(scope==="brain")scheduleSafetyRecovery(db);
@@ -286,7 +286,6 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       }
     },
     safetyDischarge: (turnId,obligationId,neverDelivered)=>call("safetyDischarge",turnId,obligationId,neverDelivered),
-    safetyContradict: (turnId,operationId)=>call("safetyContradict",turnId,operationId),
     async safetyEnd(turnId){
       // A tool result's record already under way finishes first: stopping a
       // turn refuses new tools, never the record of one that ran (#3812).
