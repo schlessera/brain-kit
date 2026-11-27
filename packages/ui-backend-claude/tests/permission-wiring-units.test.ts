@@ -159,6 +159,31 @@ describe("admissions, refusals and the collector's last check", () => {
     expect(allowed, "CLAUDE_CALLBACK_ALLOW_IS_CHECKED").toEqual(["oar-1"]);
   });
 
+  test("a callback allow whose safety goes stale during the wait after its dispatch ticket is denied and refused", async () => {
+    // The final admission validates again after the last pending wait (#4767).
+    // The ticket's commit does not validate, so only that check can refuse.
+    const log: string[] = [];
+    let armed = false, stale = false;
+    const admissionSafety = {
+      read: () => ({ evidenceRevision: "1", trustRevision: "1", authorityEpoch: "1", scope: "ithaca", policyHash: null, restricted: false, recordingAvailable: true, authorityCurrent: !stale }),
+      *pendingRecording() { if (!armed) return; armed = false; yield Promise.resolve().then(() => { stale = true; log.push("stale"); }); },
+      subscribe: () => () => {},
+    };
+    const live = new AbortController();
+    const { canUseTool } = createPermissionWiring({
+      req: { prompt: "Count the suitors in the hall", signal: live.signal,
+        bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "allow" }), admissionSafety,
+          inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {},
+            refused: async (id: string, denied?: boolean) => { log.push(`refused ${id} ${denied}`); },
+            prepareDispatch: async (id: string) => { log.push(`prepare ${id}`); armed = true; return { commit: () => { log.push("commit"); }, cancel: async () => { log.push("cancel"); } }; } } } } as never,
+      allowedTools: ["Read"], confirmPatterns: [], brainPath: "/srv/odysseus-brain",
+      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, childEnv: {}, log: () => {},
+    });
+    const answer = await canUseTool!("Glob", { pattern: "ithaca/*.md" }, { toolUseID: "oar-1", signal: live.signal } as never);
+    expect(answer, "CLAUDE_STALE_AFTER_WAIT_IS_DENIED").toMatchObject({ behavior: "deny", message: expect.stringContaining("Safety or authority changed") });
+    expect(log, "CLAUDE_STALE_AFTER_WAIT_IS_REFUSED").toEqual(["prepare oar-1", "stale", "cancel", "refused oar-1 true"]);
+  });
+
   test("a callback allow the collector's check refuses is denied instead", async () => {
     const live = new AbortController();
     const { canUseTool, refused, released } = wiring(live.signal, "oar-1");

@@ -1,5 +1,5 @@
 export type { SafetyFuturePrepare, SafetyFutureCommit, SafetyFuturePrepared } from "./safety.js";
-export { SESSION_SAFETY_CAPABILITY, SAFETY_READ_CAPABILITIES } from "./safety.js";
+export { SESSION_SAFETY_CAPABILITY, SAFETY_READ_CAPABILITIES } from "./safety-capabilities.js";
 export type { SafetyReviewBody, SafetyReviewReceipt, SafetyReviewResponse, SafetySessionKey, SafetyTarget, SafetyIdentity, SafetyHistoryProjection, SafetyRecord, SafetyPage, SafetyUpdate, SafetyUnavailable, SafetyCapabilities, ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable } from "./safety.js";
 import type { ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable, SafetyCapabilities } from "./safety.js";
 // ============================================================
@@ -47,10 +47,12 @@ export interface SessionScoped {
   sessionId?: string;
   /**
    * Host-generated id of the turn this frame belongs to (rev 2, additive).
-   * Multi-session hosts stamp it on every scoped frame; clients MAY echo it
-   * on interactive replies (approvals, ask-user, location) so round-trips
-   * correlate by `turnId + requestId`. RESERVED for now: servers stamp it,
-   * but no shipped client echoes it back yet — hosts must not require it.
+   * Hosts stamp it on every scoped frame. A client that declares protocol
+   * revision {@link PROTOCOL_REV_CLIENT_ECHO} (3) or later in its
+   * `client_hello` MUST echo it on every interactive reply (approvals,
+   * ask-user, location), so round-trips correlate by `turnId + requestId`;
+   * a host refuses such a reply without it. A client that declares nothing
+   * is treated as revision 2 and is not required to echo.
    */
   turnId?: string;
 }
@@ -1487,59 +1489,7 @@ export interface TurnFailure {
   authAction?: SubscriptionAuthAction;
 }
 
-type FirstPartyFailureClass =
-  | "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold"
-  | "verification_required" | "billing_error" | "subscription_required"
-  | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "fast_output_unavailable" | "rate_limit" | "overloaded" | "server_error"
-  | "invalid_request" | "model_not_found" | "max_output_tokens"
-  | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit"
-  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "private_state_unverified" | "OperationalStateAliasVerificationUnavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
-
-/**
- * First-party failure classes, shared by emitters and reviewed diagnostics.
- * Keys and values match so emitters can name a class without a separate literal
- * list. TurnFailure.errorClass remains free-form; unregistered classes must not
- * enter the default outgoing diagnostic text.
- */
-export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailureClass]: Class }> = Object.freeze({
-  authentication_failed: "authentication_failed",
-  oauth_org_not_allowed: "oauth_org_not_allowed",
-  account_on_hold: "account_on_hold",
-  verification_required: "verification_required",
-  billing_error: "billing_error",
-  subscription_required: "subscription_required",
-  host_refused: "host_refused",
-  auth_failure: "auth_failure",
-  settings_conflict: "settings_conflict",
-  session_roster_incompatible: "session_roster_incompatible",
-  fast_output_unavailable: "fast_output_unavailable",
-  rate_limit: "rate_limit",
-  overloaded: "overloaded",
-  server_error: "server_error",
-  invalid_request: "invalid_request",
-  model_not_found: "model_not_found",
-  max_output_tokens: "max_output_tokens",
-  cloud_credential_error: "cloud_credential_error",
-  worker_host_unsupported: "worker_host_unsupported",
-  session_too_large: "session_too_large",
-  worker_resource_limit: "worker_resource_limit",
-  worker_state_busy: "worker_state_busy",
-  worker_state_exceeded: "worker_state_exceeded",
-  worker_state_save_refused: "worker_state_save_refused",
-  budget_exceeded: "budget_exceeded",
-  budget_unavailable:"budget_unavailable",
-  journal_capacity: "journal_capacity",
-  journal_unavailable: "journal_unavailable",
-  code_receipt_malformed: "code_receipt_malformed",
-  private_state_unverified: "private_state_unverified",
-  OperationalStateAliasVerificationUnavailable: "OperationalStateAliasVerificationUnavailable",
-  input_safety_unavailable: "input_safety_unavailable",
-  safety_recording_unavailable: "safety_recording_unavailable",
-  safety_recording_paused: "safety_recording_paused",
-  safety_recording_chat_full: "safety_recording_chat_full",
-  safety_recording_brain_full: "safety_recording_brain_full",
-  unknown: "unknown",
-});
+export { FIRST_PARTY_FAILURE_CLASSES } from "./failure-classes.js";
 
 /**
  * A model call that failed and will be retried (additive; #575), on a

@@ -62,7 +62,7 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
   writeFileSync(join(brain, "notes/raft.md"), "Penelope changed the host raft after the snapshot.\n");
   restore = replaceNativeStartupAcquisitionForFixture();
   const errors: unknown[] = [];
-  const base = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] });
+  const base = prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] });
   const sandbox = { ...base, readPaths: restrictedReadPaths([mcp, entry, BRAIN_INVENTORY_ENTRY, CORE_MANIFEST]),
     providerMasks: { folders: ["sealed"], index: join(scratch, "index") } };
   cpSync(join(brain, ".brain-index"), join(scratch, "index"), { recursive: true });
@@ -133,7 +133,7 @@ test("a config change between two new sessions preserves the second session modu
     writeFileSync(entry, `import ${JSON.stringify(cli)};`);
     openDatabase(join(brain, ".brain-index/brain.db")).close();
     view = createFixtureWorkerStartupView(brain);
-    const sandbox = { ...prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }), readPaths: restrictedReadPaths([cli, entry, BRAIN_INVENTORY_ENTRY, CORE_MANIFEST]) };
+    const sandbox = { ...prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] }), readPaths: restrictedReadPaths([cli, entry, BRAIN_INVENTORY_ENTRY, CORE_MANIFEST]) };
     const input = { brainPath: brain, exec: {}, sandbox, startupView: view, env: { PATH: process.env.PATH, HOME: home },
       limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits({}), credentialEnv: [], req: { bridge: {} } as never };
     const firstInventory = await probeBrainBridgeInventory(input, controller.signal);

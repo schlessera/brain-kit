@@ -22,7 +22,7 @@ test.skipIf(!native)("Claude keeps a worker's reservation charged until its awai
   const root = mkdtempSync(join(tmpdir(), "odysseus-worker-cleanup-"));
   const brain = join(root, "brain"), saved = join(root, "config"), home = join(root, "home");
   mkdirSync(brain); mkdirSync(saved); mkdirSync(home); writeFileSync(join(saved, "settings.json"), "{}");
-  const sandbox = prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [] });
   const original = internal.launchAgentWorkerAsync;
   let gate = Promise.withResolvers<void>(), closing = Promise.withResolvers<void>(), stateClosed = Promise.withResolvers<void>();
   const retries: Array<() => Promise<void>> = [];

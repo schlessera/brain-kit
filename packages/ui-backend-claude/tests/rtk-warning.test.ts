@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { turnEnv } from "../src/sdk-options.js";
-import { resetRtkProbe, rtkRewriteCommand } from "../../ui-sdk/src/server/rtk.js";
+import { rtkRewriteCommand } from "../../ui-sdk/src/server/rtk.js";
 
 test("Claude rewritten commands suppress the hook warning in a fresh worker home", async () => {
   const root = mkdtempSync(join(tmpdir(), "claude-rtk-warning-"));
@@ -26,7 +26,6 @@ exit 7
 `);
     chmodSync(binary, 0o755);
     process.env.PATH = `${root}:/usr/bin:/bin`;
-    resetRtkProbe();
     const env = turnEnv({ id: "fixture", label: "Fixture", billing: "api", requiredEnvKeys: [], buildEnv: () => ({ HOME: home, RTK_SUPPRESS_HOOK_WARNING: "0" }) });
     const command = await rtkRewriteCommand("git status", env);
     expect(command).toBe(`${binary} git status`);
@@ -38,6 +37,6 @@ exit 7
     expect(env.RTK_SUPPRESS_HOOK_WARNING).toBe("1");
   } finally {
     if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
-    resetRtkProbe(); rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
 });

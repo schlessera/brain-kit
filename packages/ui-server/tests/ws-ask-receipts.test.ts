@@ -21,9 +21,10 @@ import {
 import type { AgentBackend, BackendBridge, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/server";
 import { createWsHandlers } from "../src/ws/connection";
 import { handleClientMessage as dispatch } from "../src/ws/dispatch";
-import type { WSContext } from "../src/ws/clients";
+import { fakeClient } from "./helpers/fake-socket";
 import { closeDb, resetForTests, setBackendForTests, testHost } from "./helpers/test-host";
 import { testAuthorization, testPrincipal } from "./helpers/principal";
+import { until as waitFor } from "../../../tests/helpers/until";
 
 type Kind = "ask_user" | "ask_user_list" | "ask_user_rank" | "ask_user_form";
 const KINDS: Kind[] = ["ask_user", "ask_user_list", "ask_user_rank", "ask_user_form"];
@@ -124,19 +125,6 @@ function askingBackend(kind: Kind, history: SessionHistoryMessage[] = []) {
   return { backend, settlements, failures };
 }
 
-function fakeClient() {
-  const sent: ServerMessage[] = [];
-  const ws: WSContext = { send: (data: string) => sent.push(JSON.parse(data) as ServerMessage) };
-  return { ws, sent };
-}
-
-async function waitFor(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (cond()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  throw new Error("waitFor timed out");
-}
 
 const asPrincipal = (id: string) => ({ principal: testPrincipal(id), authorization: testAuthorization(id) });
 

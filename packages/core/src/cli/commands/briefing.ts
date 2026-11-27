@@ -252,7 +252,7 @@ export async function generateBriefing(brain: BrainContext, limit = 15, opts: Br
 
     // 4b. Upkeep: the same current findings and severity totals as `brain audit`,
     // including async module checks. Informational markers never inflate must-fix.
-    const { mustFix } = auditTotals(await auditWithModules(db, brain, { now }));
+    const { mustFix } = auditTotals(await auditWithModules(db, brain, { now, docs }));
     lines.push(...upkeepLines(brain.root, todayStr, mustFix));
 
     // 5. Recently active primary docs

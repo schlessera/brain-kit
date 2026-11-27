@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
 import { createWorkerFreezer } from "./worker-freezer.js";
+import { parseProcStat, procChildren, readProcStat } from "./proc-identity.js";
 import { createWorkerFileObserver, type ObservedWorkerFile } from "./worker-file-observer.js";
 import { createWorkerPipes, createWorkerPipesSteps } from "./worker-pipes.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, workerStepSleep, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
@@ -31,11 +32,8 @@ import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
-import { HOST_GIT_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./subprocess-env.js";
-import { INFERENCE_RELAY_PLACEHOLDER, WITHHELD_KEYS_ENV } from "@schlessera/brain-common/internal/provider-unavailable";
-import { PROVIDER_RELAY_SOCKET_ENV } from "@schlessera/brain-common/internal/provider-relay";
+import { workerEnvironmentArgs } from "./worker-environment.js";
 import { PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET } from "./provider-relay.js";
-import { hostProviderCredentialNames } from "../config/env.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
@@ -239,7 +237,7 @@ export interface MaintenanceEnvelope {
    * credentialed worker gets it (the interim exposure the decision record
    * names): a read-only bind. Writable tool directories live in bounded /tmp.
    */
-  home?: { path: string; overlay: boolean };
+  home?: { path: string };
   /** Host files and directories bound back read-only after the masks: the runtime, the entry and its packages. */
   readPaths: readonly string[];
   /** Private host directories or regular files masked in addition to {@link HOST_MASKS}. */
@@ -409,7 +407,7 @@ export const WORKER_PROVIDER_RELAY_DIR = "/run/brain-providers";
 /** Where a module cron job's worker reaches the host GitHub relay (#4259). */
 export const WORKER_MODULE_GITHUB_DIR = "/run/brain-github";
 /** The variable naming that relay's socket inside the worker. */
-export const MODULE_GITHUB_SOCKET_ENV = "BRAIN_MODULE_GITHUB_SOCKET";
+export { MODULE_GITHUB_SOCKET_ENV } from "./worker-environment.js";
 /**
  * A private server-owned directory holding one server-owned socket, outside
  * the brain: never a path a worker or the brain could have supplied.
@@ -505,15 +503,15 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     }
   };
   for (const path of envelope.readPaths) bindBack(path);
-  // The resolver configuration, when it links into a masked directory (a
-  // systemd-resolved `resolv.conf` under `/run`), stays readable for a
-  // networked command. Only that one regular file: any other link from
-  // `/etc` into a mask could re-expose a socket or a secret.
   if (envelope.providerRelay) {
     if (!envelope.credentials) throw new WorkerHostError("only a credentialed maintenance worker reaches the provider relay");
     argv.push("--ro-bind", serverSocketDirectory(envelope.providerRelay, "relay.sock", brain), WORKER_PROVIDER_RELAY_DIR);
   }
   if (envelope.githubRelay) argv.push("--ro-bind", serverSocketDirectory(envelope.githubRelay, "github.sock", brain, "the module GitHub relay"), WORKER_MODULE_GITHUB_DIR);
+  // The resolver configuration, when it links into a masked directory (a
+  // systemd-resolved `resolv.conf` under `/run`), stays readable for a
+  // networked command. Only that one regular file: any other link from
+  // `/etc` into a mask could re-expose a socket or a secret.
   if (envelope.network) {
     try {
       if (lstatSync("/etc/resolv.conf").isSymbolicLink() && statSync("/etc/resolv.conf").isFile()) bindBack("/etc/resolv.conf");
@@ -525,7 +523,6 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     // `/` is refused for itself: a home that holds the brain is ordinary, but
     // one at `/` would bind the whole host back over the masks.
     if (home === "/" || holds(brain, home)) throw new WorkerHostError("the server's home must be a directory outside the brain");
-    if (envelope.home.overlay) throw new WorkerHostError("maintenance HOME overlays are not bounded; use read-only HOME and bounded XDG directories");
     argv.push("--ro-bind", home, home);
     // A mask inside the home (the UI database's directory below it) is laid
     // again over the home just bound back.
@@ -690,7 +687,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : input.sandbox?.profile ? maintenanceMounts({
       network: true, credentials: false, readOnlyMasks: true, ...(input.readOnlyBrain ? { readOnlyBrain: true } : {}),
       readPaths: [...runtimePaths,
-        ...(input.egress ? restrictedReadPaths([process.execPath, Bun.resolveSync("./egress-worker-entry", import.meta.dir)]) : [])],
+        ...(input.egress ? egressWorkerReadPaths() : [])],
       maskPaths: input.sandbox.maskPaths,
     }, brain, egressMounts) : ["--ro-bind", brain, brain]),
   ];
@@ -790,28 +787,13 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (emptyHome) argv.push("--tmpfs", WORKER_EMPTY_HOME, "--remount-ro", WORKER_EMPTY_HOME);
   // A governed or strict turn worker holds no provider credential its own
   // inference does not need (#1666); the CLI's providers name what is missing.
-  const turnProfile = !maintenance && !transport && !input.restricted
-    && (input.sandbox?.profile === "governed" || input.sandbox?.profile === "strict");
-  const credentials = turnProfile ? workerProviderCredentials(input.env, input.credentialEnv ?? []) : undefined;
-  for (const [key, value] of Object.entries(input.env)) {
-    if (credentials && (key === WITHHELD_KEYS_ENV || WORKER_PROVIDER_CREDENTIAL_ENV.includes(key) && !(input.credentialEnv ?? []).includes(key))) continue;
-    // Only the server's own relay may name the socket: never a value carried from the host environment.
-    if (key === PROVIDER_RELAY_SOCKET_ENV) continue;
-    if (transport || !HOST_GIT_CREDENTIAL_ENV.includes(key)) argv.push("--setenv", key, value);
-  }
-  // Names only: what the host or this launch had that the worker does not.
-  // A relay placeholder is not a key: the CLI reaches that key through the
-  // provider relay instead of sending the placeholder (#1673).
-  const placeholders = credentials ? credentials.kept.filter(name => input.env[name] === INFERENCE_RELAY_PLACEHOLDER) : [];
-  const withheld = credentials && [...new Set([...credentials.withheld,
-    ...hostProviderCredentialNames(WORKER_PROVIDER_CREDENTIAL_ENV).filter(name => !credentials.kept.includes(name) || placeholders.includes(name)),
-    // An operator-listed custom key the relay holds, unless the worker was given it.
-    ...relayedKeyNames.filter(name => !input.env[name])])].sort();
-  if (dataTree) argv.push("--setenv", "BRAIN_ROOT", WORKER_DATA_ROOT, "--setenv", "BRAIN_WORKER_DATA_ROOT", WORKER_DATA_ROOT, "--setenv", "BRAIN_WORKER_CONFIG_ROOT", brain);
-  if (withheld?.length) argv.push("--setenv", WITHHELD_KEYS_ENV, withheld.join(","));
-  if (providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, WORKER_PROVIDER_RELAY_SOCKET);
-  else if (maintenance?.providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, `${WORKER_PROVIDER_RELAY_DIR}/relay.sock`);
-  if (maintenance?.githubRelay) argv.push("--setenv", MODULE_GITHUB_SOCKET_ENV, `${WORKER_MODULE_GITHUB_DIR}/github.sock`);
+  argv.push(...workerEnvironmentArgs({ env: input.env, ...(input.credentialEnv ? { credentialEnv: input.credentialEnv } : {}),
+    turnProfile: !maintenance && !transport && !input.restricted && (input.sandbox?.profile === "governed" || input.sandbox?.profile === "strict"),
+    transport: Boolean(transport), relayedKeyNames,
+    ...(providerRelay ? { providerRelaySocket: WORKER_PROVIDER_RELAY_SOCKET }
+      : maintenance?.providerRelay ? { providerRelaySocket: `${WORKER_PROVIDER_RELAY_DIR}/relay.sock` } : {}),
+    ...(dataTree ? { dataTree: { root: WORKER_DATA_ROOT, configRoot: brain } } : {}),
+    ...(maintenance?.githubRelay ? { githubSocket: `${WORKER_MODULE_GITHUB_DIR}/github.sock` } : {}) }));
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
     "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []),
     ...payloadCommand(input));
@@ -1026,8 +1008,6 @@ export interface PrepareWorkerSandboxOptions {
   maskPaths?: readonly string[];
   maintenance?: import("./maintenance-worker.js").MaintenanceHost;
   restricted?: boolean;
-  /** @deprecated XDG-only planning ignores this path; the backend selects runtime HOME. */
-  home?: string;
   /** Which writable areas this worker gets. Default: all of them. */
   areas?: readonly WorkerAreaName[];
   /** Opt in to writable workspace mounts and their alias scan. Default: inspection only. */
@@ -1112,18 +1092,11 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
   const areaNames = options.profile === "governed" && !requestedAreas.includes("workspaces")
     ? [...requestedAreas, "workspaces" as const] : requestedAreas;
   for (const name of areaNames) {
-    // A check that fails unexpectedly (EACCES on the way, an unreadable mount
-    // table) leaves the area read-only for the turn rather than failing it.
-    try {
-      if (name === "scratch") {
-        const scratch = preparedScratch!;
-        removed = scratch.removed;
-        areas.push({ name, rel: WORKER_AREAS[name], mount: scratch.mount });
-      } else areas.push({ name, rel: WORKER_AREAS[name], mount: workspaceMount });
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error));
-      areas.push({ name, rel: WORKER_AREAS[name], mount: { writable: false, reason: `${WORKER_AREAS[name]}/ could not be checked (${code})` } });
-    }
+    if (name === "scratch") {
+      const scratch = preparedScratch!;
+      removed = scratch.removed;
+      areas.push({ name, rel: WORKER_AREAS[name], mount: scratch.mount });
+    } else areas.push({ name, rel: WORKER_AREAS[name], mount: workspaceMount });
   }
   // No per-turn home overlay: bubblewrap resolves an overlay's upper
   // directory on the host, where no size-limited mount can hold it (#1703).
@@ -1175,28 +1148,6 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: {
   return { command: [process.execPath, entry], env: {
     BRAIN_WORKER_LAUNCH: JSON.stringify({ ...launch, argv, ...(cgroup ? { cgroup } : {}) }),
   } };
-}
-
-/**
- * Maintenance-only HOME overlay probe (#1648). Agent workers always use XDG
- * under their bounded /tmp (#1703); credentialed maintenance commands retain
- * their existing optional namespace-private home overlay.
- */
-export function probeHomeOverlay(brain: string, home: string): true | string {
-  const marker = `.brain-home-overlay-probe-${process.pid}-${Date.now()}`;
-  const target = join(home, marker);
-  try {
-    const argv = workerCommand({ brainPath: brain, env: { HOME: home },
-      command: ["/bin/sh", "-c", 'echo odysseus > "$HOME/$1" && test -s "$HOME/$1"', "sh", marker],
-      maintenance: { network: false, credentials: true, home: { path: home, overlay: true }, readPaths: [] } });
-    const result = Bun.spawnSync(argv, { env: {}, stdin: "ignore", stdout: "ignore", stderr: "pipe", timeout: 5_000 });
-    if (existsSync(target)) {
-      rmSync(target, { force: true });
-      return "an overlay write reached the host home";
-    }
-    if (result.exitCode !== 0) return `bubblewrap could not overlay the home (${result.stderr.toString().trim().slice(0, 200)})`;
-    return true;
-  } catch (error) { return error instanceof Error ? error.message : String(error); }
 }
 
 /** How close to a worker's death its own memory limit and an OOM kill must be to have caused it. */
@@ -1257,7 +1208,7 @@ export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["st
 
 /** Whether a process has exited: gone, or a zombie its parent has not reaped yet. */
 function exited(pid: number): boolean {
-  try { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").startsWith("Z"); }
+  try { const stat = readProcStat(pid); return stat === undefined || stat.state === "Z"; }
   catch { return true; }
 }
 
@@ -1266,20 +1217,10 @@ function exited(pid: number): boolean {
  * the kernel's own record of bubblewrap's children, so nothing inside the
  * sandbox can name it.
  */
-function sandboxPid(bwrap: number, deadline: number): number {
+export function sandboxPid(bwrap: number, deadline: number): number {
   for (;;) {
-    let children: string[] = [];
-    try { children = readFileSync(`/proc/${bwrap}/task/${bwrap}/children`, "utf8").trim().split(/\s+/).filter(Boolean); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      // Without CONFIG_PROC_CHILDREN, find it by parent process id.
-      for (const name of readdirSync("/proc")) {
-        if (!/^\d+$/.test(name)) continue;
-        try { if (readFileSync(`/proc/${name}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[1] === String(bwrap)) children.push(name); }
-        catch { /* gone meanwhile */ }
-      }
-    }
-    if (children.length === 1) return Number(children[0]);
+    const children = procChildren(bwrap);
+    if (children.length === 1) return children[0]!.pid;
     if (children.length > 1) throw new WorkerHostError("bubblewrap started more than one sandbox process");
     if (exited(bwrap)) throw new WorkerHostError("bubblewrap exited before it started its sandbox");
     if (Date.now() > deadline) throw new WorkerHostError("bubblewrap did not start its sandbox in time");
@@ -1472,7 +1413,7 @@ export function createOutputStagingStorage(limits: WorkerStateLimits = hostOutpu
     // resolved inside the keeper namespace, then masked by their own /tmp.
     const root = `/proc/${process.pid}/fd/${owned}`;
     void child.exited.finally(() => pipes!.cleanup());
-    const namespaceStart = readFileSync(`/proc/${namespacePid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!;
+    const namespaceStart = parseProcStat(readFileSync(`/proc/${namespacePid}/stat`, "utf8")).start;
     return { root, mount, namespacePid, namespaceStart, allowanceBytes: reservation.outputStagingBytes,
       retain() { if (closed) throw new Error("output staging is closed"); refs++; },
       release() { if (closed || --refs > 0) return; closed = true; child!.kill("SIGKILL"); closeSync(owned); rmSync(mount, { recursive: true, force: true }); reservation.release(); },
@@ -2128,6 +2069,16 @@ export async function requireWorkerHostAsync(brainPath: string, options: WorkerH
  * and each entry's own package. No sibling file of an install root (for
  * example an `.env` beside `node_modules`) and no home directory is included.
  */
+let egressWorkerRuntime: readonly string[] | undefined;
+/**
+ * The egress wrapper's read envelope: this server's runtime and its egress
+ * entry, both fixed for the life of the process, so the install is walked
+ * once (#4861). Each call returns its own array.
+ */
+export function egressWorkerReadPaths(): string[] {
+  return [...(egressWorkerRuntime ??= restrictedReadPaths([process.execPath, Bun.resolveSync("./egress-worker-entry", import.meta.dir)]))];
+}
+
 export function restrictedReadPaths(entries: readonly string[]): string[] {
   const paths = new Set<string>([realpathSync(process.execPath)]);
   for (const entry of entries) {

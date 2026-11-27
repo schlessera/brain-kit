@@ -29,6 +29,7 @@ import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
+import { until } from "../../../tests/helpers/until";
 
 const createWsHandlers = (host: WsHost) =>
   createAuthorizedWsHandlers(host, testPrincipal());
@@ -272,12 +273,6 @@ describe("connection admission is observable", () => {
 });
 
 /** Poll until `cond` holds — runSession is fired without an awaitable handle. */
-async function until(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 200 && !cond(); i++) {
-    await new Promise((resolve) => setTimeout(resolve, 1));
-  }
-  expect(cond()).toBe(true);
-}
 
 const chat = (text: string, sessionId?: string) =>
   ({ data: JSON.stringify({ type: "chat_message", text, ...(sessionId ? { sessionId } : {}) }) }) as MessageEvent;

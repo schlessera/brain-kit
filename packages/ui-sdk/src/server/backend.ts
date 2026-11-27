@@ -182,6 +182,57 @@ export interface InputSafetyDispatchTicket {
   cancel(): Promise<void>;
 }
 
+/** @experimental Backend toolkit; may change before 1.0. Inputs of {@link admitToolDispatch}. */
+export interface ToolDispatchAdmission {
+  /** The bridge's `inputSafety`; absent on a host without one. */
+  inputSafety: BackendBridge["inputSafety"] | undefined;
+  toolUseId: string;
+  /** The call site's synchronous check: a refusal reason, or `null`. It may throw. */
+  validate: InputSafetyAdmissionCheck;
+  /** The safety recordings still pending for this call, read afresh at each wait. */
+  pending: () => Iterable<Promise<unknown>>;
+  /** False where the call does not dispatch yet and a later admission step
+   * takes its ticket (a Pi `bash` permission): no ticket, no `allowed`. */
+  dispatchesNow: boolean;
+  /** The call site's exposure step (publishing a grant), run synchronously
+   * right after `commit`, with no await in between. It cannot be async: the
+   * type admits no promise. A throw propagates and the committed ticket is
+   * not cancelled. */
+  expose?: () => undefined;
+}
+
+/**
+ * @experimental Backend toolkit; may change before 1.0.
+ *
+ * The host's final admission of one tool call, the last step before the
+ * backend lets it run: wait for pending safety recordings, validate, take a
+ * dispatch ticket (on a host without tickets, `allowed` with the validator),
+ * wait again, validate again, `commit(validate)`, then `expose`. When any step
+ * before the exposure throws, the ticket is cancelled and the error rethrown;
+ * how the refusal is recorded (`refused`, a deny answer) stays with the call
+ * site. A refusal reason is thrown as an `Error` carrying it.
+ */
+export async function admitToolDispatch(admission: ToolDispatchAdmission): Promise<void> {
+  const { inputSafety, toolUseId, validate, pending, dispatchesNow } = admission;
+  const check = () => { const refusal = validate(); if (refusal) throw new Error(refusal); };
+  let ticket: InputSafetyDispatchTicket | undefined;
+  try {
+    for (const recording of pending()) await recording;
+    check();
+    if (dispatchesNow) {
+      ticket = inputSafety?.prepareDispatch ? await inputSafety.prepareDispatch(toolUseId) : undefined;
+      if (!ticket) await inputSafety?.allowed?.(toolUseId, validate);
+    }
+    for (const recording of pending()) await recording;
+    check();
+    ticket?.commit(validate);
+  } catch (error) {
+    try { await ticket?.cancel(); } catch { /* The call site's refusal still denies dispatch. */ }
+    throw error;
+  }
+  admission.expose?.();
+}
+
 /** Host-owned causal view factory for an exact logical tool call. Never a grant. */
 export type InputSafetyAdmissionView = (
   toolUseId: string,
@@ -649,14 +700,11 @@ export type TurnTempPromotionRefusal = "file_too_large" | "turn_too_large" | "no
   | "multiple_links" | "missing" | "io_error" | "scratch_unavailable";
 
 // The subscription auth actions are part of the wire (`TurnFailure.authAction`,
-// #575), so they live beside it; the server entry keeps exporting them.
-export {
-  SUBSCRIPTION_AUTH_INSTRUCTIONS,
-  SUBSCRIPTION_RELOGIN_PROCEDURE,
-  subscriptionAuthAction,
-} from "../protocol.js";
-import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
+// #575), so they live beside it; the server entry keeps exporting them, from
+// the protocol module directly, so this module loads no protocol value.
 export type { SubscriptionAuthAction } from "../protocol.js";
+// The failure-class leaf has no value imports of its own (#4310 uses one class).
+import { FIRST_PARTY_FAILURE_CLASSES } from "../failure-classes.js";
 
 /** @experimental Part of the `AgentBackend` seam. */
 export interface StartTurnRequest {

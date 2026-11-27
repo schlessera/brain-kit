@@ -121,10 +121,12 @@ export function budgetLedger(db: Database) {
   CASE WHEN input_tokens IS NULL AND output_tokens IS NULL AND cache_read_tokens IS NULL AND cache_creation_tokens IS NULL THEN NULL
     ELSE COALESCE(input_tokens,0)+COALESCE(output_tokens,0)+COALESCE(cache_read_tokens,0)+COALESCE(cache_creation_tokens,0) END AS tokens
   FROM activity_run_rollups WHERE origin = 'session' AND name = 'invoke_agent'
-    AND (run_id=? OR session_id=? OR (started_at>=? AND started_at<?) OR run_id IN (SELECT turn_id FROM turn_budget_days WHERE day_start=?))`).all(id, sessionId, day, day + DAY, day) as Row[];
+    AND (run_id=? OR session_id=? OR (started_at>=? AND started_at<?) OR run_id IN (SELECT turn_id FROM turn_budget_days WHERE day_start=?))
+    ORDER BY rowid`).all(id, sessionId, day, day + DAY, day) as Row[];
   const rows = (id: string, sessionId: string | null, day: number): Row[] => {
     const merged = new Map(retained(id, sessionId, day).map(row => [row.turn_id, row]));
-    for (const live of db.query("SELECT * FROM turn_budget_usage WHERE turn_id=? OR session_id=? OR (started_at>=? AND started_at<?) OR turn_id IN (SELECT turn_id FROM turn_budget_days WHERE day_start=?)").all(id, sessionId, day, day + DAY, day) as Row[]) {
+    for (const live of db.query(`SELECT turn_id, session_id, started_at, cost_usd, cost_lower_bound, pricing_estimate, tokens FROM turn_budget_usage
+      WHERE turn_id=? OR session_id=? OR (started_at>=? AND started_at<?) OR turn_id IN (SELECT turn_id FROM turn_budget_days WHERE day_start=?) ORDER BY rowid`).all(id, sessionId, day, day + DAY, day) as Row[]) {
       const terminal = merged.get(live.turn_id);
       // Completed-message receipts are per-turn. Resumed SDK terminal totals can include history, so they never override a measured turn. Legacy Activity rows remain the historical source.
       merged.set(live.turn_id, { ...live, legacy: false, session_id: terminal?.session_id ?? live.session_id,
@@ -140,15 +142,19 @@ export function budgetLedger(db: Database) {
       cost_lower_bound: number | null;
       tokens: number | null;
     }>).map(row => [row.turn_id, row]));
+    // Each turn's total over all its days, in one read: the primary key keeps every turn's rows in day order.
+    const totals = new Map(dayRows.size ? (db.query(`SELECT turn_id, SUM(cost_lower_bound) AS cost, SUM(tokens) AS tokens FROM turn_budget_days
+      WHERE turn_id IN (SELECT turn_id FROM turn_budget_days WHERE day_start = ?) GROUP BY turn_id`).all(day) as Array<{
+      turn_id: string;
+      cost: number | null;
+      tokens: number | null;
+    }>).map(row => [row.turn_id, row]) : []);
     return all.filter(row => row.started_at >= day && row.started_at < day + DAY || dayRows.has(row.turn_id)).map(row => {
       const slice = dayRows.get(row.turn_id);
       if (!slice)
         return row;
       // Completed responses use their observation's UTC day. Legacy/final residuals retain Activity's start-day attribution.
-      const slices = db.query("SELECT SUM(cost_lower_bound) AS cost, SUM(tokens) AS tokens FROM turn_budget_days WHERE turn_id = ?").get(row.turn_id) as {
-        cost: number | null;
-        tokens: number | null;
-      };
+      const slices = totals.get(row.turn_id)!;
       return { ...row, cost_lower_bound: slice.cost_lower_bound === null ? null : slice.cost_lower_bound + (utcBudgetDay(row.started_at) === day ? Math.max(0, (row.cost_lower_bound ?? 0) - (slices.cost ?? 0)) : 0),
         tokens: slice.tokens === null ? null : slice.tokens + (utcBudgetDay(row.started_at) === day ? Math.max(0, (row.tokens ?? 0) - (slices.tokens ?? 0)) : 0) };
     });

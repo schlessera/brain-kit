@@ -4,7 +4,7 @@
  * proxy sees only host, port and byte counts, like any other CONNECT.
  */
 import { connect } from "node:net";
-import { WORKER_EGRESS_SOCKET } from "./egress-proxy.js";
+import { WORKER_EGRESS_SOCKET } from "./egress-paths.js";
 
 const [host, port] = process.argv.slice(2);
 if (!host || !/^[a-zA-Z0-9.-]+$/.test(host) || !port || !/^[0-9]{1,5}$/.test(port)) {

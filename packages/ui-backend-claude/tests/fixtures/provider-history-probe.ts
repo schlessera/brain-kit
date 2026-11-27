@@ -84,7 +84,7 @@ try {
       if (scenario === "repository" && turnIndex) changeRepository(brain, turnIndex);
       const facts = scenario === "facts" ? turnIndex : 0;
       const controller = new AbortController();
-      const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", ...(scenario === "facts" ? { areas: ["workspaces"], codeChanges: turnIndex === 1 } : scenario === "promotion" ? {} : { areas: [] }) });
+      const sandbox = prepareFixtureWorkerSandbox(brain, { profile: "strict", ...(scenario === "facts" ? { areas: ["workspaces"], codeChanges: turnIndex === 1 } : scenario === "promotion" ? {} : { areas: [] }) });
       const view = createFixtureWorkerStartupView(brain);
       const turn = createClaudeSdkTurn({ backend: { brainPath: brain, ...(scenario === "safety" ? { systemPromptAppend: turnIndex === 0 ? "Legacy safety policy: this session stays restricted." : "Reviewed safety policy: finalized individual verdicts may restore normal." } : {}) }, req: {
         prompt: `Odysseus checks voyage step ${turnIndex}.`, sessionId, signal: controller.signal, turnId: `odysseus-${turnIndex}`,

@@ -117,7 +117,7 @@ try {
       applicationAuthority: scenario === "authority-upgrade" && turnIndex !== 1 ? undefined : "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
       // #4310: a fast session's speed through production assembly, the same on every turn.
       ...(scenario === "fast-api" || scenario === "fast-subscription" ? { outputSpeed: "fast" as const } : {}),
-      workerSandbox: prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }),
+      workerSandbox: prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] }),
       bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" }; } },
     }, profile: { id: "fixture", label: "Fixture", model: "claude-opus-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
       turnEnvironment: environment,

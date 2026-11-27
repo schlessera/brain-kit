@@ -21,6 +21,7 @@ import { createSessionCatalog } from "../src/ws/session-catalog";
 import { readSessionRecovery } from "../src/ws/recovery";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
+import { until } from "../../../tests/helpers/until";
 
 function fakeSocket(raw?: unknown): WSContext & { sent: string[]; frames: () => any[] } {
   const sent: string[] = [];
@@ -32,14 +33,6 @@ function fakeSocket(raw?: unknown): WSContext & { sent: string[]; frames: () => 
     sent,
     frames: () => sent.map((s) => JSON.parse(s)),
   } as unknown as WSContext & { sent: string[]; frames: () => any[] };
-}
-
-async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!cond()) {
-    if (Date.now() > deadline) throw new Error("condition not met in time");
-    await new Promise((r) => setTimeout(r, 5));
-  }
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {

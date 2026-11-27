@@ -19,15 +19,11 @@ import { createSessionCatalog } from "../src/ws/session-catalog";
 import { createChatDeletion } from "../src/ws/chat-deletion";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testAuthorization } from "./helpers/principal";
+import { until } from "../../../tests/helpers/until";
 
 const MARKER = "Odysseus hid the oar under the olive root";
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
-
-async function until(cond: () => boolean, timeoutMs = 3000): Promise<void> {
-  const start = Date.now();
-  while (!cond()) { if (Date.now() - start > timeoutMs) throw new Error("until: timed out"); await Bun.sleep(2); }
-}
 
 function world() {
   const db = createUiDb(":memory:");

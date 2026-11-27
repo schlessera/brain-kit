@@ -31,6 +31,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { binModeProblems } from "./bin-modes";
+import { cleanTestEnvironment } from "./offline-command";
 import { listPublishablePackages, type PublishablePackage } from "./publishable-packages";
 
 /** The named probes in scripts/ci-pack-probe.mjs, run inside the consumer. */
@@ -329,13 +330,17 @@ async function node(): Promise<string> {
 }
 const PROBE = ".brainkit-pack-probe.mjs";
 
-async function run(label: string, argv: string[], cwd: string, capture = false): Promise<{ code: number; output: string }> {
+/** Runs one pack, install or probe child with the job's environment, minus every provider credential. */
+export async function run(label: string, argv: string[], cwd: string, capture = false): Promise<{ code: number; output: string }> {
   const child = Bun.spawn(argv, {
     cwd, stdin: "ignore", stdout: capture ? "pipe" : "inherit", stderr: capture ? "pipe" : "inherit",
-    // The job's environment: no provider key reaches a packed probe.
-    // Appended, not prepended: a bun for bins with an `env bun` shebang, never
-    // a replacement for anything already on PATH.
-    env: { ...process.env, PATH: `${process.env.PATH ?? ""}:${dirname(process.execPath)}`, GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "" },
+    // No provider credential reaches a packed probe (scripts/test-credential-names.json).
+    // PATH is appended, not prepended: a bun for bins with an `env bun` shebang,
+    // never a replacement for anything already on PATH.
+    env: {
+      ...cleanTestEnvironment(process.env), PATH: `${process.env.PATH ?? ""}:${dirname(process.execPath)}`,
+      GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "", // present but empty: a Bun child does not override a set variable with its cwd's .env
+    },
   });
   const [out, err, code] = await Promise.all([
     capture ? new Response(child.stdout as ReadableStream).text() : "",

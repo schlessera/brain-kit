@@ -1,6 +1,6 @@
 /** Trusted worker bootstrap: raw TCP loopback forwarding, before running any tool. */
 import { createServer, connect } from "node:net";
-import { WORKER_EGRESS_SOCKET } from "./egress-proxy.js";
+import { WORKER_EGRESS_SOCKET } from "./egress-paths.js";
 import { workerEgressEnvironment } from "../config/env.js";
 
 // A worker serving its own loopback forwarder reaches it directly; nothing else bypasses the proxy.

@@ -1,6 +1,7 @@
-import { closeSync, readFileSync, readdirSync } from "node:fs";
+import { closeSync } from "node:fs";
 import { createRequire } from "node:module";
 import { constants } from "node:os";
+import { procChildren, procTasks, readProcStat } from "./proc-identity.js";
 
 type Worker = Pick<Bun.Subprocess, "pid" | "kill" | "exitCode" | "signalCode" | "exited">;
 type Identity = { pid: number; start: string; parent: number; state: string };
@@ -42,12 +43,8 @@ function libc(): Native | undefined {
   return native ?? undefined;
 }
 function identity(pid: number, task?: string): Identity | undefined {
-  try {
-    const raw = readFileSync(task ? `/proc/${pid}/task/${task}/stat` : `/proc/${pid}/stat`, "utf8");
-    const fields = raw.slice(raw.lastIndexOf(")") + 2).trim().split(/\s+/);
-    if (!/^\d+$/.test(fields[19] ?? "") || !/^\d+$/.test(fields[1] ?? "")) throw Error("Invalid maintenance process identity");
-    return { pid, start: fields[19]!, parent: Number(fields[1]), state: fields[0]! };
-  } catch (error) { if (missing(error)) return; throw error; }
+  const stat = readProcStat(pid, task);
+  return stat && { pid, ...stat };
 }
 function unconfirmed(error: unknown): Error {
   return Object.assign(new Error("Maintenance worker cleanup unconfirmed", { cause: error }), { cleanupUnconfirmed: true });
@@ -116,37 +113,16 @@ function outerLive(worker: Worker, stop: Stop): boolean {
   if (error === 3) { stop.gone = true; return false; }
   throw Error(`Maintenance pidfd liveness failed: ${error}`);
 }
-function tasks(pid: number): string[] {
-  try { return readdirSync(`/proc/${pid}/task`).filter(name => /^\d+$/.test(name)).sort(); }
-  catch (error) { if (missing(error)) return []; throw error; }
-}
 function stopped(pid: number): boolean {
-  const before = tasks(pid);
+  const before = procTasks(pid);
   if (!before.length) return false;
   if (!before.every(task => { const state = identity(pid, task)?.state; return state !== undefined && ["T", "t", "Z", "X"].includes(state); })) return false;
-  return before.join() === tasks(pid).join();
-}
-function children(pid: number): Identity[] {
-  const found = new Set<number>();
-  try {
-    for (const task of tasks(pid)) {
-      for (const child of readFileSync(`/proc/${pid}/task/${task}/children`, "utf8").trim().split(/\s+/).filter(Boolean)) found.add(Number(child));
-    }
-  } catch (error) {
-    if (!missing(error)) throw error;
-    // CONFIG_PROC_CHILDREN is optional. The stopped outer cannot reap or fork.
-    for (const name of readdirSync("/proc")) {
-      if (!/^\d+$/.test(name)) continue;
-      try { if (identity(Number(name))?.parent === pid) found.add(Number(name)); }
-      catch (error) { if (!missing(error)) throw error; }
-    }
-  }
-  return [...found].flatMap(child => { const id = identity(child); return id?.parent === pid ? [id] : []; });
+  return before.join() === procTasks(pid).join();
 }
 function killChildren(worker: Worker, stop: Stop): boolean {
   if (!stop.confirmed || !stop.identity || worker.pid !== stop.identity.pid) return false;
   let reached = false;
-  for (const child of children(worker.pid)) {
+  for (const child of procChildren(worker.pid)) {
     const now = identity(child.pid);
     if (now?.start !== child.start || now.parent !== worker.pid || !outerLive(worker, stop)) continue;
     try { process.kill(child.pid, "SIGKILL"); reached = true; }

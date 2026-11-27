@@ -7,6 +7,10 @@ import { join } from "path";
 import { createTurnRecorder } from "../src/activity/recorder.js";
 import { runActivityQuery } from "../src/activity/query.js";
 import { createUiDb } from "../src/db/client.js";
+import { ACTIVITY_SQL } from "../src/activity/sql.js";
+import { queryPlan, recordStatements } from "./helpers/statement-recorder.js";
+import { readLifecycleReceipts, seedLifecycleReceipts } from "./helpers/lifecycle-receipts.js";
+import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
 import {
   createActivityStore,
   rowToRunRollup,
@@ -1283,4 +1287,126 @@ test("session_info binds a root opened by an earlier frame", () => {
     expect(store.getSpan("early-frame:turn")?.sessionId,"RECORDER_LATE_SESSION_BOUND").toBe("ithaca-session");
     expect(db.query("SELECT session_id FROM activity_run_rollups WHERE run_id='early-frame'").get()).toEqual({session_id:"ithaca-session"});
   } finally { db.close(); }
+});
+
+describe("activity store: a session's previous root span (#4801)", () => {
+  const root = (store: ActivityStore, runId: string, session: { column?: string; attribute?: string }, startedAt: number) => store.startSpan({
+    spanId: `${runId}-root`, runId, name: "invoke_agent", kind: "turn", origin: "session", startedAt,
+    ...(session.column ? { sessionId: session.column } : {}), ...(session.attribute ? { attrs: { "session.id": session.attribute } } : {}),
+  });
+
+  test("the lookup searches the root-span session index, never a backwards walk over every span", () => {
+    const { store, db } = freshStore();
+    try {
+      root(store, "voyage-1", { column: "ithaca" }, 1_000);
+      store.startSpan({ spanId: "voyage-1-tool", runId: "voyage-1", parentSpanId: "voyage-1-root", name: "tool", kind: "tool", origin: "session", startedAt: 1_001 });
+      root(store, "voyage-2", { column: "ithaca" }, 2_000);
+      const recorded = recordStatements(db);
+      expect(createActivityStore(recorded.db).previousSessionRoot!("voyage-2-root", "ithaca")?.spanId).toBe("voyage-1-root");
+      const lookup = recorded.statements.find(statement => /FROM activity_spans/.test(statement.sql) && /invoke_agent/.test(statement.sql))!;
+      const steps = queryPlan(db, lookup);
+      expect(steps.some(step => step.includes("USING INDEX idx_activity_spans_root_session (session_id=? AND rowid<?)"))).toBe(true);
+      expect(steps.some(step => step.includes("USING INDEX idx_activity_spans_root_session_attr (<expr>=? AND rowid<?)"))).toBe(true);
+      expect(steps.filter(step => /^SEARCH activity_spans USING INTEGER PRIMARY KEY \(rowid<\?\)$/.test(step) || /^SCAN activity_spans\b/.test(step))).toEqual([]);
+    } finally { db.close(); }
+  });
+
+  test("the open-run reads use the unfinished-span index instead of every run's spans", () => {
+    const { db } = freshStore();
+    try {
+      for (const sql of [ACTIVITY_SQL.openSessionRuns, ACTIVITY_SQL.compactChanges]) {
+        const steps = queryPlan(db, { sql, params: [] });
+        expect({ sql, unfinished: steps.some(step => step.includes("idx_activity_spans_unfinished")), run: steps.some(step => step.includes("idx_activity_spans_run")) })
+          .toEqual({ sql, unfinished: true, run: false });
+      }
+    } finally { db.close(); }
+  });
+
+  test("a root whose session id is only an attribute is still found, and the newer of the two kinds wins", () => {
+    const { store, db } = freshStore();
+    try {
+      root(store, "voyage-1", { column: "ithaca" }, 1_000);
+      root(store, "voyage-2", { attribute: "ithaca" }, 2_000);
+      root(store, "voyage-3", { column: "ithaca" }, 3_000);
+      root(store, "voyage-4", { attribute: "ithaca" }, 4_000);
+      root(store, "elsewhere", { attribute: "ogygia" }, 4_500);
+      root(store, "voyage-5", { column: "ithaca" }, 5_000);
+      expect(db.query("SELECT session_id FROM activity_spans WHERE span_id = 'voyage-4-root'").get()).toEqual({ session_id: null });
+      expect(store.previousSessionRoot!("voyage-5-root", "ithaca")?.spanId).toBe("voyage-4-root");
+      expect(store.previousSessionRoot!("voyage-4-root", "ithaca")?.spanId).toBe("voyage-3-root");
+      expect(store.previousSessionRoot!("voyage-3-root", "ithaca")?.spanId).toBe("voyage-2-root");
+      expect(store.previousSessionRoot!("voyage-2-root", "ithaca")?.spanId).toBe("voyage-1-root");
+      expect(store.previousSessionRoot!("voyage-1-root", "ithaca")).toBeNull();
+    } finally { db.close(); }
+  });
+
+  test("a root whose attributes are not JSON neither fails the migration nor the lookup", () => {
+    const { store, db } = freshStore();
+    try {
+      for (const index of ["idx_activity_spans_root_session", "idx_activity_spans_root_session_attr", "idx_activity_spans_unfinished"]) db.run(`DROP INDEX ${index}`);
+      db.query(`INSERT INTO activity_spans (span_id, run_id, parent_span_id, name, kind, origin, session_id, attrs, started_at, writer)
+        VALUES ('torn-root', 'torn', NULL, 'invoke_agent', 'turn', 'session', NULL, '{"session.id": "ithaca"', 500, 'loom')`).run();
+      db.exec(readFileSync(join(import.meta.dir, "../migrations/101_activity_root_session_lookup.sql"), "utf8"));
+      // A later root whose attributes are not JSON still inserts once the index exists.
+      db.query(`INSERT INTO activity_spans (span_id, run_id, parent_span_id, name, kind, origin, session_id, attrs, started_at, writer)
+        VALUES ('torn-again', 'torn-again', NULL, 'invoke_agent', 'turn', 'session', NULL, '{"session.id"', 600, 'loom')`).run();
+      root(store, "voyage-1", { attribute: "ithaca" }, 1_000);
+      root(store, "voyage-2", { column: "ithaca" }, 2_000);
+      expect(store.previousSessionRoot!("voyage-2-root", "ithaca")?.spanId).toBe("voyage-1-root");
+      expect(store.previousSessionRoot!("voyage-1-root", "ithaca")).toBeNull();
+    } finally { db.close(); }
+  });
+
+  test("a pruned turn between two retained turns of one session is a gap", () => {
+    const { store, db } = freshStore();
+    try {
+      root(store, "voyage-1", { column: "ithaca" }, 1_000);
+      root(store, "voyage-3", { column: "ithaca" }, 3_000);
+      expect(store.previousSessionRoot!("voyage-3-root", "ithaca")?.spanId).toBe("voyage-1-root");
+      db.query("INSERT INTO activity_run_rollups(run_id,origin,name,session_id,started_at,detail_pruned) VALUES('voyage-2','session','invoke_agent','ithaca',2000,1)").run();
+      expect(store.previousSessionRoot!("voyage-3-root", "ithaca")).toBeNull();
+    } finally { db.close(); }
+  });
+});
+
+describe("activity store: lifecycle reads join their client receipts (#4802)", () => {
+  test("every lifecycle read returns the records captured before the receipt moved into the statement", () => {
+    const { store, db } = freshStore();
+    try {
+      seedLifecycleReceipts(db, store);
+      expect(readLifecycleReceipts(store)).toEqual(JSON.parse(readFileSync(new URL("./fixtures/activity-lifecycle-receipts.golden.json", import.meta.url), "utf8")));
+    } finally { db.close(); }
+  });
+
+  const seeded = (turns: number) => {
+    const { store, db } = freshStore();
+    for (let i = 0; i < turns; i++) {
+      const at = 1_000 + i * 1_000;
+      createTurnLifecycle(store, `voyage-${i}`, "ithaca", at, () => {}, () => at + 300, "odysseus").finish("success");
+    }
+    return { db, count<T>(read: (store: ActivityStore) => T) {
+      const recorded = recordStatements(db), value = read(createActivityStore(recorded.db));
+      return { value, statements: recorded.statements.length };
+    } };
+  };
+
+  test("a session's lifecycle snapshot runs the same statements for 10 and for 100 lifecycles", () => {
+    const [small, large] = [10, 100].map(seeded);
+    try {
+      const few = small!.count(store => store.snapshotLifecycles!({ sessionId: "ithaca" })), many = large!.count(store => store.snapshotLifecycles!({ sessionId: "ithaca" }));
+      expect([few.value.lifecycles.length, many.value.lifecycles.length]).toEqual([10, 100]);
+      expect(Object.values(many.value.highWaterSeq).every(seq => seq > 0)).toBe(true);
+      expect(many.statements).toBe(few.statements);
+    } finally { small!.db.close(); large!.db.close(); }
+  });
+
+  test("lifecycle changes run the same statements for 10 and for 100 change rows", () => {
+    const [small, large] = [10, 100].map(seeded);
+    try {
+      const few = small!.count(store => store.lifecycleChangesSince(0)), many = large!.count(store => store.lifecycleChangesSince(0));
+      expect(few.value.length).toBeGreaterThanOrEqual(10);
+      expect(many.value.length).toBeGreaterThanOrEqual(100);
+      expect(many.statements).toBe(few.statements);
+    } finally { small!.db.close(); large!.db.close(); }
+  });
 });

@@ -7,7 +7,7 @@ import type {
   StartTurnRequest,
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
-import { assertTurnPosture, BackendRequestError, FastOutputUnavailableError } from "@schlessera/brain-ui-sdk/server";
+import { assertTurnPosture, autonomousYieldLatch, BackendRequestError, FastOutputUnavailableError, usageTokenCount } from "@schlessera/brain-ui-sdk/server";
 import { WorkerResourceLimitError } from "@schlessera/brain-ui-sdk/internal";
 import type { SessionRetirement } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
@@ -100,14 +100,9 @@ export function createPiTurnRunner(
     turnContext.enforceAllowedTools = req.enforceAllowedTools === true;
     turnContext.noGrantSurface = req.noGrantSurface === true;
     turnContext.turnId = req.turnId;
-    let yielded = false;
-    turnContext.autonomous = req.autonomous ? { ...req.autonomous, onYield: req.autonomous.onYield ? (key) => {
-      if (yielded || req.signal.aborted) return;
-      yielded = true;
-      try { req.autonomous!.onYield!(key); }
-      catch { emit({ type: "error", code: "AUTONOMOUS_YIELD_FAILED", message: "Autonomous yield checkpoint failed." }); }
-      finally { cancelled = true; toolController.abort(); void session.abort().catch(() => {}); }
-    } : undefined } : undefined;
+    turnContext.autonomous = req.autonomous ? { ...req.autonomous, onYield: req.autonomous.onYield ? autonomousYieldLatch({ onYield: req.autonomous.onYield,
+      aborted: () => req.signal.aborted, emit,
+      abort: () => { cancelled = true; toolController.abort(); void session.abort().catch(() => {}); } }) : undefined } : undefined;
     // Everything from here on runs inside the try: a throw from subscribe() or
     // the first emit() would otherwise leave entry.running stuck true, bricking
     // this session id (later turns reject busy and eviction skips it).
@@ -260,7 +255,7 @@ function observeAssistantAnswers(req: StartTurnRequest, completedUsage: TurnUsag
 
     if (completed && !req.autonomous && !firstMainRequest) {
       firstMainRequest = true;
-      const token = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
+      const token = usageTokenCount;
       try { req.bridge.activity?.({ kind: "first_request_cache", usage: {
         inputTokens: token(message.usage?.input), cacheReadTokens: token(message.usage?.cacheRead),
         cacheCreationTokens: token(message.usage?.cacheWrite), source: "pi_main_message", coverage: "runtime_normalized",

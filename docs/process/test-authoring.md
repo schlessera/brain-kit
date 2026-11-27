@@ -138,7 +138,9 @@ test("the date field shows the parsed date and refuses an unparseable one", asyn
 - **D4. Every resource has an owner and a teardown that runs on failure.**
   Temporary directories come from `mkdtemp`, servers listen on port 0, and
   processes, servers and directories are released in `afterEach`, a `finally`
-  or a `using` declaration. Prevents `fixed-resource` and `leaked-resource`.
+  or a `using` declaration. In a Bun test, `tempDirs` from
+  `tests/helpers/temp.ts` does both for a directory. Prevents
+  `fixed-resource` and `leaked-resource`.
 - **D5. A replaced global is restored completely.** Save and restore the whole
   property descriptor, and delete only what was absent
   ([testing.md](testing.md#runtimes-browsers-and-doubles)). Prevents
@@ -180,7 +182,13 @@ that are changed with it.
 - **C1. Know the budget of the tier.** Most unit files finish in under a
   second. A file that reaches 30 seconds is a heavy command for
   [host admission](testing.md#host-admission-for-heavy-local-commands) and
-  needs a reason a reader can find. Prevents `slow-file`.
+  needs a reason a reader can find. A Bun test file whose reviewed weight in
+  `scripts/test-shard-costs.json` exceeds half a determinism partition
+  (`DETERMINISM_PARTITIONS.capacitySeconds` divided by the repetition floor,
+  150 s today) must be split by scenario group: a changed file repeats at least
+  twice under load and cannot be split across partitions, so the load gate
+  cannot repeat it within its step. `tests/test-shards.test.ts` enforces the
+  bound and names the files still exempt. Prevents `slow-file`.
 - **C2. Pay for setup once.** Build immutable fixtures in `beforeAll` and share
   them read-only. Do not spawn a process per assertion: cover the logic
   in-process and keep one spawned test for the process boundary. Size a fixture
@@ -196,11 +204,12 @@ that are changed with it.
   timeout, a timer that stops its child processes. Set it well above the
   test's normal duration, about ten times, so that only a real hang trips it,
   and write an in-test one as `watchdogMs(n)` (`scripts/test-deadlines.ts`) so
-  a run under deliberate load scales it. When one trips on a slow run, raise
-  it or let the run scale it: that is not a failed proof, and the work is not
-  squeezed to fit. Raising one needs no proof-system lane. A *product timing*
-  is a time the product promises: a 0.6-second hold, a one-second guard, a
-  five-second readiness limit. Never loosen it to make a test pass, and never
+  a run under deliberate load scales it. A Bun test waits for a condition with
+  `until` from `tests/helpers/until.ts`, whose bound is such a watchdog. When
+  one trips on a slow run, raise it or let the run scale it: that is not a
+  failed proof, and the work is not squeezed to fit. Raising one needs no
+  proof-system lane. A *product timing* is a time the product promises: a
+  0.6-second hold, a one-second guard, a five-second readiness limit. Never loosen it to make a test pass, and never
   assert it through a test timeout: advance a controlled clock, or compare a
   measured duration with the promise (D1, D2). To tell them apart, ask what a
   user would notice if the number doubled. A test that needs a minute of real

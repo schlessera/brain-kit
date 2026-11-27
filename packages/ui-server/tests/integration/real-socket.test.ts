@@ -21,7 +21,7 @@ import { BrainUiClient, PROTOCOL_REV, type ServerMessage } from "@schlessera/bra
 
 import { createFixtureApp as createApp } from "../helpers/native-app-fixture.js";
 import { createRecordingObservability } from "../../src/observability/index";
-import { resolveServerConfig } from "../../src/config/env";
+import { testServerConfig } from "../helpers/test-config";
 import { createStaticBackendRegistry } from "../../src/agent/backend";
 import { makeFakeBackend } from "../helpers/fake-backend";
 
@@ -50,14 +50,7 @@ afterEach(async () => {
 async function start(env: Record<string, string> = {}) {
   const observability = createRecordingObservability();
   const backend = makeFakeBackend({ id: "fake" });
-  const config = resolveServerConfig({
-    AUTH_MODE: "none",
-    HOST: "127.0.0.1",
-    DB_PATH: ":memory:",
-    BRAIN_PATH: fixtureBrain(),
-    BRAIN_UI_PRICING_DISCOVERY: "0",
-    ...env,
-  });
+  const config = testServerConfig({ brain: fixtureBrain(), db: ":memory:" }, env);
   const app = await createApp({
     config,
     dbPath: ":memory:",
@@ -201,13 +194,7 @@ describe("the SPA fallback", () => {
     brainRoots.push(dir);
     writeFileSync(join(dir, "index.html"), "<!doctype html><title>shell</title>");
 
-    const config = resolveServerConfig({
-      AUTH_MODE: "none",
-      HOST: "127.0.0.1",
-      DB_PATH: ":memory:",
-      BRAIN_PATH: fixtureBrain(),
-      BRAIN_UI_PRICING_DISCOVERY: "0",
-    });
+    const config = testServerConfig({ brain: fixtureBrain(), db: ":memory:" });
     const backend = makeFakeBackend({ id: "fake" });
     const app = await createApp({
       config,

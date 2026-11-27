@@ -14,7 +14,8 @@ import type {
   AskUserFormResult,
 } from "@schlessera/brain-ui-sdk/server";
 import { createWsHandlers as createAuthorizedWsHandlers } from "../src/ws/connection";
-import type { WSContext } from "../src/ws/clients";
+import { resultFrame } from "./helpers/fake-backend";
+import { fakeClient } from "./helpers/fake-socket";
 import {
   closeDb,
   handleClientMessage,
@@ -30,6 +31,7 @@ import { createUiDb } from "../src/db/client.js";
 import { handleClientMessage as dispatch } from "../src/ws/dispatch.js";
 import { testAuthorization } from "./helpers/principal.js";
 import { testPrincipal } from "./helpers/principal";
+import { until as waitFor } from "../../../tests/helpers/until";
 
 const createWsHandlers = (host: ReturnType<typeof testHost>) =>
   createAuthorizedWsHandlers(host, testPrincipal());
@@ -82,15 +84,7 @@ function formBackend(spec = SPEC, duplicate = false) {
       } catch (err) {
         settled = { error: err as Error };
       }
-      req.bridge.emit({
-        type: "result",
-        sessionId: "s1",
-        outcome: "success",
-        costUsd: 0,
-        durationMs: 1,
-        numTurns: 1,
-        isError: false,
-      });
+      req.bridge.emit(resultFrame("s1"));
     },
     async listSessions() {
       return [];
@@ -106,21 +100,6 @@ function formBackend(spec = SPEC, duplicate = false) {
   };
 }
 
-function fakeClient() {
-  const sent: ServerMessage[] = [];
-  const ws: WSContext = {
-    send: (data: string) => sent.push(JSON.parse(data) as ServerMessage),
-  };
-  return { ws, sent };
-}
-
-async function waitFor(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if (cond()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  throw new Error("waitFor timed out");
-}
 
 const openEvt = {} as Event;
 const closeEvt = { code: 1001 } as CloseEvent;

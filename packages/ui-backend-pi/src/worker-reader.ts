@@ -7,7 +7,7 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
-import { safeStartupTiming, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, BackendRequestError, textOfParts } from "@schlessera/brain-ui-sdk/server";
 import type { LaunchedWorker, NativeFileVersions, sessionPromptContext, WorkerResourceLimitError } from "@schlessera/brain-ui-sdk/internal";
 
 import type { CreatePiBackendOptions, SessionEnv } from "./backend-options.js";
@@ -79,7 +79,7 @@ export async function readPiWorkerProtocol(reader: PiWorkerReader): Promise<void
     for (const entry of added) {
       if (entry.type !== "message" || resumedIds.has(entry.id)) continue;
       const message = entry.message as { role?: string; content?: unknown } | undefined;
-      const wire = Array.isArray(message?.content) ? message.content.filter(part => part.type === "text").map(part => part.text).join("") : message?.content;
+      const wire = Array.isArray(message?.content) ? textOfParts(message.content, "") : message?.content;
       // The installed runtime appends image-normalization hints after the
       // exact submitted text. Bind the full observed bytes to this owned
       // turn now; replay never strips a suffix or matches host patterns.

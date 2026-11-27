@@ -1,31 +1,35 @@
 /** One curated policy for schema defaults, scraper fallbacks and settings choices. */
 export const JOB_BOARDS = [
-  { source: "remoteok", defaultSelected: true },
+  { source: "remoteok", label: "RemoteOK", needsBrowser: false, defaultSelected: true },
   {
-    source: "remotive", defaultSelected: false, blocked: true,
+    source: "remotive", label: "Remotive", needsBrowser: false, defaultSelected: false, blocked: true,
     // Its only API path is disallowed; selection cannot grant permission.
     caveat: "robots.txt disallows /api/*, the only path its adapter fetches; it needs the site's permission before it can run",
   },
-  { source: "weworkremotely", defaultSelected: true },
-  { source: "workingnomads", defaultSelected: true },
-  { source: "builtin", defaultSelected: false, caveat: "client-rendered; needs a browser" },
-  { source: "nodesk", defaultSelected: false, caveat: "client-rendered; needs a browser" },
+  { source: "weworkremotely", label: "We Work Remotely", needsBrowser: false, defaultSelected: true },
+  { source: "workingnomads", label: "Working Nomads", needsBrowser: false, defaultSelected: true },
+  { source: "builtin", label: "BuiltIn", needsBrowser: true, defaultSelected: false, caveat: "client-rendered; needs a browser" },
+  { source: "nodesk", label: "NoDesk", needsBrowser: true, defaultSelected: false, caveat: "client-rendered; needs a browser" },
   {
-    source: "simplyhired", defaultSelected: false, usesQueries: true,
+    source: "simplyhired", label: "SimplyHired", needsBrowser: false, defaultSelected: false, usesQueries: true,
     // #33 measured rate limiting: the same URL answered 200 fifteen minutes later.
     caveat: "intermittent 403s (rate limiting) from the measured vantage point; see tests/fixtures/boards/README.md",
   },
   {
-    source: "jobgether", defaultSelected: false,
+    source: "jobgether", label: "Jobgether", needsBrowser: false, defaultSelected: false,
     // #35 restored the API; politeness still limits it to its first page.
     caveat: "robots.txt disallows its API's query-string paging, so a run gets one page; see docs/decisions/scraping-politeness.md",
   },
-  { source: "dice", defaultSelected: false, usesQueries: true, caveat: "client-rendered; needs a browser" },
-  { source: "remotelyde", defaultSelected: true },
+  { source: "dice", label: "Dice", needsBrowser: true, defaultSelected: false, usesQueries: true, caveat: "client-rendered; needs a browser" },
+  { source: "remotelyde", label: "Remotely.de", needsBrowser: false, defaultSelected: true },
 ] as const satisfies readonly BoardPolicy[];
 
 type BoardPolicy = {
   source: string;
+  /** The settings form's label; equal to the adapter's `name` (pinned by a test). */
+  label: string;
+  /** Equal to the adapter's `needsBrowser` (pinned by a test). */
+  needsBrowser: boolean;
   blocked?: boolean;
   usesQueries?: boolean;
 } & ({ defaultSelected: true; caveat?: string } | { defaultSelected: false; caveat: string });
@@ -48,4 +52,18 @@ export const DISABLED_BY_DEFAULT = Object.fromEntries(JOB_BOARDS.filter((board) 
 
 export function boardPolicy(source: string): BoardPolicy | undefined {
   return JOB_BOARDS.find((board) => board.source === source);
+}
+
+/**
+ * Settings choices, read from the board policy so the settings form loads no
+ * adapter. The adapter registry in `scrape.ts` declares the same boards; a test
+ * pins that its keys, names and `needsBrowser` flags equal these rows.
+ */
+export function getAdapterOptions(): Array<{ source: string; label: string; defaultSelected: boolean; needsBrowser: boolean; usesQueries: boolean; status: "supported" | "blocked"; caveat: string | null }> {
+  return (JOB_BOARDS as readonly BoardPolicy[]).map((policy) => ({
+    source: policy.source, label: policy.label, defaultSelected: policy.defaultSelected, needsBrowser: policy.needsBrowser,
+    usesQueries: policy.usesQueries ?? false,
+    status: policy.blocked ? "blocked" : "supported",
+    caveat: policy.caveat ?? null,
+  }));
 }

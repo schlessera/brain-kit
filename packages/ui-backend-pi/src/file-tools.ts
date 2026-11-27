@@ -11,7 +11,7 @@ import { dirname } from "path";
 import { Type } from "typebox";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { bashLockKey, killWrapped, rtkRewriteCommand, wrapCommand } from "@schlessera/brain-ui-sdk/server";
+import { admitToolDispatch, bashLockKey, killWrapped, rtkRewriteCommand, wrapCommand } from "@schlessera/brain-ui-sdk/server";
 import { RTK_WORKER_ENV, execWrapperSpawnOptions, WORKER_DATA_ROOT, WORKER_EGRESS_TRANSPORT_ENV } from "@schlessera/brain-ui-sdk/internal";
 
 import { resolveEnabledWebSearchEnvNames, ambientExecConfig, subprocessEnv } from "./config/env.js";
@@ -224,19 +224,11 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
         if (signal?.aborted) throw new DOMException("Tool cancelled before subprocess execution", "AbortError");
         if (turn.bridge?.commitToolAdmission) await turn.bridge.commitToolAdmission(_id, "bash", params);
         else {
-          let ticket:import("@schlessera/brain-ui-sdk/server").InputSafetyDispatchTicket|undefined;
           try {
             const validate=()=>{signal?.throwIfAborted();return revalidatePiAdmission(turn,"bash",_id,params);};
-            for (const pending of pendingPiAdmission(turn, "bash", _id)) await pending;
-            const stale=validate();if(stale)throw new Error(stale);
-            ticket=turn.bridge?.inputSafety?.prepareDispatch?await turn.bridge?.inputSafety.prepareDispatch(_id):undefined;
-            if(!ticket)await turn.bridge?.inputSafety?.allowed?.(_id,validate);
-            for (const pending of pendingPiAdmission(turn,"bash",_id)) await pending;
-            const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);
-            ticket?.commit(validate);
+            await admitToolDispatch({inputSafety:turn.bridge?.inputSafety,toolUseId:_id,validate,pending:()=>pendingPiAdmission(turn,"bash",_id),dispatchesNow:true});
             forgetPiAdmission(turn,"bash",_id);
           }catch(error){
-            try{await ticket?.cancel();}catch{/* The explicit refusal below still denies dispatch. */}
             forgetPiAdmission(turn,"bash",_id);
             await turn.bridge?.inputSafety?.refused?.(_id,true);
             throw error;

@@ -1,4 +1,4 @@
-import { resolve, dirname } from 'node:path';
+import { resolve } from 'node:path';
 import { mkdir, rm, copyFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { demoDocuments } from '../src/demo/corpus.ts';
