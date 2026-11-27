@@ -42,14 +42,14 @@ function corpus(): string {
   return root;
 }
 
-function provider(opts: { fail?: boolean; embedded?: string[] } = {}): EmbeddingProvider {
+function provider(opts: { fail?: boolean; width?: number; embedded?: string[] } = {}): EmbeddingProvider {
   return {
     id: "fake:v1",
     dimensions: DIM,
     async embed(texts) {
       opts.embedded?.push(...texts);
       if (opts.fail) throw new Error("fake embed failure");
-      return texts.map((t, i) => new Float32Array(DIM).fill((t.length + i) % 7));
+      return texts.map((t, i) => new Float32Array(opts.width ?? DIM).fill((t.length + i) % 7));
     },
     async embedQuery() {
       return new Float32Array(DIM).fill(1);
@@ -156,6 +156,22 @@ describe("a --force rebuild carries its vectors through a temp table", () => {
       const stats = await embed(db, root, { force: true, provider: provider({ fail: true, embedded }) });
       expect(embedded.length).toBe(1);
       expect(stats.embeddings).toBe(2); // the two unchanged sections, from the carry
+      expect(tempTables(db)).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test.if(vecAvailable)("the carry table is gone after a run that throws", async () => {
+    const root = corpus();
+    const db = await open(root);
+    try {
+      await embed(db, root);
+      writeFileSync(join(root, "notes/airships.md"), airships("balloon"));
+      // A vector of the wrong width is refused by the vector writer, and the refusal ends the run.
+      await expect(embed(db, root, { force: true, provider: provider({ width: DIM + 1 }) })).rejects.toThrow(
+        "Embedding provider returned incorrect vector dimensions"
+      );
       expect(tempTables(db)).toEqual([]);
     } finally {
       db.close();
