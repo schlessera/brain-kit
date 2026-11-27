@@ -670,11 +670,6 @@ function checkSearchLanguage(cli: CliContext): Check {
   };
 }
 
-/**
- * The scratch area must be gitignored before anything writes there (#310),
- * or a render could land in the brain's history. Fixable: `--fix` adds the
- * line to `.gitignore`.
- */
 /** `path` as one shell word: single-quoted unless it is plainly safe. */
 function shellWord(path: string): string {
   return /^[\w./@+-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`;
@@ -808,6 +803,11 @@ function checkLegacyCaches(root: string): Check {
   };
 }
 
+/**
+ * The scratch area must be gitignored before anything writes there (#310),
+ * or a render could land in the brain's history. Fixable: `--fix` adds the
+ * line to `.gitignore`.
+ */
 function checkScratch(root: string): Check {
   if (!gitInstalled()) {
     return { id: "scratch", status: "warn", detail: `${GIT_MISSING}, so whether ${SCRATCH_DIR}/ is gitignored was not checked` };
@@ -881,10 +881,25 @@ export async function guarded(id: string, check: () => Check | Promise<Check>): 
   }
 }
 
-async function runChecks(cli: CliContext): Promise<Check[]> {
+/** A fix `applyFixes` can attempt, named by the id of the check it repairs. */
+type FixId = "git-hooks" | "scratch" | "cache-merge" | "symlinks" | "deps" | "db" | "embeddings" | "legacy-index" | "legacy-caches" | "mcp";
+
+/**
+ * One row of the battery: the check's id, the check, and the fixes that can
+ * change its result. A row without that list is affected by every fix, so a
+ * missing declaration re-runs the check after `--fix` rather than reusing a
+ * stale result. Declare a list only with the reason no other fix reaches what
+ * the check reads; `deps` runs an arbitrary `bun install`, `symlinks` also
+ * installs bin links, and the `db` fix's index run also migrates the legacy
+ * caches.
+ */
+type BatteryRow = [id: string, check: () => Check | Promise<Check>, affectedBy?: readonly FixId[]];
+
+async function runChecks(cli: CliContext, after?: { previous: Check[]; attempted: ReadonlySet<FixId> }): Promise<Check[]> {
   const root = cli.brain.root;
-  const battery: [string, () => Check | Promise<Check>][] = [
-    ["runtime", () => checkRuntime()],
+  const battery: BatteryRow[] = [
+    // The running Bun's own version.
+    ["runtime", () => checkRuntime(), []],
     ["git-hooks", () => checkGitHooks(root)],
     ["symlinks", () => checkSymlinks(root)],
     ["shadowed-commands", () => checkShadowedCommands(cli)],
@@ -895,31 +910,48 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     ["legacy-caches", () => checkLegacyCaches(root)],
     ["embeddings", () => checkEmbeddings(cli)],
     ["reranker", () => checkReranker(cli)],
-    ["mcp", () => checkMcp(root)],
+    // `claude mcp add` writes the registration; `bun install` can create the
+    // file a registration names.
+    ["mcp", () => checkMcp(root), ["mcp", "deps"]],
     ["deps", () => checkDeps(root)],
-    ["version", () => checkVersion()],
-    ["privacy", () => checkPrivacy(root)],
+    // The running package's own manifest. `deps` installs only into a brain
+    // with no node_modules, which therefore does not hold the running package.
+    ["version", () => checkVersion(), []],
+    // The remote's visibility on GitHub; no fix touches a remote.
+    ["privacy", () => checkPrivacy(root), []],
     ["eval-baseline", () => checkEvalBaseline(root)],
-    ["git-storage", () => checkGitStorage(root)],
-    ["tracked-leftovers", () => checkTrackedLeftovers(root)],
-    ["tracked-media", () => checkTrackedMedia(cli)],
+    // Loose objects and refs/original; no fix writes a git object or a ref.
+    ["git-storage", () => checkGitStorage(root), []],
+    // Both read git's index, which no fix stages into or out of.
+    ["tracked-leftovers", () => checkTrackedLeftovers(root), []],
+    ["tracked-media", () => checkTrackedMedia(cli), []],
     ["scratch", () => checkScratch(root)],
     ["search-language", () => checkSearchLanguage(cli)],
     ["cache-merge", () => checkCacheMerge(root)],
     ["sqlite-vec-macos", () => checkSqliteVecMac()],
   ];
   const checks: Check[] = [];
-  for (const [id, check] of battery) checks.push(await guarded(id, check));
+  for (const [i, [id, check, affectedBy]] of battery.entries()) {
+    // After fixes, keep a first result no attempted fix can have changed.
+    const affected = after && (affectedBy === undefined ? after.attempted.size > 0 : affectedBy.some((fix) => after.attempted.has(fix)));
+    checks.push(after && !affected ? after.previous[i]! : await guarded(id, check));
+  }
   return checks;
 }
 
-/** Apply the auto-fixable checks currently not passing. Returns applied ids. */
-async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
+/**
+ * Apply the auto-fixable checks currently not passing. Returns the ids of the
+ * fixes that took effect (`fixesApplied`) and of every fix it attempted,
+ * whether or not it succeeded.
+ */
+async function applyFixes(cli: CliContext, checks: Check[]): Promise<{ applied: string[]; attempted: Set<FixId> }> {
   const root = cli.brain.root;
   const applied: string[] = [];
+  const attempted = new Set<FixId>();
   const failing = new Set(checks.filter((c) => c.status !== "pass").map((c) => c.id));
 
   if (failing.has("git-hooks")) {
+    attempted.add("git-hooks");
     // installGitHooks throws when the packaged hooks are missing (e.g. a
     // source checkout before `bun run build`) — record the failed fix and
     // keep running the rest of the battery.
@@ -930,6 +962,7 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     }
   }
   if (failing.has("scratch") && gitInstalled()) {
+    attempted.add("scratch");
     // A symlinked scratch is not fixable by a line; the check already said so.
     // Without git, whether the line is needed cannot be asked.
     try {
@@ -942,6 +975,7 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     }
   }
   if (failing.has("cache-merge")) {
+    attempted.add("cache-merge");
     try {
       if (unionMergeCaches(root)) applied.push("cache-merge");
     } catch (e) {
@@ -949,6 +983,7 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     }
   }
   if (failing.has("symlinks")) {
+    attempted.add("symlinks");
     // A `.claude/skills` that is not a directory makes the sync throw; the
     // check already said what to do, so record it and keep going.
     try {
@@ -961,10 +996,13 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     }
   }
   if (failing.has("deps")) {
+    attempted.add("deps");
     Bun.spawnSync(["bun", "install"], { cwd: root });
     applied.push("deps");
   }
   if (failing.has("db") || failing.has("embeddings")) {
+    if (failing.has("db")) attempted.add("db");
+    if (failing.has("embeddings")) attempted.add("embeddings");
     const dims = embeddingDims(cli.embeddings);
     const db = openDatabase(cli.brain.dbPath, { embeddingDimensions: dims });
     await migrateVecSchema(db, storedVectorWidth(db, dims));
@@ -984,6 +1022,7 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
   }
   // After the db fix, so the rebuilt index exists before the old copy goes.
   if (failing.has("legacy-index")) {
+    attempted.add("legacy-index");
     try {
       if (removeLegacyIndex(root)) applied.push("legacy-index");
     } catch (e) {
@@ -991,6 +1030,7 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     }
   }
   if (failing.has("legacy-caches")) {
+    attempted.add("legacy-caches");
     try {
       // The db fix's index run may already have moved them.
       migrateSidecarCaches(root);
@@ -1001,6 +1041,7 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     }
   }
   if (failing.has("mcp") && which("claude")) {
+    attempted.add("mcp");
     const brainBin = resolve(root, "node_modules/.bin/brain");
     Bun.spawnSync(
       ["claude", "mcp", "add", "brain", "--", "bun", brainBin, "mcp"],
@@ -1009,7 +1050,7 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     applied.push("mcp");
   }
 
-  return applied;
+  return { applied, attempted };
 }
 
 export const doctorCommand: CoreCommand = {
@@ -1021,8 +1062,10 @@ export const doctorCommand: CoreCommand = {
     let checks = await runChecks(cli);
     let applied: string[] = [];
     if (flags.fix === true) {
-      applied = await applyFixes(cli, checks);
-      checks = await runChecks(cli); // re-run to reflect the repairs
+      const fixes = await applyFixes(cli, checks);
+      applied = fixes.applied;
+      // Re-run what an attempted fix can have changed, to reflect the repairs.
+      checks = await runChecks(cli, { previous: checks, attempted: fixes.attempted });
     }
 
     emit(cli.json, { checks, ...(flags.fix === true ? { fixesApplied: applied } : {}) }, () => {
