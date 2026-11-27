@@ -1026,13 +1026,18 @@ describe("sections from chunks", () => {
       expect(hit).not.toContain("Later paragraph 1");
     });
 
-    test("a chunk whose lines the file holds twice cannot be placed, and keeps its snippet", async () => {
+    test("a chunk whose text the file holds twice widens to its own copy", async () => {
       const pair = `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n\n`;
-      const { hit, chunks } = await unplaced({ "studies/folded.md": study("Folded", `${pair}${pair}`) }, 4000);
+      const file = study("Folded", `${pair}${pair}`);
+      const { hit, chunks, coverage } = await unplaced({ "studies/folded.md": file }, 4000, { include: ["studies/"] });
       expect(chunks).toHaveLength(2);
       expect(chunks[0]!.content).toBe(chunks[1]!.content);
-      expect(hit.split("\n")).toHaveLength(2);
-      expect(hit).not.toContain("####");
+      expect(hit).toContain("#### Signal\nThe beacon code is violet.\n\n#### Tides\nTide paragraph 1");
+      // The first copy, by the lines the index recorded for the best chunk.
+      const lines = file.split("\n");
+      const signal = lines.indexOf("## Signal") + 1;
+      const last = lines.findIndex((line) => line.startsWith("Tide paragraph 8 ")) + 1;
+      expect(coverage.excerpts.find((e) => e.path === "studies/folded.md")).toEqual({ path: "studies/folded.md", lane: "search", form: "section", lines: [signal, last] });
     });
 
     test("a heading with a closing sequence is a component like any other", async () => {
@@ -1088,6 +1093,124 @@ describe("sections from chunks", () => {
     } finally {
       db.close();
     }
+  });
+
+  // #3683 after review round 4: a folded chunk's span is read from the lines
+  // the index recorded for it. Each shape either widens to its true span,
+  // with its lines, or keeps the snippet; none lands on other text.
+  describe("recorded chunk lines", () => {
+    // Only the match line fails; the chunk itself is still matched.
+    function failMatchLine(db: Database) {
+      const real = db.prepare.bind(db);
+      return spyOn(db, "prepare").mockImplementation(((sql: string) => {
+        if (sql.includes("highlight(chunks_fts")) throw new Error("injected highlight failure");
+        return real(sql);
+      }) as typeof db.prepare);
+    }
+    async function scoped(files: Record<string, string>, query: string, maxTokens = 20000) {
+      const { ctx, db } = await brainWith(files);
+      try {
+        const path = Object.keys(files)[0]!;
+        const coverage = emptyContextCoverage();
+        const out = await assembleContext(db, ctx, { query, maxTokens, includeIdentity: false, includeCurrentFocus: false, scope: { include: [path] }, coverage });
+        return { hit: hitsOf(out).find((h) => h.includes(`(${path})`))!, excerpt: coverage.excerpts.find((e) => e.path === path), ctx, db };
+      } catch (error) {
+        db.close();
+        throw error;
+      }
+    }
+
+    test("two pairs with the same text under other headings: the hit widens to the pair it is", async () => {
+      const pair = (a: string, b: string) => `## ${a}\n\nThe lamp code is violet.\n\n## ${b}\n\n${para("Depth", 8)}\n\n`;
+      const file = study("Folded", `${pair("Signal", "Soundings")}${pair("Lantern", "Narrows")}`);
+      const { hit, excerpt, db } = await scoped({ "studies/folded.md": file }, "Narrows");
+      try {
+        expect(hit).toContain("#### Lantern\nThe lamp code is violet.\n\n#### Narrows\nDepth paragraph 1");
+        expect(hit).not.toContain("#### Signal");
+        const lines = file.split("\n");
+        const last = lines.length - 1 - [...lines].reverse().findIndex((line) => line.startsWith("Depth paragraph 8 "));
+        expect(excerpt).toEqual({ path: "studies/folded.md", lane: "search", form: "section", lines: [lines.indexOf("## Lantern") + 1, last + 1] });
+      } finally {
+        db.close();
+      }
+    });
+
+    test("a stub folded into a section whose match line only another section holds keeps its snippet", async () => {
+      const body = `## Harbour\n\n${para("Harbour", 20)}\n\n### Beacon\n\n${para("Mole", 4)}\n\n## Currents\n\n${para("Current", 20)}\n\n## Wind › Beacon\n\nThe lamp on the point is lit at dusk.\n`;
+      const { hit, db } = await scoped({ "studies/folded.md": study("Folded", body) }, "Beacon");
+      try {
+        expect(hit).toBeDefined();
+        expect(hit).not.toContain("#### Harbour");
+        expect(hit).not.toContain("Mole paragraph 1");
+      } finally {
+        db.close();
+      }
+    });
+
+    test("a match in one of three same-named sections expands that section alone", async () => {
+      const body = `## Cove\n\nThe torch is kept dry in the cove.\n\n${para("Cove", 8)}\n\n## Cove\n\n${para("Bay", 8)}\n\n## Cove\n\nThe last cove note.\n`;
+      const { hit, excerpt, db } = await scoped({ "studies/folded.md": study("Folded", body) }, "torch");
+      try {
+        expect(hit).toContain("#### Cove\nThe torch is kept dry in the cove.");
+        expect(hit).not.toContain("Bay paragraph 1");
+        expect(hit).not.toContain("The last cove note.");
+        expect(excerpt).toEqual({ path: "studies/folded.md", lane: "search", form: "section" });
+      } finally {
+        db.close();
+      }
+    });
+
+    test("a chunk with an empty ## heading in it is not told by line counts", async () => {
+      // Storm repeats two of Harbour's lines, one on each side of its empty
+      // heading: Harbour then holds more of Storm's chunk than either part of Storm.
+      const mole = `The mole is ready ${"and its stones are set against the swell from the north ".repeat(4)}`.trim();
+      const beacon = `The beacon is ready ${"and its oil is laid in for the long nights of the storm ".repeat(4)}`.trim();
+      const body = `## Harbour\n\n${mole}\n\n${beacon}\n\n${para("Harbour", 8)}\n\n## Storm\n\n${mole}\n\n##\n\n${beacon}\n`;
+      const { hit, excerpt, db } = await scoped({ "studies/folded.md": study("Folded", body) }, "Storm");
+      try {
+        expect(hit).not.toContain("#### Harbour");
+        expect(hit).not.toContain("Harbour paragraph 1");
+        expect(excerpt?.lines).toBeUndefined();
+      } finally {
+        db.close();
+      }
+    });
+
+    test("an unfolded section with an unplaced match is that section, with no span lines", async () => {
+      const { ctx, db } = await brainWith({ "studies/notes.md": study("Notes", `## Notes\n\nThe beacon log opens here.\n\n${para("Note", 8)}\n`) });
+      const spy = failMatchLine(db);
+      try {
+        const coverage = emptyContextCoverage();
+        const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false, scope: { include: ["studies/"] }, coverage });
+        expect(hitsOf(out).find((h) => h.includes("(studies/notes.md)"))).toContain("#### Notes\nThe beacon log opens here.");
+        expect(coverage.excerpts.find((e) => e.path === "studies/notes.md")).toEqual({ path: "studies/notes.md", lane: "search", form: "section" });
+      } finally {
+        spy.mockRestore();
+        db.close();
+      }
+    });
+
+    test.each([
+      // Same lines, other text: only the file's hash says the recorded lines are stale.
+      ["the file changed since it was indexed", (root: string) => writeFileSync(join(root, "studies/folded.md"), readFileSync(join(root, "studies/folded.md"), "utf8").replace("violet", "amber"))],
+      ["the chunks came from an older chunker", (_: string, db: Database) => db.run("UPDATE documents SET chunker_version = 3 WHERE path = 'studies/folded.md'")],
+      ["the index holds no lines for the chunk", (_: string, db: Database) => db.run("UPDATE chunks SET start_line = NULL, end_line = NULL")],
+    ])("a folded chunk keeps its snippet when %s", async (_, stale) => {
+      const file = study("Folded", `## Signal\n\nThe beacon code is violet.\n\n## Tides\n\n${para("Tide", 8)}\n`);
+      const { ctx, db } = await brainWith({ "studies/folded.md": file });
+      const spy = failMatchLine(db);
+      try {
+        stale(ctx.root, db);
+        const coverage = emptyContextCoverage();
+        const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 4000, includeIdentity: false, includeCurrentFocus: false, scope: { include: ["studies/"] }, coverage });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit.split("\n")).toHaveLength(2);
+        expect(coverage.excerpts.find((e) => e.path === "studies/folded.md")).toEqual({ path: "studies/folded.md", lane: "search", form: "snippet" });
+      } finally {
+        spy.mockRestore();
+        db.close();
+      }
+    });
   });
 
   test("when chunk matching fails, the context still assembles, from snippets", async () => {

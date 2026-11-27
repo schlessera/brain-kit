@@ -90,11 +90,11 @@ function prepareStatements(db: Database) {
       "INSERT INTO documents_fts(rowid, title, summary, content, tags, aliases) VALUES (?, ?, ?, ?, ?, ?)"
     ),
     insertChunk: db.prepare(
-      `INSERT INTO chunks (document_id, chunk_index, heading, content, token_estimate)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO chunks (document_id, chunk_index, heading, content, token_estimate, start_line, end_line)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     ),
     oldChunks: db.prepare("SELECT id, heading, content FROM chunks WHERE document_id = ? ORDER BY chunk_index"),
-    moveChunk: db.prepare("UPDATE chunks SET chunk_index = ?, token_estimate = ? WHERE id = ?"),
+    moveChunk: db.prepare("UPDATE chunks SET chunk_index = ?, token_estimate = ?, start_line = ?, end_line = ? WHERE id = ?"),
     deleteChunk: db.prepare("DELETE FROM chunks WHERE id = ?"),
     insertLink: db.prepare(
       "INSERT OR IGNORE INTO links (source_id, target, target_id) VALUES (?, ?, ?)"
@@ -222,9 +222,10 @@ function writeDocument(
   for (const chunk of chunks) {
     const id = reusable.get(chunkContextKey(title, chunk.heading, chunk.content))?.shift();
     if (id !== undefined) {
-      st.moveChunk.run(chunk.chunk_index, chunk.token_estimate, id);
+      // A kept chunk can sit on other lines now: its lines move with it.
+      st.moveChunk.run(chunk.chunk_index, chunk.token_estimate, chunk.start_line ?? null, chunk.end_line ?? null, id);
     } else {
-      st.insertChunk.run(chunk.document_id, chunk.chunk_index, chunk.heading, chunk.content, chunk.token_estimate);
+      st.insertChunk.run(chunk.document_id, chunk.chunk_index, chunk.heading, chunk.content, chunk.token_estimate, chunk.start_line ?? null, chunk.end_line ?? null);
     }
     run.stats.chunks++;
   }

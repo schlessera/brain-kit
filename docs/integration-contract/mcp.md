@@ -147,9 +147,12 @@ which validates the scope (`parseContextScope`,
   widened to a folded chunk's span: a hit whose best chunk is made of whole
   sections, a short one merged into its neighbour, and whose match no single
   section holds becomes every section of that chunk, in source order, taken
-  whole or not at all. The chunk is placed by chunking those sections again
-  and getting it back exactly, once in the file. A piece of a section the
-  indexer split over several chunks keeps its snippet. `lines` is `[start, end]`, the 1-based
+  whole or not at all. The span is read from the source lines the index
+  recorded for the chunk ([schema 16](frontmatter.md)), never inferred: it
+  widens only when those lines are exactly a run of whole sections. A piece
+  of a section the indexer split over several chunks records no lines and
+  keeps its snippet, and so does a chunk whose file changed since the index
+  run or whose index predates the lines. `lines` is `[start, end]`, the 1-based
   file lines from the span's first heading (or first line) to its last line.
   `budgetExhausted` is true when an in-scope candidate was cut or left out for
   lack of budget, including a hit that kept its snippet because its section

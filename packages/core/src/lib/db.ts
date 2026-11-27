@@ -18,7 +18,7 @@ import { maintenanceConfigRoots } from "../config/env.js";
  * Bumping it is a contract change: update docs/integration-contract.md in the
  * same commit and re-check every floor the contract test lists.
  */
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 /** Embedding identity written into index_metadata; defaults come from models.ts. */
 export interface SchemaOptions {
@@ -484,7 +484,7 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
     setSchemaVersion(db, 14);
   }
 
-  if (currentVersion < SCHEMA_VERSION) {
+  if (currentVersion < 15) {
     // v15 — the `verification` frontmatter declaration (#394), which `brain
     // audit` reads. Clearing the markdown rows' content hash makes the next
     // index run re-read every file, so the column is filled without
@@ -494,6 +494,18 @@ function applyMigrations(db: Database, options?: SchemaOptions): void {
       db.run("ALTER TABLE documents ADD COLUMN verification TEXT");
       db.run("UPDATE documents SET content_hash = NULL WHERE asset_type = 'markdown'");
     }
+
+    setSchemaVersion(db, 15);
+  }
+
+  if (currentVersion < SCHEMA_VERSION) {
+    // v16 — each chunk's source lines (#3683), which context assembly reads
+    // to widen a folded chunk. Existing rows read NULL until the next index
+    // run, which re-chunks every document for the chunker version that
+    // records them.
+    const columns = db.prepare("PRAGMA table_info(chunks)").all() as { name: string }[];
+    if (!columns.some((c) => c.name === "start_line")) db.run("ALTER TABLE chunks ADD COLUMN start_line INTEGER");
+    if (!columns.some((c) => c.name === "end_line")) db.run("ALTER TABLE chunks ADD COLUMN end_line INTEGER");
 
     setSchemaVersion(db, SCHEMA_VERSION);
   }
