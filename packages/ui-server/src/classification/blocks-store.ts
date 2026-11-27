@@ -29,7 +29,7 @@ export function saveMessageBlocks(
   blocks: MessageBlock[],
   at = Date.now()
 ): void {
-  db.prepare(
+  db.query(
     `INSERT INTO message_blocks (session_id, part_hash, blocks, created_at)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(session_id, part_hash) DO UPDATE SET blocks = excluded.blocks, created_at = excluded.created_at`

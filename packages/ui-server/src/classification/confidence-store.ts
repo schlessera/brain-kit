@@ -48,12 +48,12 @@ export function recordQuestionConfidence(
   // forget, so one session's slow pass can still be writing when the next
   // turn's starts, and a timestamp does not separate them.
   const passId = crypto.randomUUID();
-  const insert = db.prepare(
+  const insert = db.query(
     `INSERT INTO classification_confidence
        (session_id, pass_id, candidate_id, recorded_at, candidate_kind, question, answer_type, choice, confidence, threshold, cleared, outcome)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
-  const prune = db.prepare("DELETE FROM classification_confidence WHERE recorded_at < ?");
+  const prune = db.query("DELETE FROM classification_confidence WHERE recorded_at < ?");
   // `.immediate` takes the write lock up front. A deferred transaction that
   // starts reading and upgrades on the first INSERT loses the snapshot race to
   // a concurrent writer with SQLITE_BUSY, which busy_timeout does not rescue —
