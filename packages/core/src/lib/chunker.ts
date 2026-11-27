@@ -24,6 +24,13 @@ interface ChunkInput {
 interface Section {
   heading: string;
   content: string;
+  /**
+   * Where the section sits in the chunked text, `[start, end)`: from its
+   * heading (or first non-blank character) to just after its last
+   * non-blank character. Null for a piece of a section split over several
+   * chunks, whose text the chunker repacks (#3683).
+   */
+  span: [number, number] | null;
 }
 
 /*
@@ -52,8 +59,12 @@ function topLevel(text: string): MdNode[] {
 const startOf = (node: MdNode) => node.position?.start.offset ?? 0;
 const endOf = (node: MdNode) => node.position?.end.offset ?? 0;
 
-/** A heading's text as written: after the `#`s for ATX, the text lines for setext. */
-function headingText(source: string): string {
+/**
+ * A heading's text as written: after the `#`s for ATX, the text lines for
+ * setext. A `##` heading whose text is empty is content, not a split; context
+ * assembly reads a source's sections by the same rule (#3683).
+ */
+export function headingText(source: string): string {
   const atx = source.match(/^ {0,3}#{1,6}(?:[ \t]+|$)(.*)$/s);
   if (atx) return atx[1].trim();
   return source.split("\n").slice(0, -1).map((line) => line.trim()).join(" ").trim();
@@ -77,19 +88,30 @@ function trimBlankLines(text: string): string {
  * Cut `content` at its top-level headings of `depth`. The part before the
  * first one has a null heading. Headings with no text are content.
  */
-function splitAtHeadings(content: string, depth: number): Array<{ heading: string | null; content: string }> {
-  const parts: Array<{ heading: string | null; content: string }> = [];
+function splitAtHeadings(content: string, depth: number): Array<{ heading: string | null; content: string; span: [number, number] }> {
+  const parts: Array<{ heading: string | null; content: string; span: [number, number] }> = [];
+  // A part's text, and where it sits: from its heading, or for the part
+  // before the first heading from its first non-blank line, to just after
+  // its last non-blank character.
+  const part = (heading: string | null, head: number, from: number, to: number) => {
+    const slice = content.slice(from, to);
+    const text = trimBlankLines(slice);
+    const lead = /^(?:[ \t]*\r?\n)*/.exec(slice)![0].length;
+    return { heading, content: text, span: [heading === null ? from + lead : head, from + lead + text.length] as [number, number] };
+  };
   let heading: string | null = null;
+  let head = 0;
   let from = 0;
   for (const node of topLevel(content)) {
     if (node.type !== "heading" || node.depth !== depth) continue;
     const text = headingText(content.slice(startOf(node), endOf(node)));
     if (!text) continue;
-    parts.push({ heading, content: trimBlankLines(content.slice(from, startOf(node))) });
+    parts.push(part(heading, head, from, startOf(node)));
     heading = text;
+    head = startOf(node);
     from = endOf(node);
   }
-  parts.push({ heading, content: trimBlankLines(content.slice(from)) });
+  parts.push(part(heading, head, from, content.length));
   return parts;
 }
 
@@ -97,7 +119,7 @@ function splitAtHeadings(content: string, depth: number): Array<{ heading: strin
 function splitBySections(content: string): Section[] {
   return splitAtHeadings(content, 2)
     .filter((part) => part.content)
-    .map((part) => ({ heading: part.heading ?? "(intro)", content: part.content }));
+    .map((part) => ({ heading: part.heading ?? "(intro)", content: part.content, span: part.span }));
 }
 
 /**
@@ -106,7 +128,7 @@ function splitBySections(content: string): Section[] {
  * each document whose stored version is another one, once, even when its file did
  * not change.
  */
-export const CHUNKER_VERSION = 3;
+export const CHUNKER_VERSION = 4;
 
 /** Every code block in the subtree, as [start, end) offsets: nothing is split inside one. HTML is not code. */
 function codeRanges(node: MdNode, base: number, ranges: Array<[number, number]>): Array<[number, number]> {
@@ -323,6 +345,7 @@ function splitAtSubheadings(section: Section): Section[] {
             ? part.heading
             : `${section.heading} › ${part.heading}`,
       content: part.content,
+      span: null,
     }));
 }
 
@@ -340,7 +363,7 @@ function splitLargeSection(section: Section): Section[] {
   for (let i = 0; i < parts.length - 1; i++) {
     if (estimateTokens(parts[i].content) >= MIN_TOKENS) continue;
     const label = parts[i].heading === section.heading ? "" : `### ${parts[i].heading.split(" › ").pop()}\n\n`;
-    parts[i + 1] = { heading: parts[i + 1].heading, content: `${label}${parts[i].content}\n\n${parts[i + 1].content}` };
+    parts[i + 1] = { heading: parts[i + 1].heading, content: `${label}${parts[i].content}\n\n${parts[i + 1].content}`, span: null };
     parts.splice(i, 1);
     i--;
   }
@@ -348,7 +371,7 @@ function splitLargeSection(section: Section): Section[] {
   for (const part of parts) {
     const pieces = estimateTokens(part.content) > MAX_TOKENS ? packBlocks(part.content) : [part.content];
     pieces.forEach((content, index) => {
-      result.push({ heading: index === 0 ? part.heading : `${part.heading} (cont.)`, content });
+      result.push({ heading: index === 0 ? part.heading : `${part.heading} (cont.)`, content, span: null });
     });
   }
   return result;
@@ -376,6 +399,9 @@ function foldLabel(heading: string, previous: string): string {
  * - Folds a final chunk under 100 tokens into the one before it, when the
  *   result stays within 1000: a closing link list or sign-off has no next
  *   section to merge into, and alone it is a chunk carrying almost no text
+ * - Records each chunk's source lines (`start_line`, `end_line`, 1-based in
+ *   `content`) when it is made of whole sections; a chunk holding a piece of
+ *   a split section records none (#3683), since its text is repacked
  */
 export function chunkDocument(input: ChunkInput): Omit<Chunk, "id">[] {
   const sections = splitBySections(input.content);
@@ -398,6 +424,7 @@ export function chunkDocument(input: ChunkInput): Omit<Chunk, "id">[] {
       sections[i + 1] = {
         heading: next.heading,
         content: `${section.heading !== "(intro)" ? `## ${section.heading}\n\n` : ""}${section.content}\n\n${next.content}`,
+        span: joinSpans(section.span, next.span),
       };
       i++;
       continue;
@@ -426,19 +453,48 @@ export function chunkDocument(input: ChunkInput): Omit<Chunk, "id">[] {
       const label = foldLabel(last.heading, previous.heading);
       const content = `${previous.content}\n\n${label}${last.content}`;
       if (estimateTokens(content) <= MAX_TOKENS) {
-        final.splice(final.length - 2, 2, { heading: previous.heading, content });
+        final.splice(final.length - 2, 2, { heading: previous.heading, content, span: joinSpans(previous.span, last.span) });
       }
     }
   }
 
-  // Phase 4: convert to Chunk objects
+  // Phase 4: convert to Chunk objects. The text's line breaks are found once,
+  // so recording every chunk's lines stays linear in the document.
+  const lineOf = lineIndex(input.content);
   return final.map((section, index) => ({
     document_id: input.documentId,
     chunk_index: index,
     heading: section.heading,
     content: section.content,
     token_estimate: estimateTokens(section.content),
+    start_line: section.span ? lineOf(section.span[0]) : null,
+    end_line: section.span ? lineOf(section.span[1] - 1) : null,
   }));
+}
+
+/** Two consecutive sections' spans as one, or null when either is a piece. */
+function joinSpans(first: [number, number] | null, second: [number, number] | null): [number, number] | null {
+  return first && second ? [first[0], second[1]] : null;
+}
+
+/**
+ * The 1-based line an offset of `text` is on, counting LF (a CRLF's CR stays
+ * on its line, a bare CR does not end one: the line-cutting limit above). The
+ * line breaks are found in one pass; each lookup is a binary search over them.
+ */
+export function lineIndex(text: string): (offset: number) => number {
+  const breaks: number[] = [];
+  for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) breaks.push(at);
+  return (offset) => {
+    let low = 0;
+    let high = breaks.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (breaks[mid]! < offset) low = mid + 1;
+      else high = mid;
+    }
+    return low + 1;
+  };
 }
 
 /**

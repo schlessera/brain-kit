@@ -145,7 +145,7 @@ Prefer the CLI/MCP. If reading directly:
   regenerates all of it. A root-level `brain.db` is a stale copy from an
   earlier release that nothing updates.
 
-- Check `index_metadata` first: `schema_version` (currently **16**),
+- Check `index_metadata` first: `schema_version` (currently **17**),
   `embedding_model`, `embedding_dimensions`, `vec_schema`, and `fts_tokenizer`
   (additive in 0.38.0): the FTS5 tokenizer `documents_fts` was built with,
   `porter unicode61` for `search.language: english` (the default) or
@@ -193,6 +193,14 @@ Prefer the CLI/MCP. If reading directly:
   from the rows already there; no table or column changed from 15, so a
   reader that accepts 15 reads 16 unchanged and an upgraded brain needs no
   reindex.
+  Schema 17 (0.45.0, #3683) adds only the nullable `chunks.start_line` and
+  `chunks.end_line` columns: a chunk's first and last source lines, 1-based
+  in the text after the frontmatter, for a chunk made of whole sections;
+  `NULL` for a chunk holding a piece of a section split over several chunks,
+  for asset chunks and for rows written before them. A reader that accepts 16
+  reads 17 unchanged. The chunker version that records them is new, so the
+  next index run re-chunks every markdown document; a chunk whose heading and
+  text are unchanged keeps its row and vector, with its lines updated.
 - Semi-stable tables: `documents` (path, title, type, status, relevance,
   content, deadline, next_review, …), `chunks`, `tags`/`document_tags`,
   `links`, and the derived graph tables `graph_metrics` (document_id,
