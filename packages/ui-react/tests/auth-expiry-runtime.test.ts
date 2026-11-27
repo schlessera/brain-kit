@@ -462,7 +462,7 @@ describe.skipIf(!executablePath)("auth boundary failures and revocation (#1018)"
    expect(await field(page).inputValue(),"prior draft not restored").toBe("");
    expect(await fixture(page,(f)=>f.recording()),"prior audio not listed").toEqual([]);
    await page.locator("[data-locked-recordings]").waitFor();
-   expect(await page.locator("[data-locked-recordings]").textContent()).toMatch(/^Locked recordings from another account · [0-9.]+ MB$/);
+   expect(await page.locator("[data-locked-recordings]").textContent()).toMatch(/^Locked recordings from another account · [0-9.]+ (B|KB|MB)$/);
    expect(await page.evaluate((key)=>(window as unknown as {__local:Fixture}).__local.list(key), key),"prior partition cannot be read").toEqual({ok:false,error:"PartitionRefusedError"});
    expect(await page.evaluate(([key,id])=>(window as unknown as {__local:Fixture}).__local.readAudio(key!,id!), [key,rows[0]!.id]),"prior audio cannot play").toEqual({ok:false,error:"PartitionRefusedError"});
    expect(await page.evaluate(()=>document.documentElement.outerHTML)).not.toContain(DRAFT);

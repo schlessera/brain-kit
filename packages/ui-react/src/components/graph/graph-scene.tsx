@@ -6,7 +6,7 @@ import {
   Loader2,
   TriangleAlert,
   X,
-} from "lucide-react";
+} from "../icons.js";
 import type {
   GraphMaintenanceResponse,
   GraphNodePayload,

@@ -36,7 +36,7 @@ import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
 import { attachTurnFailures, type RecordedTurnFailure } from "./turn-failures.js";
 import * as writes from "./session-catalog-writes.js";
-import { procedureCaller, type ProcedureCall, type SqliteWriter } from "../db/write-worker.js";
+import { procedureCaller, trackedCaller, trackPendingEffect, type ProcedureCall, type SqliteWriter } from "../db/write-worker.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
 
@@ -238,22 +238,14 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   };
 
   // Every catalog write is one procedure call, committed in submission order
-  // (#2850). `tail` is the latest one's settlement: the worker settles calls
+  // (#2850). Its tail is the latest one's settlement: the worker settles calls
   // in order, so once it has settled, so has every write submitted before it.
   let caller: ProcedureCall | undefined;
-  let tail: Promise<void> = Promise.resolve();
-  const settle = (done: Promise<unknown>) => { tail = done.then(() => {}, () => {}); };
-  const submit = <T>(name: string, ...args: unknown[]): Promise<T> => {
-    let done: Promise<T>;
-    try {
-      caller ??= procedureCaller(db(), { url: writes.url, setup: writes.setup }, accounting?.writer
-        ? { activity: { writer: accounting.store.writer, ...(accounting.pricingConfig ? { pricing: accounting.pricingConfig } : {}) } }
-        : { local: () => ({ store: getAccounting().store as ActivityStore, pricing: getAccounting().pricing }) }, accounting?.writer);
-      done = caller<T>(name, ...args);
-    } catch (error) { done = Promise.reject(error); }
-    settle(done);
-    return done;
-  };
+  // Built on the first write; a throw while building it rejects that write.
+  const written = trackedCaller((name, ...args) => (caller ??= procedureCaller(db(), { url: writes.url, setup: writes.setup }, accounting?.writer
+    ? { activity: { writer: accounting.store.writer, ...(accounting.pricingConfig ? { pricing: accounting.pricingConfig } : {}) } }
+    : { local: () => ({ store: getAccounting().store as ActivityStore, pricing: getAccounting().pricing }) }, accounting?.writer))(name, ...args));
+  const settle = written.record, submit = written.call;
 
   // The effects of writes submitted and not yet settled, per session, in
   // submission order. A synchronous read on the turn path answers from the
@@ -265,16 +257,6 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   const pendingExchanges = new Map<string, LocalExchange[]>();
   const takenExchanges = new Map<string, Set<string>>();
   const pendingWork = new Map<string, Array<(row: work.AcceptedWork | null) => work.AcceptedWork | null>>();
-  const track = <E, T>(effects: Map<string, E[]>, sessionId: string, effect: E, done: Promise<T>): Promise<T> => {
-    const list = effects.get(sessionId) ?? [];
-    list.push(effect);
-    effects.set(sessionId, list);
-    void done.then(() => {}, () => {}).then(() => {
-      list.splice(list.indexOf(effect), 1);
-      if (list.length === 0 && effects.get(sessionId) === list) effects.delete(sessionId);
-    });
-    return done;
-  };
   const committedRow = (sessionId: string) => db()
     .query("SELECT provider_id AS providerId, backend_id AS backendId FROM sessions WHERE id = ?")
     .get(sessionId) as { providerId: string | null; backendId: string | null } | null;
@@ -301,7 +283,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number, ownerPrincipalId?: string, creatorTurnId?: string, outputSpeed?: OutputSpeed) => {
     const row: writes.SessionRow = { id: sessionId, title: promptText.slice(0, 100), at: Date.now(), costUsd, turns, providerId, backendId,
       ...(ownerPrincipalId ? { ownerPrincipalId, creatorTurnId } : {}), ...(outputSpeed ? { outputSpeed } : {}) };
-    return track(rowEffects, sessionId, { upsert: { providerId, backendId, ...(outputSpeed ? { outputSpeed } : {}) } }, submit<void>("upsertSession", row));
+    return trackPendingEffect(rowEffects, sessionId, { upsert: { providerId, backendId, ...(outputSpeed ? { outputSpeed } : {}) } }, submit<void>("upsertSession", row));
   };
   /** Highest revision issued per session; it never goes down, so a failed acceptance's revision is never reused. */
   const issued = new Map<string, number>();
@@ -333,7 +315,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     async retireChat(input, busy) {
       // Settle every earlier submission first, so this preflight judges the
       // set the writer will see; the writer still decides atomically.
-      await tail;
+      await written.tail();
       // The current clock, after the wait above: never the request's stamp.
       if (!authorizedOwner(db(), input.principalId, Date.now())) return { status: "refused", reason: "unauthorized" };
       const preview = resolveChat(db(), input.target);
@@ -346,10 +328,10 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       }
       return result;
     },
-    async chatRetirement(operationId, principalId) { await tail; return chatRetirement(db(), operationId, principalId); },
+    async chatRetirement(operationId, principalId) { await written.tail(); return chatRetirement(db(), operationId, principalId); },
     recordChatCleanup: (lifecycleId, store, outcome) => submit("chatCleanup", lifecycleId, store, outcome, Date.now()),
     cleanChatStore: (lifecycleId, store) => submit("chatStoreCleanup", lifecycleId, store, Date.now()),
-    async unfinishedChatRetirements() { await tail; return unfinishedChatRetirements(db()); },
+    async unfinishedChatRetirements() { await written.tail(); return unfinishedChatRetirements(db()); },
     chatRetired: target => "conversationId" in target ? isRetired(db(), "conversation", target.conversationId)
       : "sessionId" in target ? isRetired(db(), "session", target.sessionId) : isRetired(db(), "dialogue_owner", target.ownerId),
     dialogueClose: (conversationId,principalId,epoch,partial) => {
@@ -398,15 +380,15 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       return activeDialogueEpochs.get(conversationId)?.owner ?? shared ?? owner;
     },
     async dialogueRead(principalId, target) {
-      await tail;
+      await written.tail();
       const page=readDialogue(db(), principalId, target, activeDialogueEpochs);
       if(page || !target.sessionId || isRetired(db(),"session",target.sessionId) || !hasUnretainedVoice(db(),principalId,target.sessionId)) return page;
       return {ownerId:target.sessionId,sessionId:target.sessionId,generation:1,through:0,records:[],coverage:"legacy"};
     },
     saveConversationEpoch: state => submit("conversationEpoch", state),
     saveConversationTask: (principalId, receipt, facts) => submit("conversationTask", principalId, receipt, facts),
-    async loadConversation(id, principalId) { await tail; return loadConversation(db(), id, principalId); },
-    async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
+    async loadConversation(id, principalId) { await written.tail(); return loadConversation(db(), id, principalId); },
+    settled: written.settled,
     accountClaudeUsage(sessionId, backendId, turnId, evidence, resumed, context) {
       let mainCost: number | undefined;
       try {
@@ -453,7 +435,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       // Keep the pending session row ahead of its retry, and do not retain a
       // deferred failure if an accepted input invalidated it meanwhile.
       const stored = pendingRow(sessionId)
-        ? tail.then(() => { if ((retryGenerations.get(sessionId) ?? 0) === generation) return save(); })
+        ? written.tail().then(() => { if ((retryGenerations.get(sessionId) ?? 0) === generation) return save(); })
         : save();
       settle(stored);
       stored.catch(err => reportWriteFailure(sessionId, err));
@@ -484,7 +466,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       } catch (err) { reportWriteFailure(sessionId, err); return null; }
       issued.set(sessionId, revision);
       // The statement's own effect: the upsert keeps the stored backend when none is given.
-      track(pendingWork, sessionId, (row: work.AcceptedWork | null) => (
+      trackPendingEffect(pendingWork, sessionId, (row: work.AcceptedWork | null) => (
         { revision, requestId, turnId: null, backendId: backendId ?? row?.backendId ?? null, acceptedAt: at, startedAt: null }),
       submit("acceptWork", sessionId, { revision, requestId, backendId, at }))
         .then(() => settled?.(true), err => { reportWriteFailure(sessionId, err); settled?.(false); });
@@ -492,7 +474,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     },
     dispatchWork(sessionId, revision, turnId, backendId, startedAt) {
       // The statement's own effect: only the latest acceptance, not yet dispatched, takes the turn.
-      track(pendingWork, sessionId, (row: work.AcceptedWork | null) => row && row.revision === revision && row.turnId === null
+      trackPendingEffect(pendingWork, sessionId, (row: work.AcceptedWork | null) => row && row.revision === revision && row.turnId === null
         ? { ...row, turnId, startedAt, backendId: row.backendId ?? backendId } : row,
       submit("dispatchWork", sessionId, { revision, turnId, backendId, startedAt })).catch(err => reportWriteFailure(sessionId, err));
     },
@@ -542,7 +524,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     // taken by the next prompt handed over, as when it committed inline.
     recordLocalExchange(sessionId, exchange, delivered) {
       const done = submit<void>("localExchange", sessionId, exchange, delivered, Date.now());
-      if (!delivered) track(pendingExchanges, sessionId, exchange, done);
+      if (!delivered) trackPendingEffect(pendingExchanges, sessionId, exchange, done);
       return done.then(() => true, (err: unknown) => { reportWriteFailure(sessionId, err); return false; });
     },
 
@@ -626,7 +608,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     },
 
     saveSessionLabel(sessionId, label, source) {
-      track(rowEffects, sessionId, { label: { label, source } }, submit("label", sessionId, label, source))
+      trackPendingEffect(rowEffects, sessionId, { label: { label, source } }, submit("label", sessionId, label, source))
         .catch(err => reportWriteFailure(sessionId, err));
     },
 

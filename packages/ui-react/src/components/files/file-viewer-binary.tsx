@@ -1,5 +1,5 @@
 import { useState, type ComponentType } from "react";
-import { FileWarning, Download } from "lucide-react";
+import { FileWarning, Download } from "../icons.js";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { ZoomableImage } from "../images/zoomable-image.js";

@@ -466,7 +466,7 @@ and draws nothing for it on a `plain` surface. Omitted, the row is unchanged.
 `StatusIndicator`, there. The indicator replaces the save line that was under
 the field
 ([the D52 amendment](../decisions/design-kit/sessions-and-drafts.md)).
-`DraftSaveLine`'s behaviour is unchanged where it is still used.
+The save line itself was removed once nothing drew it (#4679).
 
 `BrainUiConnection.drafts` gains `checkSave(draftId)`. It is Check again for a
 draft save whose answer was lost: one `GET /api/drafts/:draftId`, never a save.

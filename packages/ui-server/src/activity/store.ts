@@ -272,6 +272,9 @@ export interface RunSnapshot {
   changeCursor: number;
 }
 
+/** Days a finished run keeps its span detail before the digest-covered prune may take it (#4683). */
+export const ACTIVITY_DETAIL_RETENTION_DAYS = 7;
+
 export interface PruneOptions {
   /** Spans of runs that ended before this are prunable (digest floor).
    *  Absolute epoch ms, not an offset. */

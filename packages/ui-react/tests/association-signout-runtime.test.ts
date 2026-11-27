@@ -265,7 +265,7 @@ for (const [width, theme] of [[320,"dark"],[390,"light"],[900,"dark"],[1280,"lig
       if (process.env.BRAIN_REVIEW_CAPTURES) await page.screenshot({path: `${process.env.BRAIN_REVIEW_CAPTURES}/signout-${width}-${theme}-${coarse ? "coarse" : "fine"}.png`});
       await accessible(page,signout(page));
       const content = await signout(page).innerText();
-      expect(content, "warning counts recordings and unaccepted transcripts").toContain("1 recordings not yet added to a draft · 0.3 MB · 1 with an unaccepted transcript");
+      expect(content, "warning counts recordings and unaccepted transcripts").toContain("1 recordings not yet added to a draft · 313 KB · 1 with an unaccepted transcript");
       expect(content, "warning counts accepted receipts separately").toContain("1 accepted recordings awaiting cleanup");
       expect(content, "warning counts unsent drafts").toContain("1 unsent drafts");
       expect(content, "warning includes the staged references lost on reload").toContain("1 staged track references");

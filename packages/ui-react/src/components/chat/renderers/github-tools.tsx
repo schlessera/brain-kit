@@ -21,7 +21,7 @@ import {
   GITHUB_TOOL_NAMES,
   type GithubToolResult,
 } from "@schlessera/brain-ui-sdk/tool-contracts";
-import { GitPullRequest, Search, SquarePen, MessageSquarePlus } from "lucide-react";
+import { GitPullRequest, Search, SquarePen, MessageSquarePlus } from "../../icons.js";
 import type { ComponentType } from "react";
 import { awaitsDecision, type ToolCall } from "../../../stores/chat-state.js";
 import { ClampedPre } from "../tool-views.js";

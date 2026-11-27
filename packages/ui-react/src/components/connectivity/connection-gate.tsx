@@ -1,7 +1,7 @@
 import { TextButton } from "@schlessera/brain-ui-kit";
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
-import { Brain, WifiOff, ShieldAlert } from "lucide-react";
+import { Brain, WifiOff, ShieldAlert } from "../icons.js";
 import { motion, AnimatePresence } from "framer-motion";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -16,6 +16,7 @@ import { deriveConnectionIssue,
 } from "../../lib/connection-issue.js";
 import { rebindPushSubscriptionAfterLogin } from "../../lib/push-registration.js";
 import { useNotificationZoneRefresh } from "../../hooks/use-notification-zone.js";
+import { formatBytes } from "../../lib/format-bytes.js";
 
 const INITIAL_PUSH_REBIND_BACKOFF_MS = 1_000;
 const MAX_PUSH_REBIND_BACKOFF_MS = 60_000;
@@ -331,5 +332,5 @@ function LockedRecordingSize() {
     }).catch(() => {});
     return () => { current = false; };
   }, [root, key]);
-  return bytes > 0 ? <p data-locked-recordings className="text-xs text-muted-foreground">Locked recordings from another account · {(bytes / (1024 * 1024)).toFixed(1)} MB</p> : null;
+  return bytes > 0 ? <p data-locked-recordings className="text-xs text-muted-foreground">Locked recordings from another account · {formatBytes(bytes)}</p> : null;
 }

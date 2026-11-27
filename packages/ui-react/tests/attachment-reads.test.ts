@@ -40,7 +40,7 @@ describe("readCopy", () => {
   });
   test("text reads by byte range: whole, cut short, and continued to the end", () => {
     expect(readCopy([text("read", [0, 1_843])])).toEqual({ text: "read", tone: "teal" });
-    expect(readCopy([text("partial", [0, 1_024])])).toEqual({ text: "read stopped at 1.0 KB", tone: "amber" });
+    expect(readCopy([text("partial", [0, 1_024])])).toEqual({ text: "read stopped at 1 KB", tone: "amber" });
     expect(readCopy([text("partial", [0, 1_024]), text("read", [1_024, 1_843])])!.text).toBe("read");
   });
   test("failures show only when nothing was read, and say what the record knows", () => {
@@ -63,7 +63,7 @@ describe("attachmentRowProps", () => {
   });
   test("with records, an unread readable file is not read yet and an unreadable one has no reader", () => {
     expect(meta(PERMIT, [])).toBe("PDF · 2.4 MB · not read yet");
-    expect(meta(CREW, [])).toBe("Text · 1.8 KB · not read yet");
+    expect(meta(CREW, [])).toBe("Text · 2 KB · not read yet");
     expect(meta(SIRENS, [])).toBe("3.1 MB · no reader for this kind of file");
   });
   test("a recorded read drives the meta and tone", () => {
@@ -91,6 +91,7 @@ describe("reads client", () => {
       apiBase: () => "/api",
       request: async (url) => { asked.push(url); return answer(url); },
     });
+    roots.push(client);
     const hello = (attachmentReads_: boolean) => client.hello({ type: "server_hello", protocolRev: 5, capabilities: attachmentReads_ ? { attachmentReads: true } : {} } as never);
     return { chat, store: attachmentReads, client, asked, hello };
   }
@@ -117,14 +118,81 @@ describe("reads client", () => {
   test("an answer from before a new hello is dropped; the new connection asks again", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
+    const stale = pdf("read", [1, 1]);
+    const fresh = pdf("read", [2, 2]);
     let n = 0;
-    const r = rig(async () => { if (n++ === 0) await gate; return Response.json({ sessionId: SESSION, reads: n === 1 ? [pdf("read", [1, 1])] : [] }); });
+    let open = 0;
+    let most = 0;
+    const r = rig(async () => {
+      const call = n++;
+      most = Math.max(most, ++open);
+      try {
+        if (call === 0) await gate;
+        return Response.json({ sessionId: SESSION, reads: call === 0 ? [stale] : [fresh] });
+      } finally { open--; }
+    });
     r.chat.getState().setActiveSession(SESSION);
     r.hello(true);
     r.hello(true);
+    // The second hello's read waits for the first request: one at a time per session.
+    await Bun.sleep(0);
+    expect(r.asked).toHaveLength(1);
     release();
     for (let i = 0; i < 5; i++) await Bun.sleep(0);
-    expect(r.store.getState().reads[SESSION]?.[PERMIT.fileId]).toBeUndefined();
+    const url = `/api/sessions/${SESSION}/attachment-reads`;
+    expect(r.asked).toEqual([url, url]);
+    expect(most).toBe(1);
+    expect(r.store.getState().loaded[SESSION]).toBe(true);
+    expect(r.store.getState().reads[SESSION]?.[PERMIT.fileId]).toEqual([fresh]);
+  });
+  test("after a stale answer only the session in view is asked again", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let n = 0;
+    const r = rig(async (url) => { if (n++ === 0) await gate; return Response.json({ sessionId: decodeURIComponent(url.split("/")[3]!), reads: [] }); });
+    r.chat.getState().setActiveSession(SESSION);
+    r.hello(true);
+    r.chat.getState().setActiveSession("odysseus-aeolus");
+    r.hello(true);
+    release();
+    for (let i = 0; i < 5; i++) await Bun.sleep(0);
+    expect(r.asked).toEqual([`/api/sessions/${SESSION}/attachment-reads`, "/api/sessions/odysseus-aeolus/attachment-reads", "/api/sessions/odysseus-aeolus/attachment-reads"]);
+    expect(r.store.getState().loaded[SESSION]).toBeUndefined();
+  });
+  test("a failed answer on the current connection is not asked again", async () => {
+    // Each answer takes a macrotask, so a retry loop shows as extra requests rather than a hang.
+    const r = rig(async () => { await Bun.sleep(0); return new Response("down", { status: 503 }); });
+    r.chat.getState().setActiveSession(SESSION);
+    r.hello(true);
+    for (let i = 0; i < 5; i++) await Bun.sleep(0);
+    expect(r.asked).toEqual([`/api/sessions/${SESSION}/attachment-reads`]);
+    expect(r.store.getState().loaded[SESSION]).toBeUndefined();
+  });
+  test("a session id that names an Object.prototype member is read like any other", async () => {
+    // `loaded` is a plain object: `loaded.constructor` is inherited and truthy,
+    // which must not count as "already read".
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let n = 0;
+    const r = rig(async (url) => {
+      if (n++ === 0) await gate;
+      return Response.json({ sessionId: decodeURIComponent(url.split("/")[3]!), reads: [] });
+    });
+    r.chat.getState().setActiveSession("constructor");
+    r.hello(true);
+    r.hello(true);
+    await Bun.sleep(0);
+    release();
+    for (let i = 0; i < 5; i++) await Bun.sleep(0);
+    expect(r.asked).toEqual(["/api/sessions/constructor/attachment-reads", "/api/sessions/constructor/attachment-reads"]);
+    expect(Object.hasOwn(r.store.getState().loaded, "constructor")).toBe(true);
+  });
+  test("opening a session whose id names an Object.prototype member reads it", async () => {
+    const r = rig(async (url) => Response.json({ sessionId: decodeURIComponent(url.split("/")[3]!), reads: [] }));
+    r.hello(true);
+    r.chat.getState().setActiveSession("toString");
+    await Bun.sleep(0); await Bun.sleep(0);
+    expect(r.asked).toEqual(["/api/sessions/toString/attachment-reads"]);
   });
   test("opening another session reads that one", async () => {
     const r = rig(async (url) => Response.json({ sessionId: decodeURIComponent(url.split("/")[3]!), reads: [] }));

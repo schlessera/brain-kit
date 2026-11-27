@@ -279,7 +279,6 @@ export function acquireInboxBudgetRun(db: Database, runId: string, principalId: 
 
 /** Also called inside Activity's rollup transaction, using its frozen receipt. */
 export function settleInboxBudgetRun(db: Database, runId: string, status: "settled" | "released" = "settled", now = Date.now(), pricing?: Pick<ModelPricing, "resolve">): boolean {
-  if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'inbox_budget_reservations'").get()) return false;
   const row = reservation(db, runId);
   if (!row || row.status !== "active") return false;
   if (inboxRunIsLive(db, runId)) return false;

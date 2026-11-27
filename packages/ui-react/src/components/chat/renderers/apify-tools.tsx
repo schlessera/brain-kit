@@ -10,7 +10,7 @@
 import type { RendererPack, ToolCallView } from "@schlessera/brain-ui-sdk/client";
 import { APIFY_TOOL_NAMES } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { Button, Callout, Disclosure } from "@schlessera/brain-ui-kit";
-import { Globe } from "lucide-react";
+import { Globe } from "../../icons.js";
 import { useEffect, useState } from "react";
 import type { ApifyLimitsRead } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../../root-context.js";

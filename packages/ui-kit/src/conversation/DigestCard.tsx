@@ -42,16 +42,6 @@ export interface DigestCardProps {
   titleSize?: number;
 }
 
-const INKS: Record<Tone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
-
 /**
  * THE SOURCE'S FALLBACK, VERBATIM. Nine of wave 3's twenty components keep the
  * design's own stand-in content because it carries no brand; the other eleven
@@ -138,7 +128,7 @@ export function DigestCard(p: DigestCardProps) {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
         {src.map((g, gi) => {
-          const ink = INKS[g.tone || "neutral"] || INKS.neutral;
+          const ink = (accent[g.tone || "neutral"] ?? accent.neutral).ink;
           return (
             <div
               key={gi}
