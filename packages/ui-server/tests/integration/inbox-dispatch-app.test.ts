@@ -68,12 +68,12 @@ function world() {
   return { dir, brain, backend, turns, applied, fixture, tokenFile: join(dir, "run/inbox-poke.token") };
 }
 
-async function boot(w: ReturnType<typeof world>, activate: boolean) {
+async function boot(w: ReturnType<typeof world>, activate: boolean, env: Record<string, string> = {}) {
   mkdirSync(join(w.dir, "run"), { recursive: true });
   const options = {
     config: resolveServerConfig({ AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "fixture-hash", COOKIE_SECRET: SECRET, HOST: "127.0.0.1",
       DB_PATH: join(w.dir, "ui.sqlite"), BRAIN_PATH: w.brain, BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "1",
-      BRAIN_UI_INBOX_POKE_TOKEN_FILE: w.tokenFile, BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY: "100", TYPESAFE_API_KEY: "fixture-classification-key" }),
+      BRAIN_UI_INBOX_POKE_TOKEN_FILE: w.tokenFile, BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY: "100", TYPESAFE_API_KEY: "fixture-classification-key", ...env }),
     observability: createSilentObservability(),
     registry: createStaticBackendRegistry([w.backend], w.backend.id),
     ...(activate ? { [INBOX_DISPATCH_FIXTURE]: w.fixture } : {}),
@@ -165,4 +165,17 @@ test("the fixture host's cron poke, two devices and a supervisor restart produce
   expect(createInboxStore(running.app.db).getItem(executes()[0]!.id)).toMatchObject({ status: "done" });
   expect(await running.poke()).toMatchObject({ claimed: 0 });
   expect(w.turns).toHaveLength(2);
+});
+
+test("BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS reaches the autonomous turn the app dispatches (#4680)", async () => {
+  const w = world(), running = await boot(w, true, { BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS: "15000" });
+  expect(running.app.config.inbox?.yieldAfterMs).toBe(15_000);
+  const principal = createPrincipal(running.app.db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
+  const cookie = await serializeSigned("brain_ui_session", principal.id, SECRET);
+  const queued = await fetch(`${running.origin}/api/queue`, { method: "POST", headers: { cookie, "content-type": "application/json", origin: running.origin },
+    body: JSON.stringify({ key: "odysseus-loom", text: "Penelope asks that the loom be recorded in Ithaca's notes." }) });
+  expect(queued.status).toBe(201);
+  expect(await running.poke()).toMatchObject({ claimed: 1, dispatchEnabled: true });
+  expect(w.turns).toHaveLength(1);
+  expect(w.turns[0]!.autonomous!.yieldAfterMs).toBe(15_000);
 });

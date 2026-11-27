@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { readBodyBytes } from "../middleware/body-limit.js";
 import {
   BRAIN_MARKUP_MAX_BYTES,
   BRAIN_MARKUP_MAX_NOTES,
@@ -38,26 +39,6 @@ class UploadError extends Error {
 const tooLarge = (bytes?: number) => new UploadError(413, "markup_too_large", bytes === undefined
   ? `This markup is over the ${BRAIN_MARKUP_MAX_BYTES}-byte (50 MiB) limit.`
   : `This markup is ${bytes} bytes; the limit is ${BRAIN_MARKUP_MAX_BYTES} bytes (50 MiB).`);
-
-async function readCapped(c: Context, limit: number): Promise<Uint8Array> {
-  const declared = Number(c.req.header("content-length"));
-  if (Number.isFinite(declared) && declared > limit) throw tooLarge();
-  const reader = c.req.raw.body?.getReader();
-  if (!reader) return new Uint8Array();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel().catch(() => {});
-      throw tooLarge();
-    }
-    chunks.push(value);
-  }
-  return new Uint8Array(Buffer.concat(chunks));
-}
 
 function summaryOf(raw: unknown): Pick<MarkupSubmission, "marks" | "notes"> {
   const invalid = (message: string) => new UploadError(400, "markup_invalid", message);
@@ -132,7 +113,9 @@ export function createMarkupRoutes(coordinator: Pick<TurnCoordinator, "peekMarku
       if (media.split(";", 1)[0]!.trim().toLowerCase() !== "multipart/form-data") {
         throw new UploadError(415, "unsupported_media_type", "Send the layer as multipart/form-data.");
       }
-      const body = await readCapped(c, MARKUP_UPLOAD_MAX_BODY_BYTES);
+      const read = await readBodyBytes(c.req.raw, MARKUP_UPLOAD_MAX_BODY_BYTES);
+      if (!read) throw tooLarge();
+      const body = new Uint8Array(Buffer.concat(read.chunks, read.bytes));
       let form: FormData;
       try { form = await new Response(body as unknown as BodyInit, { headers: { "content-type": media } }).formData(); }
       catch { throw new UploadError(400, "markup_invalid", "The upload is not valid multipart/form-data."); }
