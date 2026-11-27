@@ -7,7 +7,7 @@ import { FIRST_PARTY_FAILURE_CLASSES } from "../../src/protocol.js";
 import { launchAgentWorker, prepareWorkerSandbox, type WorkerLaunch } from "../../src/server/worker-launcher.js";
 import type { MaintenanceHost } from "../../src/server/maintenance-worker.js";
 import type { PreparedWorkerOutput } from "../../src/server/worker-native-output.js";
-import { prepareWorkerOutput } from "../../src/server/worker-output.js";
+import { prepareWorkerOutput } from "./worker-copy-output.js";
 
 export interface WorkerStartupStorage {
   readonly root: string;

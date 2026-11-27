@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { finished } from "node:stream/promises";
 import { createFixtureWorkerStartupView as createWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { text } from "node:stream/consumers";
-import { WORKER_OUTPUT } from "../src/server/worker-output.js";
+import { WORKER_OUTPUT } from "./helpers/worker-copy-output.js";
 import { prepareFixtureLaunchOutput, prepareFixtureWorkerOutput as prepareWorkerOutput } from "./helpers/worker-startup-view-fixture.js";
 import { WORKER_AREA_ROOT } from "../src/server/worker-sandbox.js";
 import { runMaintenanceWorker } from "../src/server/maintenance-worker.js";

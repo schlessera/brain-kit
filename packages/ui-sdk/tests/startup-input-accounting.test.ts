@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { prepareFixtureLaunchOutput, prepareFixtureWorkerOutput as prepareWorkerOutput } from "./helpers/worker-startup-view-fixture.js";
 import { runMaintenanceWorker } from "../src/server/maintenance-worker.js";
 import { text } from "node:stream/consumers";
-import { createOutputStagingStorage, launchAgentWorker, prepareWorkerSandbox } from "../src/server/worker-launcher.js";
+import { launchAgentWorker, prepareWorkerSandbox } from "../src/server/worker-launcher.js";
+import { createOutputStagingStorage } from "./helpers/worker-copy-output.js";
 import { createFixtureWorkerStartupView as createWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 
 test("complete immutable inputs larger than output staging are not staged writes", async () => {
@@ -80,7 +81,7 @@ test("abrupt server exit releases its immutable input copy and copy-on-write kee
   const brain = mkdtempSync(join(tmpdir(), "odysseus-server-lifetime-"));
   writeFileSync(join(brain, "helper.txt"), "Odysseus retained input");
   const startupModule = new URL("./helpers/worker-startup-view-fixture.ts", import.meta.url).pathname;
-  const stagingModule = new URL("../src/server/worker-launcher.ts", import.meta.url).pathname;
+  const stagingModule = new URL("./helpers/worker-copy-output.ts", import.meta.url).pathname;
   const source = `import {createFixtureWorkerStartupView as createWorkerStartupView} from ${JSON.stringify(startupModule)};
 import {createOutputStagingStorage} from ${JSON.stringify(stagingModule)};
 const view=createWorkerStartupView(${JSON.stringify(brain)});
