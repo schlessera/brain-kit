@@ -694,3 +694,22 @@ test("hygiene reads business refusals on exit 1 but rejects an abnormal CLI exit
   installBrainCli(root, 'console.log(JSON.stringify({status:"fixed",id:"ithaca-link"})); process.exit(2);\n');
   await expect(brain.hygiene!(["resolve", "--", "ithaca-link"])).rejects.toThrow("exit 2");
 });
+
+test("a failed module call names the module command that ran, never hygiene (#4723)", async () => {
+  const root = temporaryBrain();
+  installBrainCli(root, 'console.error("the module loom is tangled"); process.exit(2);\n');
+  const brain = createBrainClient({ brainPath: root });
+  for (const [operation, command] of [["get", "module settings"], ["enable", "module enable"], ["disable", "module disable"]] as const) {
+    const error = await brain.moduleSettings!("ithaca", operation).catch((e: Error) => e);
+    expect(error, operation).toBeInstanceOf(Error);
+    expect((error as Error).message, operation).toStartWith(`brain ${command} failed (exit 2): the module loom is tangled`);
+    expect((error as Error).message, operation).not.toContain("hygiene");
+  }
+});
+
+test("hygiene output that is not JSON is reported as unreadable", async () => {
+  const root = temporaryBrain();
+  installBrainCli(root, 'console.log("not a hygiene report"); console.error("half a report"); process.exit(1);\n');
+  await expect(createBrainClient({ brainPath: root }).hygiene!(["resolve", "--", "ithaca-link"]))
+    .rejects.toThrow("brain hygiene returned unreadable output (exit 1): half a report");
+});
