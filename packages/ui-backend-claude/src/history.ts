@@ -145,6 +145,8 @@ export async function buildSessionHistory(
   }
 
   const context = claudePromptContext(dir, sessionId);
+  // One prompt-context read per history read, taken at the first user entry (#4859).
+  let userText: ((providerId: string, wire: string) => string) | undefined;
   const messages: SessionHistoryMessage[] = [];
 
   for (const entry of history) {
@@ -162,7 +164,7 @@ export async function buildSessionHistory(
         : typeof content === "string"
           ? content
           : "";
-      const text = context.userText(String((entry as any).uuid ?? ""), wire);
+      const text = (userText ??= context.userTexts())(String((entry as any).uuid ?? ""), wire);
       const attachmentCount = Array.isArray(content)
         ? content.filter((b: any) => b.type === "image").length
         : 0;
