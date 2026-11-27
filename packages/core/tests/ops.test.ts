@@ -15,7 +15,7 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 import { initContext, type BrainContext } from "../src/lib/context";
 import { openDatabase } from "../src/lib/db";
 import { getMarkdownFiles, indexAll } from "../src/lib/indexer";
-import { indexStaleness } from "../src/lib/ops/staleness";
+import { cachedStaleness, indexStaleness, STALENESS_MIN_TTL_MS } from "../src/lib/ops/staleness";
 import { contextBriefing, listDocuments, readDocument, searchDocuments } from "../src/lib/ops/read";
 import { addDocument, archiveWithReindex, splitTags, updateDocumentFields } from "../src/lib/ops/write";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
@@ -290,8 +290,15 @@ describe("write operations index only the paths they change", () => {
     const future = new Date(Date.now() + 60 * 60 * 1000);
     utimesSync(join(root, elsewhere), future, future);
     await updateDocumentFields(deps(), { path: "notes/log-10.md", summary: "Charybdis swallows the sea" });
-    expect(indexStaleness(db, root, brain.taxonomy).stale).toBe(1);
     expect(await found("Scylla")).toEqual([]);
+    // Counted by the staleness probe: the count drops by one when only this
+    // note's mtime goes back before the index run. (A write's own file can
+    // also count when it shares the run's millisecond, so compare, not pin.)
+    const counted = indexStaleness(db, root, brain.taxonomy).stale;
+    const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    utimesSync(join(root, elsewhere), past, past);
+    expect(counted - indexStaleness(db, root, brain.taxonomy).stale).toBe(1);
+    utimesSync(join(root, elsewhere), future, future);
 
     await indexAll(db, { root, taxonomy: brain.taxonomy, force: false, quiet: true });
     expect(await found("Scylla")).toEqual([elsewhere]);
@@ -315,4 +322,66 @@ test("addDocument on an index with no markdown rows builds the whole index", asy
   } finally {
     cleanup(root);
   }
+});
+
+/**
+ * The MCP staleness cache (#4790): an answer lasts the larger of 10 s and 20
+ * times the probe's own duration, on a controlled clock.
+ */
+describe("cachedStaleness", () => {
+  /** A clock and a probe that advances it by `ms` per call, counting calls. */
+  function probing(ms: number, answer: () => string | null = () => "stale") {
+    const clock = { now: 0, probes: 0 };
+    const cache = cachedStaleness(() => {
+      clock.probes++;
+      clock.now += ms;
+      return answer();
+    }, () => clock.now);
+    return { clock, cache };
+  }
+
+  test("a slow probe's answer lasts twenty times its duration", () => {
+    const { clock, cache } = probing(2_000);
+    expect(cache.read()).toBe("stale");
+    expect(clock.probes).toBe(1);
+    clock.now = 15_000;
+    expect(cache.read()).toBe("stale");
+    expect(clock.probes).toBe(1);
+    clock.now = 40_000;
+    cache.read();
+    expect(clock.probes).toBe(2);
+  });
+
+  test("a fast probe keeps the ten-second floor", () => {
+    const { clock, cache } = probing(5);
+    cache.read();
+    clock.now = STALENESS_MIN_TTL_MS - 1;
+    cache.read();
+    expect(clock.probes).toBe(1);
+    clock.now = 11_000;
+    cache.read();
+    expect(clock.probes).toBe(2);
+  });
+
+  test("reset makes the next read probe inside the lifetime", () => {
+    const { clock, cache } = probing(2_000);
+    cache.read();
+    clock.now = 3_000;
+    cache.reset();
+    cache.read();
+    expect(clock.probes).toBe(2);
+  });
+
+  test("a probe that throws answers null and is not retried before the lifetime passes", () => {
+    const { clock, cache } = probing(5, () => {
+      throw new Error("the index is locked");
+    });
+    expect(cache.read()).toBeNull();
+    clock.now = 5_000;
+    expect(cache.read()).toBeNull();
+    expect(clock.probes).toBe(1);
+    clock.now = 11_000;
+    expect(cache.read()).toBeNull();
+    expect(clock.probes).toBe(2);
+  });
 });
