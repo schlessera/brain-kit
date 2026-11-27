@@ -56,7 +56,21 @@ function check(rows: readonly string[], taints: number, truncated = false) {
   };
 }
 
-export const Mixed = meta.story({ play: check(MIXED_WORDS, 1) });
+/** The id text's line fragments; an inline block reports one box however it wraps. */
+const idRects = (el: HTMLElement) => {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  return [...range.getClientRects()];
+};
+const idLines = (el: HTMLElement) => new Set(idRects(el).map((rect) => Math.round(rect.top))).size;
+
+export const Mixed = meta.story({
+  play: async (context) => {
+    await check(MIXED_WORDS, 1)(context);
+    const target = context.canvasElement.querySelector<HTMLElement>("[data-google-journal-target]")!;
+    await expect(idLines(target), "a draft id that fits the line never splits at its hyphen").toBe(1);
+  },
+});
 export const MixedNarrow = Mixed.extend(narrow);
 
 export const EveryDecision = meta.story({
@@ -89,7 +103,10 @@ export const LongTarget = meta.story({
     await expect(getComputedStyle(target).overflowWrap).toBe("anywhere");
     await expect(getComputedStyle(target).fontFamily).toMatch(/JetBrains Mono/);
     await expect(getComputedStyle(target).fontSize).toBe("11.5px");
-    await expect(target.getClientRects().length, "the long id wraps").toBeGreaterThan(1);
+    await expect(idLines(target), "the long id wraps").toBeGreaterThan(1);
+    const root = context.canvasElement.querySelector<HTMLElement>("[data-google-journal-calls]")!;
+    await expect(idRects(target)[0]!.width, "the long id fills its first line, not a stranded r-").toBeGreaterThan(root.clientWidth / 2);
+    await expect(target.getBoundingClientRect().right, "inside the column").toBeLessThanOrEqual(context.canvasElement.querySelector<HTMLElement>("[data-google-journal-calls]")!.getBoundingClientRect().right);
   },
 });
 export const LongTargetNarrow = LongTarget.extend(narrow);

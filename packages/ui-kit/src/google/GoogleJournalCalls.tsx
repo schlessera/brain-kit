@@ -47,9 +47,10 @@ function decisionWords(call: GoogleJournalCall): string {
   }
 }
 
-// Match the standing lists' MONO_ID size without changing their shared paint.
-const MONO: CSSProperties = { font: `500 11.5px/1.35 ${font.mono}` };
-const TARGET: CSSProperties = { ...MONO, overflowWrap: "anywhere" };
+// The standing lists' MONO_ID size. An inline block keeps an id that fits the
+// line whole (a draft id never splits at its hyphen); one longer than the line
+// wraps inside itself, filling each line rather than stranding its "r-".
+const MONO: CSSProperties = { font: `500 11.5px/1.35 ${font.mono}`, display: "inline-block", maxWidth: "100%", overflowWrap: "anywhere", wordBreak: "break-all" };
 const NOTE: CSSProperties = { margin: "8px 0 0", color: color.inkMute };
 
 /** Reversible admission receipts, inheriting the surrounding journal's type. */
@@ -68,7 +69,7 @@ export function GoogleJournalCalls({ calls, truncated, headingLevel = 3 }: Googl
               <span data-google-journal-row="">
                 {words.text}{words.mono !== undefined ? <> <span style={MONO} data-google-operation-id="">{words.mono}</span></> : null}
                 {" · "}{decisionWords(call)}
-                {call.target !== null && call.target !== call.operation ? <> · <span style={TARGET} data-google-journal-target="">{call.target}</span></> : null}
+                {call.target !== null && call.target !== call.operation ? <> · <span style={MONO} data-google-journal-target="">{call.target}</span></> : null}
               </span>
               {call.tainted && (call.decision === "allowed" || call.decision === "approved") ? (
                 <span data-google-journal-taint="" style={{ display: "block", color: color.inkMute }}>Review recommended: the chat had read text other people wrote.</span>
