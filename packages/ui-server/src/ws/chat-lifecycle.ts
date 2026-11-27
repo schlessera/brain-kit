@@ -222,9 +222,9 @@ export function retireChat(db: Database, input: RetireChatInput): RetireChatResu
     if (chat.backendId !== input.expected.backendId || chat.generation !== input.expected.generation) return { status: "refused", reason: "stale" };
     if (chat.backendId !== null && !input.removableBackends.includes(chat.backendId)) return { status: "refused", reason: "unsupported" };
     const generation = chat.generation + 1;
-    db.prepare("INSERT INTO chat_lifecycles(id,kind,principal_id,backend_id,generation,operation_id,retired_at) VALUES(?,?,?,?,?,?,?)")
+    db.query("INSERT INTO chat_lifecycles(id,kind,principal_id,backend_id,generation,operation_id,retired_at) VALUES(?,?,?,?,?,?,?)")
       .run(chat.id, chat.kind, input.principalId, chat.backendId, generation, input.operationId, input.at);
-    const fence = db.prepare("INSERT OR IGNORE INTO chat_retired_identities(kind,id,lifecycle_id) VALUES(?,?,?)");
+    const fence = db.query("INSERT OR IGNORE INTO chat_retired_identities(kind,id,lifecycle_id) VALUES(?,?,?)");
     const kinds: [RetiredKind, string[]][] = [["session", chat.identities.sessions], ["dialogue_owner", chat.identities.dialogueOwners],
       ["conversation", chat.identities.conversations], ["task", chat.identities.tasks], ["request", chat.identities.requests], ["native_task", chat.identities.nativeTasks]];
     for (const [kind, ids] of kinds) for (const id of ids) fence.run(kind, id, chat.id);
@@ -234,11 +234,11 @@ export function retireChat(db: Database, input: RetireChatInput): RetireChatResu
     for(const ownerId of chat.identities.dialogueOwners)db.query(`INSERT OR IGNORE INTO safety_retired_turns
       SELECT turn_id,? FROM safety_collections WHERE history_owner_id=?`).run(chat.id,ownerId);
     const stores: ChatStore[] = [...(chat.backendId !== null ? ["native" as const] : []), "dialogue", "tasks", "projections", "drafts"];
-    const intent = db.prepare("INSERT INTO chat_retirement_stores(lifecycle_id,store,outcome,updated_at) VALUES(?,?,'pending',?)");
+    const intent = db.query("INSERT INTO chat_retirement_stores(lifecycle_id,store,outcome,updated_at) VALUES(?,?,'pending',?)");
     for (const store of stores) intent.run(chat.id, store, input.at);
     // Old cursors and live epochs lose authority; content stays for its owners to remove.
-    for (const owner of chat.identities.dialogueOwners) db.prepare("UPDATE dialogue_owners SET generation=? WHERE id=?").run(generation, owner);
-    for (const conversation of chat.identities.conversations) db.prepare("UPDATE dialogue_conversations SET closed=1 WHERE id=?").run(conversation);
+    for (const owner of chat.identities.dialogueOwners) db.query("UPDATE dialogue_owners SET generation=? WHERE id=?").run(generation, owner);
+    for (const conversation of chat.identities.conversations) db.query("UPDATE dialogue_conversations SET closed=1 WHERE id=?").run(conversation);
     return receipt(db, { id: chat.id, operation_id: input.operationId, generation, backend_id: chat.backendId });
   }).immediate();
 }
@@ -277,7 +277,7 @@ export function recordChatCleanup(db: Database, lifecycleId: string, store: Chat
     const row = db.query("SELECT outcome FROM chat_retirement_stores WHERE lifecycle_id=? AND store=?").get(lifecycleId, store) as { outcome: ChatStoreOutcome } | null;
     if (!row) throw new Error("Chat cleanup store was not selected");
     if (row.outcome !== "removed" && row.outcome !== outcome)
-      db.prepare("UPDATE chat_retirement_stores SET outcome=?,updated_at=? WHERE lifecycle_id=? AND store=?").run(outcome, at, lifecycleId, store);
+      db.query("UPDATE chat_retirement_stores SET outcome=?,updated_at=? WHERE lifecycle_id=? AND store=?").run(outcome, at, lifecycleId, store);
     return cleanupStatus(stored(db, lifecycleId));
   }).immediate();
 }

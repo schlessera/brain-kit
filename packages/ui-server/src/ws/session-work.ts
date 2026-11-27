@@ -60,7 +60,7 @@ export function dispatchWork(
   input: { revision: number; turnId: string; backendId: string; startedAt: number }
 ): boolean {
   const result = db
-    .prepare(
+    .query(
       `UPDATE session_work SET turn_id = ?, started_at = ?, backend_id = COALESCE(backend_id, ?)
        WHERE session_id = ? AND revision = ? AND turn_id IS NULL`
     )
@@ -96,7 +96,7 @@ export interface TurnBoundary {
 }
 
 export function saveTurnBoundary(db: Database, sessionId: string, backendId: string, boundary: TurnBoundary): boolean {
-  db.prepare(
+  db.query(
     `INSERT INTO turn_boundaries (session_id, backend_id, assistant_ordinal, prefix_digest, turn_id)
      VALUES (?, ?, ?, ?, ?) ON CONFLICT(session_id, backend_id, assistant_ordinal, prefix_digest) DO NOTHING`
   ).run(sessionId, backendId, boundary.assistantOrdinal, boundary.prefixDigest, boundary.turnId);

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import type { Database, Statement } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
@@ -20,6 +20,9 @@ import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js"
 // (#4800). The number of statements behind a replay must not grow with the
 // number of turns, and each saved receipt is read and parsed once.
 // Odysseus fixtures only.
+
+/** The replayed journals of the every-kind fixture, as the per-turn replay produced them before #4971 (#4975). */
+const STORED_JOURNAL = JSON.parse(readFileSync(new URL("./fixtures/history-replay-journal.golden.json", import.meta.url), "utf8"));
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -157,6 +160,11 @@ test("the replayed journal of every kind of turn is what the per-turn reads retu
     ? { ...message, journal: { ...f.journal.summary(message.turnId), ...(f.budgets.saved(message.turnId) ? { budget: f.budgets.saved(message.turnId) } : {}) } } : message);
   const replayed = f.host.prepareHistory("ithaca", f.history(ids));
   expect(replayed, "BATCHED_REPLAY_EQUALS_PER_TURN_READS").toEqual(expected);
+  // Every field against the value the per-turn replay produced before the
+  // batched read (#4975), the active turn's clock-stamped observedAt aside.
+  const journals = replayed.filter(message => message.journal).map(({ turnId, journal }) =>
+    ({ turnId, journal: turnId === "active" ? (({ observedAt: _clock, ...rest }) => rest)(journal!) : journal }));
+  expect(journals, "REPLAYED_JOURNAL_MATCHES_STORED_VALUE").toEqual(STORED_JOURNAL);
   const journalOf = (id: string) => replayed.find(message => message.turnId === id)!.journal!;
   expect(journalOf("code").changedFiles, "CODE_RECEIPT_PATHS_COUNT").toBe(3);
   expect(journalOf("code").keptFiles, "CODE_RECEIPT_PATHS_KEPT").toBe(3);
