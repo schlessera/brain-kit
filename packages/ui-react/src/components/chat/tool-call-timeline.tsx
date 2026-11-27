@@ -1,3 +1,4 @@
+import { googleSendRefusal } from "./google-mail-approval.js";
 import { PolicyChangeCard } from "./policy-change-card.js";
 import { ToolSafetyIndicator } from "./safety-indicator.js";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -15,7 +16,7 @@ import { awaitsDecision, useChatStore, type ToolCall } from "../../stores/chat-s
 import { restoredApprovalWord } from "../../lib/restored-approvals.js";
 import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { getToolLabel, getTouchedFile, formatTokenCount } from "./tool-views.js";
+import { ClampedPre, getToolLabel, getTouchedFile, formatTokenCount } from "./tool-views.js";
 import { formatDuration } from "../../lib/duration.js";
 import { fallbackRenderer, registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
 import type { ToolRenderer, ToolRendererRegistry } from "@schlessera/brain-ui-sdk/client";
@@ -48,7 +49,7 @@ export function ToolCallTimeline({
   turnId,
 }: {
   toolCalls: ToolCall[];
-  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean, forSession?: boolean) => void;
   /** Parent message still streaming — keep the timeline open while work runs. */
   live?: boolean;
   turnId?: string;
@@ -110,7 +111,7 @@ export function ToolCallTimelineCell({
 }: {
   toolCalls: ToolCall[];
   toolIndex: number;
-  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean, forSession?: boolean) => void;
   live: boolean;
   collapsed: boolean;
   onExpand: () => void;
@@ -200,7 +201,7 @@ function TimelineSummaryRow({
 type EntryProps = {
   toolCall: ToolCall;
   backendId: string;
-  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean, forSession?: boolean) => void;
   turnId?: string;
 };
 
@@ -289,6 +290,7 @@ function ToolCallEntryView({
   const meta = renderer.meta?.(timed) ?? null;
   const Input = renderer.Input;
   const Output = renderer.Output;
+  const googleRefusal = googleSendRefusal(toolCall);
 
   if (toolCall.policyChange) return <div data-tool-call={toolCall.id}><ToolSafetyIndicator turnId={turnId} toolIds={[toolCall.id]}/><PolicyChangeCard toolCall={toolCall} onApproval={onApproval} /></div>;
   return (
@@ -328,7 +330,7 @@ function ToolCallEntryView({
         )}
       >
         <Icon className="h-3.5 w-3.5 shrink-0" />
-        <span className="font-[family-name:var(--font-mono)] font-medium">
+        <span className={cn("font-[family-name:var(--font-mono)] font-medium", toolCall.approvalKind === "google" && "min-w-0 break-all")}>
           {label}
         </span>
         {summary && (
@@ -407,10 +409,10 @@ function ToolCallEntryView({
               {toolCall.output && Output && (
                 <div className="relative">
                   <span className="absolute right-1 top-1 z-10 flex">
-                    <CopyButton label="Copy output" getText={() => renderer.copyText?.(toolCall) ?? toolCall.output!} size="sm" tone="overlay" />
+                    <CopyButton label="Copy output" getText={() => googleRefusal ?? renderer.copyText?.(toolCall) ?? toolCall.output!} size="sm" tone="overlay" />
                   </span>
                   <EnclosingCopyControl>
-                    <Output tool={toolCall} />
+                    {googleRefusal ? <ClampedPre text={googleRefusal} isError /> : <Output tool={toolCall} />}
                   </EnclosingCopyControl>
                 </div>
               )}

@@ -107,7 +107,7 @@ export const MessageBubble = memo(function MessageBubble({
   /** Its place in the transcript, which a reload keeps (#1014): where the reader was is restored by it. */
   anchor?: string;
   journalVisible?: boolean;
-  onToolApproval: (toolUseId: string, approved: boolean) => void;
+  onToolApproval: (toolUseId: string, approved: boolean, always?: boolean, forSession?: boolean) => void;
   onAskUserSubmit: (
     requestId: string,
     answers: Record<string, string>,
@@ -371,7 +371,7 @@ function AssistantContent({
 }: {
   message: ChatMessage;
   arrival?: TranscriptRange;
-  onToolApproval: (toolUseId: string, approved: boolean) => void;
+  onToolApproval: (toolUseId: string, approved: boolean, always?: boolean, forSession?: boolean) => void;
   onAskUserSubmit: (
     requestId: string,
     answers: Record<string, string>,
