@@ -1,1 +1,1 @@
-{"version":1,"updated":1795788088000,"open":null,"suspects":[],"last":{"action":"clear","at":1795788088000,"run":46007873225}}
+{"version":1,"updated":1795794074000,"open":{"firstBad":"20ae64ccabec2b6011ff92c458707ac54df14f57","run":46022286142,"opened":1795794074000,"failures":[{"test":null,"category":"layout","verdict":"real","reasons":["in-affected-closure","unknown-signature"],"run":46022286142,"sha":"20ae64ccabec2b6011ff92c458707ac54df14f57"}],"incident":null,"fixes":[],"reported":[]},"suspects":[],"last":{"action":"open","at":1795794074000,"run":46022286142}}
