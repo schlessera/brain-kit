@@ -15,7 +15,7 @@ async function contextText(taint: { eventId: number; source: string } | null) {
   process.env.CLAUDE_CONFIG_DIR = join(scratch, "claude");
   try {
     const bridge = { emit: () => {}, requestPermission: async () => ({ behavior: "deny", message: "Odysseus declines." }) } as unknown as BackendBridge;
-    const sandbox = { ...prepareWorkerSandbox(root, { home: join(scratch, "home") }),
+    const sandbox = { ...prepareWorkerSandbox(root),
       commandPolicy: { hash: null, deny: [], confirm: [], outwardAllow: [], taint: () => taint } };
     const turn = createClaudeSdkTurn({ backend: { brainPath: root }, req: { prompt: "Odysseus plans the next leg.", signal: new AbortController().signal, bridge,
       workerSandbox: sandbox },
@@ -51,7 +51,7 @@ test("Claude retained safety wording stays identical in SDK options across an up
         systemPromptAppend: index === 0 ? "Legacy safety policy: this session stays restricted." : "Reviewed safety policy: finalized individual verdicts may restore normal." },
         req: { prompt: "Odysseus plans the next leg.", sessionId, signal: controller.signal,
           bridge: { emit() {}, requestPermission: async () => ({ behavior: "deny", message: "Odysseus declines." }) },
-          workerSandbox: { ...prepareWorkerSandbox(root, { home: join(scratch, "home") }),
+          workerSandbox: { ...prepareWorkerSandbox(root),
             commandPolicy: { hash: null, deny: [], confirm: [], outwardAllow: [], taint: () => index === 2 ? null : { eventId: 7, source: "web_fetch" } } } },
         profile: { requiredEnvKeys: [], buildEnv: () => ({}) } as never, abortController: controller,
         allowedTools: DEFAULT_ALLOWED_TOOLS, confirmPatterns: [], turnLock: { acquire() {}, release() {} } as never, log() {} });

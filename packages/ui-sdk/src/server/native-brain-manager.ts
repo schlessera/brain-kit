@@ -12,6 +12,7 @@ import { nativeCheckpointId, nativeManagerRequest, nativeManagerFrame, NativeBra
   NATIVE_REQUEST_BYTES, type NativeCheckpoint, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeTurnTree } from "./native-brain-manager-protocol.js";
 import { NATIVE_TREE_REMOVAL, nativeTurnTreeReaders } from "./native-turn-trees.js";
 import { startNativeStage } from "./native-brain-stage.js";
+import { parseProcStat } from "./proc-identity.js";
 import { randomUUID } from "node:crypto";
 import { nativeCheckpointReaderPath, startNativeCheckpointRead } from "./native-checkpoint-reader.js";
 import { recoverNativeIntents } from "./native-intent-recovery.js";
@@ -570,7 +571,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
         if (!intent || intent.kind !== "stage" || intent.state !== "sealed" || !handle)
           throw new NativeBrainManagerError("unavailable", "Only a live manager-owned stage can authorize a worker mount namespace.");
         const stage = handle.stage;
-        const start = readFileSync(`/proc/${stage.namespacePid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19];
+        const start = parseProcStat(readFileSync(`/proc/${stage.namespacePid}/stat`, "utf8")).start;
         if (start !== stage.namespaceStart || stage.appUid !== fixed.appUid || stage.appGid !== fixed.appGid)
           throw new NativeBrainManagerError("unavailable", "Stage keeper identity changed before attestation.");
         const source = readIntent(stage.checkpointId);

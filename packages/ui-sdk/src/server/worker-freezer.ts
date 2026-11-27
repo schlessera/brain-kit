@@ -1,11 +1,12 @@
 /** Server-owned process control, restricted to one verified worker PID namespace. */
 import { readFileSync, readlinkSync, readdirSync, realpathSync } from "node:fs";
+import { parseProcStat } from "./proc-identity.js";
 
 type Task = { pid: number; parent: number; start: string; namespace: string; state: string };
 function task(pid: number): Task | undefined {
   try {
-    const fields = readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ");
-    return { pid, parent: Number(fields[1]), start: fields[19]!, state: fields[0]!, namespace: readlinkSync(`/proc/${pid}/ns/pid`) };
+    const stat = parseProcStat(readFileSync(`/proc/${pid}/stat`, "utf8"));
+    return { pid, parent: stat.parent, start: stat.start, state: stat.state, namespace: readlinkSync(`/proc/${pid}/ns/pid`) };
   } catch { return undefined; }
 }
 

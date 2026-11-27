@@ -92,7 +92,7 @@ test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a real worker 
   const view = createFixtureWorkerStartupView(brain);
   const outputSpy = spyOn(nativeOutput, "prepareNativeWorkerOutput").mockImplementation(prepareFixtureNativeWorkerOutput);
   try {
-    const sandbox = prepareWorkerSandbox(brain, { home, maintenance: { startupView: view, tempDomain: { statePath: join(view.storage.root, "maintenance-state.db") } } });
+    const sandbox = prepareWorkerSandbox(brain, { maintenance: { startupView: view, tempDomain: { statePath: join(view.storage.root, "maintenance-state.db") } } });
     const spawner = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, sandbox, undefined,
       { turnId, report: found => records.push(...found), log: () => {} }, {}, undefined, undefined, view);
     const program = `import * as fs from "node:fs";
@@ -132,7 +132,7 @@ test("a throwing worker-start callback kills and drains its real child before re
   mkdirSync(brain); mkdirSync(saved); mkdirSync(home); writeFileSync(join(saved, "settings.json"), "{}");
   const ledger = createStateLedger(), exits: unknown[] = [], errors: string[] = [];
   let worker: import("@schlessera/brain-ui-sdk/internal").LaunchedWorker | undefined;
-  const sandbox = prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [] });
   const spawner = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, sandbox, undefined, undefined,
     { ledger, limits, turnTempLimits: { allowanceBytes: 1024 * 1024, budgetBytes: 1024 * 1024 } }, undefined,
     started => { worker = started as import("@schlessera/brain-ui-sdk/internal").LaunchedWorker; throw Error("Odysseus scope freezer refused"); });
@@ -169,7 +169,7 @@ sys.stderr.write("x" * 131072); sys.stderr.flush()
 print("Odysseus worker ready",flush=True)
 time.sleep(300)`;
   const controller = new AbortController(), ledger = createStateLedger();
-  const sandbox = prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [] });
   const spawner = createWorkerSpawn(brain, { wrapper }, controller.signal, undefined, sandbox, undefined, undefined,
     { ledger, limits, turnTempLimits: { allowanceBytes: MiB, budgetBytes: MiB } });
   let worker: import("@anthropic-ai/claude-agent-sdk").SpawnedProcess | undefined;
