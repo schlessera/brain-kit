@@ -260,13 +260,18 @@ function sweepDeletions(
   run: IndexRun,
   st: Statements,
   markdownOnDisk: Set<string>,
-  assetsOnDisk: Set<string>
+  assetsOnDisk: Set<string>,
+  sweepOnly?: ReadonlySet<string>
 ): void {
   const rows = run.db
     .prepare("SELECT id, path, asset_type FROM documents")
     .all() as { id: number; path: string; asset_type: string }[];
 
   for (const row of rows) {
+    // A targeted run knows only the paths it was named: a row another run
+    // committed after this one's scan is not in its snapshot, but is no
+    // evidence of a deletion.
+    if (sweepOnly && !sweepOnly.has(row.path)) continue;
     const onDisk =
       row.asset_type === "markdown"
         ? markdownOnDisk.has(row.path)
@@ -336,7 +341,9 @@ export function persistMarkdown(
   parsed: ParseResult,
   existingDocs: Map<string, ExistingDoc>,
   markdownOnDisk: Set<string>,
-  assetsOnDisk: Set<string>
+  assetsOnDisk: Set<string>,
+  /** A targeted run's named paths: only these rows may be swept. */
+  sweepOnly?: ReadonlySet<string>
 ): void {
   const st = prepareStatements(run.db);
   const write = run.db.transaction(() => {
@@ -350,7 +357,7 @@ export function persistMarkdown(
       else run.stats.updated++;
     }
 
-    sweepDeletions(run, st, markdownOnDisk, assetsOnDisk);
+    sweepDeletions(run, st, markdownOnDisk, assetsOnDisk, sweepOnly);
     rebuildLinks(run, st, parsed);
   });
   write.immediate();
