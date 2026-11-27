@@ -527,7 +527,8 @@ print(json.dumps(result))`;
           expect([tool, cell.calls, cell.errors], "OBSERVATION_TIMING_20_SUCCESSFUL_CALLS_PER_TOOL").toEqual([tool, 20, 0]);
         }
       }
-      expectedProviderAttempts = attemptBefore + (BACKEND === "pi" ? 11 : 0) + 10 + 1 + BACKLOG + 1;
+      // The cold admission, when it ran, entered the fixture model once more (#4284).
+      expectedProviderAttempts = attemptBefore + (BACKEND === "pi" ? 11 : 0) + 10 + 1 + BACKLOG + 1 + (coldCache?.available ? 1 : 0);
     }
     // Drain the real queued refresh before shutdown intentionally discards pending work.
     await until(() => {

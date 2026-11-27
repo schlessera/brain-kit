@@ -71,6 +71,8 @@ test("large timing watchdogs scale with tree size while small qualification keep
   expect(source).toContain("AbortSignal.timeout(healthLimitMs)");
   expect(source).toContain("toBeLessThan(LARGE_TREE_WATCHDOG ?? 15000)");
   expect(source).toContain("toBeLessThan(LARGE_TREE_WATCHDOG ?? 2000)");
+  // #4284: a cold admission that ran is one more fixture-model attempt in the final count.
+  expect(source, "COLD_ADMISSION_COUNTED_IN_PROVIDER_ATTEMPTS").toContain("+ BACKLOG + 1 + (coldCache?.available ? 1 : 0);");
 });
 
 
