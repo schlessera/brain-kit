@@ -1,7 +1,10 @@
 /** The lifecycle sweep and the Actions cap read only rows that can need work (#4804). */
 import { expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { dlopen, FFIType, ptr } from "bun:ffi";
 import { createUiDb } from "../src/db/client.js";
 import { enforceInboxActionCap, enqueueInboxCleanup, sweepInboxLifecycle } from "../src/inbox/actions.js";
 import { createInboxStore } from "../src/inbox/store.js";
@@ -63,6 +66,88 @@ test("a second sweep over finished work whose cleanup exists costs no more than 
   } finally { finished.close(); idle.close(); }
 });
 
+/**
+ * The SQLite VM instructions one run of `sql` takes over a copy of `db`,
+ * bound to `now`. Bun's driver reports no statement counters, so the copy is
+ * opened read-only with the platform's own SQLite and read back with
+ * `sqlite3_stmt_status(SQLITE_STMTSTATUS_VM_STEP)`.
+ */
+function vmSteps(db: Database, sql: string, now: number): { steps: number; rows: number } {
+  const sqlite = dlopen(process.platform === "darwin" ? "libsqlite3.dylib" : "libsqlite3.so.0", {
+    sqlite3_open_v2: { args: [FFIType.cstring, FFIType.ptr, FFIType.i32, FFIType.ptr], returns: FFIType.i32 },
+    sqlite3_prepare_v2: { args: [FFIType.ptr, FFIType.cstring, FFIType.i32, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
+    sqlite3_bind_int64: { args: [FFIType.ptr, FFIType.i32, FFIType.i64], returns: FFIType.i32 },
+    sqlite3_step: { args: [FFIType.ptr], returns: FFIType.i32 },
+    sqlite3_stmt_status: { args: [FFIType.ptr, FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+    sqlite3_finalize: { args: [FFIType.ptr], returns: FFIType.i32 },
+    sqlite3_close: { args: [FFIType.ptr], returns: FFIType.i32 },
+  });
+  const dir = mkdtempSync(join(tmpdir(), "inbox-sweep-steps-")), file = join(dir, "inbox.db");
+  const text = (value: string) => Buffer.from(`${value}\0`);
+  const handle = new BigUint64Array(1), statement = new BigUint64Array(1);
+  try {
+    writeFileSync(file, db.serialize());
+    expect(sqlite.symbols.sqlite3_open_v2(text(file), ptr(handle), 1 /* SQLITE_OPEN_READONLY */, null)).toBe(0);
+    const connection = Number(handle[0]) as never;
+    try {
+      expect(sqlite.symbols.sqlite3_prepare_v2(connection, text(sql), -1, ptr(statement), null)).toBe(0);
+      const compiled = Number(statement[0]) as never;
+      try {
+        expect(sqlite.symbols.sqlite3_bind_int64(compiled, 1, BigInt(now))).toBe(0);
+        let rows = 0, code: number;
+        while ((code = sqlite.symbols.sqlite3_step(compiled)) === 100 /* SQLITE_ROW */) rows++;
+        expect(code).toBe(101 /* SQLITE_DONE */);
+        return { steps: sqlite.symbols.sqlite3_stmt_status(compiled, 4 /* SQLITE_STMTSTATUS_VM_STEP */, 0), rows };
+      } finally { sqlite.symbols.sqlite3_finalize(compiled); }
+    } finally { sqlite.symbols.sqlite3_close(connection); }
+  } finally { sqlite.close(); rmSync(dir, { recursive: true, force: true }); }
+}
+
+test("the candidate read does the same work over 20 and over 2,000 settled threads (#4897)", () => {
+  const work = (threads: number) => {
+    const db = createUiDb(":memory:");
+    try {
+      // Settled: finished work, and a staging cleanup that has run.
+      const f = seedFinished(db, threads);
+      db.transaction(() => {
+        for (const { id } of db.query("SELECT id FROM inbox_items WHERE type = 'cleanup_pending'").all() as { id: string }[]) f.finish(id);
+      })();
+      const recorded = recordStatements(db);
+      sweepInboxLifecycle(recorded.db, SWEEP_AT);
+      const candidates = recorded.statements.find(statement => statement.sql.includes("UNION SELECT"));
+      expect(candidates).toBeDefined();
+      return vmSteps(db, candidates!.sql, SWEEP_AT);
+    } finally { db.close(); }
+  };
+  const few = work(20), many = work(2_000);
+  expect([few.rows, many.rows]).toEqual([0, 0]);
+  expect(many.steps, "CANDIDATE_WORK_INDEPENDENT_OF_SETTLED_THREADS").toBe(few.steps);
+});
+
+test("inbox_cleanup_due holds exactly the triage items whose thread has no cleanup for them, by trigger and by backfill (#4897)", () => {
+  const db = createUiDb(":memory:");
+  try {
+    // The predicate the candidate read used before the table existed.
+    const uncleaned = () => (db.query(`SELECT t.id FROM inbox_items t WHERE t.queue = 'queue' AND t.type = 'triage' AND NOT EXISTS (
+      SELECT 1 FROM inbox_items c WHERE c.thread_id = t.thread_id AND c.type = 'cleanup_pending'
+        AND json_extract(c.data_json, '$.payload.stagingId') = json_extract(t.data_json, '$.payload.stagingId')) ORDER BY t.id`).all() as { id: string }[]).map(row => row.id);
+    const due = () => (db.query("SELECT item_id AS id FROM inbox_cleanup_due ORDER BY item_id").all() as { id: string }[]).map(row => row.id);
+    seedEverySweepBranch(db);
+    const before = uncleaned();
+    expect(before.length).toBeGreaterThan(0);
+    expect(due(), "DUE_BY_TRIGGER_BEFORE_SWEEP").toEqual(before);
+    sweepInboxLifecycle(db, SWEEP_AT);
+    expect(uncleaned().length).toBeLessThan(before.length);
+    expect(due(), "DUE_BY_TRIGGER_AFTER_SWEEP").toEqual(uncleaned());
+    // The migration's own backfill rebuilds the same rows.
+    const migration = readFileSync(new URL("../migrations/103_inbox_cleanup_due.sql", import.meta.url), "utf8");
+    const backfill = migration.slice(migration.indexOf("INSERT INTO inbox_cleanup_due"), migration.indexOf(";", migration.indexOf("INSERT INTO inbox_cleanup_due")) + 1);
+    db.exec("DELETE FROM inbox_cleanup_due");
+    db.exec(backfill);
+    expect(due(), "DUE_BY_BACKFILL").toEqual(uncleaned());
+  } finally { db.close(); }
+});
+
 test("the Actions cap reads only open decisions however much finished history is present, and still retires the lowest priority", () => {
   const enforce = (finished: number) => {
     const db = createUiDb(":memory:");
@@ -90,8 +175,11 @@ test("the candidate read searches the ready index and never scans the inbox", ()
     const candidates = recorded.statements.find(statement => statement.sql.includes("UNION SELECT id FROM inbox_items"));
     expect(candidates).toBeDefined();
     const steps = queryPlan(db, candidates!);
-    expect(steps.filter(step => step.startsWith("SCAN "))).toEqual([]);
-    expect(steps.filter(step => /^SEARCH (inbox_items|i) /.test(step)).every(step => step.includes("USING INDEX inbox_items_ready"))).toBe(true);
+    // The one scan is of the due triage items, which holds no settled thread (#4897).
+    expect(steps.filter(step => step.startsWith("SCAN "))).toEqual(["SCAN d USING COVERING INDEX inbox_cleanup_due_thread"]);
+    expect(steps.filter(step => /^SEARCH inbox_items /.test(step)).every(step => step.includes("USING INDEX inbox_items_ready"))).toBe(true);
+    // Finished work is read only from the threads of those due items.
+    expect(steps.filter(step => /^SEARCH i /.test(step))).toEqual(["SEARCH i USING INDEX inbox_items_thread (thread_id=?)"]);
   } finally { db.close(); }
 });
 
