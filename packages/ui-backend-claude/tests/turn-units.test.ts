@@ -13,7 +13,7 @@ import { request } from "node:http";
 import { EgressAdmissionRefused, startEgressProxy } from "../../ui-sdk/src/server/egress-proxy";
 import type { Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { BackendActivityEvent, ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
-import { WorkerHostError, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
+import { WorkerHostError, WorkerPrivateStateError, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
 
 import { DEFAULT_PROFILES, type InferenceProfile } from "../src/profiles";
 import { StreamAdapter } from "../src/stream-adapter";
@@ -160,6 +160,11 @@ describe("TurnTerminal", () => {
 
   test("a thrown worker host error names the turn; anything else is a diagnostic", async () => {
     expect(thrownTurnFailure(new Error("boom"))).toEqual({ diagnostic: { code: "CLAUDE_ERROR", message: "boom" } });
+    // A launch refused for host private state (#4301), also through the launch-cleanup wrapper's cause.
+    const exposed = new WorkerPrivateStateError("private_state_exposed", "turn journal is reachable at /opt/aeolus");
+    for (const err of [exposed, Object.assign(new Error("maintenance_worker_launch_cleanup_pending"), { cause: exposed })])
+      expect(thrownTurnFailure(err), "CLAUDE_PRIVATE_STATE_EXPOSED").toEqual({ refusal: { code: "PRIVATE_STATE_EXPOSED", message: exposed.message,
+        failure: { errorClass: "private_state_exposed", message: exposed.message } } });
     const hostError = new WorkerHostError("no host");
     const named = thrownTurnFailure(hostError);
     expect(named.refusal).toEqual({ code: "CLAUDE_ERROR", message: hostError.message,

@@ -2,7 +2,7 @@ import { existsSync } from "fs";
 import { isAbsolute, join } from "path";
 import type { Logger } from "@opentelemetry/api-logs";
 import { ambientExecConfig, subprocessEnv } from "../config/env.js";
-import { MaintenanceTempBusyError, VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
+import { MaintenanceTempBusyError, privateStateRefusalOf, VERSION_PROBE_TIMEOUT_MS, type WorkerPrivateStateError } from "@schlessera/brain-ui-sdk/internal";
 import {
   probeVersionCommand,
   assertVersionRequirements,
@@ -180,7 +180,7 @@ export function taxonomyArgv(brainPath: string, command: readonly string[] = bra
 /** Probe the selected content CLI, keeping unknown versions warning-only by default. */
 export async function probeBrainCliVersion(brainPath: string, log: Logger, options: { exec: ExecWrapperConfig; minimumVersion?: string; phase?: string; command?: readonly string[]; signal?: AbortSignal;
   /** @internal Where the CLI runs: in a maintenance worker while the host execution boundary holds (#1648). */
-  boundary?: HostBoundary; admissionSignal?: AbortSignal; outputBytes?: number; assertAuthorized?: () => void }): Promise<void> {
+  boundary?: HostBoundary; admissionSignal?: AbortSignal; outputBytes?: number; assertAuthorized?: () => void }): Promise<void | { deferred: WorkerPrivateStateError }> {
   const phase = options.phase ?? "startup";
   const requirements = [{ owner: "@schlessera/brain-ui-server", kind: "minimum" as const, declaration: MIN_BRAIN_CLI_VERSION }];
   if (options.minimumVersion !== undefined) {
@@ -217,6 +217,15 @@ export async function probeBrainCliVersion(brainPath: string, log: Logger, optio
   } catch (error) {
     options.signal?.throwIfAborted();
     options.admissionSignal?.throwIfAborted();
+    // A launch refused for host private state is not a version answer (#4301):
+    // at startup the check is deferred, and the boundary repeats it before any
+    // later execution; anywhere else the refusal is that call's.
+    const refusal = privateStateRefusalOf(error);
+    if (refusal && phase === "startup") {
+      log.emit({ severityText: "WARN", body: `brain CLI version check deferred: ${refusal.message}`, attributes: { reason: refusal.reason } });
+      return { deferred: refusal };
+    }
+    if (refusal) throw refusal;
     unknown(error instanceof Error ? error.message : String(error), "brain CLI version probe failed; continuing");
     return;
   }

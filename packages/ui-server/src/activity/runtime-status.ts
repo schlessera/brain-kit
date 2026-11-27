@@ -52,6 +52,9 @@ type RecordedAuthFailure = Omit<AuthFailure, "kind"> & {
  */
 export type WorkerHostMode = "ordinary" | "restricted";
 
+/** One launch refused for host private state (#4301): the setting, the live name and the mount row. */
+export interface PrivateStateExposure { at: number; reason: "private_state_exposed"; setting: string; path: string; row: string; scope: "launch" }
+
 export interface RuntimeStatusSnapshot {
   /** One entry per backend whose runtime was probed at boot. */
   boot: Array<{ backendId: string } & BackendRuntimeReport>;
@@ -64,6 +67,12 @@ export interface RuntimeStatusSnapshot {
   /** Last incomplete private-state alias check, retained across recovery and restart. */
   operationalStateLastFailure?: { at: number; errorClass: "OperationalStateAliasVerificationUnavailable";
     callSite: "operationalStateRefusal"; scope: "governed"; detail: string };
+  /**
+   * The last launch refused because host private state was reachable in its
+   * namespace (#4301), retained across restart like its neighbour. A
+   * diagnostic, never a verdict any admission or launch reads.
+   */
+  privateStateLastExposure?: PrivateStateExposure;
   /** The last turn's own report. */
   lastObserved?: Omit<RuntimeObserved, "kind"> & { runId: string; at: string };
   /** The last turn that failed to authenticate. */

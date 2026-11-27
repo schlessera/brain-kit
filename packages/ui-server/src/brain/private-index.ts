@@ -21,7 +21,7 @@
 import { chmodSync, chownSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { launchAgentWorker, prepareWorkerSandbox, retainWorkerStartupView, workerIdentityHelper, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { launchAgentWorker, prepareWorkerSandbox, privateStateRefusalOf, retainWorkerStartupView, workerIdentityHelper, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { privateIndexArgv, workerBrainCliCommand } from "./client.js";
 
 /** How long admission waits for the private index; a slower build leaves a partial index. */
@@ -97,6 +97,8 @@ export async function runMaskedBrainCli(options: {
       command: command.command });
   } catch (error) {
     await view.cleanup();
+    // A private-state refusal is the launch's verdict, not an index failure (#4301).
+    if (privateStateRefusalOf(error)) throw error;
     return { ok: false, detail: error instanceof Error ? error.message : String(error) };
   }
   let timedOut = false;

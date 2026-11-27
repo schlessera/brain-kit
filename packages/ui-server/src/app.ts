@@ -45,7 +45,7 @@ import { dirname, join, resolve } from "path";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
-import { prepareNativeWorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { prepareNativeWorkerStartupView, type WorkerPrivateStateEvent } from "@schlessera/brain-ui-sdk/internal";
 import { createCodeChangeHistory } from "./brain/code-change-history.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
@@ -491,8 +491,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const providerRelay = nativeManager ? maintenanceProviderMeter({ brainPath: config.brainPath,
     ...(config.cliProviderOrigins ? { origins: config.cliProviderOrigins } : {}), budgets: () => relayBudgets,
     report: message => brainLog.emit({ severityText: "WARN", body: message }) }) : undefined;
+  // Bound once Activity exists: the durable record of a refused launch (#4301).
+  let onPrivateStateEvent: ((event: WorkerPrivateStateEvent) => void) | undefined;
   const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, ...(providerRelay ? { providerRelay } : {}), profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
-    ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
+    ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary,
+    privateStateEvents: event => onPrivateStateEvent?.(event) });
   bootCleanup.push(() => hostExecution.release());
   const boundary = hostExecution.boundary;
   const reconciled = (results: ReturnType<typeof hostExecution.attach>) => {
@@ -506,7 +509,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // must still leave no new database behind.
   reconciled(hostExecution.reconcileExisting());
   await boundary.prepare();
-  await probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary });
+  // An exposure refuses no boot: the version check is then repeated before any later execution (#4301).
+  const probeVersion = () => probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary });
+  if ((await probeVersion())?.deferred) boundary.deferPreflight?.(async () => (await probeVersion())?.deferred);
   // The CLI now keeps its index in .brain-index/. Delete the root-level copy
   // an earlier release left (it holds document bodies a provider-restricted
   // turn must not read); the index is rebuilt below, never moved (#1668).
@@ -663,6 +668,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     writer,
     pricingConfig: { brainPath: config.brainPath, enabled: config.pricing.enabled, ttlMs: config.pricing.ttlMs },
   });
+  onPrivateStateEvent = event => {
+    if (event.kind !== "refused" || event.reason !== "private_state_exposed" || !event.exposure) return;
+    activity.runtime.recordPrivateStateExposure({ at: Date.now(), reason: "private_state_exposed", setting: event.exposure.setting,
+      path: event.exposure.name, row: event.exposure.row, scope: "launch" });
+  };
   bootCleanup.push(() => activity.close());
   activity.runtime.setBoot(runtimeProbes);
   const cron = createCronScheduler({

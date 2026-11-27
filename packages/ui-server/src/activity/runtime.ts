@@ -25,7 +25,7 @@ import { createOffloopActionNotifier, type AwaitableActionNotifier } from "../in
 import { digestRetentionFloor } from "./digest.js";
 import { runActivityQuery } from "./query.js";
 import { createSettingsWrites, type SettingsWrites } from "../db/settings-writes.js";
-import { createRuntimeStatus, type RuntimeStatus, type RuntimeStatusSnapshot } from "./runtime-status.js";
+import { createRuntimeStatus, type PrivateStateExposure, type RuntimeStatus, type RuntimeStatusSnapshot } from "./runtime-status.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
 import { getDetailRetentionDays, getSetting } from "../db/settings.js";
@@ -49,7 +49,10 @@ export interface ActivityRuntime {
   /** Durable Action notices: windows, per-destination attempts, digest coverage. */
   actionNotices: AwaitableActionNotifier;
   /** What the server knows about the agent runtime (boot probe, last turn, last auth failure). */
-  runtime: RuntimeStatus;
+  runtime: RuntimeStatus & {
+    /** Retain the last launch refused for private state (#4301); the durable write is off the launch path. */
+    recordPrivateStateExposure(exposure: PrivateStateExposure): void;
+  };
   /** The agent-facing read seam (bridge.queryActivity). */
   query(query: ActivityQuery): ActivityQueryResult;
   /**
@@ -97,6 +100,10 @@ export function createActivityRuntime(
     && stored.errorClass === "OperationalStateAliasVerificationUnavailable" && stored.callSite === "operationalStateRefusal" && stored.scope === "governed"
     ? stored as AliasFailure : undefined;
   const aliasWrites = new Set<Promise<void>>();
+  const storedExposure = getSetting<Partial<PrivateStateExposure> | null>(db, "privateState.lastExposure", null);
+  let lastExposure: PrivateStateExposure | undefined = storedExposure && Number.isFinite(storedExposure.at) && storedExposure.reason === "private_state_exposed"
+    && storedExposure.scope === "launch" && [storedExposure.setting, storedExposure.path, storedExposure.row].every(value => typeof value === "string")
+    ? storedExposure as PrivateStateExposure : undefined;
 
 
   // The notifier resumes its persisted cursor, including terminal changes
@@ -249,7 +256,15 @@ export function createActivityRuntime(
         });
         aliasWrites.add(pending); void pending.finally(() => aliasWrites.delete(pending));
       },
-      snapshot() { return { ...runtime.snapshot(), ...(aliasFailure ? { operationalStateLastFailure: aliasFailure } : {}) }; },
+      recordPrivateStateExposure(exposure) {
+        lastExposure = exposure;
+        // Off the launch path: a failed write never changes the launch's result (#4301).
+        const pending = Promise.resolve().then(() => settingsWrites.setSetting("privateState.lastExposure", exposure)).catch(error => {
+          try { log.emit({ severityText: "WARN", body: `private-state exposure could not be retained: ${String(error)}` }); } catch { /* diagnostic only */ }
+        });
+        aliasWrites.add(pending); void pending.finally(() => aliasWrites.delete(pending));
+      },
+      snapshot() { return { ...runtime.snapshot(), ...(aliasFailure ? { operationalStateLastFailure: aliasFailure } : {}), ...(lastExposure ? { privateStateLastExposure: lastExposure } : {}) }; },
     },
     query: (query) => runActivityQuery(db, store, query, notifier),
     governance: (input) => governanceWrites.record(input).then(() => {}, (err: unknown) => {
