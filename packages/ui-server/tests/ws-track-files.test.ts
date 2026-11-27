@@ -13,11 +13,11 @@ import { createWsHandlers } from "../src/ws/connection.js";
 import { stageShare } from "../src/share/staging.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 import { testAuthorization, testPrincipal } from "./helpers/principal.js";
+import { until } from "../../../tests/helpers/until";
 
 const roots: string[] = [];
 afterEach(async () => { for (const p of roots.splice(0)) await rm(p, { recursive: true, force: true }); });
 const gpx = '<gpx version="1.1"><trk><trkseg><trkpt lat="2" lon="3"/><trkpt lat="2" lon="3.001"/></trkseg></trk></gpx>';
-async function until(predicate: () => boolean) { for (let i = 0; i < 200; i++) { if (predicate()) return; await Bun.sleep(5); } throw Error("Track turn did not settle."); }
 
 test("actual dispatch carries nonempty server-derived track evidence through first and queued turns", async () => {
   const root = await mkdtemp(join(tmpdir(), "ws-track-")); roots.push(root);

@@ -4,13 +4,10 @@ import { createWsHandlers } from "../src/ws/connection.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 import { testPrincipal } from "./helpers/principal.js";
 import { addClient, closeDb, handleClientMessage, isTurnActive, resetForTests, setBackendsForTests, testHost, useTestDb } from "./helpers/test-host.js";
+import { until } from "../../../tests/helpers/until";
 
 beforeEach(() => { resetForTests(); closeDb(); useTestDb(); });
 afterEach(() => { resetForTests(); closeDb(); });
-async function until(condition: () => boolean) {
-  for (let i = 0; i < 200; i++) { if (condition()) return; await Bun.sleep(5); }
-  throw new Error("effort turn did not settle");
-}
 
 test("overrides and defaults stay with their queued requests; confirmed effort survives history", async () => {
   const calls: StartTurnRequest[] = [];

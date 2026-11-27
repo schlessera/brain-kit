@@ -19,16 +19,9 @@ import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
 import { fakeLiveProvider, SILENCE } from "./helpers/live-conversation.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 import { testPrincipal } from "./helpers/principal.js";
+import { until } from "../../../tests/helpers/until";
 
 const { createFixtureHostBoundary } = installNativeHostFixtures();
-
-async function until(predicate: () => boolean): Promise<void> {
-  const deadline = Date.now() + 5000;
-  while (!predicate()) {
-    if (Date.now() > deadline) throw new Error("Expected host policy milestone was not reached");
-    await new Promise(resolve => setTimeout(resolve, 5));
-  }
-}
 
 for (const backendId of ["claude", "pi"] as const) {
   for (const modality of ["typed", "live", "contextual"] as const) {

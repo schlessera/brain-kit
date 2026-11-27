@@ -20,6 +20,7 @@ import {
   testRegistry,
   useTestDb,
 } from "./helpers/test-host";
+import { until as waitFor } from "../../../tests/helpers/until";
 
 const catalog = createSessionCatalog(() => getDb());
 
@@ -50,14 +51,6 @@ function insertSession(
        VALUES (?, ?, ?, ?, ?, ?)`
     )
     .run(id, id, 1, 2, providerId, backendId);
-}
-
-async function waitFor(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (condition()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error("waitFor timed out");
 }
 
 describe("resolveTurnTarget", () => {

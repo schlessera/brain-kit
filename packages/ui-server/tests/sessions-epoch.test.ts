@@ -1,9 +1,8 @@
 import { createLoginRateLimiter } from "../src/middleware/auth";
 import { createPasskeyChallenges } from "../src/middleware/passkeys";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { tempDirs } from "../../../tests/helpers/temp";
 import type { Database } from "bun:sqlite";
-import { rmSync } from "fs";
-import { tmpdir } from "os";
 import { join } from "path";
 import { Hono } from "hono";
 import { serializeSigned } from "hono/utils/cookie";
@@ -21,7 +20,7 @@ import { ClientSet, type WSContext } from "../src/ws/clients";
 
 const PASSWORD = "correct horse battery staple";
 const SECRET = "test-cookie-secret-0123456789abcdef";
-const DB_PATH = join(tmpdir(), `sessions-epoch-test-${process.pid}.db`);
+const DB_PATH = join(tempDirs({ scope: "file" })("sessions-epoch-test-"), "ui.db");
 const ORIGIN = "https://example.test";
 
 let hash = "";
@@ -42,9 +41,6 @@ beforeAll(async () => {
 
 afterAll(() => {
   db.close();
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(DB_PATH + suffix, { force: true });
-  }
 });
 
 beforeEach(() => {

@@ -29,6 +29,7 @@ import { createPrincipal } from "../src/db/principals.js";
 import { GOVERNANCE_EVENT_SCHEMAS, queryGovernanceEvents } from "../src/governance/events.js";
 import { pruneSafetyDetail, safetyProjection } from "../src/governance/safety-store.js";
 import { APIFY_INPUT, APIFY_LIMITS, APIFY_SENTINEL, apifyPolicy, fakeApify, routeApifyOrigins } from "./fixtures/apify-host-fixture.js";
+import { until } from "../../../tests/helpers/until";
 
 async function hostedTurn(backendId: "pi" | "claude", policy: Record<string, unknown> | null, script: (apify: (tool: string, input: unknown) => Promise<ApifyEnvelope>) => Promise<void>,
   checkSafety?: (app: Awaited<ReturnType<typeof createApp>>) => Promise<void>) {
@@ -70,8 +71,7 @@ async function hostedTurn(backendId: "pi" | "claude", policy: Record<string, unk
     }, close() {}, readyState: 1 } as WSContext;
     await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Chart the way home", requestId: "apify-request" }) } as MessageEvent, ws);
-    const until = Date.now() + 45_000;
-    while (!finished || app.isTurnActive()) { if (Date.now() > until) throw new Error(`turn did not finish: ${sent.join("\n")}`); await Bun.sleep(10); }
+    await until(() => finished && !app.isTurnActive(), () => `turn did not finish: ${sent.join("\n")}`, 45_000);
     if (scriptError) throw scriptError;
     const taint = app.db.query("SELECT session_id, turn_id, payload FROM governance_events WHERE kind = 'taint'").all() as Array<{ session_id: string | null; turn_id: string | null; payload: string }>;
     return { root, fake, sent, taint, ledger: resolve(root, "ui.db.apify-ledger.sqlite") };

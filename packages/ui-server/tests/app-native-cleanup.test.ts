@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createApp } from "../src/app.js";
-import { resolveServerConfig } from "../src/config/env.js";
+import { testServerConfig } from "./helpers/test-config.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createRecordingObservability } from "../src/observability/index.js";
 import * as database from "../src/db/client.js";
@@ -18,7 +18,7 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "odysseus-app-native-cleanup-")), brain = join(root, "brain"), state = join(root, "state"); mkdirSync(brain); mkdirSync(state);
   const native = createNativeJournalFixture(brain, state), broker = native.serve(), restore = replaceNativeStartupAcquisitionForFixture();
   const leasePath = join(state, "native-leases.sqlite");
-  const config = { ...resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", BRAIN_PATH: brain, DB_PATH: join(state, "ui.sqlite"), BRAIN_UI_PRICING_DISCOVERY: "0" }),
+  const config = { ...testServerConfig({ brain, db: join(state, "ui.sqlite") }),
     nativeBrain: { socketPath: broker.socketPath, leasePath, timeoutMs: 30000, maxDeltaBytes: 64 * 1024 ** 2 } };
   const registry = createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]);
   return { native, config, registry, leasePath, async close() { broker.close(); await native.close(); restore(); rmSync(root, { recursive: true, force: true }); } };
