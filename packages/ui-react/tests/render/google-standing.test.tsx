@@ -3,20 +3,25 @@
 // container for `GoogleAllowanceList`. Same containment contract as
 // render-smoke.test.tsx: the DOM module first, `afterAll(unregister)`,
 // queries off `render()` and never `screen`. The double is the root's
-// `request`, the one transport every API call goes through.
+// `request`, the one transport every API call goes through. Every test
+// asserts its whole request log (method, path and body, in order), and
+// `afterEach` holds every request to its route's shape.
 import { registerGoogleStandingDom, unregisterGoogleStandingDom } from "./google-standing-dom.js";
 
 registerGoogleStandingDom();
 
 import { afterAll, afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
-import { GOOGLE_SESSION_ALLOWANCE_LIMITS } from "@schlessera/brain-common/internal/google-operations";
+import { GMAIL_TOOL_NAMES, GOOGLE_SESSION_ALLOWANCE_LIMITS } from "@schlessera/brain-common/internal/google-operations";
 import type { SafetyHistoryProjection } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { GoogleApprovalsSection } from "../../src/components/settings/google-approvals.js";
 import { SessionSafety } from "../../src/components/chat/safety-indicator.js";
-import { GOOGLE_ALLOWANCE_ITEMS, allowanceGrants, approvalAccounts, sinceTime, standingAction, untilTime } from "../../src/lib/google-standing.js";
+import type { ChatMessage } from "../../src/stores/chat-state.js";
+import {
+  GOOGLE_ALLOWANCE_ITEMS, GOOGLE_ALLOWANCE_WRITE_TOOLS, allowanceGrants, approvalAccounts, completedAllowanceWrites, sinceTime, standingAction, untilTime,
+} from "../../src/lib/google-standing.js";
 
 const ODYSSEUS = "odysseus@example.com";
 const PENELOPE = "penelope@example.com";
@@ -29,13 +34,24 @@ const SAT_11 = new Date(2026, 6, 11, 9, 14).getTime();
 const UNTIL_1802 = new Date(2026, 6, 12, 18, 2).getTime();
 const UNTIL_2140 = new Date(2026, 6, 12, 21, 40).getTime();
 
-interface Sent { url: string; path: string; method: string; type: string | null; body: unknown; answer(body: unknown, status?: number): Promise<void>; fail(error: Error): Promise<void> }
+interface Sent {
+  url: string; path: string; method: string; type: string | null; body: unknown;
+  answer(body: unknown, status?: number): Promise<void>;
+  answerRaw(text: string, status: number, type: string): Promise<void>;
+  fail(error: Error): Promise<void>;
+}
 const roots: BrainUiRoot[] = [];
 let sent: Sent[] = [];
 let clock: ReturnType<typeof spyOn> | undefined;
 
 beforeEach(() => { clock = spyOn(Date, "now").mockReturnValue(NOW); });
 afterEach(async () => {
+  // Every request had its route's shape: a read is a bare GET, a revoke a JSON POST of `{ id }`.
+  for (const request of sent) {
+    if (request.method === "GET") expect({ type: request.type, body: request.body }, `GET ${request.path}`).toEqual({ type: null, body: undefined });
+    else expect({ method: request.method, type: request.type, revoke: request.path.endsWith("/revoke"), keys: Object.keys(request.body as object) }, `${request.method} ${request.path}`)
+      .toEqual({ method: "POST", type: "application/json", revoke: true, keys: ["id"] });
+  }
   await act(async () => { cleanup(); for (const root of roots.splice(0)) root.dispose(); });
   clock?.mockRestore();
   sent = [];
@@ -55,6 +71,7 @@ function host(setup?: (root: BrainUiRoot) => void) {
         type: new Headers(init?.headers).get("content-type"),
         body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
         answer: (body, status = 200) => settle(() => resolve(Response.json(body, { status }))),
+        answerRaw: (text, status, type) => settle(() => resolve(new Response(text, { status, headers: { "content-type": type } }))),
         fail: error => settle(() => reject(error)),
       });
     }),
@@ -66,11 +83,16 @@ function host(setup?: (root: BrainUiRoot) => void) {
 
 const requests = (path: string) => sent.filter(request => request.path === path);
 const last = (path: string) => { const list = requests(path); expect(list.length, `a request to ${path}`).toBeGreaterThan(0); return list[list.length - 1]!; };
+/** The whole request log: a read as [GET, path], a revoke as [POST, path, body]. */
+const log = () => sent.map(request => (request.method === "GET" ? [request.method, request.path] : [request.method, request.path, request.body]));
+const busyMarks = (scope: HTMLElement) => scope.querySelectorAll("[aria-busy]").length;
 
 /* ── Settings › Security: remembered approvals ─────────────────────────── */
 
 const APPROVALS_PATH = "/api/google/approvals";
 const REVOKE_APPROVAL_PATH = "/api/google/approvals/revoke";
+const READ_APPROVALS = ["GET", APPROVALS_PATH];
+const revokeApproval = (id: string) => ["POST", REVOKE_APPROVAL_PATH, { id }];
 
 const approval = (id: string, account: string, operation: string, entity: string, approved_at: number) =>
   ({ id, principal_id: "owner-odysseus", brain_id: "brain-ithaca", account_identity: account, operation, entity, approved_at });
@@ -81,27 +103,40 @@ const APPROVALS = [
   approval("appr-voyage", ODYSSEUS, "gmail.modify", "label:Label_12", FRI_10),
   approval("appr-archive", ODYSSEUS, "gmail.modify", "archive", SAT_11),
 ];
+const CALENDAR = approval("appr-calendar", ODYSSEUS, "calendar.event.create", "events", SAT_11);
+const NONE_YET = "None yet";
+const UNSHOWN_ONE = "1 remembered approval can't be shown here. brain google approvals lists it.";
 
 function settings(active = true) {
   const root = host();
-  const view = render(<BrainUiProvider root={root}><button type="button">Before</button><GoogleApprovalsSection active={active} /></BrainUiProvider>);
-  return { root, view, list: () => view.container.querySelector<HTMLElement>("[data-google-approvals]") };
+  const tree = (on: boolean) => <BrainUiProvider root={root}><button type="button">Before</button><GoogleApprovalsSection active={on} /></BrainUiProvider>;
+  const view = render(tree(active));
+  return {
+    root, view,
+    list: () => view.container.querySelector<HTMLElement>("[data-google-approvals]"),
+    setActive: (on: boolean) => act(() => { view.rerender(tree(on)); }),
+  };
 }
 const rowNames = (scope: HTMLElement) => within(scope).queryAllByRole("button").map(row => row.getAttribute("aria-label")).filter(name => name?.startsWith("Revoke"));
+const notice = (scope: HTMLElement) => scope.querySelector("[data-google-unshown]")?.textContent ?? null;
+const alertText = (scope: HTMLElement) => scope.querySelector("[role=alert]")?.textContent ?? null;
 
 describe("Settings: remembered Gmail approvals", () => {
   test("GOOGLE_SETTINGS_LOADING: nothing is drawn while the first read is pending, and it reads the owner-only list", () => {
     const s = settings();
-    expect(requests(APPROVALS_PATH)).toHaveLength(1);
-    const read = last(APPROVALS_PATH);
-    expect({ path: read.path, method: read.method, body: read.body }).toEqual({ path: APPROVALS_PATH, method: "GET", body: undefined });
+    expect(log()).toEqual([READ_APPROVALS]);
     expect(s.list()).toBeNull();
     expect(s.view.container.querySelector("[data-google-approvals-section]")).toBeNull();
   });
 
-  test("an inactive tab reads nothing", () => {
-    settings(false);
-    expect(requests(APPROVALS_PATH)).toHaveLength(0);
+  test("GOOGLE_SETTINGS_INACTIVE: an inactive tab reads nothing; opening it reads and draws", async () => {
+    const s = settings(false);
+    expect(log()).toEqual([]);
+    // The positive control: the same tree, active, reads and draws.
+    s.setActive(true);
+    expect(log()).toEqual([READ_APPROVALS]);
+    await last(APPROVALS_PATH).answer({ approvals: APPROVALS });
+    expect(s.list()?.getAttribute("data-google-approvals")).toBe("ready");
   });
 
   test("GOOGLE_SETTINGS_LIST: rows group under each address, newest first, a label by its id", async () => {
@@ -118,7 +153,9 @@ describe("Settings: remembered Gmail approvals", () => {
     ]);
     expect([...list.querySelectorAll("[data-google-label-id]")].map(node => node.textContent)).toEqual(["Label_12", "Label_7"]);
     expect(list.textContent).toContain("since Sat 11 Jul");
-    expect(list.querySelector("[role=alert]")).toBeNull();
+    expect(alertText(list)).toBeNull();
+    expect(notice(list)).toBeNull();
+    expect(log()).toEqual([READ_APPROVALS]);
   });
 
   test("GOOGLE_SETTINGS_EMPTY: a first read with no approvals draws no section", async () => {
@@ -136,13 +173,26 @@ describe("Settings: remembered Gmail approvals", () => {
     expect(rowNames(list!)).toEqual([]);
   });
 
-  test("GOOGLE_SETTINGS_ERROR: any other failure is an error the section shows, and never claims there are none", async () => {
+  test("GOOGLE_SETTINGS_FAILED: any other failure is the kit's failed state, which claims neither none nor loading", async () => {
     const s = settings();
     await last(APPROVALS_PATH).answer({ error: "Internal" }, 500);
     const list = s.list()!;
-    expect(within(list).getByRole("alert").textContent).toBe("Remembered Gmail approvals didn't load. Open Settings again to try again.");
-    expect(list.textContent).not.toContain("None yet");
-    expect(list.getAttribute("data-google-approvals")).not.toBe("unavailable");
+    expect(list.getAttribute("data-google-approvals")).toBe("failed");
+    expect(list.textContent).toContain("Couldn't load remembered approvals.");
+    expect(list.textContent).not.toContain(NONE_YET);
+    expect(busyMarks(list), "nothing claims to be running").toBe(0);
+    expect(alertText(list), "a read failure is not a revoke error").toBeNull();
+  });
+
+  test("GOOGLE_SETTINGS_RETRY: Try again reads the list again, loading while it does", async () => {
+    const s = settings();
+    await last(APPROVALS_PATH).fail(new TypeError("Failed to fetch"));
+    fireEvent.click(within(s.list()!).getByRole("button", { name: "Try again" }));
+    expect(s.list()!.getAttribute("data-google-approvals")).toBe("loading");
+    expect(busyMarks(s.list()!)).toBe(1);
+    expect(log()).toEqual([READ_APPROVALS, READ_APPROVALS]);
+    await last(APPROVALS_PATH).answer({ approvals: APPROVALS.slice(3) });
+    expect(rowNames(s.list()!)).toEqual([`Revoke Archive for ${ODYSSEUS}`]);
   });
 
   for (const status of [401, 403, 404]) {
@@ -153,11 +203,26 @@ describe("Settings: remembered Gmail approvals", () => {
     });
   }
 
-  test("a 200 without the list is a server without the route: no section", async () => {
+  test("GOOGLE_SETTINGS_ABSENT_ROUTE: Hono's plain 404 for a route this server lacks hides the section", async () => {
     const s = settings();
-    await last(APPROVALS_PATH).answer({ tools: [] });
+    await last(APPROVALS_PATH).answerRaw("404 Not Found", 404, "text/plain; charset=UTF-8");
     expect(s.list()).toBeNull();
   });
+
+  for (const [what, respond] of [
+    ["the client shell (a 200 of HTML)", (r: Sent) => r.answerRaw("<!doctype html><main>Ithaca</main>", 200, "text/html; charset=utf-8")],
+    ["an empty object", (r: Sent) => r.answer({})],
+    ["another route's envelope", (r: Sent) => r.answer({ tools: [] })],
+    ["a list that is not an array", (r: Sent) => r.answer({ approvals: { "appr-archive": true } })],
+    ["a bare array", (r: Sent) => r.answer([])],
+  ] as const) {
+    test(`GOOGLE_SETTINGS_MALFORMED_IS_FAILED: ${what} is a failed read, never an absent route`, async () => {
+      const s = settings();
+      await respond(last(APPROVALS_PATH));
+      expect(s.list()?.getAttribute("data-google-approvals")).toBe("failed");
+      expect(s.list()!.textContent).not.toContain(NONE_YET);
+    });
+  }
 
   test("GOOGLE_SETTINGS_REVOKE: revoke posts the id, drops the row and moves focus to the next row", async () => {
     const s = settings();
@@ -165,14 +230,13 @@ describe("Settings: remembered Gmail approvals", () => {
     const row = within(s.list()!).getByRole("button", { name: `Revoke Add label Label_12 for ${ODYSSEUS}` });
     act(() => row.focus());
     fireEvent.keyDown(row, { key: "Enter" });
-    const post = last(REVOKE_APPROVAL_PATH);
-    expect({ path: post.path, method: post.method, type: post.type, body: post.body }).toEqual({ path: REVOKE_APPROVAL_PATH, method: "POST", type: "application/json", body: { id: "appr-voyage" } });
+    expect(log()).toEqual([READ_APPROVALS, revokeApproval("appr-voyage")]);
     expect(row.getAttribute("aria-disabled")).toBe("true");
     expect(row.textContent).toContain("Revoking…");
-    await post.answer({ revoked: true });
+    await last(REVOKE_APPROVAL_PATH).answer({ revoked: true });
     expect(rowNames(s.list()!)).toEqual([`Revoke Archive for ${ODYSSEUS}`, `Revoke Save drafts for ${ODYSSEUS}`, `Revoke Remove label Label_7 for ${PENELOPE}`]);
     expect(document.activeElement?.getAttribute("aria-label")).toBe(`Revoke Save drafts for ${ODYSSEUS}`);
-    expect(requests(APPROVALS_PATH)).toHaveLength(1);
+    expect(log(), "a true revoke reads nothing more").toEqual([READ_APPROVALS, revokeApproval("appr-voyage")]);
   });
 
   test("revoking the last row leaves the kit's empty state, with focus on its heading", async () => {
@@ -191,49 +255,139 @@ describe("Settings: remembered Gmail approvals", () => {
     await last(APPROVALS_PATH).answer({ approvals: APPROVALS });
     fireEvent.click(within(s.list()!).getByRole("button", { name: `Revoke Archive for ${ODYSSEUS}` }));
     await last(REVOKE_APPROVAL_PATH).answer({ revoked: false });
-    expect(requests(APPROVALS_PATH)).toHaveLength(2);
-    const reread = last(APPROVALS_PATH);
-    expect({ method: reread.method, body: reread.body }).toEqual({ method: "GET", body: undefined });
-    await reread.answer({ approvals: APPROVALS.filter(row => row.id !== "appr-archive" && row.id !== "appr-drafts") });
+    expect(log()).toEqual([READ_APPROVALS, revokeApproval("appr-archive"), READ_APPROVALS]);
+    await last(APPROVALS_PATH).answer({ approvals: APPROVALS.filter(row => row.id !== "appr-archive" && row.id !== "appr-drafts") });
     expect(rowNames(s.list()!)).toEqual([`Revoke Add label Label_12 for ${ODYSSEUS}`, `Revoke Remove label Label_7 for ${PENELOPE}`]);
-    expect(s.list()!.querySelector("[role=alert]")).toBeNull();
+    expect(alertText(s.list()!)).toBeNull();
   });
 
-  test("GOOGLE_SETTINGS_REVOKE_ERROR: a failed revoke keeps the rows and shows the kit's revoke error", async () => {
+  test("GOOGLE_SETTINGS_REVOKE_UNAVAILABLE: a revoke answered 503 is the kit's unavailable state", async () => {
+    const s = settings();
+    await last(APPROVALS_PATH).answer({ approvals: APPROVALS });
+    fireEvent.click(within(s.list()!).getByRole("button", { name: `Revoke Archive for ${ODYSSEUS}` }));
+    await last(REVOKE_APPROVAL_PATH).answer({ error: "Google approval storage is temporarily unavailable." }, 503);
+    expect(s.list()?.getAttribute("data-google-approvals")).toBe("unavailable");
+    expect(rowNames(s.list()!)).toEqual([]);
+    expect(log()).toEqual([READ_APPROVALS, revokeApproval("appr-archive")]);
+  });
+
+  test("GOOGLE_SETTINGS_REVOKE_LOST_ANSWER: a failed revoke keeps its banner and reads again; a row the host did revoke goes", async () => {
     const s = settings();
     await last(APPROVALS_PATH).answer({ approvals: APPROVALS });
     const row = within(s.list()!).getByRole("button", { name: `Revoke Archive for ${ODYSSEUS}` });
     fireEvent.click(row);
-    await last(REVOKE_APPROVAL_PATH).answer({ error: "Google approval storage is temporarily unavailable." }, 503);
-    const list = s.list()!;
-    expect(within(list).getByRole("alert").textContent).toBe("Google approval storage is temporarily unavailable.");
-    expect(rowNames(list)).toHaveLength(4);
-    expect(row.getAttribute("aria-disabled")).toBeNull();
-    expect(requests(APPROVALS_PATH)).toHaveLength(1);
+    await last(REVOKE_APPROVAL_PATH).fail(new TypeError("Failed to fetch"));
+    expect(alertText(s.list()!)).toBe("Failed to fetch");
+    expect(log()).toEqual([READ_APPROVALS, revokeApproval("appr-archive"), READ_APPROVALS]);
+    // The host did revoke it; only the answer was lost.
+    await last(APPROVALS_PATH).answer({ approvals: APPROVALS.filter(r => r.id !== "appr-archive") });
+    expect(rowNames(s.list()!)).not.toContain(`Revoke Archive for ${ODYSSEUS}`);
+    expect(rowNames(s.list()!)).toHaveLength(3);
+    expect(alertText(s.list()!), "the banner stays through the read").toBe("Failed to fetch");
+    expect(within(s.list()!).queryAllByRole("button").some(b => b.getAttribute("aria-disabled") === "true"), "nothing stays busy").toBe(false);
   });
 
-  test("a revoke answered 403 drops the owner's private list", async () => {
+  test("a revoke answered 500 keeps the route's words in the banner and reads again", async () => {
     const s = settings();
     await last(APPROVALS_PATH).answer({ approvals: APPROVALS });
     fireEvent.click(within(s.list()!).getByRole("button", { name: `Revoke Archive for ${ODYSSEUS}` }));
-    await last(REVOKE_APPROVAL_PATH).answer({ error: "Google approvals require owner access." }, 403);
-    expect(s.list()).toBeNull();
+    await last(REVOKE_APPROVAL_PATH).answer({ error: "Could not revoke the approval." }, 500);
+    expect(alertText(s.list()!)).toBe("Could not revoke the approval.");
+    await last(APPROVALS_PATH).answer({ approvals: APPROVALS });
+    expect(rowNames(s.list()!)).toHaveLength(4);
+    expect(log()).toEqual([READ_APPROVALS, revokeApproval("appr-archive"), READ_APPROVALS]);
   });
 
-  test("a row the kit has no words for is counted, never dropped silently", async () => {
+  for (const status of [401, 403]) {
+    test(`a revoke answered ${status} drops the owner's private list`, async () => {
+      const s = settings();
+      await last(APPROVALS_PATH).answer({ approvals: APPROVALS });
+      fireEvent.click(within(s.list()!).getByRole("button", { name: `Revoke Archive for ${ODYSSEUS}` }));
+      await last(REVOKE_APPROVAL_PATH).answer({ error: "Google approvals require owner access." }, status);
+      expect(s.list()).toBeNull();
+    });
+  }
+
+  for (const [what, respond, state] of [
+    ["a 503", (r: Sent) => r.answer({ error: "unavailable" }, 503), "unavailable"],
+    ["a 500", (r: Sent) => r.answer({ error: "Internal" }, 500), "failed"],
+    ["a malformed success", (r: Sent) => r.answer({}), "failed"],
+  ] as const) {
+    test(`GOOGLE_SETTINGS_REREAD_MAPPING: a re-read answered with ${what} is the kit's ${state} state`, async () => {
+      const s = settings();
+      await last(APPROVALS_PATH).answer({ approvals: APPROVALS });
+      fireEvent.click(within(s.list()!).getByRole("button", { name: `Revoke Archive for ${ODYSSEUS}` }));
+      await last(REVOKE_APPROVAL_PATH).answer({ revoked: false });
+      await respond(last(APPROVALS_PATH));
+      expect(s.list()?.getAttribute("data-google-approvals")).toBe(state);
+      expect(rowNames(s.list()!), "rows it can no longer vouch for go").toEqual([]);
+    });
+  }
+
+  test("GOOGLE_SETTINGS_UNKNOWN_ONLY: approvals the kit has no words for are counted, never called none", async () => {
     const s = settings();
-    await last(APPROVALS_PATH).answer({ approvals: [APPROVALS[3], approval("appr-calendar", ODYSSEUS, "calendar.event.create", "events", SAT_11)] });
+    await last(APPROVALS_PATH).answer({ approvals: [CALENDAR] });
     const list = s.list()!;
-    expect(rowNames(list)).toEqual([`Revoke Archive for ${ODYSSEUS}`]);
-    expect(within(list).getByRole("alert").textContent).toBe("1 remembered approval can't be shown here. brain google approvals lists it.");
+    expect(list.getAttribute("data-google-approvals")).toBe("ready");
+    expect(rowNames(list)).toEqual([]);
+    expect(list.textContent).not.toContain(NONE_YET);
+    expect(notice(list)).toBe(UNSHOWN_ONE);
+    expect(alertText(list), "the count is not a revoke error").toBeNull();
+  });
+
+  test("GOOGLE_SETTINGS_REVOKE_LAST_KNOWN: revoking the last nameable row while unknown rows remain never claims none", async () => {
+    const s = settings();
+    await last(APPROVALS_PATH).answer({ approvals: [APPROVALS[3], CALENDAR] });
+    fireEvent.click(within(s.list()!).getByRole("button", { name: `Revoke Archive for ${ODYSSEUS}` }));
+    await last(REVOKE_APPROVAL_PATH).answer({ revoked: true });
+    expect(rowNames(s.list()!)).toEqual([]);
+    expect(s.list()!.textContent).not.toContain(NONE_YET);
+    expect(notice(s.list()!)).toBe(UNSHOWN_ONE);
+  });
+
+  test("the count and a revoke error show together", async () => {
+    const s = settings();
+    await last(APPROVALS_PATH).answer({ approvals: [APPROVALS[3], CALENDAR] });
+    fireEvent.click(within(s.list()!).getByRole("button", { name: `Revoke Archive for ${ODYSSEUS}` }));
+    await last(REVOKE_APPROVAL_PATH).answer({ error: "Could not revoke the approval." }, 500);
+    await last(APPROVALS_PATH).answer({ approvals: [APPROVALS[3], CALENDAR] });
+    expect(notice(s.list()!)).toBe(UNSHOWN_ONE);
+    expect(alertText(s.list()!)).toBe("Could not revoke the approval.");
+  });
+
+  test("GOOGLE_SETTINGS_LATE_REPLY: a read answered after Settings closed sets nothing; reopening reads afresh", async () => {
+    const s = settings();
+    const first = last(APPROVALS_PATH);
+    s.setActive(false);
+    await first.answer({ approvals: APPROVALS });
+    expect(s.list(), "a closed tab draws nothing from a late answer").toBeNull();
+    s.setActive(true);
+    expect(log()).toEqual([READ_APPROVALS, READ_APPROVALS]);
+    expect(s.list()).toBeNull();
+    await last(APPROVALS_PATH).answer({ approvals: APPROVALS.slice(3) });
+    expect(rowNames(s.list()!)).toEqual([`Revoke Archive for ${ODYSSEUS}`]);
+  });
+
+  test("GOOGLE_SETTINGS_LATE_REVOKE: a revoke answered after Settings closed reads nothing and sets nothing", async () => {
+    const s = settings();
+    await last(APPROVALS_PATH).answer({ approvals: APPROVALS });
+    fireEvent.click(within(s.list()!).getByRole("button", { name: `Revoke Archive for ${ODYSSEUS}` }));
+    s.setActive(false);
+    await last(REVOKE_APPROVAL_PATH).answer({ revoked: false });
+    await new Promise(done => setTimeout(done, 0));
+    expect(log()).toEqual([READ_APPROVALS, revokeApproval("appr-archive")]);
+    expect(s.list()).toBeNull();
   });
 });
 
 /* ── A restricted chat: its allowances ─────────────────────────────────── */
 
 const SESSION = "ithaca";
+const OTHER_SESSION = "telemachus";
 const ALLOWANCES_PATH = `/api/sessions/${SESSION}/google/allowances`;
 const REVOKE_ALLOWANCE_PATH = `/api/sessions/${SESSION}/google/allowances/revoke`;
+const READ_ALLOWANCES = ["GET", ALLOWANCES_PATH];
+const revokeAllowance = (id: string) => ["POST", REVOKE_ALLOWANCE_PATH, { id }];
 
 const allowance = (card: string, operation: string, entity: string, remaining: number, expires: number, account = ODYSSEUS) => ({
   session_id: SESSION, principal_id: "owner-odysseus", brain_id: "brain-ithaca", account_identity: account, operation, entity,
@@ -245,6 +399,9 @@ const ALLOWANCES = [
   allowance("card-ithaca", "gmail.modify", "mark_read", 84, UNTIL_1802),
   allowance("card-drafts", "gmail.draft.save", "drafts", 3, UNTIL_2140),
 ];
+const CALENDAR_CARD = allowance("card-calendar", "calendar.event.create", "events", 100, UNTIL_2140);
+const NOTHING_ALLOWED = "Nothing is allowed";
+const UNSHOWN_ALLOWANCE = "1 allowance in this chat can't be shown here. It still applies.";
 
 function projection(restriction: "normal" | "restricted"): SafetyHistoryProjection {
   return {
@@ -258,8 +415,20 @@ function restrict(root: BrainUiRoot, restriction: "normal" | "restricted") {
   act(() => root.stores.safety.setState({ supported: true, status: "ready", reason: null, projection: projection(restriction), normal: restriction === "normal" }));
 }
 
-function chat(restriction: "normal" | "restricted" = "restricted") {
-  const root = host(r => r.stores.chat.setState({ activeSessionId: SESSION }));
+interface Call { id: string; name: string; output?: string }
+/** An assistant turn holding these tool calls; a call with `output` has its result. */
+function turn(calls: Call[]): ChatMessage {
+  return {
+    id: "odysseus-turn", role: "assistant", content: "", isStreaming: true, timestamp: NOW, parts: [],
+    toolCalls: calls.map(call => ({ id: call.id, name: call.name, input: {}, inputJson: "{}", status: call.output === undefined ? "approved" as const : "complete" as const, ...(call.output === undefined ? {} : { output: call.output, isError: false }) })),
+  };
+}
+
+function chat(restriction: "normal" | "restricted" = "restricted", calls?: Call[]) {
+  const root = host(r => r.stores.chat.setState({
+    activeSessionId: SESSION,
+    ...(calls ? { buffers: { [SESSION]: { messages: [turn(calls)], isStreaming: true, askUser: null, lastTouched: NOW } } } : {}),
+  }));
   restrict(root, restriction);
   const view = render(<BrainUiProvider root={root}><SessionSafety /></BrainUiProvider>);
   return { root, view, list: () => view.container.querySelector<HTMLElement>("[data-google-allowances]") };
@@ -267,19 +436,31 @@ function chat(restriction: "normal" | "restricted" = "restricted") {
 const revokes = (scope: HTMLElement) => within(scope).queryAllByRole("button").map(button => button.getAttribute("aria-label")).filter(name => name?.startsWith("Revoke"));
 const metas = (scope: HTMLElement) => [...scope.querySelectorAll("[data-google-meta]")].map(node => node.textContent);
 
+/** Fire `visibilitychange` with the page in `state`; the instance override is removed after. */
+async function pageBecomes(state: "visible" | "hidden") {
+  const own = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+  try {
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+  } finally {
+    if (own) Object.defineProperty(document, "visibilityState", own);
+    else Reflect.deleteProperty(document, "visibilityState");
+  }
+}
+
 describe("a restricted chat: Gmail allowances", () => {
   test("GOOGLE_CHAT_RESTRICTED_ONLY: a normal chat reads nothing; the list follows the chat into and out of restriction", async () => {
     const c = chat("normal");
-    expect(requests(ALLOWANCES_PATH)).toHaveLength(0);
+    expect(log()).toEqual([]);
     restrict(c.root, "restricted");
-    expect(requests(ALLOWANCES_PATH)).toHaveLength(1);
+    expect(log()).toEqual([READ_ALLOWANCES]);
     await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
     expect(c.list()?.getAttribute("data-google-allowances")).toBe("ready");
     restrict(c.root, "normal");
     expect(c.list()).toBeNull();
     // Restricted again: the list opens afresh and reads the host again.
     restrict(c.root, "restricted");
-    expect(requests(ALLOWANCES_PATH)).toHaveLength(2);
+    expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
     expect(c.list()).toBeNull();
     await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES.slice(2) });
     expect(revokes(c.list()!)).toEqual(["Revoke Save drafts"]);
@@ -287,10 +468,9 @@ describe("a restricted chat: Gmail allowances", () => {
 
   test("the read is the owner-only route of this chat; nothing is drawn while it is pending or when it finds none", async () => {
     const c = chat();
-    const read = last(ALLOWANCES_PATH);
-    expect({ path: read.path, method: read.method, body: read.body }).toEqual({ path: ALLOWANCES_PATH, method: "GET", body: undefined });
+    expect(log()).toEqual([READ_ALLOWANCES]);
     expect(c.list()).toBeNull();
-    await read.answer({ allowances: [] });
+    await last(ALLOWANCES_PATH).answer({ allowances: [] });
     expect(c.list()).toBeNull();
     expect(c.view.container.querySelector("[data-session-safety]")).not.toBeNull();
   });
@@ -312,8 +492,7 @@ describe("a restricted chat: Gmail allowances", () => {
     const c = chat();
     await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
     fireEvent.click(within(c.list()!).getByRole("button", { name: "Revoke Archive and Mark as read" }));
-    const post = last(REVOKE_ALLOWANCE_PATH);
-    expect({ path: post.path, method: post.method, type: post.type, body: post.body }).toEqual({ path: REVOKE_ALLOWANCE_PATH, method: "POST", type: "application/json", body: { id: "card-ithaca" } });
+    expect(log()).toEqual([READ_ALLOWANCES, revokeAllowance("card-ithaca")]);
   });
 
   test("GOOGLE_CHAT_REFETCH_AFTER_REVOKE: every revoke answer is followed by a fresh read, whose rows the list shows", async () => {
@@ -321,32 +500,65 @@ describe("a restricted chat: Gmail allowances", () => {
     await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
     fireEvent.click(within(c.list()!).getByRole("button", { name: "Revoke Save drafts" }));
     await last(REVOKE_ALLOWANCE_PATH).answer({ revoked: false });
-    expect(requests(ALLOWANCES_PATH)).toHaveLength(2);
+    expect(log()).toEqual([READ_ALLOWANCES, revokeAllowance("card-drafts"), READ_ALLOWANCES]);
     // The host's fresh read is what the list shows: here another card has spent changes since.
     await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES.slice(0, 2).map(row => ({ ...row, remaining_items: 80 })) });
     expect(metas(c.list()!)).toEqual([`80 of ${GOOGLE_SESSION_ALLOWANCE_LIMITS.items} changes left · until 18:02`]);
-    expect(c.list()!.querySelector("[role=alert]")).toBeNull();
+    expect(alertText(c.list()!)).toBeNull();
     fireEvent.click(within(c.list()!).getByRole("button", { name: "Revoke Archive and Mark as read" }));
     await last(REVOKE_ALLOWANCE_PATH).answer({ revoked: true });
-    expect(requests(ALLOWANCES_PATH)).toHaveLength(3);
+    expect(log()).toEqual([READ_ALLOWANCES, revokeAllowance("card-drafts"), READ_ALLOWANCES, revokeAllowance("card-ithaca"), READ_ALLOWANCES]);
     await last(ALLOWANCES_PATH).answer({ allowances: [] });
     expect(c.list()?.textContent).toContain("Nothing is allowed in this chat.");
   });
 
-  test("a failed revoke keeps the rows and shows the kit's revoke error", async () => {
+  test("GOOGLE_CHAT_TRUE_REVOKE_REREAD: after a true revoke the list shows the host's read, not only the local removal", async () => {
+    const c = chat();
+    await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
+    fireEvent.click(within(c.list()!).getByRole("button", { name: "Revoke Save drafts" }));
+    await last(REVOKE_ALLOWANCE_PATH).answer({ revoked: true });
+    expect(revokes(c.list()!), "the revoked card goes at once").toEqual(["Revoke Archive and Mark as read"]);
+    expect(metas(c.list()!)).toEqual([`84 of ${GOOGLE_ALLOWANCE_ITEMS} changes left · until 18:02`]);
+    // Meanwhile the surviving card spent changes: only the read can say so.
+    await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES.slice(0, 2).map(row => ({ ...row, remaining_items: 70 })) });
+    expect(metas(c.list()!)).toEqual([`70 of ${GOOGLE_ALLOWANCE_ITEMS} changes left · until 18:02`]);
+    expect(log()).toEqual([READ_ALLOWANCES, revokeAllowance("card-drafts"), READ_ALLOWANCES]);
+  });
+
+  test("GOOGLE_CHAT_REVOKE_LOST_ANSWER: a failed revoke keeps its banner and reads again; a card the host did revoke goes", async () => {
     const c = chat();
     await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
     fireEvent.click(within(c.list()!).getByRole("button", { name: "Revoke Save drafts" }));
     await last(REVOKE_ALLOWANCE_PATH).fail(new TypeError("Failed to fetch"));
-    expect(within(c.list()!).getByRole("alert").textContent).toBe("Failed to fetch");
-    expect(revokes(c.list()!)).toHaveLength(2);
+    expect(alertText(c.list()!)).toBe("Failed to fetch");
+    expect(log()).toEqual([READ_ALLOWANCES, revokeAllowance("card-drafts"), READ_ALLOWANCES]);
+    await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES.slice(0, 2) });
+    expect(revokes(c.list()!)).toEqual(["Revoke Archive and Mark as read"]);
+    expect(alertText(c.list()!), "the banner stays through the read").toBe("Failed to fetch");
   });
 
-  test("GOOGLE_CHAT_HIDDEN: a 404 draws no list", async () => {
+  test("GOOGLE_CHAT_REVOKE_UNAVAILABLE: a revoke answered 503 is the kit's unavailable state", async () => {
     const c = chat();
-    await last(ALLOWANCES_PATH).answer({ error: "Session unavailable." }, 404);
-    expect(c.list()).toBeNull();
+    await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
+    fireEvent.click(within(c.list()!).getByRole("button", { name: "Revoke Save drafts" }));
+    await last(REVOKE_ALLOWANCE_PATH).answer({ error: "Google approval storage is temporarily unavailable." }, 503);
+    expect(c.list()?.getAttribute("data-google-allowances")).toBe("unavailable");
+    expect(revokes(c.list()!)).toEqual([]);
+    expect(log()).toEqual([READ_ALLOWANCES, revokeAllowance("card-drafts")]);
   });
+
+  for (const status of [401, 403, 404]) {
+    test(`GOOGLE_CHAT_HIDDEN: a read answered ${status} draws no list, and so does a revoke answered ${status}`, async () => {
+      const c = chat();
+      await last(ALLOWANCES_PATH).answer({ error: "no" }, status);
+      expect(c.list()).toBeNull();
+      const d = chat();
+      await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
+      fireEvent.click(within(d.list()!).getByRole("button", { name: "Revoke Save drafts" }));
+      await last(REVOKE_ALLOWANCE_PATH).answer({ error: "no" }, status);
+      expect(d.list()).toBeNull();
+    });
+  }
 
   test("GOOGLE_CHAT_UNAVAILABLE: a 503 is the kit's unavailable state", async () => {
     const c = chat();
@@ -355,26 +567,167 @@ describe("a restricted chat: Gmail allowances", () => {
     expect(c.list()?.textContent).toContain("Allowances for this chat can't be read right now");
   });
 
-  test("any other failure is an error the list shows, and never claims there are none", async () => {
+  test("GOOGLE_CHAT_FAILED: any other failure, a malformed success included, is the kit's failed state, and Try again reads again", async () => {
     const c = chat();
     await last(ALLOWANCES_PATH).answer({ error: "Internal" }, 500);
-    expect(within(c.list()!).getByRole("alert").textContent).toBe("Allowances for this chat didn't load. Open the chat again to try again.");
-    expect(c.list()!.textContent).not.toContain("Nothing is allowed");
+    expect(c.list()?.getAttribute("data-google-allowances")).toBe("failed");
+    expect(c.list()!.textContent).not.toContain(NOTHING_ALLOWED);
+    expect(busyMarks(c.list()!)).toBe(0);
+    fireEvent.click(within(c.list()!).getByRole("button", { name: "Try again" }));
+    expect(c.list()?.getAttribute("data-google-allowances")).toBe("loading");
+    await last(ALLOWANCES_PATH).answerRaw("<!doctype html><main>Ithaca</main>", 200, "text/html");
+    expect(c.list()?.getAttribute("data-google-allowances"), "the client shell is a failed read").toBe("failed");
+    fireEvent.click(within(c.list()!).getByRole("button", { name: "Try again" }));
+    await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
+    expect(revokes(c.list()!)).toEqual(["Revoke Archive and Mark as read", "Revoke Save drafts"]);
+    expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES]);
   });
 
-  test("a revoke answered 404 drops the list", async () => {
+  test("GOOGLE_CHAT_UNKNOWN_ONLY: allowances the kit has no words for are counted, never called nothing allowed", async () => {
+    const c = chat();
+    await last(ALLOWANCES_PATH).answer({ allowances: [CALENDAR_CARD] });
+    expect(revokes(c.list()!)).toEqual([]);
+    expect(c.list()!.textContent).not.toContain(NOTHING_ALLOWED);
+    expect(notice(c.list()!)).toBe(UNSHOWN_ALLOWANCE);
+    expect(alertText(c.list()!)).toBeNull();
+  });
+
+  test("a card with a change the kit has no words for is not shown, and the list counts it", async () => {
+    const c = chat();
+    await last(ALLOWANCES_PATH).answer({ allowances: [...ALLOWANCES, CALENDAR_CARD, allowance("card-drafts", "gmail.modify", "snooze", 3, UNTIL_2140)] });
+    expect(revokes(c.list()!)).toEqual(["Revoke Archive and Mark as read"]);
+    expect(notice(c.list()!)).toBe("2 allowances in this chat can't be shown here. They still apply.");
+  });
+
+  test("GOOGLE_CHAT_REVOKE_LAST_KNOWN: revoking the last nameable card while unknown ones remain never claims nothing allowed", async () => {
+    const c = chat();
+    await last(ALLOWANCES_PATH).answer({ allowances: [ALLOWANCES[2], CALENDAR_CARD] });
+    fireEvent.click(within(c.list()!).getByRole("button", { name: "Revoke Save drafts" }));
+    await last(REVOKE_ALLOWANCE_PATH).answer({ revoked: true });
+    expect(c.list()!.textContent).not.toContain(NOTHING_ALLOWED);
+    await last(ALLOWANCES_PATH).answer({ allowances: [CALENDAR_CARD] });
+    expect(revokes(c.list()!)).toEqual([]);
+    expect(c.list()!.textContent).not.toContain(NOTHING_ALLOWED);
+    expect(notice(c.list()!)).toBe(UNSHOWN_ALLOWANCE);
+  });
+
+  test("GOOGLE_CHAT_REREAD_ON_WRITE: a Gmail modify or draft call with its result reads again; other calls do not", async () => {
+    const c = chat("restricted", [
+      { id: "toolu_modify", name: `mcp__brain-ui__${GMAIL_TOOL_NAMES.modify}` },
+      { id: "toolu_draft", name: GMAIL_TOOL_NAMES.draft },
+      { id: "toolu_search", name: `mcp__brain-ui__${GMAIL_TOOL_NAMES.search}` },
+      { id: "toolu_brain", name: "mcp__brain__brain_search" },
+    ]);
+    await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
+    const result = (id: string) => act(() => { c.root.stores.chat.getState().setToolResult(SESSION, id, "done", false); });
+    result("toolu_search");
+    result("toolu_brain");
+    expect(log(), "a read tool or another tool spends no allowance").toEqual([READ_ALLOWANCES]);
+    result("toolu_modify");
+    expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
+    await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES.map(row => (row.granted_card_id === "card-ithaca" ? { ...row, remaining_items: 81 } : row)) });
+    expect(metas(c.list()!)[0]).toBe(`81 of ${GOOGLE_ALLOWANCE_ITEMS} changes left · until 18:02`);
+    result("toolu_draft");
+    expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES]);
+  });
+
+  test("a write in a chat that shows no list yet reads, and draws the card it granted", async () => {
+    const c = chat("restricted", [{ id: "toolu_modify", name: GMAIL_TOOL_NAMES.modify }]);
+    await last(ALLOWANCES_PATH).answer({ allowances: [] });
+    expect(c.list()).toBeNull();
+    act(() => { c.root.stores.chat.getState().setToolResult(SESSION, "toolu_modify", "done", false); });
+    await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES.slice(0, 2) });
+    expect(revokes(c.list()!)).toEqual(["Revoke Archive and Mark as read"]);
+    expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
+  });
+
+  test("GOOGLE_CHAT_REREAD_AT_EXPIRY: one read just after the earliest end, and no other timer from the same end", async () => {
+    const timers = spyOn(globalThis, "setTimeout");
+    try {
+      const c = chat();
+      await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
+      const atEnd = (end: number) => timers.mock.calls.filter(([, ms]) => ms === end - NOW + 1_000);
+      expect(atEnd(UNTIL_1802), "one timer for the earliest end").toHaveLength(1);
+      expect(atEnd(UNTIL_2140), "none for a later one").toHaveLength(0);
+      await act(async () => { (atEnd(UNTIL_1802)[0]![0] as () => void)(); });
+      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
+      // The host still lists that card (its clock runs behind): the same end arms no second timer.
+      await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
+      expect(atEnd(UNTIL_1802), "the same end is never re-armed: no polling").toHaveLength(1);
+      // The card has gone: the next end arms one timer.
+      await act(async () => { (atEnd(UNTIL_1802)[0]![0] as () => void)(); });
+      await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES.slice(2) });
+      expect(revokes(c.list()!)).toEqual(["Revoke Save drafts"]);
+      expect(atEnd(UNTIL_2140)).toHaveLength(1);
+      expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES, READ_ALLOWANCES]);
+    } finally {
+      timers.mockRestore();
+    }
+  });
+
+  test("GOOGLE_CHAT_REREAD_ON_VISIBLE: the page becoming visible reads again and formats the times afresh; hidden reads nothing", async () => {
+    const MON_0730 = new Date(2026, 6, 13, 7, 30).getTime();
+    const c = chat();
+    await last(ALLOWANCES_PATH).answer({ allowances: [allowance("card-dawn", "gmail.modify", "star", 40, MON_0730)] });
+    expect(metas(c.list()!)).toEqual([`40 of ${GOOGLE_ALLOWANCE_ITEMS} changes left · until Mon 07:30`]);
+    await pageBecomes("hidden");
+    expect(log()).toEqual([READ_ALLOWANCES]);
+    // Past midnight, the page comes back: the same end is now today.
+    clock!.mockReturnValue(new Date(2026, 6, 13, 0, 10).getTime());
+    await pageBecomes("visible");
+    expect(log()).toEqual([READ_ALLOWANCES, READ_ALLOWANCES]);
+    await last(ALLOWANCES_PATH).answer({ allowances: [allowance("card-dawn", "gmail.modify", "star", 40, MON_0730)] });
+    expect(metas(c.list()!)).toEqual([`40 of ${GOOGLE_ALLOWANCE_ITEMS} changes left · until 07:30`]);
+  });
+
+  for (const [what, respond, state] of [
+    ["a 503", (r: Sent) => r.answer({ error: "unavailable" }, 503), "unavailable"],
+    ["a 500", (r: Sent) => r.answer({ error: "Internal" }, 500), "failed"],
+    ["a malformed success", (r: Sent) => r.answer({ allowances: null }), "failed"],
+  ] as const) {
+    test(`GOOGLE_CHAT_REREAD_MAPPING: a re-read answered with ${what} is the kit's ${state} state`, async () => {
+      const c = chat();
+      await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
+      await pageBecomes("visible");
+      await respond(last(ALLOWANCES_PATH));
+      expect(c.list()?.getAttribute("data-google-allowances")).toBe(state);
+      expect(revokes(c.list()!)).toEqual([]);
+    });
+  }
+
+  test("GOOGLE_CHAT_STALE_READ: an older read answered after a newer one sets nothing", async () => {
+    const c = chat();
+    const first = last(ALLOWANCES_PATH);
+    await pageBecomes("visible");
+    const second = last(ALLOWANCES_PATH);
+    expect(second).not.toBe(first);
+    await second.answer({ allowances: ALLOWANCES.slice(2) });
+    await first.answer({ allowances: ALLOWANCES });
+    expect(revokes(c.list()!)).toEqual(["Revoke Save drafts"]);
+  });
+
+  test("GOOGLE_CHAT_LATE_REPLY: after switching chats, the old chat's late answers set nothing and read nothing", async () => {
     const c = chat();
     await last(ALLOWANCES_PATH).answer({ allowances: ALLOWANCES });
     fireEvent.click(within(c.list()!).getByRole("button", { name: "Revoke Save drafts" }));
-    await last(REVOKE_ALLOWANCE_PATH).answer({ error: "Session unavailable." }, 404);
-    expect(c.list()).toBeNull();
-  });
-
-  test("a card with a change the kit has no words for is not shown, and the list says so", async () => {
-    const c = chat();
-    await last(ALLOWANCES_PATH).answer({ allowances: [...ALLOWANCES, allowance("card-calendar", "calendar.event.create", "events", 100, UNTIL_2140), allowance("card-drafts", "gmail.modify", "snooze", 3, UNTIL_2140)] });
-    expect(revokes(c.list()!)).toEqual(["Revoke Archive and Mark as read"]);
-    expect(within(c.list()!).getByRole("alert").textContent).toBe("2 allowances in this chat can't be shown here.");
+    await pageBecomes("visible");
+    const pendingRead = last(ALLOWANCES_PATH);
+    const pendingRevoke = last(REVOKE_ALLOWANCE_PATH);
+    act(() => { c.root.stores.chat.setState({ activeSessionId: OTHER_SESSION }); });
+    // The other chat is restricted too, once its own projection is read.
+    restrict(c.root, "restricted");
+    const otherPath = `/api/sessions/${OTHER_SESSION}/google/allowances`;
+    expect(log().at(-1)).toEqual(["GET", otherPath]);
+    expect(c.list(), "the new chat's list waits for its own read").toBeNull();
+    await pendingRead.answer({ allowances: ALLOWANCES });
+    await pendingRevoke.answer({ revoked: false });
+    expect(c.list(), "nothing from the old chat is drawn").toBeNull();
+    await pageBecomes("visible");
+    expect(log(), "the old chat neither re-reads after its revoke nor listens to the page").toEqual([
+      READ_ALLOWANCES, revokeAllowance("card-drafts"), READ_ALLOWANCES, ["GET", otherPath], ["GET", otherPath],
+    ]);
+    await last(otherPath).answer({ allowances: [{ ...ALLOWANCES[2], session_id: OTHER_SESSION }] });
+    expect(revokes(c.list()!)).toEqual(["Revoke Save drafts"]);
   });
 });
 
@@ -383,6 +736,18 @@ describe("a restricted chat: Gmail allowances", () => {
 describe("mapping", () => {
   test("GOOGLE_LIMIT_FROM_SOURCE: the per-card budget is the backend's", () => {
     expect(GOOGLE_ALLOWANCE_ITEMS).toBe(GOOGLE_SESSION_ALLOWANCE_LIMITS.items);
+  });
+
+  test("GOOGLE_WRITE_TOOLS_FROM_SOURCE: the writes that spend an allowance are the catalog's reversible ones", () => {
+    expect(GOOGLE_ALLOWANCE_WRITE_TOOLS).toEqual([GMAIL_TOOL_NAMES.modify, GMAIL_TOOL_NAMES.draft]);
+  });
+
+  test("a write counts once it has its result, under any MCP prefix", () => {
+    const calls = (list: Call[]) => completedAllowanceWrites([turn(list)]);
+    expect(calls([{ id: "a", name: GMAIL_TOOL_NAMES.modify }])).toBe(0);
+    expect(calls([{ id: "a", name: GMAIL_TOOL_NAMES.modify, output: "" }])).toBe(1);
+    expect(calls([{ id: "a", name: `mcp__brain-ui__${GMAIL_TOOL_NAMES.draft}`, output: "ok" }, { id: "b", name: GMAIL_TOOL_NAMES.send, output: "ok" }, { id: "c", name: GMAIL_TOOL_NAMES.trash, output: "ok" }])).toBe(1);
+    expect(completedAllowanceWrites(undefined)).toBe(0);
   });
 
   test("every stored entity maps to the kit's action, and nothing else does", () => {
@@ -402,9 +767,11 @@ describe("mapping", () => {
     expect(untilTime(new Date(2026, 6, 13, 7, 30).getTime(), NOW)).toEqual({ short: "Mon 07:30", full: "Monday 13 July 2026 at 07:30" });
   });
 
-  test("a card shows the least left and the earliest end any of its rows reports", () => {
-    const { grants } = allowanceGrants([allowance("card-a", "gmail.modify", "star", 9, UNTIL_2140), allowance("card-a", "gmail.modify", "archive", 7, UNTIL_1802)], NOW);
+  test("a card shows the least left and the earliest end any of its rows reports; the list's next end is the earliest shown", () => {
+    const { grants, nextEnd } = allowanceGrants([allowance("card-a", "gmail.modify", "star", 9, UNTIL_2140), allowance("card-a", "gmail.modify", "archive", 7, UNTIL_1802)], NOW);
     expect(grants).toEqual([{ id: "card-a", address: ODYSSEUS, actions: [{ kind: "star" }, { kind: "archive" }], remaining: 7, limit: 100, until: untilTime(UNTIL_1802, NOW) }]);
+    expect(nextEnd).toBe(UNTIL_1802);
+    expect(allowanceGrants([CALENDAR_CARD], NOW).nextEnd, "an unshown card arms no timer").toBeNull();
   });
 
   test("accounts sort by address and approvals run newest first, however the host ordered them", () => {

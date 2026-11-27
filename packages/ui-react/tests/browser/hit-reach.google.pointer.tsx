@@ -80,4 +80,37 @@ for (const width of [320, 1280]) {
     expect(page.getByText("What this evidence covers").elements()).toHaveLength(1);
     reach(notice, "restricted chat safety notice with Gmail allowances");
   });
+
+  // #4212 round 2: a failed read's Try again, where each surface places it.
+  test(`Security tab: a failed Gmail approvals read's Try again at ${width}`, async ctx => {
+    const s = await mount(ctx, width, async url => {
+      if (url.endsWith("/trust-settings")) return Response.json(trustRead);
+      if (url.endsWith("/tool-permissions")) return Response.json({ tools: ["Bash"] });
+      if (url.endsWith("/google/approvals")) return Response.json({ error: "Internal" }, { status: 500 });
+      if (url.endsWith("/agent-policy")) return Response.json({ error: "Not configured" }, { status: 404 });
+      return Response.json({ credentials: [] });
+    });
+    s.draw(<PasskeyTab active />);
+    await expect.poll(() => s.host.querySelector("[data-google-approvals]")?.getAttribute("data-google-approvals")).toBe("failed");
+    const section = s.host.querySelector<HTMLElement>("[data-google-approvals-section]")!;
+    const retry = [...section.querySelectorAll<HTMLElement>("[data-bk-button][role=button]")];
+    expect(retry.map(button => button.textContent), "GOOGLE_SETTINGS_REACH_RETRY").toEqual(["Try again"]);
+    expect(touchFloor(retry[0]!), "GOOGLE_SETTINGS_RETRY_TOUCH_FLOOR").toBe("met");
+    reach(section, "Security tab: failed Gmail approvals read");
+  });
+
+  test(`restricted chat: a failed Gmail allowances read's Try again at ${width}`, async ctx => {
+    const s = await mount(ctx, width, async url => url.endsWith(`/sessions/${SESSION}/google/allowances`)
+      ? Response.json({ error: "Internal" }, { status: 500 })
+      : Response.json({ providers: [] }));
+    s.ui.stores.chat.setState({ activeSessionId: SESSION });
+    s.ui.stores.safety.setState({ supported: true, status: "ready", reason: null, projection, normal: false });
+    s.draw(<div className="px-4 md:px-6"><div className="mx-auto max-w-3xl"><SessionSafety /></div></div>);
+    await expect.poll(() => s.host.querySelector("[data-google-allowances]")?.getAttribute("data-google-allowances")).toBe("failed");
+    const notice = s.host.querySelector<HTMLElement>("[data-session-safety]")!;
+    const retry = [...notice.querySelectorAll<HTMLElement>("[data-google-allowances] [data-bk-button][role=button]")];
+    expect(retry.map(button => button.textContent), "GOOGLE_CHAT_REACH_RETRY").toEqual(["Try again"]);
+    expect(touchFloor(retry[0]!), "GOOGLE_CHAT_RETRY_TOUCH_FLOOR").toBe("met");
+    reach(notice, "restricted chat safety notice with a failed Gmail allowances read");
+  });
 }

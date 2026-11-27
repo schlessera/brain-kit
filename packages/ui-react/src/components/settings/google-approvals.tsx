@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GoogleApprovalList, type GoogleApprovalListProps } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
-import { approvalAccounts, googleStandingApi, standingFailure, unshownNotice } from "../../lib/google-standing.js";
+import { approvalAccounts, googleStandingApi, standingFailure } from "../../lib/google-standing.js";
 
 /** Not this owner's to see, or a server without the route: no section. */
 const HIDE = [401, 403, 404];
-const LOAD_FAILED = "Remembered Gmail approvals didn't load. Open Settings again to try again.";
 
 interface Shown {
   state: GoogleApprovalListProps["state"];
   accounts: GoogleApprovalListProps["accounts"];
   unshown: number;
-  error: string | null;
 }
+
+const NONE: Omit<Shown, "state"> = { accounts: [], unshown: 0 };
 
 /**
  * Remembered Gmail approvals in Settings › Security (#4212): the container
@@ -22,33 +22,47 @@ interface Shown {
  * nothing is drawn while the first read is pending, nor when it finds no
  * approvals, so a host that has never connected Gmail shows no Gmail section.
  * Once drawn, it stays for this visit, so revoking the last row leaves the
- * kit's empty state and its focus rule, not a vanished list. A 503 is the
- * kit's unavailable state; 401, 403 and 404 hide the section.
+ * kit's empty state and its focus rule, not a vanished list. Approvals the
+ * host cannot name are counted (`unshown`), so the kit never calls them none.
+ *
+ * Every read and every revoke answer maps the same way: a 503 is the kit's
+ * unavailable state; 401, 403 and 404 hide the section; anything else,
+ * a malformed success included, is the kit's failed state, with Try again.
  *
  * A revoke answered `revoked: true` drops the row here. `revoked: false` means
  * it was already gone, so the list is read again rather than reporting an
- * error.
+ * error. Any other failed revoke keeps its banner and reads the list again,
+ * because a revoke whose answer was lost may still have happened.
+ *
+ * Every answer is applied only to the visit and the read that asked for it:
+ * closing Settings or switching tabs ends the visit (`lifetime`), and a read
+ * answers only if no later read has started (`reads`).
  */
 export function GoogleApprovalsSection({ active }: { active: boolean }) {
   const root = useBrainUiRoot();
   const api = useMemo(() => googleStandingApi(root), [root]);
   const lifetime = useRef(0);
+  const reads = useRef(0);
   const [shown, setShown] = useState<Shown | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function fail(err: unknown) {
+    const failure = standingFailure(err, HIDE);
+    if (failure === "hidden") { setShown(null); setError(null); }
+    else setShown({ state: failure, ...NONE });
+  }
 
   async function load(generation: number) {
+    const read = ++reads.current;
     try {
       const approvals = await api.approvals();
-      if (generation !== lifetime.current) return;
+      if (generation !== lifetime.current || read !== reads.current) return;
       const { accounts, unshown } = approvalAccounts(approvals, Date.now());
-      setShown(was => (was === null && accounts.length === 0 && unshown === 0 ? null : { state: "ready", accounts, unshown, error: null }));
+      setShown(was => (was === null && accounts.length === 0 && unshown === 0 ? null : { state: "ready", accounts, unshown }));
     } catch (err) {
-      if (generation !== lifetime.current) return;
-      const failure = standingFailure(err, HIDE);
-      if (failure === "hidden") setShown(null);
-      else if (failure === "unavailable") setShown({ state: "unavailable", accounts: [], unshown: 0, error: null });
-      // The kit has no failed-read state; its ready state would claim there are none.
-      else setShown(was => (was?.state === "ready" ? { ...was, error: LOAD_FAILED } : { state: "loading", accounts: [], unshown: 0, error: LOAD_FAILED }));
+      if (generation !== lifetime.current || read !== reads.current) return;
+      fail(err);
     }
   }
 
@@ -56,6 +70,7 @@ export function GoogleApprovalsSection({ active }: { active: boolean }) {
     const generation = ++lifetime.current;
     setShown(null);
     setBusy(null);
+    setError(null);
     if (active) void load(generation);
     const invalidate = () => { lifetime.current++; };
     return invalidate;
@@ -67,11 +82,13 @@ export function GoogleApprovalsSection({ active }: { active: boolean }) {
     if (busy !== null) return;
     const generation = lifetime.current;
     setBusy(id);
-    setShown(was => was && { ...was, error: null });
+    setError(null);
     try {
       const revoked = await api.revokeApproval(id);
       if (generation !== lifetime.current) return;
       if (revoked) {
+        // A read sent before this answer may still hold the revoked row.
+        reads.current++;
         setShown(was => was && {
           ...was,
           accounts: was.accounts
@@ -81,11 +98,20 @@ export function GoogleApprovalsSection({ active }: { active: boolean }) {
       } else await load(generation);
     } catch (err) {
       if (generation !== lifetime.current) return;
-      if (standingFailure(err, HIDE) === "hidden") setShown(null);
-      else setShown(was => was && { ...was, error: err instanceof Error ? err.message : "Could not revoke" });
+      if (standingFailure(err, HIDE) !== "failed") fail(err);
+      else {
+        setError(err instanceof Error ? err.message : "Could not revoke");
+        await load(generation);
+      }
     } finally {
       if (generation === lifetime.current) setBusy(null);
     }
+  }
+
+  function retry() {
+    const generation = lifetime.current;
+    setShown({ state: "loading", ...NONE });
+    void load(generation);
   }
 
   if (!shown) return null;
@@ -94,9 +120,11 @@ export function GoogleApprovalsSection({ active }: { active: boolean }) {
       <GoogleApprovalList
         state={shown.state}
         accounts={shown.accounts}
+        unshown={shown.unshown}
         busy={busy}
-        error={shown.error ?? unshownNotice(shown.unshown, "approval")}
+        error={error}
         onRevoke={id => void revoke(id)}
+        onRetry={retry}
       />
     </div>
   );

@@ -105,3 +105,73 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"] as const)
     expect(document.activeElement?.getAttribute("aria-label"), "GOOGLE_SETTINGS_BROWSER_FOCUS_NEXT").toBe(`Revoke Save drafts for ${ODYSSEUS}`);
   });
 }
+
+// #4212 round 2: the kit's failed and partial states, placed in the same
+// Security tab at a phone width. The failed state must draw the red error box
+// and Try again, and claim nothing is loading; the partial state must draw
+// the count notice under the rows and never "None yet". Neither may widen the
+// column.
+const CALENDAR = approval("appr-calendar", ODYSSEUS, "calendar.event.create", "events", new Date(2026, 6, 11, 9, 14));
+for (const [kind, answer] of [
+  ["failed", () => Response.json({ error: "Internal" }, { status: 500 })],
+  ["partial", () => Response.json({ approvals: [...APPROVALS.slice(2), CALENDAR] })],
+] as const) for (const theme of ["dark", "light"] as const) {
+  test(`Security tab: remembered Gmail approvals, ${kind}, at 320 ${theme}`, async ctx => {
+    const width = 320;
+    const before = { width: innerWidth, height: innerHeight, theme: document.documentElement.dataset.theme };
+    const outer = await commands.formViewport(width, 900);
+    await page.viewport(width, 900);
+    document.documentElement.dataset.theme = theme;
+    const style = document.createElement("style"); style.textContent = await commands.formConsumerStyles(); document.head.append(style);
+    const host = document.createElement("div"); host.style.height = "900px"; document.body.append(host);
+    const ui = createBrainUiRoot({ storage: null, request: async url => {
+      const path = new URL(String(url), location.href).pathname;
+      if (path.endsWith("/trust-settings")) return Response.json(trustRead);
+      if (path.endsWith("/agent-policy")) return Response.json({ error: "Not configured" }, { status: 404 });
+      if (path.endsWith("/tool-permissions")) return Response.json({ tools: ["Bash"] });
+      if (path.endsWith("/google/approvals")) return answer();
+      return Response.json({ credentials: [], principals: [] });
+    } });
+    ui.stores.ui.setState({ theme });
+    ui.stores.ui.getState().openSettings("security");
+    const react = createRoot(host);
+    ctx.onTestFinished(async () => {
+      flushSync(() => react.unmount()); ui.dispose(); host.remove(); style.remove();
+      if (before.theme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = before.theme;
+      await page.viewport(before.width, before.height); await commands.formViewport(outer.width - 100, outer.height - 120);
+    });
+    flushSync(() => react.render(<BrainUiProvider root={ui}><SettingsPanel open onClose={() => {}} /></BrainUiProvider>));
+    await import("../../src/components/settings/passkey-tab.js");
+    await expect.poll(() => document.querySelector("[data-google-approvals]")?.getAttribute("data-google-approvals")).toBe(kind === "failed" ? "failed" : "ready");
+    await expect.poll(() => page.getByRole("tabpanel").element().textContent).toContain("Always-allowed tools");
+
+    const panel = page.getByRole("tabpanel").element() as HTMLElement;
+    const section = document.querySelector<HTMLElement>("[data-google-approvals-section]")!;
+    const list = section.querySelector<HTMLElement>("[data-google-approvals]")!;
+    expect(list.textContent, "GOOGLE_SETTINGS_BROWSER_NO_EMPTY_CLAIM").not.toContain("None yet");
+    if (kind === "failed") {
+      expect(list.querySelector("[aria-busy]"), "GOOGLE_SETTINGS_BROWSER_FAILED_NOT_BUSY").toBeNull();
+      expect(list.querySelector("[data-google-failed]")?.textContent).toContain("Couldn't load remembered approvals.");
+      const retry = page.getByRole("button", { name: "Try again" }).element() as HTMLElement;
+      expect(section.contains(retry), "Try again sits in the section").toBe(true);
+    } else {
+      expect(list.querySelector("[data-google-unshown]")?.textContent, "GOOGLE_SETTINGS_BROWSER_PARTIAL").toBe("1 remembered approval can't be shown here. brain google approvals lists it.");
+      const rows = [...list.querySelectorAll<HTMLElement>('[role="button"][data-google-target]')];
+      expect(rows.map(row => row.getAttribute("aria-label"))).toEqual([`Revoke Archive for ${ODYSSEUS}`, `Revoke Add label Label_12 for ${ODYSSEUS}`]);
+      expect(list.querySelector("[data-google-unshown]")!.getBoundingClientRect().top, "the notice is under the rows").toBeGreaterThanOrEqual(rows.at(-1)!.getBoundingClientRect().bottom);
+    }
+    const fits = () => {
+      const p = panel.getBoundingClientRect(), s = section.getBoundingClientRect();
+      return {
+        page: document.documentElement.scrollWidth <= innerWidth,
+        column: s.left >= p.left - 0.5 && s.right <= p.right + 0.5,
+        list: list.scrollWidth <= list.clientWidth + 0.5,
+        children: [...list.querySelectorAll<HTMLElement>("*")].every(node => { const r = node.getBoundingClientRect(); return r.width === 0 || (r.left >= s.left - 0.5 && r.right <= s.right + 0.5); }),
+      };
+    };
+    expect(fits(), "GOOGLE_SETTINGS_STATE_NO_HORIZONTAL_OVERFLOW").toEqual({ page: true, column: true, list: true, children: true });
+    section.scrollIntoView({ block: "end" });
+    await new Promise(done => requestAnimationFrame(() => done(null)));
+    await page.screenshot({ path: `../../.vitest-attachments/google-standing/settings-${kind}-${theme}-${width}.png` });
+  });
+}

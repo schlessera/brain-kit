@@ -6,38 +6,60 @@
  * The rows are the internal routes' (`docs/http-api.md`, "Google approval
  * management"). They carry no label names, so a label action always shows its
  * id. A row this module cannot name is never dropped silently: it is counted,
- * and the list says some could not be shown.
+ * and the kit's list says how many could not be shown.
  */
 import type { GoogleAllowanceListProps, GoogleApprovalListProps, GoogleHostTime, GoogleStandingAction } from "@schlessera/brain-ui-kit";
+import type { ChatMessage } from "../stores/chat-state.js";
 import type { BrainUiServices } from "../root.js";
 import { ApiRequestError } from "./api-client.js";
+
+/**
+ * A successful answer that is not the route's envelope: not JSON, not an
+ * object, or without the list or the revoke flag. It is a failed read, never
+ * the route's absence: this server mounts the routes unconditionally
+ * (`createGoogleApprovalRoutes`, `packages/ui-server/src/app.ts:1312-1316`),
+ * and an unmounted `/api` GET is answered 200 with the client shell when a
+ * static root is served (`conditional SPA fallback serves deep links`,
+ * `packages/ui-server/tests/http-inventory.test.ts:70-84`) and 404
+ * otherwise, so only a 404 says a route is not there.
+ */
+class GoogleStandingAnswerError extends Error {
+  constructor(message = "The server's answer was not understood.") {
+    super(message);
+    this.name = "GoogleStandingAnswerError";
+  }
+}
+
+const record = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 
 /**
  * The four owner-only routes, through the root's account-lifetime guarded
  * request, as `storageApi` reaches Storage's: internal routes stay out of the
  * public `BrainApi`. A failure carries the route's own `error` text and its
- * status. A 200 without the list is a server without the route, read as 404,
- * as `BrainApi.apify` reads one.
+ * status; a malformed success is a `GoogleStandingAnswerError`.
  */
 export function googleStandingApi(root: Pick<BrainUiServices, "request" | "apiBase">) {
-  async function call(path: string, body?: { id: string }): Promise<Record<string, unknown> | null> {
+  async function call(path: string, body?: { id: string }): Promise<Record<string, unknown>> {
     const response = await root.request(`${root.apiBase()}${path}`, {
       cache: "no-store",
       credentials: "include",
       ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
     });
-    const read = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    const parsed: unknown = await response.json().catch(() => undefined);
+    const read = record(parsed);
     if (!response.ok) throw new ApiRequestError(typeof read?.error === "string" ? read.error : `HTTP ${response.status}`, response.status);
+    if (!read) throw new GoogleStandingAnswerError();
     return read;
   }
   const list = async (path: string, key: "approvals" | "allowances") => {
-    const rows = (await call(path))?.[key];
-    if (!Array.isArray(rows)) throw new ApiRequestError("Not available on this server.", 404);
+    const rows = (await call(path))[key];
+    if (!Array.isArray(rows)) throw new GoogleStandingAnswerError();
     return rows as unknown[];
   };
   const revoke = async (path: string, id: string) => {
-    const revoked = (await call(path, { id }))?.revoked;
-    if (typeof revoked !== "boolean") throw new Error("The revoke answer was not understood.");
+    const revoked = (await call(path, { id })).revoked;
+    if (typeof revoked !== "boolean") throw new GoogleStandingAnswerError("The revoke answer was not understood.");
     return revoked;
   };
   const session = (id: string) => `/sessions/${encodeURIComponent(id)}/google/allowances`;
@@ -119,7 +141,7 @@ export function approvalAccounts(rows: readonly unknown[], now: number): { accou
  * least left and the earliest end any of them reports. A card with a row the
  * kit cannot name is not shown at all: its Revoke would revoke more than it says.
  */
-export function allowanceGrants(rows: readonly unknown[], now: number): { grants: GoogleAllowanceListProps["grants"]; unshown: number } {
+export function allowanceGrants(rows: readonly unknown[], now: number): { grants: GoogleAllowanceListProps["grants"]; unshown: number; nextEnd: number | null } {
   const cards = new Map<string, { address: string; actions: GoogleStandingAction[]; remaining: number; until: number; broken: boolean }>();
   let unshown = 0;
   for (const raw of rows) {
@@ -134,29 +156,51 @@ export function allowanceGrants(rows: readonly unknown[], now: number): { grants
     card.until = Math.min(card.until, row.expires_at);
   }
   const grants: GoogleAllowanceListProps["grants"] = [];
+  let nextEnd: number | null = null;
   for (const [id, card] of cards) {
     if (card.broken || card.actions.length === 0) { unshown++; continue; }
     grants.push({ id, address: card.address, actions: card.actions, remaining: card.remaining, limit: GOOGLE_ALLOWANCE_ITEMS, until: untilTime(card.until, now) });
+    nextEnd = nextEnd === null ? card.until : Math.min(nextEnd, card.until);
   }
-  return { grants, unshown };
+  return { grants, unshown, nextEnd };
 }
 
 /**
  * What a failed request means for a list. The routes answer every storage
  * failure with 503: the kit's unavailable state. A missing or non-owner
- * principal, or (for a chat) a chat this owner cannot reach, hides the list:
- * it is the owner's private data. Anything else is an error the list shows.
+ * principal, a route this server does not have (404), or (for a chat) a chat
+ * this owner cannot reach (404) hides the list: it is the owner's private
+ * data. Anything else, a malformed success included, is the kit's failed
+ * state.
  */
-export function standingFailure(error: unknown, hide: readonly number[]): "hidden" | "unavailable" | "error" {
-  if (!(error instanceof ApiRequestError)) return "error";
+export function standingFailure(error: unknown, hide: readonly number[]): "hidden" | "unavailable" | "failed" {
+  if (!(error instanceof ApiRequestError)) return "failed";
   if (error.status === 503) return "unavailable";
-  return hide.includes(error.status) ? "hidden" : "error";
+  return hide.includes(error.status) ? "hidden" : "failed";
 }
 
-/** The banner for rows that could not be drawn; the owner still sees that they exist. */
-export function unshownNotice(count: number, noun: "approval" | "allowance"): string | null {
-  if (count === 0) return null;
-  return noun === "approval"
-    ? `${count} remembered approval${count === 1 ? "" : "s"} can't be shown here. brain google approvals lists ${count === 1 ? "it" : "them"}.`
-    : `${count} allowance${count === 1 ? "" : "s"} in this chat can't be shown here.`;
+/**
+ * The Gmail write tools that spend or grant a chat allowance: the reversible
+ * ones, `modify` and `draft` (`GMAIL_TOOL_NAMES`,
+ * `packages/common/src/google/catalog.ts:54-61`). Trash and send are
+ * irreversible and never standing. Restated, as the limit is, because this
+ * package does not depend on common; a unit test holds them to the source.
+ */
+export const GOOGLE_ALLOWANCE_WRITE_TOOLS: readonly string[] = ["brain_google_gmail_modify", "brain_google_gmail_draft"];
+
+/**
+ * How many of those calls in a chat's transcript have their result: the
+ * signal that an allowance may have been spent or granted. A call's result is
+ * its `output` (`setToolResult`); `status: "complete"` alone also marks a call
+ * whose input only finished streaming. The name may carry an MCP prefix.
+ */
+export function completedAllowanceWrites(messages: readonly ChatMessage[] | undefined): number {
+  let count = 0;
+  for (const message of messages ?? []) {
+    for (const tool of message.toolCalls) {
+      const bare = tool.name.startsWith("mcp__") ? tool.name.split("__").at(-1)! : tool.name;
+      if (tool.output !== undefined && GOOGLE_ALLOWANCE_WRITE_TOOLS.includes(bare)) count++;
+    }
+  }
+  return count;
 }
