@@ -36,6 +36,7 @@ import { trackKey, tracksFor } from "../../lib/draft-tracks.js";
 import { filesFor } from "../../lib/draft-files.js";
 import { ensureFrame, frameOf, framesFor, isFramedImage, placeFrames, subscribeFrames } from "../../lib/image-frames.js";
 import { queuedBlocking, queuedPending } from "../../lib/attachment-queue.js";
+import { sendHold, type SendHoldDraft } from "../../lib/send-hold.js";
 import { bindableFiles, draftFiles as draftFilesOf, draftSnapshots, type ComposerDraft, type ComposerSnapshot, type DraftFile } from "../../stores/draft-state.js";
 import { focusOldestSnapshot } from "./outgoing-snapshots.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
@@ -623,42 +624,27 @@ export const Composer = memo(function Composer({ send, handle }: { send: (msg: C
       return;
     }
 
-    if (currentTracks.some(track => track.state === "failed")) {
-      setHeldSend(false);
-      setEffortNotice("Your draft is kept. Retry or remove the failed track before sending.");
-      return;
-    }
-    if (currentTracks.some(trackPending)) { heldSendOrigin.current = { draftId, at: sentAt }; setHeldSend(true); return; }
-    const fileHold = composerFilesHold();
-    if (fileHold.blocked) { setHeldSend(false); setEffortNotice(fileHold.blocked); return; }
-    if (fileHold.pending) { heldSendOrigin.current = { draftId, at: sentAt }; setHeldSend(true); return; }
+    const hold = sendHold({ path: "direct", tracks: { failed: currentTracks.some(track => track.state === "failed"), pending: currentTracks.some(trackPending) },
+      queued: queuedHold(), draft: draftHold(currentDraft), answer: answersQuestion(text, hasAttachments) });
+    if (hold.kind === "pending") { heldSendOrigin.current = { draftId, at: sentAt }; setHeldSend(true); return; }
+    // The direct path too (#4567): its message must not reach the chat ahead of one still being saved.
+    if (hold.kind === "blocked") { setHeldSend(false); setEffortNotice(hold.sentence); return; }
     const readyFiles = currentTracks.filter(trackReady).map(track => track.meta!);
 
     // A send while a question is pending is the ANSWER to it, not a new
     // message (D38 §1): the text binds to the question, the card quotes it,
     // and nothing goes out as `chat_message`. Attachments are not an answer
     // to a question, so a send that carries one stays a message.
-    if (
-      text &&
-      !hasAttachments &&
+    if (hold.kind === "answer") {
       takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, (answer) =>
         // An answer the queue could not admit lived only in the composer:
         // put it back there rather than let it vanish with the draft.
         void root.answers.submit(answer).then((result) => {
           if (result === "refused") root.stores.chat.getState().requestComposerInsert(text);
         })
-      )
-    ) {
+      );
       setInput("");
       endReview();
-      return;
-    }
-
-    // The direct path too (#4567): its message must not reach the chat ahead of one still being saved.
-    // An answer above went on its own queue.
-    if (currentDraft && waitsForLastMessage(currentDraft)) {
-      setHeldSend(false);
-      setEffortNotice("Your draft is kept. Send waits until your last message is saved.");
       return;
     }
     if (text) setLastPrompt(text);
@@ -802,24 +788,19 @@ export const Composer = memo(function Composer({ send, handle }: { send: (msg: C
       return;
     }
     const own = fileQueue.files.filter((item) => !item.snapshotId);
-    if (own.some(queuedBlocking)) { setEffortNotice("Your draft is kept. Retry or remove the file that wasn't stored before sending."); return; }
     const current = store.drafts[draftId];
-    if (current && draftFilesOf(current).some((f) => f.lineage !== current.draftId)) { setEffortNotice("Your draft is kept. Remove the files marked not attached, or choose them again, before sending."); return; }
-    if (current?.conflict) { setEffortNotice("Your draft is kept. Choose which version to keep before sending."); return; }
-    // A refused save does not hold Send: the send is the next edit, saved again (#4566).
-    if (current?.failure && current.failure.kind !== "unsaved" && current.failure.kind !== "refused") { setEffortNotice("Your draft is kept. Its files couldn't be saved with it; remove one and try again."); return; }
-    // A typed answer to a pending question is still an answer, never a message (D38 §1).
-    if (text && !hasAttachments && takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, (answer) =>
-      void root.answers.submit(answer).then((result) => { if (result === "refused") root.stores.chat.getState().requestComposerInsert(text); }))) {
-      setInput(""); endReview(); return;
-    }
-    // An answer goes on its own queue and waits for no draft save; a message does (#4567).
     // One snapshot is created at a time (#4567): text typed while the last
     // one's save is out stays here until the host has it, then sends.
     // Whatever the last save's answer, a second snapshot never goes out beside it (#4567).
     // A Send again replacement counts too, and so does a delete of the draft still out.
-    if (current && waitsForLastMessage(current)) {
-      setEffortNotice("Your draft is kept. Send waits until your last message is saved."); return;
+    const hold = sendHold({ path: "snapshot", tracks: { failed: false, pending: false }, queued: queuedHold(),
+      draft: draftHold(current), answer: answersQuestion(text, hasAttachments) });
+    if (hold.kind === "blocked") { setEffortNotice(hold.sentence); return; }
+    // A typed answer to a pending question is still an answer, never a message (D38 §1).
+    if (hold.kind === "answer") {
+      takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, (answer) =>
+        void root.answers.submit(answer).then((result) => { if (result === "refused") root.stores.chat.getState().requestComposerInsert(text); }));
+      setInput(""); endReview(); return;
     }
     if (text) setLastPrompt(text);
     const requestId = crypto.randomUUID();
@@ -850,27 +831,35 @@ export const Composer = memo(function Composer({ send, handle }: { send: (msg: C
     setEffortNotice("");
   }
 
+  /** The composer's own queued files, for `sendHold`: those not yet bound to a snapshot. */
+  function queuedHold() {
+    const queued = fileQueue.files.filter((item) => !item.snapshotId);
+    return { blocking: queued.some(queuedBlocking), pending: queued.some(queuedPending) };
+  }
+
   /**
-   * Whether composer files let this draft send now (#3155). Required uploads
-   * and the save that binds their originals hold it; a file the host refused,
-   * a failed upload or one carried from another draft id blocks it until
+   * A draft's facts for `sendHold` (#3155, #4829). Required uploads and the
+   * save that binds their originals hold it; a file the host refused, a
+   * failed upload or one carried from another draft id blocks it until
    * retried or removed. Unread PDF or text contents never hold it.
    */
-  function composerFilesHold(): { blocked?: string; pending?: boolean } {
-    const d = root.stores.drafts.getState().drafts[draftIdRef.current];
-    const queued = fileQueue.files.filter((item) => !item.snapshotId);
-    if (queued.some(queuedBlocking)) return { blocked: "Your draft is kept. Retry or remove the file that wasn't stored before sending." };
-    if (d && draftFilesOf(d).some((f) => f.lineage !== d.draftId)) return { blocked: "Your draft is kept. Remove the files marked not attached, or choose them again, before sending." };
-    if (queued.some(queuedPending)) return { pending: true };
-    if (!d || draftFilesOf(d).length === 0) return {};
-    if (d.failure?.kind === "refused" && d.failure.edit === d.edit) return { blocked: "Your draft is kept. The brain refused to save it; change it and try again." };
-    if (d.failure && d.failure.kind !== "unsaved" && d.failure.kind !== "refused") return { blocked: "Your draft is kept. Its files couldn't be saved with it; remove one and try again." };
-    if (d.conflict) return { blocked: "Your draft is kept. Choose which version to keep before sending its files." };
-    // Sent only from an acknowledged revision: the message names it.
-    if (!(d.host !== null && d.host.edit === d.edit)) return { pending: true };
-    // An image's frame still being made: the message carries it, so it waits.
-    if (!framesFor(root, bindableFiles(d).map((f) => f.file), d.attachments)) return { pending: true };
-    return {};
+  function draftHold(d: ComposerDraft | undefined): SendHoldDraft | null {
+    if (!d) return null;
+    return {
+      foreignFiles: draftFilesOf(d).some((f) => f.lineage !== d.draftId),
+      hasFiles: draftFilesOf(d).length > 0,
+      refusedThisEdit: d.failure?.kind === "refused" && d.failure.edit === d.edit,
+      saveFailed: !!d.failure && d.failure.kind !== "unsaved" && d.failure.kind !== "refused",
+      conflict: !!d.conflict,
+      acknowledged: d.host !== null && d.host.edit === d.edit,
+      framesReady: () => framesFor(root, bindableFiles(d).map((f) => f.file), d.attachments) !== null,
+      waitsForLastMessage: waitsForLastMessage(d),
+    };
+  }
+
+  /** Whether the text alone answers a waiting question; a dry run of `takeComposerTextAsAnswer`, which submits nothing here. */
+  function answersQuestion(text: string, hasAttachments: boolean): boolean {
+    return !!text && !hasAttachments && takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, () => {});
   }
 
   const submitHeldDraft = useRef(handleSubmit);
@@ -880,14 +869,12 @@ export const Composer = memo(function Composer({ send, handle }: { send: (msg: C
   // once, only after every remaining file has a validated ready result.
   useEffect(() => {
     if (!heldSend) return;
-    const fileHold = composerFilesHold();
-    if (tracks.some(track => track.state === "failed")) {
+    const hold = sendHold({ path: "held", tracks: { failed: tracks.some(track => track.state === "failed"), pending: tracks.some(trackPending) },
+      queued: queuedHold(), draft: draftHold(root.stores.drafts.getState().drafts[draftIdRef.current]), answer: false });
+    if (hold.kind === "blocked") {
       setHeldSend(false);
-      setEffortNotice("Your draft is kept. Retry or remove the failed track before sending.");
-    } else if (fileHold.blocked) {
-      setHeldSend(false);
-      setEffortNotice(fileHold.blocked);
-    } else if (!tracks.some(trackPending) && !fileHold.pending && wsStatus === "connected") {
+      setEffortNotice(hold.sentence);
+    } else if (hold.kind === "send" && wsStatus === "connected") {
       setHeldSend(false);
       submitHeldDraft.current();
     }

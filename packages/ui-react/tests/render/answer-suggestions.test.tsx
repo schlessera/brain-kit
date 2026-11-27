@@ -7,7 +7,8 @@
 // frames, once on the same turn replayed from `session_history`, with the
 // same assertion. The ruling on #40 is that replay draws exactly what live
 // drew, so a rule that only held live would be a failing test here.
-import { unregisterAnswerSuggestionsDom } from "./answer-suggestions-dom.js";
+import { registerAnswerSuggestionsDom, unregisterAnswerSuggestionsDom } from "./answer-suggestions-dom.js";
+registerAnswerSuggestionsDom();
 
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
@@ -34,7 +35,7 @@ import { SUGGESTIONS } from "../block-fixtures.js";
 // happy-dom rejects an animation's `finished` promise when a message
 // unmounts mid-animation, and the rejection fails whichever test is running.
 // These tests are about what the transcript draws, not the animation engine,
-// so motion elements are plain DOM wrappers, as in render-smoke.test.tsx.
+// so motion elements are plain DOM wrappers, as in smoke-harness.tsx.
 const motionElements = new Map<string, ReturnType<typeof motionElement>>();
 function motionElement(tag: string) {
   return forwardRef<HTMLElement, Record<string, unknown>>(
@@ -156,7 +157,7 @@ async function mount(): Promise<Page> {
     field: () => view.container.querySelector("textarea")!,
     type: (value) => {
       // happy-dom's value tracker does not drive React's synthetic onChange
-      // in this harness (render-smoke.test.tsx, `changeControlledInput`), so
+      // in this harness (smoke-harness.tsx, `changeControlledInput`), so
       // the mounted field's own prop is called: the composer still owns the
       // state change and every effect after it.
       const field = page.field();
