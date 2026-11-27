@@ -7,7 +7,7 @@ import {
   percentile,
   scoreJudge,
   type JudgeSample,
-} from "../src/lib/sync/judge-score";
+} from "../scripts/sync-judge-score";
 
 type L = "a" | "b";
 const LABELS = ["a", "b"] as const;

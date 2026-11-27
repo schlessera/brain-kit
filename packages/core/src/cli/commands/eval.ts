@@ -542,6 +542,10 @@ function lintSet(json: boolean, root: string, setPath: string, redact: boolean):
 
 export const evalCommand: CoreCommand = {
   summary: "Score a retrieval query set against this brain's index",
+  flags: {
+    boolean: ["allow-set-change", "context", "lint", "redact", "strict"],
+    value: ["baseline", "budgets", "k", "max-net-loss", "mode", "must-pass", "now", "out", "rerank", "set"],
+  },
   helpBlock: HELP,
   async run(args, cli) {
     // Eval's own exit codes: 1 is a failed baseline gate, so a usage error

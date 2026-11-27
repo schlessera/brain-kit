@@ -451,6 +451,7 @@ export function formatHistory(history: StatsHistory): string {
 
 export const statsCommand: CoreCommand = {
   summary: "Show corpus statistics",
+  flags: { boolean: ["all", "history", "record"], value: ["since"] },
   helpBlock: HELP,
   async run(args, cli) {
     const { flags } = parseArgs(args);

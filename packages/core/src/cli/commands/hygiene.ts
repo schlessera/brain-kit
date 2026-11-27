@@ -274,6 +274,10 @@ function dispositionRequest(sub: "dismiss" | "snooze" | "keep-copy", pos: string
 
 export const hygieneCommand: CoreCommand = {
   summary: "Reconcile, read and triage the content-hygiene log",
+  flags: {
+    boolean: ["dry-run"],
+    value: ["copy", "copy-sha256", "defer", "expect-approval", "expect-fingerprint", "expect-premise", "expect-preview", "extra", "finding", "fixed", "handler", "ignore-adjust", "input", "journal", "pattern", "reason", "state", "to", "until"],
+  },
   helpBlock: HELP + MEDIA_HELP + REPAIR_HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);

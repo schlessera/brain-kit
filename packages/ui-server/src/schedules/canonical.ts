@@ -4,6 +4,12 @@ import { createHash } from "node:crypto";
  * Canonical JSON for schedule fingerprints: object keys sorted by code point,
  * array order kept, only finite numbers/strings/booleans/null. Negative zero
  * becomes zero. Anything else (undefined, functions, Dates, Buffers) throws.
+ *
+ * Every approved schedule stores the fingerprint this text hashes
+ * (`scheduleFingerprint`): the rule must not change, or every approval stops
+ * matching. `packages/ui-server/tests/schedule-canonical.test.ts` pins it. Of
+ * the three canonicalisers named `canonicalJson`, this strict one is the rule
+ * a new caller should use.
  */
 export function canonicalJson(value: unknown): string {
   if (value === null) return "null";

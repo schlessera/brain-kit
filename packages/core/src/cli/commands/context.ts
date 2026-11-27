@@ -18,6 +18,7 @@ Output: assembled markdown context (plain text, never JSON). With --include or
 
 export const contextCommand: CoreCommand = {
   summary: "Assemble a context block for agent consumption",
+  flags: { boolean: [], value: ["exclude", "include", "max-tokens"] },
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);

@@ -1,39 +1,6 @@
-/** Data-only instructions for the generic Settings renderer. */
-export interface ModuleSettingsOption {
-  value: string;
-  label: string;
-  disabled?: boolean;
-  help?: string;
-}
+import type { ModuleSettingsField, ModuleSettingsOption } from "@schlessera/brain-common/internal/module-settings-fields";
 
-export interface ModuleSettingsField {
-  key: string;
-  kind?: "text" | "number" | "toggle" | "choice" | "multichoice" | "tags" | "weights" | "record" | "list" | "variant";
-  label: string;
-  help?: string;
-  group?: string;
-  order?: number;
-  unit?: string;
-  currency?: string;
-  minorUnits?: boolean;
-  min?: number;
-  max?: number;
-  step?: number;
-  appliesAt?: "next-run" | "restart";
-  readOnly?: { reason: string; whenInherited?: boolean };
-  options?: ModuleSettingsOption[];
-  fields?: ModuleSettingsField[];
-  itemTitle?: string;
-  collapsible?: boolean;
-  orderMatters?: boolean;
-  minItems?: number;
-  uniqueBy?: string;
-  addLabel?: string;
-  variants?: Array<{ key: string; label: string; fields: ModuleSettingsField[] }>;
-  optional?: { label: string; presentLabel?: string };
-  /** Display only; absent inputs stay absent until edited. */
-  default?: unknown;
-}
+export type { ModuleSettingsField, ModuleSettingsOption };
 
 export interface ModuleSettingsSnapshot {
   module: string;
