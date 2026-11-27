@@ -1,13 +1,14 @@
 /**
  * Records every statement a store executes, for plan and statement-count
  * proofs (#4665): the returned `db` hands out statements whose `all`, `get`,
- * `run`, `values` and `iterate` calls are logged with their SQL and bound
- * parameters. Everything else, transactions included, runs on the real
- * connection unrecorded.
+ * `run`, `values` and `iterate` calls are logged with their SQL, bound
+ * parameters and, for `all` and `get`, the rows they returned. Everything
+ * else, transactions included, runs on the real connection unrecorded.
  */
 import type { Database, Statement } from "bun:sqlite";
 
-export interface RecordedStatement { sql: string; params: unknown[] }
+/** `rows` is how many rows an `all` or `get` handed back. */
+export interface RecordedStatement { sql: string; params: unknown[]; rows?: number }
 const EXECUTE = new Set<PropertyKey>(["all", "get", "run", "values", "iterate"]);
 
 export function recordStatements(db: Database) {
@@ -17,7 +18,14 @@ export function recordStatements(db: Database) {
       const value = Reflect.get(target, key, target);
       if (typeof value !== "function") return value;
       if (!EXECUTE.has(key)) return value.bind(target);
-      return (...params: unknown[]) => { statements.push({ sql, params }); return value.apply(target, params); };
+      return (...params: unknown[]) => {
+        const recorded: RecordedStatement = { sql, params };
+        statements.push(recorded);
+        const result = value.apply(target, params);
+        if (key === "all") recorded.rows = (result as unknown[]).length;
+        else if (key === "get") recorded.rows = result == null ? 0 : 1;
+        return result;
+      };
     },
   });
   const recorded = new Proxy(db, {
