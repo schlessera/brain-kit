@@ -1181,6 +1181,68 @@ describe("sidecar cache pruning", () => {
     expect(readFileSync(join(root, ".brain-cache/contexts.jsonl"), "utf-8")).toBe("\n");
   });
 
+  // Another run publishes the cache while the prune scans the chunks: `run`
+  // replaces the file once, when the scan starts. Restored by the caller.
+  function duringChunkScan(db: Database, run: () => void): () => void {
+    const prepare = db.prepare;
+    db.prepare = ((...args: Parameters<typeof prepare>) => {
+      const statement = prepare.apply(db, args);
+      const sql = String(args[0]);
+      if (!sql.includes("SELECT c.heading, c.content, d.title") || sql.includes("c.context")) return statement;
+      const iterate = statement.iterate.bind(statement);
+      statement.iterate = ((...params: Parameters<typeof iterate>) => { run(); return iterate(...params); }) as typeof statement.iterate;
+      return statement;
+    }) as typeof prepare;
+    return () => { db.prepare = prepare; };
+  }
+
+  test("a context line another run publishes during the chunk scan survives the prune (#4874)", async () => {
+    const root = makeCorpus({ "note.md": mdSections("Note", ["oar", "mast", "sail"]) });
+    await runIndex(root, withEnrichment());
+    const path = join(root, ".brain-cache/contexts.jsonl");
+    const live = sidecarLines(root, ".brain-cache/contexts.jsonl");
+    expect(live).toHaveLength(3);
+    const [late, ...early] = live;
+    const stale = JSON.stringify({ k: "stale-context", v: "stale" });
+    writeCacheFile(path, [...early, stale].sort().join("\n") + "\n");
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    // An embeddings run banks `late`, publishing the whole file as saveContextCache does.
+    const restore = duringChunkScan(db, () => writeCacheFile(path, [...early, stale, late].sort().join("\n") + "\n"));
+    const warnings: string[] = [];
+    try {
+      expect(pruneSidecarCaches(db, root, (m) => warnings.push(m))).toEqual({ assets: 0, contexts: 1 });
+    } finally {
+      restore();
+      db.close();
+    }
+    expect(warnings).toEqual([]);
+    expect(sidecarLines(root, ".brain-cache/contexts.jsonl")).toEqual(live);
+  });
+
+  test("a context line forgotten during the chunk scan is not written back by the prune (#4874)", async () => {
+    const root = makeCorpus({ "note.md": mdSections("Note", ["oar", "mast", "sail"]) });
+    await runIndex(root, withEnrichment());
+    const path = join(root, ".brain-cache/contexts.jsonl");
+    const live = sidecarLines(root, ".brain-cache/contexts.jsonl");
+    expect(live).toHaveLength(3);
+    const stale = JSON.stringify({ k: "stale-context", v: "stale" });
+    writeCacheFile(path, [...live, stale].sort().join("\n") + "\n");
+    const [forgotten, ...rest] = live;
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    // `--forget-cache` removes `forgotten` meanwhile; the stale line makes the prune write.
+    const restore = duringChunkScan(db, () => writeCacheFile(path, [...rest, stale].sort().join("\n") + "\n"));
+    const warnings: string[] = [];
+    try {
+      expect(pruneSidecarCaches(db, root, (m) => warnings.push(m))).toEqual({ assets: 0, contexts: 1 });
+    } finally {
+      restore();
+      db.close();
+    }
+    expect(warnings).toEqual([]);
+    expect(sidecarLines(root, ".brain-cache/contexts.jsonl")).toEqual(rest);
+    expect(sidecarLines(root, ".brain-cache/contexts.jsonl")).not.toContain(forgotten);
+  });
+
   test("context lines of a deleted document and an edited section go; renamed and untouched ones stay", async () => {
     const root = makeCorpus({
       "notes/gone.md": mdSections("Gone", ["zeppelin", "airship"]),
