@@ -72,14 +72,21 @@ export interface ApprovalCardProps {
   onDeny?: () => void;
   /** Offered only when the host says this request can create a remembered grant. */
   onAlwaysAllow?: () => void;
+  /** The standing choice's own words (#4215, M1). Defaults to "Always allow". */
+  alwaysLabel?: string;
+  /** One line under the standing choice: what it keeps and where to revoke it (#4215, M1). */
+  alwaysNote?: ReactNode;
+  /** Between the head and the payload, read before it: a provenance banner (#4215, M1). */
+  top?: ReactNode;
   /** Real renderer input or other permission details, without demo content. */
   children?: ReactNode;
   /** Let full runtime tool names and targets occupy separate header lines. */
   wrapHeader?: boolean;
   /** Long decision labels wrap onto separate rows when the available width requires it. */
   wrapActions?: boolean;
-  /** Printed keys are hints; they do not change the decision's accessible name. */
-  shortcuts?: { allow: string; deny: string };
+  /** Printed keys are hints; they do not change the decision's accessible name.
+   * A card with no allow key prints none on Allow (#4215, M4). */
+  shortcuts?: { allow?: string; deny: string };
 }
 
 export function ApprovalCard(p: ApprovalCardProps) {
@@ -110,6 +117,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
   };
   const badgeWrap: CSSProperties = { flex: "none", display: "flex" };
   const diffWrap: CSSProperties = { margin: "9px 0 8px" };
+  const topWrap: CSSProperties = { marginTop: 9 };
   const riskRow: CSSProperties = {
     display: "flex",
     alignItems: "center",
@@ -125,6 +133,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
    * height, so the floor levels both. */
   const allowMount: CSSProperties = { flex: p.wrapActions ? "1 1 160px" : "1 1 auto", minWidth: 0, width: "auto", minHeight: p.wrapActions ? 44 : undefined };
   const denyMount: CSSProperties = { flex: "0 0 auto", minWidth: 96, minHeight: 44, width: "auto" };
+  const alwaysNoteStyle: CSSProperties = { marginTop: 5, font: `400 11px/1.5 ${font.body}`, color: color.inkMute };
 
   const diff = p.diff ?? "- seats: 40\n+ seats: 24\n- format: talk (45 min)\n+ format: workshop (90 min)";
   const risk = p.risk ?? "overwrites a field referenced by 2 other docs";
@@ -139,6 +148,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
           <Chip label={p.badge || "Approval needed"} tone="amber" variant="soft" mono={false} />
         </span>
       </div>
+      {p.top ? <div style={topWrap} data-kit-approval-top="">{p.top}</div> : null}
       {diff ? (
         <div style={diffWrap}>
           <DiffBlock text={diff} variant="inset" />
@@ -153,7 +163,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
       ) : null}
       <div style={actions} data-kit-approval-actions>
         <Button
-          label={`${p.allowLabel || "Allow"}${p.shortcuts ? ` ${p.shortcuts.allow}` : ""}`}
+          label={`${p.allowLabel || "Allow"}${p.shortcuts?.allow ? ` ${p.shortcuts.allow}` : ""}`}
           ariaLabel={p.shortcuts ? [p.allowLabel || "Allow", p.allowEffect].filter(Boolean).join(", ") : undefined}
           tone="primary"
           size="md"
@@ -164,8 +174,13 @@ export function ApprovalCard(p: ApprovalCardProps) {
         />
         <Button label={`${p.denyLabel || "Deny"}${p.shortcuts ? ` ${p.shortcuts.deny}` : ""}`} ariaLabel={p.shortcuts ? p.denyLabel || "Deny" : undefined} tone="danger" size="md" center style={denyMount} onClick={p.onDeny} />
       </div>
-      {p.onAlwaysAllow ? <Button label="Always allow" effect="write_policy" tone="quiet" size="md" center
-        style={{ marginTop: 8, minHeight: 44 }} onClick={p.onAlwaysAllow} /> : null}
+      {p.onAlwaysAllow ? (
+        <div style={{ marginTop: 8 }} data-kit-approval-always="">
+          <Button label={p.alwaysLabel || "Always allow"} effect="write_policy" tone="quiet" size="md" center
+            style={{ minHeight: 44 }} onClick={p.onAlwaysAllow} />
+          {p.alwaysNote ? <div style={alwaysNoteStyle} data-kit-approval-always-note="">{p.alwaysNote}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

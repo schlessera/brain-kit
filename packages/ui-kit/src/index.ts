@@ -397,3 +397,20 @@ export { invisibleSegments, revealInvisibles, type InvisibleSegment } from "./go
 export { GoogleApprovalList, type GoogleApprovalListProps } from "./google/GoogleApprovalList.js";
 export { GoogleAllowanceList, type GoogleAllowanceListProps } from "./google/GoogleAllowanceList.js";
 export { googleActionWords, type GoogleHostTime, type GoogleStandingAction } from "./google/shared.js";
+/* Gmail approval cards: presentational, props and callbacks only (#4215, M1–M6). */
+export {
+  GoogleMailApprovalCard,
+  type GoogleMailApprovalCardProps,
+  type GoogleMailbox,
+  type GoogleMailDraftDeleteProps,
+  type GoogleMailDraftSaveProps,
+  type GoogleMailMessage,
+  type GoogleMailModifyProps,
+  type GoogleMailSendProps,
+  type GoogleMailTarget,
+  type GoogleMailThread,
+  type GoogleMailTrashProps,
+  type GoogleRecipientMatch,
+  type GoogleStandingOffers,
+} from "./google/GoogleMailApprovalCard.js";
+export { GOOGLE_SEND_RECIPIENT_REFUSAL, googleApprovalKeys, type GoogleEffect } from "./google/mail-approval.js";

@@ -3414,3 +3414,95 @@ ol.bk-ut-list { list-style: decimal outside; }
   border-bottom-left-radius: inherit;
   border-bottom-right-radius: inherit;
 }
+
+/* ── Gmail approval cards (#4215, brief of 2026-11-20, M1–M6) ────────────
+ * Layout only; every colour is an existing token. The query container is the
+ * card's payload frame, never `ApprovalCard` itself, for the same reason as
+ * `.bk-gm-frame`. Below 560px of that frame the envelope's label column is
+ * 64px and each recipient's send-list match drops under its address; from
+ * 560px the column is 72px, the match sits on the address line, and the
+ * body's scroll region grows from 280px to 360px. */
+.bk-gma-frame { container-type: inline-size; min-width: 0; margin-top: 9px; }
+.bk-gma-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; margin-bottom: 12px; }
+
+.bk-gma-env {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 7px;
+  align-items: baseline;
+  margin: 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--bk-color-line);
+  min-width: 0;
+}
+.bk-gma-env > dt { grid-column: 1; min-width: 0; overflow-wrap: anywhere; }
+.bk-gma-env > dd { grid-column: 2; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+/* Bcc is its own row, label across the whole width (M2): it cannot be read as one more To line. */
+.bk-gma-env > dt.bk-gma-bcc {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 10.5px/1.4 "JetBrains Mono", ui-monospace, monospace;
+  color: var(--bk-gold-ink);
+}
+.bk-gma-addr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 8px; min-width: 0; }
+.bk-gma-who { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; color: var(--bk-color-ink); }
+.bk-gma-match {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font: 400 10.5px/1.5 "JetBrains Mono", ui-monospace, monospace;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+@container (min-width: 560px) {
+  .bk-gma-env { grid-template-columns: 72px minmax(0, 1fr); }
+  .bk-gma-who { flex: 1 1 14em; }
+  .bk-gma-match { margin-inline-start: auto; }
+}
+/* A hidden character on a card is a warning about what will be sent (brief §7): the G4 marker, in red ink. */
+.bk-gma .bk-gm-hidden { color: var(--bk-red-ink); border-color: var(--bk-chip-border-red); }
+
+/* The whole body, in a region the keyboard can scroll (M3: no gate). The cue
+ * sits over the region's foot and takes no pointer, so it never covers a link
+ * for a tap. */
+.bk-gma-scroll-wrap { position: relative; min-width: 0; }
+.bk-gma-scroll {
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 12px 10px;
+  min-width: 0;
+}
+.bk-gma-scroll:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: -2px; border-radius: 0 0 10px 10px; }
+@container (min-width: 560px) {
+  .bk-gma-scroll { max-height: 360px; }
+}
+.bk-gma-more {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 22px 12px 6px;
+  text-align: center;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bk-color-surface) 62%);
+  font: 500 10.5px/1.4 "JetBrains Mono", ui-monospace, monospace;
+  color: var(--bk-color-ink-dim);
+}
+
+/* The affected messages of a trash or a modify. A row takes focus only from
+ * script: when "+N more" opens the list, focus moves to the first new row. */
+.bk-gma-targets { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; min-width: 0; }
+.bk-gma-target {
+  padding: 5px 0;
+  border-top: 1px solid var(--bk-color-line);
+  font: 400 12px/1.5 "Plus Jakarta Sans", sans-serif;
+  color: var(--bk-color-ink);
+  overflow-wrap: anywhere;
+  min-width: 0;
+  outline: none;
+}
+.bk-gma-target:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: -2px; border-radius: 4px; }
