@@ -533,6 +533,7 @@ signatures (every public export and the types it is made of)
         versionRequirements?: HostVersionRequirements;
         config?: ServerConfig;
         staticRoot?: string;
+        staticImmutablePrefix?: string;
         appName?: string;
         dbPath?: string;
         renderer?: AppRenderer;

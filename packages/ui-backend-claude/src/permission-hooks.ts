@@ -303,7 +303,7 @@ export function enforcementHookFor(ctx: PermissionContext): HookCallback {
     const safety=hookInput.hook_event_name==="PreToolUse"?toolAdmissionSafety(req.bridge,hookInput.tool_use_id,hookInput.tool_name):req.bridge.admissionSafety;
     const snapshot = safety?.read();
     if (hookInput.hook_event_name === "PreToolUse") {
-      const unavailable = toolAvailabilityRefusal(req, hookInput.tool_name, hookInput.tool_input, hookInput.cwd);
+      const unavailable = toolAvailabilityRefusal(req, hookInput.tool_name);
       if (unavailable) return { continue: true, hookSpecificOutput: {
         hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: unavailable,
       } };
@@ -364,7 +364,7 @@ export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canU
       return { behavior: "deny", message: "Cancelled or already completed autonomous call; no replay." };
     const nativeDenied = nativeAuthorityRefusal(toolName);
     if (nativeDenied) return { behavior: "deny", message: nativeDenied };
-    const unavailable = toolAvailabilityRefusal(req, toolName, input);
+    const unavailable = toolAvailabilityRefusal(req, toolName);
     if (unavailable) return { behavior: "deny", message: unavailable };
     const denied = denyCommand(toolName, input, opts.toolUseID);
     if (denied) return { behavior: "deny", message: denied };
@@ -475,7 +475,7 @@ export function mutatingHookFor(ctx: PermissionContext): HookCallback {
     if (nativeDenied) return { continue: true, hookSpecificOutput: {
       hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: nativeDenied,
     } };
-    const unavailable = toolAvailabilityRefusal(req, hookInput.tool_name, hookInput.tool_input, hookInput.cwd);
+    const unavailable = toolAvailabilityRefusal(req, hookInput.tool_name);
     if (unavailable) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: unavailable } };
     const denied = denyCommand(hookInput.tool_name, hookInput.tool_input, hookInput.tool_use_id);
     if (denied) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: denied } };

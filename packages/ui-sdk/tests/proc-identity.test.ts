@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { killWorker, registerWorker, workerStopCompletion } from "../src/server/maintenance-worker-kill.js";
 import { parseProcStat, procChildren, readProcStat } from "../src/server/proc-identity.js";
-import { sandboxPid } from "../src/server/worker-launcher.js";
+import { sandboxPid } from "./helpers/worker-copy-output.js";
 import { killGatedSandbox } from "../src/server/worker-status.js";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 
