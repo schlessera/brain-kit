@@ -13,7 +13,7 @@ import { dirname, join } from "path";
 import { indexCommand } from "../src/cli/commands/index-cmd";
 import type { CliContext } from "../src/cli/types";
 import { installGitHooks } from "../src/cli/hooks-util";
-import { initContext, setContext } from "../src/lib/context";
+import { initContext } from "../src/lib/context";
 import type { EmbeddingProvider } from "../src/lib/seams";
 import { vecAvailable } from "./vec-fixture";
 
@@ -73,9 +73,7 @@ function countingProvider(): { provider: EmbeddingProvider; calls: string[][] } 
 
 /** Run `brain index <args>` in-process, the way the CLI would, with `embeddings` as the configured provider. */
 async function index(root: string, args: string[], embeddings?: EmbeddingProvider): Promise<{ errors: string; stdout: string }> {
-  const previous = setContext(null);
   const brainCtx = await initContext({ root });
-  setContext(previous);
   const cli: CliContext = { brain: brainCtx, json: true, embeddings };
   const out: string[] = [];
   const err: string[] = [];
@@ -200,7 +198,6 @@ describe("brain index --on-commit", () => {
   test("the config schema rejects a non-boolean embedOnCommit", async () => {
     const root = brain({ hooks: { embedOnCommit: "yes" } });
     await expect(initContext({ root })).rejects.toThrow(/embedOnCommit/);
-    setContext(null);
   });
 });
 

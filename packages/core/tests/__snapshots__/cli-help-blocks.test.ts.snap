@@ -30,7 +30,7 @@ Commands:
   list          List/browse documents
   maintain      Run routine maintenance: registry tables, incremental index, vector compaction, audit snapshot, stats history, tag report, git packing, scratch prune
   mcp           Start the stdio MCP server
-  module        List and lint brain-kit modules
+  module        List, lint, enable or disable brain-kit modules and edit their settings
   okf           Export or validate an Open Knowledge Format v0.1 bundle
   policy        Validate the read-only governance policy without loading brain configuration
   process       Assimilate a note into proper brain content

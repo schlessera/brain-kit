@@ -6,13 +6,17 @@ import type { CoreCommand } from "../types.js";
 const resultSchema = z.object({ queued: z.literal(true), created: z.boolean(),
   threadId: z.string().min(1), itemId: z.string().min(1), stagingId: z.string().min(1) });
 
+/** Every flag `brain queue add` accepts; any other is refused. */
+export const ALLOWED = ["server", "key", "credential-file", "title", "text", "url", "json", "human", "root"];
+
 export const queueCommand: CoreCommand = {
   summary: "Queue intake on a UI server without filing content",
+  flags: { boolean: [], value: ["credential-file", "key", "root", "server", "text", "title", "url"] },
   helpBlock: "  brain queue add --server ORIGIN --key KEY [--credential-file FILE] [--title TITLE] [--text TEXT] [--url URL] [--json]",
   async run(rest, cli) {
     const { args, flags } = parseArgs(rest);
     if (args.length !== 1 || args[0] !== "add") throw new UsageError("Usage: brain queue add --server ORIGIN --key KEY --text TEXT|--url URL");
-    const allowed = new Set(["server", "key", "credential-file", "title", "text", "url", "json", "human", "root"]);
+    const allowed = new Set(ALLOWED);
     for (const key of Object.keys(flags)) if (!allowed.has(key)) throw new UsageError(`Unsupported queue flag: --${key}`);
     for (const key of ["server", "key", "credential-file", "title", "text", "url"]) {
       if (flags[key] !== undefined && typeof flags[key] !== "string") throw new UsageError(`--${key} needs a value`);
