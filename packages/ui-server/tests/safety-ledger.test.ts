@@ -66,10 +66,11 @@ test("real upgrade classifies old sessions both with and without first-taint row
  for(const {name} of triggers)f.db.exec(`DROP TRIGGER ${name}`);
  const tables=f.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'safety_%'").all() as {name:string}[];
  for(const {name} of tables)f.db.exec(`DROP TABLE ${name}`);
- // 085 and 089 extend the safety tables 081 recreates, so they replay with
- // them; 089's column on dialogue_owners goes too.
+ f.db.exec("DROP VIEW IF EXISTS safety_usage");
+ // 085, 089 and 103 extend the safety tables 081 recreates, so they replay
+ // with them; 089's column on dialogue_owners goes too.
  f.db.exec("ALTER TABLE dialogue_owners DROP COLUMN principal_account");
- f.db.query("DELETE FROM _migrations WHERE filename IN ('081_session_safety.sql','085_safety_recording_containment.sql','089_safety_durable_account.sql')").run();
+ f.db.query("DELETE FROM _migrations WHERE filename IN ('081_session_safety.sql','085_safety_recording_containment.sql','089_safety_durable_account.sql','103_safety_tool_reuse.sql')").run();
  f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('legacy-clean',0,0),('legacy-tainted',0,0); INSERT INTO dialogue_owners(id,principal_id,session_id,generation,coverage,created_at) VALUES('legacy-provisional','odysseus',NULL,1,'complete',0)");
  f.db.query("INSERT INTO governance_events(session_id,turn_id,at,kind,schema_version,actor,payload) VALUES('legacy-tainted','old-turn',0,'taint',1,'interactive',?)")
  .run(JSON.stringify({source:"web_fetch",tool:"WebFetch",detail:null}));
