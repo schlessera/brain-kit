@@ -357,14 +357,23 @@ for (const recipient of ["allowlisted", "approved", "declined"] as const) test(`
     permanentGap(f.db, "source");
     f.writes.firstTaint = async (...args) => { const result = await original(...args); outcomes.push(result); return result; };
     f.decide(async () => recipient === "declined" ? { behavior: "deny", message: "Penelope declines" } : { behavior: "allow" });
-    // An answered card's own tolerated loss is its own input, never new
-    // evidence that withdraws it (maintainer ruling on #4351).
     const status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
     await f.proxy.settled();
-    expect(status, recipient === "approved" ? "OWN_TOLERATED_LOSS_KEEPS_ITS_ANSWERED_CARD" : "GAPPED_UNTRUSTED_TRAFFIC_KEEPS_ITS_RECIPIENT_POLICY").toBe(recipient === "declined" ? 403 : 200);
-    expect(untrustedHits).toBe(recipient === "declined" ? 0 : 1);
-    expect(f.asks()).toBe(recipient === "allowlisted" ? 0 : 1);
-    expect(outcomes).toEqual(recipient === "declined" ? [] : [false]);
+    if (recipient === "approved") {
+      // Any recording loss after the card was answered withdraws it, its
+      // own included (maintainer ruling on #4351, option a).
+      expect(status, "OWN_LOSS_WITHDRAWS_THE_ANSWERED_CARD").toBe(403);
+      expect(queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })[0]?.payload).toMatchObject({ reason: "safety_changed", dispatched: false });
+      // A retry raises a fresh card. Its own write is lost too while the
+      // collection stays failed, so that card is withdrawn the same way.
+      const retry = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+      await f.proxy.settled();
+      expect(f.asks(), "RETRY_RAISES_A_FRESH_CARD").toBe(2);
+      expect(retry, "RETRY_OWN_LOSS_WITHDRAWS_TOO").toBe(403);
+    } else expect(status, "GAPPED_UNTRUSTED_TRAFFIC_KEEPS_ITS_RECIPIENT_POLICY").toBe(recipient === "declined" ? 403 : 200);
+    expect(untrustedHits).toBe(recipient === "allowlisted" ? 1 : 0);
+    expect(f.asks()).toBe(recipient === "allowlisted" ? 0 : recipient === "approved" ? 2 : 1);
+    expect(outcomes).toEqual(recipient === "declined" ? [] : recipient === "approved" ? [false, false] : [false]);
     expect(f.controller.signal.aborted, "GAPPED_UNTRUSTED_TRAFFIC_KEEPS_THE_TURN").toBe(false);
     expect(f.proxy.recordingFailure()).toBeUndefined();
     const connections = queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 });
@@ -558,4 +567,108 @@ for (const own of [false, true]) test(`#4351: a loss held only in this process a
     expect(queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })[0]?.payload).toMatchObject({ reason: "safety_changed", dispatched: false });
     expect(untrustedHits).toBe(0);
   } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_permanent_gap"); untrusted.stop(true); await f.close(); }
+});
+
+// #4351, option (a): every tolerated loss on a gapped turn changes the
+// chat's loss state, and any change after the answer withdraws the card.
+// Each path below keeps the connection's own write durable, so only that
+// path can change the card's marker.
+const answeredCard = async (f: Awaited<ReturnType<typeof fixture>>, afterOwnWrite: () => Promise<void> | void) => {
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  const original = f.writes.firstTaint;
+  try {
+    f.decide(async () => ({ behavior: "allow" }));
+    f.writes.firstTaint = async (...args) => {
+      const result = await original(...args);
+      if (args[0].payload.source === "egress_connection") { expect(result, "OWN_WRITE_STAYS_DURABLE").toBe(true); await afterOwnWrite(); }
+      return result;
+    };
+    const status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+    await f.proxy.settled();
+    return { status, untrustedHits, record: queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })[0]?.payload };
+  } finally { f.writes.firstTaint = original; untrusted.stop(true); }
+};
+const gappedUnderLatch = async (f: Awaited<ReturnType<typeof fixture>>) => {
+  f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();
+  // A brain latch stands before the card opens; a turn begun restricted keeps writing under it.
+  const { latchSafety } = await import("../src/governance/safety-store");
+  latchSafety(f.db, "turn-other", "recording_failed");
+  expect(f.writes.safety("turn-voyage", "voyage").reasons).toContain("recording_failed");
+};
+
+test("#4351: one in-process loss under a standing durable failure withdraws the answered card", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const { retainSafetyLoss } = await import("../src/governance/safety-queue");
+  try {
+    await gappedUnderLatch(f);
+    const result = await answeredCard(f, () => { retainSafetyLoss(f.db, "turn-voyage"); });
+    expect(result.status, "IN_MEMORY_LOSS_UNDER_A_STANDING_FAILURE_WITHDRAWS_THE_CARD").toBe(403);
+    expect(result.record).toMatchObject({ reason: "safety_changed", dispatched: false });
+    expect(result.untrustedHits).toBe(0);
+  } finally { await f.close(); }
+});
+
+for (const path of ["held input", "uncontained"] as const) test(`#4351: a tolerated ${path} loss on a gapped turn is recorded and withdraws the answered card`, async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  try {
+    await gappedUnderLatch(f);
+    // While the flag is set the independent write fails: a held input's
+    // reservation, or a commit whose chat and brain facts both fail too.
+    f.db.exec("CREATE TABLE odysseus_flag(on_ INTEGER)");
+    if (path === "held input") f.db.exec("CREATE TRIGGER ithaca_reserve BEFORE INSERT ON safety_pending WHEN EXISTS(SELECT 1 FROM odysseus_flag) BEGIN SELECT RAISE(FAIL,'Odysseus store unavailable'); END");
+    else for (const [name, table, op] of [["commit", "governance_events", "INSERT"], ["chat", "safety_collections", "UPDATE"], ["latch", "safety_latch", "INSERT"], ["meta", "safety_meta", "UPDATE"]] as const)
+      f.db.exec(`CREATE TRIGGER ithaca_${name} BEFORE ${op} ON ${table} WHEN EXISTS(SELECT 1 FROM odysseus_flag) BEGIN SELECT RAISE(FAIL,'Odysseus store unavailable'); END`);
+    const epoch = (f.db.query("SELECT id FROM safety_collections WHERE turn_id='turn-voyage'").get() as { id: string }).id;
+    const result = await answeredCard(f, async () => {
+      f.db.exec("INSERT INTO odysseus_flag VALUES (1)");
+      try {
+        const kept = await f.writes.firstTaint({ kind: "taint", turnId: "turn-voyage", sessionId: "voyage", actor: "interactive", profile: "governed", model: null,
+          payload: { source: "web_search", tool: null, detail: null, occurrence: occurrence(epoch, "tool_web_input", crypto.randomUUID(), "finalized") } },
+          path === "held input" ? { beforeDelivery: true } : {});
+        expect(kept, "GAPPED_TURN_TOLERATES_THE_LOSS").toBe(false);
+      } finally { f.db.exec("DELETE FROM odysseus_flag"); }
+    });
+    expect(result.status, path === "held input" ? "HELD_INPUT_LOSS_WITHDRAWS_THE_CARD" : "UNCONTAINED_LOSS_WITHDRAWS_THE_CARD").toBe(403);
+    expect(result.record).toMatchObject({ reason: "safety_changed", dispatched: false });
+    expect(result.untrustedHits).toBe(0);
+  } finally { await f.close(); }
+});
+
+for (const bump of ["with", "without"] as const) test(`#4351: a loss another connection records ${bump} a revision bump withdraws the answered card`, async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const { failSafetyCollection, safetyFailureCause } = await import("../src/governance/safety-store");
+  const other = new Database(f.db.filename);
+  try {
+    await gappedUnderLatch(f);
+    // Another connection adds one more loss to the standing failure: no
+    // in-process state of this connection changes.
+    const result = await answeredCard(f, () => {
+      if (bump === "with") expect(failSafetyCollection(other, "turn-voyage", "recording_failed", safetyFailureCause(new Error("Odysseus store unavailable"), "safetyCommit", "turn-voyage"))).toBe(true);
+      // Only the durable count moves: no revision, queue or reason changes, so
+      // a marker cached on those alone would still match.
+      else other.query("UPDATE safety_latch SET count=count+1 WHERE singleton=1").run();
+    });
+    expect(result.status, bump === "with" ? "OTHER_CONNECTION_LOSS_WITHDRAWS_THE_CARD" : "UNREVISED_LOSS_COUNT_STILL_WITHDRAWS_THE_CARD").toBe(403);
+    expect(result.record).toMatchObject({ reason: "safety_changed", dispatched: false });
+    expect(result.untrustedHits).toBe(0);
+  } finally { other.close(); await f.close(); }
+});
+test("#4351: a durable loss another connection records between the answer and dispatch withdraws a managed acquisition's card", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const other = new Database(f.db.filename);
+  try {
+    await gappedUnderLatch(f);
+    await f.taint();
+    f.decide(async () => ({ behavior: "allow" }));
+    // A managed acquisition writes nothing of its own between its answer and
+    // its dispatch, so only the count another connection raises can move.
+    const op = f.proxy.managedReference(new URL("https://github.com/"), new AbortController().signal);
+    expect(await op.admit()).toBe(true);
+    other.query("UPDATE safety_latch SET count=count+1 WHERE singleton=1").run();
+    const prepared = op.prepare();
+    const sent = prepared.ok ? op.dispatch(() => {}) : prepared;
+    op.finish("denied");
+    expect(sent.ok, "LOSS_COUNT_IN_THE_RECHECKED_REVISION").toBe(false);
+  } finally { other.close(); await f.close(); }
 });

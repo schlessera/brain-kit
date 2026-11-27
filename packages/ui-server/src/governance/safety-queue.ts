@@ -6,14 +6,16 @@ const queues=new WeakMap<Database,{generation:bigint;pending:Set<PendingSafety>;
 
  /** The safety revision when this process latched in memory; null when unreadable. */
  latchRevision:string|null;
- lostTurns:Set<string>;unscopedLoss:boolean;listeners:Set<()=>void>;recovery:{timer:ReturnType<typeof setTimeout>|null;attempt:number};
+ lostTurns:Set<string>;unscopedLoss:boolean;listeners:Set<()=>void>;
+ /** Every loss this process ever retained, per turn and unscoped; never decreases (#4351). */
+ lossCounts:Map<string,number>;unscopedLosses:number;recovery:{timer:ReturnType<typeof setTimeout>|null;attempt:number};
  /** First cause of a loss only this process holds, kept for the recovery audit. */
  lossCause:{errorClass:string;message:string;site:string;turnId:string|null;at:number;count:number}|null;
  /** Each turn's tool-result records under way; its collection's end waits for them. */
  recording:Map<string,Set<Promise<void>>>}>();
 export function safetyQueue(db:Database){
  let queue=queues.get(db);
- if(!queue){queue={generation:0n,pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null,recording:new Map()};queues.set(db,queue);}
+ if(!queue){queue={generation:0n,pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,lossCounts:new Map(),unscopedLosses:0,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null,recording:new Map()};queues.set(db,queue);}
  return queue;
 }
 
@@ -38,6 +40,9 @@ export function retainSafetyLoss(db:Database,turnId:string|null,brainWide=false)
  const queue=safetyQueue(db),was=queue.failed;
  if(turnId===null||(!queue.lostTurns.has(turnId)&&queue.lostTurns.size>=4096)){queue.unscopedLoss=true;queue.failed=true;}
  else queue.lostTurns.add(turnId);
+ // Counted whatever the overlay already holds: a second loss still changes it.
+ if(turnId!==null&&(queue.lossCounts.has(turnId)||queue.lossCounts.size<4096))queue.lossCounts.set(turnId,(queue.lossCounts.get(turnId)??0)+1);
+ else queue.unscopedLosses++;
  if(brainWide)queue.failed=true;
  // Unreadable: recovery then treats every open producer as predating it.
  if(queue.failed&&!was){try{queue.latchRevision=(db.query("SELECT revision FROM safety_meta WHERE singleton=1").get() as {revision:string}|null)?.revision??null;}catch{queue.latchRevision=null;}}

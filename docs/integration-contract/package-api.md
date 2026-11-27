@@ -6419,15 +6419,17 @@ policy it already passed, without source trust. A tolerated terminal-exposure
 loss stops neither its operation nor the turn. A source-trusted input still
 needs its durable occurrence, and any other lost write, including a refused
 write such as a full recording queue, a lost connection audit or any loss
-outside a permanent gap, keeps its containment. The tolerated result names
-the lost write's reservation, and the collection's failure cause lists every
-contained loss by its reservation, earlier or later, and counts every one,
-past the list's bound too. An answered Network card treats its own
-operation's tolerated loss as its own input: neither that reservation nor a
-collection failure whose every counted loss is its own withdraws the card.
-Any other loss, including a new one under a failure that already stood,
-still does. A loss held only in this process has no durable count and is
-never the card's own.
+outside a permanent gap, keeps its containment. Every loss such a turn
+tolerates is still recorded: the collection's failure cause counts every
+contained loss (`lossCount`), and a loss the worker could not contain itself
+is contained by the host. An answered Network card captures the chat's loss
+state when it opens: that durable count and the losses held in this
+process. Any new recording loss before its connection dispatches, its own
+included, withdraws the card with 403 safety_changed; a retry raises a fresh
+card (maintainer ruling on #4351, option a). While a gapped turn's
+collection stays failed, every own write is lost, so a card-approved
+connection there is withdrawn each time; allow-listed and already-contacted
+destinations still connect.
 
 Network approval markers exclude only the approved operation’s own occurrence
 and, when it creates the turn’s first collection, that same collection-start

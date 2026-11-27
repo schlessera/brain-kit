@@ -80,9 +80,7 @@ export function advance(db: Database): string {
 export type SafetyFailureSite = "safetyBegin"|"safetyReserve"|"safetyCommit"|"record"|"safetyFail"|"safetyEnd"|"migrate"|"boot-pending"|"boot-obligation";
 export type SafetyFailureReason = "recording_failed"|"capacity";
 /** A failure's cause: identifiers and error text only, never message content. */
-export interface SafetyFailureCause { errorClass:string; message:string; stack:string|null; site:SafetyFailureSite; turnId:string|null; at:number;
-  /** The reserved write whose loss this is, when one was (#4351): lets its own approval tell its loss from another. */
-  reservation?:string }
+export interface SafetyFailureCause { errorClass:string; message:string; stack:string|null; site:SafetyFailureSite; turnId:string|null; at:number }
 const clip=(text:string,bytes:number)=>{const buffer=Buffer.from(text);return buffer.length<=bytes?text:buffer.subarray(0,bytes).toString().replace(/�+$/,"");};
 export function safetyFailureCause(error:unknown,site:SafetyFailureSite,turnId:string|null,at=Date.now()):SafetyFailureCause {
   const value=error instanceof Error?error:new Error(String(error));
@@ -102,31 +100,21 @@ export function logSafetyRecording(body:string,attributes:Record<string,string|n
 const causeAttributes=(scope:string,reason:string,cause:SafetyFailureCause)=>({"safety.scope":scope,"safety.reason":reason,"safety.site":cause.site,
   "safety.turn_id":cause.turnId,"error.class":cause.errorClass,"error.message":cause.message});
 
-/** How many contained losses a collection's failure cause lists before it
- * marks overflow with one unattributed entry. */
-const MAX_COLLECTION_LOSSES=64;
 /**
  * Every writer of a collection's failure goes through here (#4351): the
- * first cause stays, and each contained loss is appended to its bounded
- * `losses`, named by its reservation or "" when it had none. Past the bound
- * one "" marks the overflow, so no later loss can read as attributed.
+ * first cause stays, and a monotonic `lossCount` counts every contained
+ * loss, so a new loss under a failure that already stands still changes it.
  */
 function recordCollectionLoss(db:Database,where:"id"|"turn_id",key:string,reason:string|null,cause:SafetyFailureCause):void {
   const row=db.query<{failure_cause:string|null},[string]>(`SELECT failure_cause FROM safety_collections WHERE ${where}=?`).get(key);
   if(!row)return;
-  let next:SafetyFailureCause&{losses:string[];lossCount:number};
+  let next:SafetyFailureCause&{lossCount:number};
   try{
-    const first=row.failure_cause?JSON.parse(row.failure_cause) as SafetyFailureCause&{losses?:unknown;lossCount?:unknown}:null;
-    const losses=!first?[]:Array.isArray(first.losses)?first.losses.filter((loss):loss is string=>typeof loss==="string")
-      // A cause written before losses were listed names only its first loss.
-      :[typeof first.reservation==="string"?first.reservation:""];
-    // Every contained loss counts, past the listed bound too; a cause
-    // written without the count counts what it listed.
-    const lossCount=(first&&typeof first.lossCount==="number"&&Number.isSafeInteger(first.lossCount)?first.lossCount:losses.length)+1;
-    const loss=cause.reservation??"";
-    if(losses.length<MAX_COLLECTION_LOSSES)losses.push(loss);else if(losses.length===MAX_COLLECTION_LOSSES)losses.push("");
-    next={...(first??cause),losses,lossCount};
-  }catch{next={...cause,losses:[""],lossCount:1};}
+    const first=row.failure_cause?JSON.parse(row.failure_cause) as SafetyFailureCause&{lossCount?:unknown}:null;
+    // A cause written before the count existed counts as one loss.
+    const prior=!first?0:typeof first.lossCount==="number"&&Number.isSafeInteger(first.lossCount)?first.lossCount:1;
+    next={...(first??cause),lossCount:prior+1};
+  }catch{next={...cause,lossCount:1};}
   const failure=reason===null?"COALESCE(failure,'recording_failed')":"CASE WHEN failure='capacity' THEN failure ELSE ? END";
   db.query(`UPDATE safety_collections SET failure=${failure},failure_cause=? WHERE ${where}=?`).run(...(reason===null?[]:[reason]),JSON.stringify(next),key);
 }
@@ -157,8 +145,8 @@ export function latchSafety(db:Database,turnId:string|null,reason:SafetyFailureR
 }
 /** Contain a failure at the narrowest scope that durably takes it: the turn's
  * chat, else the brain. Throws only when neither fact could commit. */
-export function recordSafetyFailure(db:Database,turnId:string|null,error:unknown,site:SafetyFailureSite,sessionId:string|null=null,reservation?:string):"chat"|"brain" {
-  const reason=safetyFailureReason(error),cause:SafetyFailureCause={...safetyFailureCause(error,site,turnId),...(reservation?{reservation}:{})};
+export function recordSafetyFailure(db:Database,turnId:string|null,error:unknown,site:SafetyFailureSite,sessionId:string|null=null):"chat"|"brain" {
+  const reason=safetyFailureReason(error),cause=safetyFailureCause(error,site,turnId);
   try {
     if(turnId&&failSafetyCollection(db,turnId,reason,cause))return "chat";
     if(sessionId&&failSafetySession(db,turnId,sessionId,reason,cause))return "chat";
@@ -500,29 +488,20 @@ function safetyScope(db:Database,turnId:string|null,sessionId:string|null) {
 /** Pending input uses the aggregate's durable canonical membership, even before
  * its own reservation commits. Include an unbound turn with no collection yet. */
 /**
- * The contained losses behind the scope's active recording failures (#4351):
- * `listed`, each named by its reservation or "" when it had none, and
- * `total`, every loss counted, past the listed bound and the brain latch's
- * count included. A failed collection whose cause lists none counts one "".
+ * Every durable loss behind the scope's active recording failures (#4351):
+ * each failed open collection's `lossCount` (a cause without one counts one)
+ * and, while the brain is latched, the latch's count.
  */
-export function safetyFailureLosses(db:Database,turnId:string|null,sessionId:string|null):{listed:string[];total:number} {
- const listed:string[]=[];let total=0;
- if(meta(db).failed){
-  const latch=db.query<{count:number|null},[]>("SELECT count FROM safety_latch WHERE singleton=1").get();
-  listed.push("");total+=Math.max(1,latch?.count??1);
- }
+export function safetyLossCount(db:Database,turnId:string|null,sessionId:string|null):number {
+ let total=0;
+ if(meta(db).failed)total+=Math.max(1,db.query<{count:number|null},[]>("SELECT count FROM safety_latch WHERE singleton=1").get()?.count??1);
  const {scope,args}=safetyScope(db,turnId,sessionId);
  for(const c of db.query<{failure_cause:string|null},(string|null)[]>(`SELECT c.failure_cause FROM safety_collections c WHERE ${scope} AND c.failure IS NOT NULL AND c.ended=0`).all(...args)){
-  let named:string[]=[],count=0;
-  try{
-   const cause=c.failure_cause?JSON.parse(c.failure_cause) as {losses?:unknown;lossCount?:unknown}:{};
-   if(Array.isArray(cause.losses))named=cause.losses.map(loss=>typeof loss==="string"?loss:"");
-   count=typeof cause.lossCount==="number"&&Number.isSafeInteger(cause.lossCount)?cause.lossCount:named.length;
-  }catch{named=[];count=0;}
-  if(!named.length)named=[""];
-  listed.push(...named);total+=Math.max(count,named.length);
+  let count=1;
+  try{const cause=c.failure_cause?JSON.parse(c.failure_cause) as {lossCount?:unknown}:{};if(typeof cause.lossCount==="number"&&Number.isSafeInteger(cause.lossCount))count=cause.lossCount;}catch{count=1;}
+  total+=count;
  }
- return {listed,total};
+ return total;
 }
 export function safetyScopeTurns(db:Database,turnId:string|null,sessionId:string|null):Set<string> {
  const {scope,args}=safetyScope(db,turnId,sessionId);

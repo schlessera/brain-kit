@@ -9,7 +9,7 @@ import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
 import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
-import { safetyProjection, safetyEvidenceSequence, safetyFailureLosses, safetyScopeTurns } from "../governance/safety-store.js";
+import { safetyProjection, safetyEvidenceSequence, safetyLossCount, safetyScopeTurns } from "../governance/safety-store.js";
 import { STORAGE_SETTLEMENT_MS } from "../db/settlement.js";
 import { settleTurnSessionBinding, type SessionBindingRefusal } from "../ws/bridge-session-binding.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
@@ -149,17 +149,14 @@ export async function prepareTurnEgress(options: {
   // Each card owns its peer inputs until its last connection terminates. Keep
   // their immutable ids after a peer finishes so a slower peer sees the same
   // reviewed context; independent cards and independent input remain evidence.
-  // `lost`: the reservations of the card's own writes a permanently gapped
-  // turn tolerated losing (#4351). They are its own input, never new evidence.
-  type ApprovalGroup = { members:Set<string>; occurrences:Set<string>; starts:Set<string>; lost:Set<string>;pending?:{generation:bigint;size:number;ids:readonly string[]} };
+  type ApprovalGroup = { members:Set<string>; occurrences:Set<string>; starts:Set<string>;pending?:{generation:bigint;size:number;ids:readonly string[]} };
   const approvalGroups = new Map<string,ApprovalGroup>();
   const pendingReservations = (connectionId?:string):readonly string[] => {
     const group=connectionId?approvalGroups.get(connectionId):undefined;if(!db||!group)return [];
     const queue=safetyQueue(db);
-    const size=group.occurrences.size+group.lost.size;
-    if(group.pending?.generation===queue.generation&&group.pending.size===size)return group.pending.ids;
-    const ids=Object.freeze([...[...queue.pending].filter(p=>p.occurrenceId!==null&&group.occurrences.has(p.occurrenceId)).map(p=>p.id),...group.lost]);
-    group.pending={generation:queue.generation,size,ids};return ids;
+    if(group.pending?.generation===queue.generation&&group.pending.size===group.occurrences.size)return group.pending.ids;
+    const ids=Object.freeze([...queue.pending].filter(p=>p.occurrenceId!==null&&group.occurrences.has(p.occurrenceId)).map(p=>p.id));
+    group.pending={generation:queue.generation,size:group.occurrences.size,ids};return ids;
   };
   const exposureCommits = new Map<string, Promise<unknown>>();
   const normalBefore = new Set<string>();
@@ -265,12 +262,25 @@ export async function prepareTurnEgress(options: {
    * (`contactedHosts`).
    */
   const approvalMarkers = new Map<string,{version:string;marker:string}>();
+  /** The scope's loss state: its durable loss count and this process's retained-loss counts. */
+  const lossState = () => {
+    const queue = safetyQueue(db!), turns = safetyScopeTurns(db!, options.turnId, options.sessionId());
+    turns.add(options.turnId);
+    let retained = queue.unscopedLosses;
+    for (const turn of turns) retained += queue.lossCounts.get(turn) ?? 0;
+    return [safetyLossCount(db!, options.turnId, options.sessionId()), retained, queue.failed, queue.unscopedLoss];
+  };
   const approvalRevision = (connectionId?: string,kind: "network" | "outward" = "network") => {
       const callGeneration=kind==="outward"?calls.generation():"0";
       if (!db) return `unrecorded:${callGeneration}`;
       const excludedPending=kind==="network"?pendingReservations(connectionId):[];
       const safety = options.bridge.admissionSafety?.read(excludedPending);
-      const key = `${connectionId ?? "global"}:${kind}`, version = JSON.stringify([safety?.evidenceRevision ?? safetyReadVersion(db), safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent, safety?.recordingAvailable, options.trust?.revision() ?? "0", safetyQueue(db).generation.toString(),callGeneration]);
+      // Every loss this chat's scope ever recorded, durably and in this
+      // process (#4351). Any new one after the card opened, its own included,
+      // withdraws it; the counts are part of the cache key, so a loss another
+      // connection committed is never hidden behind a cached marker.
+      const losses = lossState();
+      const key = `${connectionId ?? "global"}:${kind}`, version = JSON.stringify([safety?.evidenceRevision ?? safetyReadVersion(db), safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent, safety?.recordingAvailable, options.trust?.revision() ?? "0", safetyQueue(db).generation.toString(),callGeneration,losses]);
       const cached = approvalMarkers.get(key); if (cached?.version === version) return cached.marker;
       const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId(),excludedPending) ?? safetyProjection(db, options.turnId, options.sessionId(),excludedPending);
       const group=connectionId&&kind==="network"?approvalGroups.get(connectionId):undefined;
@@ -280,18 +290,8 @@ export async function prepareTurnEgress(options: {
       // An uninstrumented turn was already unknown before its first record.
       // Creating its sole incomplete epoch is metadata of this same input.
       const coverage=state.coverage.epochs.length===1&&starts.has(state.coverage.epochs[0]!.id)&&state.coverage.state==="incomplete"?"unknown":state.coverage.state;
-      // Every contained loss that is not this card's own tolerated loss is
-      // evidence: the marker carries their count, so a new one under a
-      // standing failure still changes it. The failure itself is its own
-      // input only when no other loss stands (#4351).
-      const losses=state.reasons.includes("recording_failed")?safetyFailureLosses(db,options.turnId,options.sessionId()):{listed:[],total:0};
-      const others=losses.total-losses.listed.filter(loss=>loss!==""&&!!group?.lost.has(loss)).length;
-      // A loss held only in this process has no durable count and is never
-      // the card's own: while one stands, the failure is never dropped.
-      const queue=safetyQueue(db);
-      const retained=state.reasons.includes("recording_failed")&&(queue.failed||queue.lostTurns.has(options.turnId)||[...safetyScopeTurns(db,options.turnId,options.sessionId())].some(turn=>queue.lostTurns.has(turn)));
-      const ownFailure=state.reasons.includes("recording_failed")&&losses.total>0&&others===0&&!retained;
-      const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved" && !(ownFailure && reason === "recording_failed")), others, safetyEvidenceSequence(db, options.turnId, options.sessionId(), [...inputs],[...starts]),
+
+      const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved"), losses, safetyEvidenceSequence(db, options.turnId, options.sessionId(), [...inputs],[...starts]),
         options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
         writes?.recordingAvailable?.(options.turnId, options.sessionId(),excludedPending) ?? safety?.recordingAvailable,callGeneration]);
       approvalMarkers.set(key,{version,marker}); return marker;
@@ -307,7 +307,7 @@ export async function prepareTurnEgress(options: {
         input: { ...destination, target: networkAuthority(destination) },
         description: (replacement ? "New safety evidence arrived while the previous request was waiting. " : "") + taintedDestinationDescription(destination, firstTaint()?.source ?? null),
       }).then(decision => decision.behavior === "allow" ? true : options.networkRefusal?.(toolUseId) ?? false, () => "unconfirmed" as const).finally(() => asking.delete(key));
-      pending={decision,group:{members:new Set(),occurrences:new Set(),starts:new Set(),lost:new Set()}};
+      pending={decision,group:{members:new Set(),occurrences:new Set(),starts:new Set()}};
       asking.set(key, pending);
     }
     if(connectionId){pending.group.members.add(connectionId);approvalGroups.set(connectionId,pending.group);}
@@ -406,10 +406,10 @@ export async function prepareTurnEgress(options: {
     const group=approvalGroups.get(destination.connectionId);
     if(group){group.occurrences.add(exposure.id);for(const peer of group.members)approvalMarkers.delete(`${peer}:network`);}
     const hadCollection=db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId);
-    let durable = false, failed = false, lost: string | undefined;
+    let durable = false, failed = false;
     try {
       const initial = writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
-        detail: `${destination.method} ${destination.host}:${destination.port}`, occurrence: exposure } }, { tolerated: reservation => { lost = reservation; } });
+        detail: `${destination.method} ${destination.host}:${destination.port}`, occurrence: exposure } });
       exposureCommits.set(destination.connectionId, initial);
       durable = await initial === true;
     } catch { failed = true; }
@@ -423,7 +423,6 @@ export async function prepareTurnEgress(options: {
       // A refused write, such as a full recording queue, never qualifies, and
       // source trust still needs its durable occurrence (#4351).
       if (failed || match || !gapped()) throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
-      if (lost && group) { group.lost.add(lost); for (const peer of group.members) approvalMarkers.delete(`${peer}:network`); }
       return;
     }
     if(db&&!hadCollection){
