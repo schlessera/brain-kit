@@ -1,6 +1,6 @@
-import { unregisterDictationWakeLockDom } from "./dictation-wake-lock-dom.js";
+import { registerDictationWakeLockDom, unregisterDictationWakeLockDom } from "./dictation-wake-lock-dom.js";
 
-import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { AsrClient, VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
@@ -12,24 +12,37 @@ import { useDictation } from "../../src/voice/use-dictation.js";
 import { providerEnded } from "../../src/voice/dictation-capture.js";
 import { primeDictation } from "../fixtures/dictation-discovery.js";
 
+beforeAll(registerDictationWakeLockDom);
 afterAll(unregisterDictationWakeLockDom);
 
-class FakeWakeLockSentinel extends EventTarget {
+class FakeWakeLockSentinel {
   released = false;
   releaseCalls = 0;
   readonly type = "screen" as const;
+  private listeners = new Set<() => void>();
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    if (type !== "release") return;
+    if (typeof listener === "function") this.listeners.add(() => listener(new Event("release")));
+    else this.listeners.add(() => listener.handleEvent(new Event("release")));
+  }
+
+  private fireRelease(): void {
+    for (const listener of [...this.listeners]) listener();
+    this.listeners.clear();
+  }
 
   async release(): Promise<void> {
     this.releaseCalls++;
     if (this.released) return;
     this.released = true;
-    this.dispatchEvent(new Event("release"));
+    this.fireRelease();
   }
 
   revokeExternally(): void {
     if (this.released) return;
     this.released = true;
-    this.dispatchEvent(new Event("release"));
+    this.fireRelease();
   }
 }
 
