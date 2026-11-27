@@ -7,7 +7,7 @@ import { expect, test } from "bun:test";
 import { createUiDb } from "../src/db/client";
 import { SafetyHistory } from "../src/governance/safety-history";
 import { createSafetyCollector } from "../src/governance/safety-collector";
-import { recoverSafetyCollections } from "../src/governance/safety-store";
+import { recoverSafetyCollections, safetyCatalogCreated } from "../src/governance/safety-store";
 import { safetyQueue } from "../src/governance/safety-queue";
 import { retireChat } from "../src/ws/chat-lifecycle";
 import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
@@ -133,17 +133,20 @@ test("T7 observation never touches the database", async () => {
   } finally { await f.close(); }
 });
 
-test("T8 reuse between the final read and subscribe makes the subscriber re-read", async () => {
+test("T8 reuse at an equal revision reaches every subscriber as an update, never a gap or a new snapshot", async () => {
   const f = await safetyHistoryFixture();
   try {
     const collector = collect(f);
     collector.admitting?.("fetch", "WebFetch");
-    const read = await page(f.history, f);
+    const reads = [await page(f.history, f), await page(f.history, f), await page(f.history, f)];
     collector.admitting?.("fetch", "Bash");
-    const sent: unknown[] = [];
-    f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent.push(value));
-    for (let i = 0; i < 100 && !sent.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
-    expect(sent, "LIVE_CHANGE_AT_EQUAL_REVISION_GAPS").toEqual([{ version: 1, reason: "gap" }]);
+    const snapshots = () => (f.history as unknown as { snapshots: Map<string, unknown> }).snapshots.size, before = snapshots();
+    const sent: { reason?: string; projection?: { attributionUnknown?: unknown } }[][] = reads.map(() => []);
+    reads.forEach((read, i) => f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent[i]!.push(value as never)));
+    for (let i = 0; i < 100 && sent.some(list => !list.length); i++) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(sent.map(list => list.map(value => value.reason ?? value.projection?.attributionUnknown)), "ATTRIBUTION_CHANGE_IS_AN_UPDATE")
+      .toEqual(reads.map(() => [[{ bindingId: f.bindingId, toolUseIds: ["fetch"] }]]));
+    expect(snapshots(), "NO_SNAPSHOT_IS_ALLOCATED").toBe(before);
   } finally { await f.close(); }
 });
 
@@ -167,9 +170,22 @@ test("T9 reuse followed by another record arrives in the update's projection", a
   } finally { await f.close(); }
 });
 
-test("T10 reuse in another chat's turn reaches no subscriber of this chat", async () => {
+/** A second chat of the same owner, with a stored collection of its own. */
+async function secondChat(f: Fixture) {
+  const bindingId = crypto.randomUUID();
+  await f.writes.safetyBegin({ turnId: "aeaea", bindingId, sessionId: null, principalId: f.principal.id, backendId: "claude", at: 0 });
+  await f.writes.safetyReady("aeaea", "claude", 1);
+  f.db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('aeaea-chat',0,0,'claude')").run();
+  f.db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('aeaea-chat',?,0)").run(f.principal.id);
+  safetyCatalogCreated(f.db, "aeaea-chat", f.principal.id, "aeaea");
+  await f.writes.bind("aeaea", "aeaea-chat");
+  return bindingId;
+}
+
+test("T10 another chat's reuse, live or stored, never reaches this chat", async () => {
   const f = await safetyHistoryFixture();
   try {
+    const other = await secondChat(f);
     const read = await page(f.history, f);
     const sent: unknown[] = [];
     f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent.push(value));
@@ -178,6 +194,9 @@ test("T10 reuse in another chat's turn reaches no subscriber of this chat", asyn
     f.history.poll();
     await new Promise(resolve => setTimeout(resolve, 50));
     expect(sent, "OTHER_CHATS_STAY_QUIET").toEqual([]);
+    await f.writes.safetyEnd("aeaea");
+    expect(f.db.query("SELECT tool_reuse FROM safety_collections WHERE id=?").get(other)).toEqual({ tool_reuse: '["circe"]' });
+    expect(await flags(f.history, f), "OTHER_CHATS_FINDING_IS_NOT_DISCLOSED").toEqual([]);
   } finally { await f.close(); }
 });
 
@@ -246,4 +265,33 @@ test("T13 past what the host tracks one by one, the whole turn reads as unknown;
     await run("Read", { file_path: "notes/loom.md" }, true);
     expect(await flags(g.history, g), "NESTED_REUSE_IS_OBSERVED").toEqual([{ bindingId: g.bindingId, toolUseIds: ["fetch"] }]);
   } finally { await g.close(); }
+});
+
+test("T15 each binding keeps its own budget: earlier full bindings never make a later one turn-wide", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    await f.writes.safetyEnd("voyage");
+    for (let turn = 0; turn < 9; turn++) {
+      const turnId = `voyage_${turn}`;
+      await f.writes.safetyBegin({ turnId, bindingId: crypto.randomUUID(), sessionId: "ithaca", principalId: f.principal.id, backendId: "claude", at: turn + 1 });
+      await f.writes.safetyReady(turnId, "claude", 1);
+      const collector = collect(f, turnId);
+      for (let i = 0; i < (turn < 8 ? 8 : 1); i++) { collector.admitting?.(`oar_${turn}_${i}`, "Grep"); collector.admitting?.(`oar_${turn}_${i}`, "Bash"); }
+      await f.writes.safetyEnd(turnId);
+    }
+    const reported = await flags(f.history, f);
+    expect(reported?.length).toBe(9);
+    expect(reported?.at(-1)?.toolUseIds, "LATER_BINDING_STAYS_PER_ID").toEqual(["oar_8_0"]);
+  } finally { await f.close(); }
+});
+
+test("T16 a stored verdict that cannot be read keeps that binding's uncertainty", async () => {
+  for (const damaged of ['{"oar"', '[1]', '["oar","*"]', '"oar"']) {
+    const f = await safetyHistoryFixture();
+    try {
+      await f.writes.safetyEnd("voyage");
+      f.db.query("UPDATE safety_collections SET tool_reuse=?").run(damaged);
+      expect(await flags(f.history, f), `${damaged}: DAMAGED_VERDICT_IS_TURN_WIDE`).toEqual([{ bindingId: f.bindingId, toolUseIds: null }]);
+    } finally { await f.close(); }
+  }
 });

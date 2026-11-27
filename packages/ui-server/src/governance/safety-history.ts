@@ -17,6 +17,8 @@ interface Snapshot { id:string; principalId:string; target:SafetyTarget; identit
 interface Row { id:string; sequence:string; observed_at:number; kind:string; occurrence_id:string; source:string|null;
   detector:string|null; state:string|null; payload:string; detail_pruned:number; turn_id:string; collection_id:string }
 const same = (a:unknown,b:unknown) => JSON.stringify(a)===JSON.stringify(b);
+/** The projection without its display-only attribution (#4513). */
+const enforcement = ({attributionUnknown:_,...projection}:SafetyPage["projection"]) => projection;
 const fingerprint = (value:unknown) => new Bun.CryptoHasher("sha256").update(JSON.stringify(value)).digest("hex");
 const bytes = (value:unknown) => Buffer.byteLength(JSON.stringify(value));
 const wireId = (value:string) => {
@@ -24,9 +26,18 @@ const wireId = (value:string) => {
   return value;
 };
 
+/** A stored reuse verdict (#4513): its IDs, or `null` (turn-wide) for
+ * ["*"] and for anything that is not exactly what the end writes. */
+function storedToolReuse(value:string):string[]|null {
+  let stored:unknown;
+  try{stored=JSON.parse(value);}catch{return null;}
+  if(!Array.isArray(stored)||stored.length>8||stored.includes("*"))return null;
+  return stored.every((id):id is string=>typeof id==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(id))?stored:null;
+}
+
 export class SafetyHistory {
   private readonly subscriptions = new Map<object, { principal:Principal; identity:SafetyIdentity; revision:string; membership:string; projectionHash:string; valid:()=>boolean;
-    send:(value:SafetyUpdate|Unavailable)=>void; busy:boolean; entries:boolean; admissions:boolean; nonDelivery:boolean; attribution:boolean }>();
+    send:(value:SafetyUpdate|Unavailable)=>void; busy:boolean; entries:boolean; admissions:boolean; nonDelivery:boolean; attribution:boolean; attributionHash:string }>();
   private readonly snapshots = new Map<string, Snapshot>();
   private readonly cursors = new Map<string, {snapshotId:string; after:string}>();
   private retainedBytes = 0;
@@ -110,26 +121,22 @@ export class SafetyHistory {
    * tool-use ID (#4513), with those IDs; `null` covers every ID of the
    * binding. An open turn reads its live tracker, an ended one the column
    * its own end wrote. A turn never checked (NULL) reads as before: nothing
-   * is reported. At most 64 IDs in all; a binding over that budget is
-   * reported turn-wide.
+   * is reported. A stored verdict that cannot be read is turn-wide: it was
+   * checked, so its uncertainty stays. Each binding carries its own at most
+   * 8 IDs; the projection holds at most 128 bindings.
    */
   private attributionUnknown(identity:SafetyIdentity):{bindingId:string;toolUseIds:string[]|null}[] {
     const {sql,args}=this.scope(identity),live=safetyQueue(this.db).attribution;
     const rows=this.db.query(`SELECT c.id,c.turn_id,c.tool_reuse FROM safety_collections c WHERE ${sql} ORDER BY c.rowid LIMIT 129`).all(...args) as {id:string;turn_id:string;tool_reuse:string|null}[];
     if(rows.length>128)throw new SafetyReadUnavailable("capacity");
-    const out:{bindingId:string;toolUseIds:string[]|null}[]=[];let budget=64;
+    const out:{bindingId:string;toolUseIds:string[]|null}[]=[];
     for(const row of rows){
       const tracker=live.get(row.turn_id);
       let ids:string[]|null;
       if(tracker)ids=tracker.all?null:[...tracker.reused];
-      else{
-        let stored:unknown=[];
-        try{stored=row.tool_reuse===null?[]:JSON.parse(row.tool_reuse);}catch{stored=[];}
-        ids=Array.isArray(stored)?(stored.includes("*")?null:stored.filter((id):id is string=>typeof id==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(id)).slice(0,8)):[];
-      }
+      else if(row.tool_reuse===null)continue;
+      else ids=storedToolReuse(row.tool_reuse);
       if(ids&&!ids.length)continue;
-      if(ids&&ids.length>budget)ids=null;
-      if(ids)budget-=ids.length;
       out.push({bindingId:row.id,toolUseIds:ids});
     }
     return out;
@@ -240,7 +247,7 @@ export class SafetyHistory {
   subscribe(key:object,principal:Principal,identity:SafetyIdentity,revision:string,snapshotId:string,valid:()=>boolean,send:(value:SafetyUpdate|Unavailable)=>void):void {
     if(!this.subscriptions.has(key)&&this.subscriptions.size>=256)throw new SafetyReadUnavailable("capacity");
     const anchor=this.anchor(principal,identity,revision,snapshotId);
-    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(anchor.projection),valid,send,busy:false,entries:anchor.entries,admissions:anchor.admissions,nonDelivery:anchor.nonDelivery,attribution:anchor.attribution});this.poll();
+    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(enforcement(anchor.projection)),valid,send,busy:false,entries:anchor.entries,admissions:anchor.admissions,nonDelivery:anchor.nonDelivery,attribution:anchor.attribution,attributionHash:fingerprint(anchor.projection.attributionUnknown??null)});this.poll();
   }
   unsubscribe(key:object):void {this.subscriptions.delete(key);}
   revoke(principalIds:readonly string[]):void {
@@ -279,11 +286,16 @@ export class SafetyHistory {
         }catch(error){this.subscriptions.delete(key);s.send({version:1,reason:error instanceof SafetyReadUnavailable?error.reason:"unavailable"});return;}
         // Local pending/loss latches can change even when their durable write
         // rolled back. Equal durable revisions do not prove equal read state.
-        const projectionHash=fingerprint(update.projection);
+        const projectionHash=fingerprint(enforcement(update.projection)),attributionHash=fingerprint(update.projection.attributionUnknown??null);
+        // A display-only attribution change at an equal revision is an update
+        // on this subscription, never a gap that costs the reader a snapshot.
+        if(update.toRevision===s.revision&&projectionHash===s.projectionHash&&attributionHash!==s.attributionHash){
+          s.send(update);s.attributionHash=attributionHash;return;
+        }
         if(update.toRevision===s.revision&&projectionHash!==s.projectionHash){
           this.subscriptions.delete(key);s.send({version:1,reason:"gap"});return;
         }
-        if(update.toRevision!==s.revision){s.send(update);s.revision=update.toRevision;s.membership=membership;s.projectionHash=projectionHash;}
+        if(update.toRevision!==s.revision){s.send(update);s.revision=update.toRevision;s.membership=membership;s.projectionHash=projectionHash;s.attributionHash=attributionHash;}
       },error=>{
         if(this.subscriptions.get(key)!==s||!s.valid()||!this.valid(s.principal))return;
         this.subscriptions.delete(key);s.send({version:1,reason:error instanceof SafetyReadUnavailable?error.reason:"unavailable"});

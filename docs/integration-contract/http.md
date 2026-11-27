@@ -1575,10 +1575,14 @@ name). An opted-in projection then carries
 the host saw differently named calls, so every input of that binding joined to
 it has unknown attribution. `toolUseIds: null` means the host could not check
 every ID of that turn (more than 8 reused or 2,000 tracked IDs), so every
-input of the binding has unknown attribution. An open turn reports what its
-collector has seen so far; the collection's own end stores it. A turn never
-checked (one that predates this field, or ended any other way, such as a
-restart) reads as before: nothing is reported for it. A name first observed
+input of the binding has unknown attribution. These limits apply to each
+binding on its own; one binding's findings never widen another's. An open
+turn reports what its collector has seen so far; the collection's own end
+stores it. A stored finding that cannot be read keeps its binding turn-wide
+unknown. A turn never checked (one that predates this field, or ended any
+other way, such as a restart) reads as before: nothing is reported for it. A
+change to the field alone reaches an existing subscription as an update at the
+same revision, never as a gap. A name first observed
 after the turn's end is not reported (#5004). A client shows no tool as the
 proven source of a flagged input and never infers attribution from its own
 transcript. The field is display-only: it changes no count, restriction,
