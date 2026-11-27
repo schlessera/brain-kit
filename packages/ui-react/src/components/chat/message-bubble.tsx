@@ -46,6 +46,7 @@ import { TurnJournal } from "./turn-journal.js";
 import { answerAsMessage, UNCONFIRMED_RECORD, withSubmittedAnswer } from "./answer-text.js";
 import { isRefusedAdmission, type AnswerPayload } from "../../lib/answer-delivery/types.js";
 import { useChatStore } from "../../stores/chat-store.js";
+import { clockTime } from "../../lib/format-time.js";
 
 /**
  * One message in the transcript.
@@ -150,7 +151,7 @@ export const MessageBubble = memo(function MessageBubble({
     >
       <TurnHeader
         who={isUser ? message.source === "voice-context" ? "Conversation task" : "You" : root.config.assistantName}
-        when={message.turnShell ? (shellStartedAt !== null ? formatTime(shellStartedAt) : undefined) : formatTime(message.timestamp)}
+        when={message.turnShell ? (shellStartedAt !== null ? clockTime(shellStartedAt) : undefined) : clockTime(message.timestamp)}
         effort={isUser && message.thinkingLevel !== undefined ? (
           message.effectiveThinkingLevel === undefined ? `effort ${message.thinkingLevel} requested` :
           message.effectiveThinkingLevel === message.thinkingLevel ? `effort ${message.thinkingLevel}` :
@@ -585,13 +586,6 @@ function useShellStartedAt(message: ChatMessage): number | null {
     if (!message.turnShell || !message.turnId || sessionId === null || s.recoverySupported !== true) return null;
     const latest = s.evidence[sessionId]?.latest;
     return latest && latest.turnId === message.turnId ? latest.startedAt : null;
-  });
-}
-
-function formatTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
   });
 }
 

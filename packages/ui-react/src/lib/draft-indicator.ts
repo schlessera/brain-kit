@@ -4,6 +4,7 @@ import { draftFiles } from "../stores/draft-state.js";
 import { queuedPending, type QueuedFile } from "./attachment-queue.js";
 import { trackBytes } from "./track-uploads.js";
 import { formatBytes } from "./format-bytes.js";
+import { clockTime } from "./format-time.js";
 
 /**
  * The composer's draft indicator (#3155, design brief rev 4 §1): one compact
@@ -79,10 +80,6 @@ export interface DraftIndicatorInput {
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
-function clockTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-}
 
 /** The host acknowledged this exact edit, every original bound and none still uploading. */
 export function draftAcknowledged(d: ComposerDraft | undefined, queued: readonly QueuedFile[]): boolean {

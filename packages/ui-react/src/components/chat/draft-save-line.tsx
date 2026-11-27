@@ -7,6 +7,7 @@ import { SAVING_SHOWN_AFTER_MS, draftSaveView } from "../../lib/drafts.js";
 import { VERSION_SWITCH_COPY } from "../../lib/draft-indicator.js";
 import { useLocalWorkStatus } from "../../hooks/use-local-work.js";
 import { hasContent, holdsSnapshots, type DraftConflictChoice } from "../../stores/draft-state.js";
+import { clockTime } from "../../lib/format-time.js";
 
 /**
  * The line under the composer while a draft exists (D52 §5): `draft ·
@@ -86,10 +87,6 @@ function Thumbs({ urls, names }: { urls: string[]; names: string[] }) {
   );
 }
 
-function clock(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
 /**
  * Compare drafts (D52 §5): this device's and the other device's version,
  * each with its edit time. Keep both turns the other version into an
@@ -111,12 +108,12 @@ export function CompareDrafts({ draftId, onClose, returnFocus }: { draftId: stri
       initialFocus={heading} onClose={onClose} returnFocus={returnFocus}>
       <h2 ref={heading} tabIndex={-1} className="bk-sr-only">Compare drafts</h2>
       <section className="mb-3" data-compare-side="this">
-        <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">This device · edited {clock(draft.editedAt)}{images(draft.attachments.length)}</div>
+        <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">This device · edited {clockTime(draft.editedAt)}{images(draft.attachments.length)}</div>
         <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-foreground">{draft.text || "(images only)"}</p>
         <Thumbs urls={draft.attachments.map((a) => a.previewUrl)} names={draft.attachments.map((a) => a.name)} />
       </section>
       <section className="mb-4" data-compare-side="other">
-        <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">Other device · edited {clock(other.updatedAt)}{images(other.attachments.length)}</div>
+        <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">Other device · edited {clockTime(other.updatedAt)}{images(other.attachments.length)}</div>
         <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-foreground">{other.text || "(images only)"}</p>
         <Thumbs urls={other.attachments.map((a) => `data:${a.mime};base64,${a.bytes}`)} names={other.attachments.map((a) => a.name ?? "image")} />
       </section>
