@@ -1,6 +1,6 @@
 import { Button, ImageEditorFrame } from "@schlessera/brain-ui-kit";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Eraser, RotateCcw } from "lucide-react";
+import { Eraser, RotateCcw } from "../icons.js";
 
 import { useBrainUiRoot } from "../../root-context.js";
 import { useMaskStore } from "../../stores/mask-store.js";

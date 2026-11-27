@@ -10,8 +10,8 @@ import { processAlive, SELF } from "../brain/writer-gate.js";
 import { ScratchPruneSuspended, type ScratchPruner } from "../cron/scratch-prune.js";
 import type { createInboxRuntime } from "../inbox/runtime.js";
 import { StorageUnavailable, type StorageCoordinator } from "./coordinator.js";
+import { STORAGE_MAINTENANCE_LIMITS } from "./maintenance-limits.js";
 
-export const STORAGE_MAINTENANCE_LIMITS = Object.freeze({ receipts: 1024, receiptBytes: 65_536, items: 200, milliseconds: 300_000 });
 const runningHere = new Map<string, number>();
 const descriptors = [
   { id: "pack-git", label: "Pack Git objects", owner: "core", scope: ["git"], effect: "Pack local objects and refs; history and reflogs remain." },

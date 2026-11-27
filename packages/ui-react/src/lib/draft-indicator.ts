@@ -3,6 +3,8 @@ import type { ComposerDraft, DraftStoreState } from "../stores/draft-state.js";
 import { draftFiles } from "../stores/draft-state.js";
 import { queuedPending, type QueuedFile } from "./attachment-queue.js";
 import { trackBytes } from "./track-uploads.js";
+import { formatBytes } from "./format-bytes.js";
+import { clockTime } from "./format-time.js";
 
 /**
  * The composer's draft indicator (#3155, design brief rev 4 §1): one compact
@@ -55,7 +57,7 @@ export type DraftIndicatorView =
   };
 
 /** Why Open other version did not open it (#4567), in the indicator's words. */
-export const VERSION_SWITCH_COPY = {
+const VERSION_SWITCH_COPY = {
   cancelled: "Other version not opened: you moved away first",
   failed: "Couldn't open the other version",
   missing: "The other version isn't on this device any more",
@@ -78,17 +80,6 @@ export interface DraftIndicatorInput {
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
-function clockTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
-function bytesLabel(n: number): string {
-  if (n >= 1024 * 1024 && n % (1024 * 1024) === 0) return `${n / (1024 * 1024)} MB`;
-  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
-  return `${n} bytes`;
-}
 
 /** The host acknowledged this exact edit, every original bound and none still uploading. */
 export function draftAcknowledged(d: ComposerDraft | undefined, queued: readonly QueuedFile[]): boolean {
@@ -169,12 +160,12 @@ export function draftIndicatorView(input: DraftIndicatorInput): DraftIndicatorVi
       facts: failed.map((item) => ({ key: "Not stored", value: item.name })) };
   }
   if (d?.failure?.kind === "too_large") {
-    const limit = d.failure.bound === "imageCount" ? `${d.failure.limit} images` : bytesLabel(d.failure.limit);
+    const limit = d.failure.bound === "imageCount" ? `${d.failure.limit} images` : formatBytes(d.failure.limit);
     return { key: "too_large", state: "refused", stateLabel: "Draft too large to save",
       summary: `Draft not saved: too large to save (${limit} max).${input.localFailed ? "" : " Your text is kept on this device."}`, facts: [{ key: "Limit", value: limit }] };
   }
   if (d?.failure?.kind === "full") {
-    const held = d.failure.bound === "drafts" ? `${d.failure.limit} drafts` : `${bytesLabel(d.failure.limit)} of drafts`;
+    const held = d.failure.bound === "drafts" ? `${d.failure.limit} drafts` : `${formatBytes(d.failure.limit)} of drafts`;
     return { key: "full", state: "refused", stateLabel: "Draft not saved: the host is full",
       summary: `Draft not saved: ${held} saved. Delete one to save this.`, facts: [{ key: "Saved", value: held }] };
   }
@@ -229,5 +220,3 @@ export function draftIndicatorView(input: DraftIndicatorInput): DraftIndicatorVi
   return { key: "saving", state: "active", stateLabel: "Saving draft…", summary: "Saving draft…", facts: [] };
 }
 
-/** Every state except saved and absent is work a reload could lose: the leave guards hold for it. */
-export const draftIndicatorAtRisk = (view: DraftIndicatorView): boolean => view.key !== "none" && view.key !== "saved";

@@ -59,14 +59,6 @@ const KINDS: Record<AttachmentKind, { icon: IconName; tone: AttachmentTone; acti
   link: { icon: "link", tone: "purple", action: "next" },
 };
 
-const INKS: Record<AttachmentTone, string> = {
-  teal: accent.teal.ink,
-  amber: accent.amber.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  neutral: accent.neutral.ink,
-};
-
 const THUMB_TINTS: Record<AttachmentTone, string> = {
   teal: token("attach-thumb-tint-teal"),
   amber: token("attach-thumb-tint-amber"),
@@ -87,7 +79,7 @@ export function AttachmentRow(p: AttachmentRowProps) {
   const kind = p.kind;
   const k = KINDS[kind] || KINDS.doc;
   const tone = p.tone || k.tone;
-  const ink = INKS[tone] || INKS.teal;
+  const ink = (accent[tone] ?? accent.teal).ink;
   const size = Number(p.thumbSize) || 44;
   const bars = Number(p.waveBars) || 22;
 

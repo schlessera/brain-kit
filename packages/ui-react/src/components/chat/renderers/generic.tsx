@@ -4,7 +4,7 @@
 // components the Claude pack uses.
 
 import type { RendererPack, ToolRenderer, ToolCallView } from "@schlessera/brain-ui-sdk/client";
-import { FileText } from "lucide-react";
+import { FileText } from "../../icons.js";
 import type { ToolCall } from "../../../stores/chat-store.js";
 import {
   getOutputMeta,

@@ -10,7 +10,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Button, Callout, Icon, IconButton, Overlay, Placeholder, TextButton } from "@schlessera/brain-ui-kit";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "../icons.js";
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
 

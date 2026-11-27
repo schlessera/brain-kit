@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, RefreshCw, Send, Trash2 } from "lucide-react";
+import { TriangleAlert, RefreshCw, Send, Trash2 } from "../icons.js";
 import {
   DEFAULT_SHARE_TARGET_PATH,
   getShareStore,
   type StoredShare,
 } from "@schlessera/brain-ui-sdk/share-target";
+import { formatBytes } from "../../lib/format-bytes.js";
 
 /**
  * Dev-only stand-in for the system share sheet.
@@ -26,12 +27,6 @@ import {
  *     but never the browser rendering the landing page — and it cannot tell you
  *     anything about how an UNAUTHENTICATED share behaves.
  */
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 export function ShareHarness({
   path = DEFAULT_SHARE_TARGET_PATH,
@@ -115,7 +110,7 @@ export function ShareHarness({
 
       {!controlled && (
         <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-raised p-3 text-sm">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             No service worker controls this page, so the POST goes to the
             network and the server answers with the no-worker fallback rather

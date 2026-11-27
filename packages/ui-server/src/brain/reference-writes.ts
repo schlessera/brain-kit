@@ -3,7 +3,7 @@
  * Without registration, the same procedures commit inline at submission.
  */
 import type { Database } from "bun:sqlite";
-import { procedureCaller, type SqliteWriter, type WriteProcedures } from "../db/write-worker.js";
+import { procedureCaller, trackedCaller, type SqliteWriter, type WriteProcedures } from "../db/write-worker.js";
 import { worktreeWrites } from "./reference-worktree-writes.js";
 import { sourceWrites } from "./reference-source-writes.js";
 import { hygieneWrites } from "./reference-worktree-hygiene-writes.js";
@@ -21,13 +21,8 @@ type Call = {
 const registered = new WeakMap<Database, Call>();
 
 function caller(db: Database, writer?: SqliteWriter): Call {
-  const call = procedureCaller(db, { url, setup }, undefined, writer);
-  let tail: Promise<void> = Promise.resolve();
-  return Object.assign(<T = void>(name: string, ...args: unknown[]): Promise<T> => {
-    const result = call<T>(name, ...args);
-    tail = result.then(() => {}, () => {});
-    return result;
-  }, { settled: () => tail });
+  const writes = trackedCaller(procedureCaller(db, { url, setup }, undefined, writer));
+  return Object.assign(<T = void>(name: string, ...args: unknown[]): Promise<T> => writes.call<T>(name, ...args), { settled: writes.settled });
 }
 
 /** Register before constructing the reference services or their checkpoint ledger. */

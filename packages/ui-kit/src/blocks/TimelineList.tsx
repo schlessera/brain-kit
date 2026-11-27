@@ -25,17 +25,6 @@ import type { Tone } from "../types.js";
 /** The gutter's width: the glyph's, which the dot centres in. */
 const MARK = 11;
 
-/** The glyph is drawn in the tone's `ink` role; the dot keeps `mark`, the
- * step the design sizes for a 4-14px disc (`StatusDot`). */
-const INKS: Record<Tone, string> = {
-  amber: accent.amber.ink,
-  gold: accent.gold.ink,
-  teal: accent.teal.ink,
-  purple: accent.purple.ink,
-  blue: accent.blue.ink,
-  red: accent.red.ink,
-  neutral: accent.neutral.ink,
-};
 export interface TimelineItem {
   time: string;
   title: string;
@@ -136,7 +125,7 @@ export function TimelineList(p: TimelineListProps) {
             <div style={gutter}>
               <span data-tone={tone} style={markBox}>
                 {cue ? (
-                  <Cue icon={cue} size={MARK} color={INKS[tone] || INKS.neutral} pulse={pulse} />
+                  <Cue icon={cue} size={MARK} color={(accent[tone] ?? accent.neutral).ink} pulse={pulse} />
                 ) : (
                   <StatusDot tone={tone} pulse={pulse} size={7} />
                 )}
