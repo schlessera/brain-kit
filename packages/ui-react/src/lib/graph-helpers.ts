@@ -125,9 +125,6 @@ export interface CanvasPalette {
   lens: { orphan: string; unreachable: string; broken: string; stale: string };
 }
 
-/** How many communities or folders get a slot of their own before the tail folds. */
-export const SLOT_COUNT = 8;
-
 /**
  * Linear blend of two hex colors: t=0 → a, t=1 → b. Used for the gentle
  * non-match fade during search highlight (half the strength of the hover

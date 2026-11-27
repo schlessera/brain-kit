@@ -1,5 +1,5 @@
 import { Button, IconButton } from "@schlessera/brain-ui-kit";
-import { FileText, X } from "lucide-react";
+import { FileText, X } from "../icons.js";
 import type { AttachmentFile } from "@schlessera/brain-ui-sdk/protocol";
 import { fileKindLabel, queuedFileCopy, storedFileCopy, type QueuedFile } from "../../lib/attachment-queue.js";
 import { trackBytes } from "../../lib/track-uploads.js";

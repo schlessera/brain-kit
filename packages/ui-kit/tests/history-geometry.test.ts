@@ -28,7 +28,6 @@ import {
   segmentSeries,
   sparklineGeometry,
   spreadLabels,
-  subpathCount,
   textBox,
   SCENARIO_LABEL_BOX,
   thresholdBands,
@@ -40,6 +39,9 @@ import {
   type HistoryPoint,
   type HistoryScenario,
 } from "../src/storage/history-geometry.ts";
+
+/** How many subpaths (`M` commands) a path has. A gap must make two. */
+const subpathCount = (path: string): number => (path.match(/M/g) ?? []).length;
 
 const H = 3_600_000;
 const GB = 1e9;

@@ -117,6 +117,25 @@ test("hover, focus, click, Enter, Space and tap expose the same summary; activat
   expect(document.activeElement).toBe(control);
 });
 
+test("after details close under a resting pointer, the tooltip waits for the pointer to leave and return (#4727)", async () => {
+  await mount(<><StatusIndicator {...props([op({ state: "queued" })])} /><button type="button" data-outside="">Ithaca</button></>, { style: "padding-top:200px" });
+  const control = trigger();
+  await userEvent.hover(control);
+  await expect.poll(tooltip).not.toBeNull();
+  await userEvent.click(control);
+  await expect.poll(dialog).not.toBeNull();
+  await closeWithEscape();
+  // The pointer never left: move it inside the trigger so the browser sees it
+  // arrive there again now that the modal is gone.
+  await userEvent.hover(control, { position: { x: 6, y: 6 } });
+  await pause(400);
+  expect(tooltip(), "no tooltip after details close under the pointer").toBeNull();
+  await userEvent.hover(host!.querySelector("[data-outside]")!);
+  control.blur();
+  await userEvent.hover(control);
+  await expect.poll(tooltip, { message: "leaving and returning shows the tooltip again" }).not.toBeNull();
+});
+
 test("Escape hides the tooltip without moving focus or opening details", async () => {
   await mount(<StatusIndicator {...props([op({ state: "queued" })])} />);
   trigger().focus();

@@ -1,4 +1,4 @@
-import { Waypoints, RefreshCw, ServerCrash, TriangleAlert } from "lucide-react";
+import { Waypoints, RefreshCw, ServerCrash, TriangleAlert } from "../icons.js";
 import type { ReactNode } from "react";
 
 /**

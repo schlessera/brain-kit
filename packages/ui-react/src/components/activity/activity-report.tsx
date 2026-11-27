@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Flag } from "lucide-react";
+import { Flag } from "../icons.js";
 import { Disclosure } from "@schlessera/brain-ui-kit";
 import type { SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
 
