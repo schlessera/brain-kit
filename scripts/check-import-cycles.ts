@@ -61,8 +61,8 @@ export const ALLOWLIST: CycleAllowlistEntry[] = [
   // #2530 cuts the worker-runtime cycle in ui-sdk.
   { files: [
     "packages/ui-sdk/src/server/maintenance-worker.ts", "packages/ui-sdk/src/server/worker-launcher.ts",
-    "packages/ui-sdk/src/server/worker-output.ts", "packages/ui-sdk/src/server/worker-protection.ts",
-    "packages/ui-sdk/src/server/worker-sandbox.ts", "packages/ui-sdk/src/server/worker-turn-temp.ts",
+    "packages/ui-sdk/src/server/worker-protection.ts", "packages/ui-sdk/src/server/worker-sandbox.ts",
+    "packages/ui-sdk/src/server/worker-turn-temp.ts",
   ], reason: "the worker launcher and its helpers import each other; #2530 cuts it" },
 ];
 
