@@ -114,6 +114,9 @@ export function* createWorkerStatusPipeSteps() {
       const buffer = Buffer.alloc(MAX_STATUS_BYTES + 1);
       let used = 0;
       for (;;) {
+        // The channel closes when the supervisor exits, possibly while this
+        // waits: its descriptor number may already name another file (#5016 r3 F54).
+        if (closed) throw new Error("bubblewrap exited before reporting worker status");
         try { used += readSync(reader!, buffer, used, buffer.length - used, null); }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== "EAGAIN") throw error; }
         const end = buffer.subarray(0, used).indexOf(10);
