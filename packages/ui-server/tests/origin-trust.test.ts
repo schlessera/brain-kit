@@ -44,7 +44,7 @@ async function fixture(recipient = false, policy: GovernancePolicyInput = {schem
     selector:{kind:"web_origin",scheme:"http",host:origin.url.hostname,port:origin.port!}};
   const t=trust(rule);const controller=new AbortController();
   const bridge={emit(){},requestPermission:async(...args: Parameters<BackendBridge["requestPermission"]>)=>{asks++;return decide(...args);},admissionSafety:createEffectiveSafety(db,{turnId:"turn-voyage",sessionId:()=>"voyage",policyHash:null,writes,trust:t.live,authority:()=>({current:true,epoch:"0"})})} as unknown as BackendBridge;
-  const proxy=await prepareTurnEgress({policy:resolveGovernancePolicy(policy),trust:t.live,controller,turnId:"turn-voyage",sessionId:()=>"voyage",model:()=>null,profile:"governed",origin:"interactive",governanceDb:db,governanceWrites:legacy?undefined:writes,record:legacy?event=>writes.record(event):writes.record,
+  const proxy=await prepareTurnEgress({policy:resolveGovernancePolicy(policy),trust:t.live,controller,turnId:"turn-voyage",sessionId:()=>"voyage",model:()=>null,profile:"governed",origin:"interactive",governanceDb:db,governanceWrites:legacy?undefined:writes,record:event=>writes.record(event),
     networkRefusal:toolUseId=>refusal(toolUseId),bridge});
   const epoch=(db.query("SELECT id FROM safety_collections WHERE turn_id='turn-voyage'").get() as {id:string}).id;
   const taint=()=>writes.firstTaint({kind:"taint",turnId:"turn-voyage",sessionId:"voyage",actor:"interactive",profile:"governed",model:null,payload:{source:"web_search",tool:null,detail:null,occurrence:occurrence(epoch,"tool_web_input",crypto.randomUUID(),"finalized")}});
@@ -761,5 +761,18 @@ for (const gapped of [false, true]) for (const lost of ["taint", "taint_exposure
     await f.proxy.settled();
     if (lost === "taint") { expect(status, "ERROR_REPLY_REFUSES_THE_OCCURRENCE").toBe(503); expect(troy.hits()).toBe(0); }
     else expect(f.controller.signal.aborted, "ERROR_REPLY_STOPS_THE_TURN").toBe(true);
+  } finally { troy.stop(); await f.close(); }
+});
+// #5038: only a legacy recorder may return no reply. A hosted writer's
+// undefined terminal reply is no acknowledgment and stops the turn.
+for (const legacy of [false, true]) test(`#5038: an undefined terminal-exposure reply ${legacy ? "from a legacy recorder passes" : "from a hosted writer stops the turn"}`, async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, false, "127.0.0.1", legacy);
+  const troy = untrustedOrigin();
+  const original = f.writes.record;
+  try {
+    f.writes.record = async (...args) => args[0].kind === "taint_exposure" ? undefined as never : original(...args);
+    expect(await get(f.proxy.socketPath, troy.url)).toBe(200);
+    await f.proxy.settled();
+    expect(f.controller.signal.aborted, legacy ? "LEGACY_VOID_REPLY_IS_NO_LOSS" : "HOSTED_UNDEFINED_REPLY_STOPS_THE_TURN").toBe(!legacy);
   } finally { troy.stop(); await f.close(); }
 });

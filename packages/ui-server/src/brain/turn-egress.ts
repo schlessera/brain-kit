@@ -215,9 +215,11 @@ export async function prepareTurnEgress(options: {
       // acknowledgment on a gapped turn is excused; any other reply stops the turn.
       const reply=parseRecordReply(result);
       if(reply==="loss"&&!(tolerable&&gapped()))throw new Error("Egress audit was not durably recorded");
+      // Only a legacy recorder may answer with nothing; a hosted writer always acknowledges (#5038).
+      if(reply==="none"&&options.governanceWrites)throw new Error("Egress audit was not acknowledged");
     };
-    if (!(committed instanceof Promise)) {try{confirm(committed);}catch{fail();}return;}
-    const pending = committed.then(confirm).catch(fail).finally(() => recording.delete(pending));
+    // Any reply, a value or a thenable from any realm, is awaited the same way (#5038).
+    const pending = Promise.resolve(committed).then(confirm).catch(fail).finally(() => recording.delete(pending));
     recording.add(pending);
   };
   const releaseConnection = (connectionId?: string) => {

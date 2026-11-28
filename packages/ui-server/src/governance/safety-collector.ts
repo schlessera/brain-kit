@@ -7,7 +7,7 @@ import { checkpointGrepMatches, grepCheckpointDirectory, grepNotePath, type Grep
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { createCausalAdmissionSafety } from "./causal-admission.js";
 import { occurrence } from "./occurrence.js";
-import type { GovernanceWrites } from "./event-writes.js";
+import { parseRecordReply, type GovernanceWrites } from "./event-writes.js";
 import { SafetyRecordingUnavailable } from "./safety-store.js";
 import { safetyQueue } from "./safety-queue.js";
 import type { ReferenceTools } from "../brain/reference-tools.js";
@@ -224,7 +224,10 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     for(const [index,id] of op.occurrences.entries()){
      const last=index===op.occurrences.length-1&&op.owed&&!op.uncertain;
      const stored=await writes.record({...base(),kind:"taint_exposure",dedupeKey:id,payload:{occurrenceId:id,state}},last?{discharge:op.id}:undefined);
-     if(last&&stored.discharged)op.owed=false;
+     // The writer's reply is parsed like every other (#5038): a malformed or
+     // missing one throws here, so the result is neither done nor discharged.
+     if(parseRecordReply(stored)==="none")throw new Error("Safety result record was not acknowledged");
+     if(last&&stored.discharged===true)op.owed=false;
     }
     op.done=true;op.outputHash=outputHash;
     if(conflicting)throw new Error("Conflicting safety result delivery");
