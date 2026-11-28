@@ -119,7 +119,17 @@ export interface NamespaceInspector {
   owner(path: string): { uid: number; mode: number } | undefined;
   /** Backing coordinates of an overlay layer path in the server's namespace; `undefined` when it does not resolve there. */
   layer(path: string): { sb: string; fspath: string } | undefined;
+  /**
+   * A directory on the worker's route, read through one descriptor (#5055):
+   * its backing coordinates, whether its host mount is idmapped, and its
+   * owner and mode; `undefined` when the path is not that directory itself.
+   * Without it no directory above an object releases it.
+   */
+  route?(path: string): RouteDirectory | undefined;
 }
+
+/** What one open descriptor shows of a route directory (#5055). */
+export interface RouteDirectory { sb: string; fspath: string; idmapped: boolean; owner?: { uid: number; mode: number } }
 
 export interface NamespaceExposure { setting: string; path: string; name: string; row: string }
 export type NamespaceVerdict =
@@ -181,7 +191,8 @@ export function overlayLayers(superOptions: string): string[] {
  * the same filesystem. Each is judged at a host path only when the host's own
  * backing coordinates prove it is that directory; an alias, a symlink or
  * another mount on the way stops the search, and the object is judged alone,
- * as before (#5051).
+ * as before (#5051). Coordinates, owner and mode come from one descriptor, and
+ * an idmapped host mount or an unreadable owner proves nothing (#5055).
  * A live overlay whose layer is prefix-related to a root is an exposure; a
  * layer path the server cannot resolve is not judged and is named in
  * `nonCoverage`. An ambiguous table, or a live object the host cannot stat,
@@ -215,13 +226,11 @@ export function evaluateNamespace(rows: readonly MountRow[], roots: readonly Sta
       for (let at = 0, dir = object, fsdir = root.fspath; !closed && at < traversed; at++) {
         dir = dirname(dir); fsdir = dirname(fsdir);
         // Only the very directory the worker crosses may release it: its host
-        // name must back onto the same filesystem path (#5053 r1 F1).
-        const backing = inspect.layer(dir);
-        if (!backing || backing.sb !== root.sb || backing.fspath !== fsdir) break;
-        // An owner the host cannot read releases nothing.
-        const owned = ownerOnly(dir);
-        if (owned === undefined) break;
-        closed = owned;
+        // name must back onto the same filesystem path (#5053 r1 F1), on a host
+        // mount that is not idmapped, whose owner the host can read (#5055).
+        const route = inspect.route?.(dir);
+        if (!route || route.idmapped || route.sb !== root.sb || route.fspath !== fsdir || !route.owner) break;
+        closed = !workerUids.includes(route.owner.uid) && (route.owner.mode & 0o077) === 0;
       }
       // An idmapped mount shows another owner at the worker's name than the host
       // reads at its own: the host's owner decides nothing there (F31).
