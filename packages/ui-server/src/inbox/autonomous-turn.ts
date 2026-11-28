@@ -300,6 +300,9 @@ async function executeAutonomousTurn(
       } }) : undefined;
   // Index updates this turn's applications queued (#2835).
   let turnIndex: IndexBatch | undefined;
+  // The turn's own planner boundary registers its private-state layout; the
+  // turn releases it when it ends (#4301), or every later launch judges it.
+  let applicationBoundary: ReturnType<typeof createHostBoundary> | undefined;
   // Installed once the turn's masks are resolved, before the backend starts.
   const installApplication = (request: StartTurnRequest, maskGuard: ProviderMaskGuard | undefined, tree: TurnDataTree, view: string): void => {
     const lock = input.application && deps.brainPath ? deps.backend.brainApplicationPolicy?.(request)?.lock : undefined;
@@ -310,7 +313,7 @@ async function executeAutonomousTurn(
     // The server owns this policy: nothing is auto-allowed, so every
     // application reaches `approve`, whatever the backend would allow.
     const apply = createBrainApplication({ root, principalId, turnId: input.turnId, signal: controller.signal,
-      planner: deps.applicationPlanner ?? boundaryPlanner(createHostBoundary({ brainPath: root, nativeManager: deps.nativeManager, dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory })),
+      planner: deps.applicationPlanner ?? boundaryPlanner(applicationBoundary ??= createHostBoundary({ brainPath: root, nativeManager: deps.nativeManager, dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory })),
       policy: { autoAllowed: [], available: ["write", "edit", "add", "update", "archive", "staged"], enforceAllowedTools: true, lock },
       // The policy admitted for this turn protects its targets, as for a hosted turn (#2876).
       protectedPaths: protectedPaths(policy.policy),
@@ -456,6 +459,7 @@ async function executeAutonomousTurn(
       }).immediate();
     } finally {
       watermark?.release();
+      applicationBoundary?.disposePrivateState?.();
       try { await dataTree?.close(); } finally { try { await startupView?.cleanup(); } finally { if (privateIndex) removePrivateIndexDirectory(privateIndex); } }
     }
   }

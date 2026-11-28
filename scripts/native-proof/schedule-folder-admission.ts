@@ -52,13 +52,15 @@ export async function proveScheduleFolderAdmission(artifacts: string): Promise<v
       admissions.push({ mode: admitted.mode, folders: admitted.folderPaths, holders: gate.holders().length });
       return admitted;
     } };
+    // Released in the finally: a later case's launches must not judge this case's database (#4301).
+    let boundary: ReturnType<typeof createHostBoundary> | undefined;
     try {
       const manager = createNativeBrainManagerClient({ socketPath });
-      const boundary = createHostBoundary({ brainPath: brain, dbPath, nativeManager: manager, profile: "governed",
+      boundary = createHostBoundary({ brainPath: brain, dbPath, nativeManager: manager, profile: "governed",
         requireGate: true, gate: () => observedGate, history: () => true });
       // The whole availability on failure: its reason, detail and private-state diagnostic (#4301).
       const availability = await boundary.prepare();
-      assert.equal(availability.available, true, `ACTUAL_NATIVE_MAINTENANCE_QUALIFIES: ${JSON.stringify({ availability, status: boundary.status(), privateState: boundary.privateStateStatus?.() })}`);
+      assert.equal(availability.available, true, `ACTUAL_NATIVE_MAINTENANCE_QUALIFIES: ${JSON.stringify({ name, dbPath, availability, status: boundary.status(), privateState: boundary.privateStateStatus?.() })}`);
       hold = await gate.acquire("shared", "turn:odysseus");
       hold.assertPeerFolderPlans!(["group/private"]);
       // The host's own masks, as a server's turns get them: its UI database is private state (#4301).
@@ -101,7 +103,7 @@ export async function proveScheduleFolderAdmission(artifacts: string): Promise<v
       writeFileSync(join(outputDirectory, "receipt.json"), JSON.stringify({ target, before, after, refusedPublication: true, permittedIgnoreAnswer: ignored, admissions, peerUsable: true }));
     } finally {
       peer?.kill(); if (peer) await peer.exited; await output;
-      hold?.release(); db.close(); await service.close();
+      hold?.release(); boundary?.disposePrivateState?.(); db.close(); await service.close();
     }
   }
 }
