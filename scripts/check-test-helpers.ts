@@ -104,36 +104,103 @@ function enclosingName(node: ts.Node): string {
   return "deadline loop";
 }
 
+const binds = (name: ts.BindingName, text: string): boolean => ts.isIdentifier(name)
+  ? name.text === text
+  : name.elements.some((element) => !ts.isOmittedExpression(element) && binds(element.name, text));
+
+/** The declaration of `name` that `scope` itself holds: a parameter, a loop or catch binding, or a statement of a block. */
+function declaredIn(scope: ts.Node, name: string): ts.Node | undefined {
+  const inList = (list: ts.VariableDeclarationList) => list.declarations.find((declaration) => binds(declaration.name, name));
+  if (ts.isFunctionLike(scope)) return scope.parameters.find((parameter) => binds(parameter.name, name));
+  if (ts.isForStatement(scope) || ts.isForInStatement(scope) || ts.isForOfStatement(scope)) {
+    return scope.initializer && ts.isVariableDeclarationList(scope.initializer) ? inList(scope.initializer) : undefined;
+  }
+  if (ts.isCatchClause(scope)) return scope.variableDeclaration && binds(scope.variableDeclaration.name, name) ? scope.variableDeclaration : undefined;
+  const statements = ts.isBlock(scope) || ts.isSourceFile(scope) || ts.isModuleBlock(scope) ? scope.statements
+    : ts.isCaseBlock(scope) ? scope.clauses.flatMap((clause) => [...clause.statements]) : [];
+  for (const statement of statements) {
+    if (ts.isVariableStatement(statement)) {
+      const found = inList(statement.declarationList);
+      if (found) return found;
+    } else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name?.text === name) return statement;
+  }
+  return undefined;
+}
+
+/** The declaration a name reads: the nearest enclosing scope that declares it, so an inner one shadows an outer one. */
+function declarationOf(name: ts.Identifier): ts.Node | undefined {
+  for (let scope = name.parent; scope; scope = scope.parent) {
+    const found = declaredIn(scope, name.text);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** Names a node reads, leaving out property names such as `deadline` in `state.deadline`. */
+function readsIn(node: ts.Node): ts.Identifier[] {
+  const out: ts.Identifier[] = [];
+  const walk = (child: ts.Node): void => {
+    if (ts.isIdentifier(child) && !(ts.isPropertyAccessExpression(child.parent) && child.parent.name === child)) out.push(child);
+    ts.forEachChild(child, walk);
+  };
+  walk(node);
+  return out;
+}
+
+const initializerOf = (name: ts.Identifier) => {
+  const declaration = declarationOf(name);
+  return declaration && ts.isVariableDeclaration(declaration) ? declaration.initializer : undefined;
+};
+
+/** The function, or the file, a node sits in. */
+const functionOf = (node: ts.Node): ts.Node => {
+  let scope = node.parent;
+  while (scope && !ts.isFunctionLike(scope) && !ts.isSourceFile(scope)) scope = scope.parent;
+  return scope ?? node;
+};
+
 /**
  * Loops that sleep and compare `Date.now()` or `performance.now()` with a
- * bound (#5045): a deadline loop, inline or in a helper of any name. A bound
- * through `watchdogMs`, in the comparison or in the initializer of a name it
- * reads, is a scaled watchdog and passes. A comparison inside a nested
- * function or loop belongs to that one, so a site is the innermost such loop.
+ * bound (#5045): a deadline loop, inline or in a helper of any name. The
+ * clock may be read in the comparison or held in a name declared in the
+ * loop's own function, such as `now` or `elapsed = Date.now() - start`
+ * (#5056). A bound through `watchdogMs`, in the comparison or in the
+ * initializer of the declaration a name in it reads (#5054), is a scaled
+ * watchdog and passes. A comparison inside a nested function or sleeping loop
+ * belongs to that one, and one inside a nested loop that does not sleep to the
+ * loop around it, so a site is the innermost sleeping loop.
  */
 function deadlineLoops(file: string, text: string): Array<{ index: number; line: number; name: string }> {
   if (!SLEEPS.test(text) || !CLOCK_TEXT.test(text)) return [];
   const source = parse(file, text);
-  const scaled = new Set<string>();
   const found: Array<{ index: number; line: number; name: string }> = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && some(node.initializer, isWatchdog)) scaled.add(node.name.text);
-    ts.forEachChild(node, visit);
+  const sleeps = (loop: ts.Node) => SLEEPS.test(loop.getText(source));
+  const scaledName = (name: ts.Identifier) => {
+    const initializer = initializerOf(name);
+    return initializer !== undefined && some(initializer, isWatchdog);
   };
-  visit(source);
-  const unscaled = (comparison: ts.Node) => !some(comparison, (node) => isWatchdog(node) || (ts.isIdentifier(node) && scaled.has(node.text)));
+  /** The initializer of a name that holds a clock reading taken in the loop's own function. */
+  const clockReading = (name: ts.Identifier, loop: ts.Node) => {
+    const declaration = declarationOf(name);
+    if (!declaration || !ts.isVariableDeclaration(declaration) || !declaration.initializer || functionOf(declaration) !== functionOf(loop)) return undefined;
+    return some(declaration.initializer, isClock) ? declaration.initializer : undefined;
+  };
+  // A clock reading through a name keeps a bound it was derived from: `remaining = deadline - Date.now()`.
+  const unscaled = (comparison: ts.Node, loop: ts.Node) => ![comparison, ...readsIn(comparison).map((name) => clockReading(name, loop))]
+    .some((part) => part !== undefined && (some(part, isWatchdog) || readsIn(part).some(scaledName)));
   const clockComparisons = (loop: ts.IterationStatement) => {
     const out: ts.BinaryExpression[] = [];
     const walk = (node: ts.Node): void => {
-      if (node !== loop && (ts.isFunctionLike(node) || ts.isIterationStatement(node, false))) return;
-      if (ts.isBinaryExpression(node) && COMPARES.has(node.operatorToken.kind) && some(node, isClock)) out.push(node);
+      if (node !== loop && (ts.isFunctionLike(node) || (ts.isIterationStatement(node, false) && sleeps(node)))) return;
+      if (ts.isBinaryExpression(node) && COMPARES.has(node.operatorToken.kind) &&
+        (some(node, isClock) || readsIn(node).some((name) => clockReading(name, loop) !== undefined))) out.push(node);
       ts.forEachChild(node, walk);
     };
     walk(loop);
     return out;
   };
   const loops = (node: ts.Node): void => {
-    if (ts.isIterationStatement(node, false) && SLEEPS.test(node.getText(source)) && clockComparisons(node).some(unscaled)) {
+    if (ts.isIterationStatement(node, false) && sleeps(node) && clockComparisons(node).some((comparison) => unscaled(comparison, node))) {
       const index = node.getStart(source);
       found.push({ index, line: lineAt(text, index), name: enclosingName(node) });
     }
