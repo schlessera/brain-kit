@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useShallow } from "zustand/react/shallow";
 import { Button, Overlay, StatusIndicator, type StatusIndicatorState } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
@@ -30,7 +31,7 @@ import { UserTurn } from "./transcript-turn.js";
 type BubbleKind = "held" | "paused" | "cancelled" | "failed" | "refused" | "returned" | "sending" | "unconfirmed";
 
 interface Bubble {
-  d: ComposerDraft;
+  draftId: string;
   s: ComposerSnapshot;
   kind: BubbleKind;
   send?: DraftSend;
@@ -69,6 +70,13 @@ function kindOf(s: ComposerSnapshot, send: DraftSend | undefined): BubbleKind | 
 /** Bubbles that need the reader: what Show reaches when the chat is full. */
 const NEEDS_ACTION = new Set<BubbleKind>(["held", "paused", "cancelled", "failed", "refused", "returned", "unconfirmed"]);
 
+/** Bubbles with an Edit action, which opens only while the composer is empty. */
+const EDITABLE = new Set<BubbleKind>(["cancelled", "failed", "refused", "returned"]);
+
+/** The drafts of the chat in view that hold a snapshot, in the drafts map's order. */
+const chatDrafts = (drafts: Record<string, ComposerDraft>, sessionId: string | null, fresh: string) =>
+  Object.values(drafts).filter((d) => (sessionId === null ? d.draftId === fresh : d.sessionId === sessionId) && draftSnapshots(d).length > 0);
+
 /**
  * Show, from the composer's queue-full notice: scroll to the oldest snapshot
  * that needs action and focus its heading. False when none is drawn.
@@ -88,9 +96,13 @@ export function OutgoingSnapshots() {
   const root = useBrainUiRoot();
   const sessionId = useChatStore((s) => s.activeSessionId);
   const on = useRootStore("drafts", (s) => s.snapshotsOn);
-  const drafts = useRootStore("drafts", (s) => s.drafts);
+  // What it draws, not the drafts map a keystroke replaces (#5069): this
+  // chat's drafts with a snapshot and their snapshot lists, both compared
+  // item by item. An edit keeps a draft's list, so typing selects the same
+  // values.
+  const draftIds = useRootStore("drafts", useShallow((s) => chatDrafts(s.drafts, sessionId, s.fresh).map((d) => d.draftId)));
+  const snapshotLists = useRootStore("drafts", useShallow((s) => chatDrafts(s.drafts, sessionId, s.fresh).map((d) => draftSnapshots(d))));
   const sends = useRootStore("drafts", (s) => s.sends);
-  const fresh = useRootStore("drafts", (s) => s.fresh);
   const viewId = useRootStore("drafts", (s) => s.idFor(sessionId));
   const reviewText = useVoiceStore((s) => s.reviewText);
   const [announcement, setAnnouncement] = useState("");
@@ -106,26 +118,24 @@ export function OutgoingSnapshots() {
   const kinds = useMemo(() => {
     const map = new Map<string, BubbleKind | "pending">();
     if (!on) return map;
-    for (const d of Object.values(drafts)) {
-      if (sessionId === null ? d.draftId !== fresh : d.sessionId !== sessionId) continue;
-      for (const s of draftSnapshots(d)) map.set(s.snapshotId, kindOf(s, sends[s.requestId]) ?? "pending");
+    for (const list of snapshotLists) {
+      for (const s of list) map.set(s.snapshotId, kindOf(s, sends[s.requestId]) ?? "pending");
     }
     return map;
-  }, [on, drafts, sends, sessionId, fresh]);
+  }, [on, snapshotLists, sends]);
   const bubbles = useMemo<Bubble[]>(() => {
     if (!on) return [];
-    const own = Object.values(drafts).filter((d) => (sessionId === null ? d.draftId === fresh : d.sessionId === sessionId));
     const list: Bubble[] = [];
-    for (const d of own) {
-      for (const s of draftSnapshots(d)) {
+    for (const [index, draftId] of draftIds.entries()) {
+      for (const s of snapshotLists[index] ?? []) {
         const send = sends[s.requestId];
         const kind = kindOf(s, send);
-        if (kind) list.push({ d, s, kind, ...(send ? { send } : {}) });
+        if (kind) list.push({ draftId, s, kind, ...(send ? { send } : {}) });
       }
     }
     // Creation order across this chat's drafts; one not yet acknowledged is newest.
     return list.map((b, i) => ({ b, i })).sort((x, y) => ((x.b.s.createdAt ?? Infinity) - (y.b.s.createdAt ?? Infinity)) || x.i - y.i).map((x) => x.b);
-  }, [on, drafts, sends, sessionId, fresh]);
+  }, [on, draftIds, snapshotLists, sends]);
 
   // Background changes, announced once each; the first look at a chat says nothing.
   const seen = useRef<Map<string, BubbleKind | "pending"> | null>(null);
@@ -153,9 +163,15 @@ export function OutgoingSnapshots() {
     if (parts.length) setAnnouncement(parts.join(" "));
   }, [kinds, bubbles]);
 
+  // Whether the composer holds anything is read only while an Edit depends on it.
+  const editable = bubbles.some((b) => EDITABLE.has(b.kind));
+  const viewHasContent = useRootStore("drafts", (s) => {
+    const view = editable ? s.drafts[viewId] : undefined;
+    return !!view && (view.text.length > 0 || view.attachments.length > 0 || draftFiles(view).length > 0);
+  });
+
   if (!on) return null;
-  const view = drafts[viewId];
-  const composerEmpty = !(view && (view.text.length > 0 || view.attachments.length > 0 || draftFiles(view).length > 0))
+  const composerEmpty = !viewHasContent
     && !reviewText.trim() && !queue.queue.files.some((item) => !item.snapshotId);
   const total = bubbles.length;
   const deletingBubble = deleting && bubbles.find((b) => b.s.snapshotId === deleting.snapshotId);
@@ -170,7 +186,7 @@ export function OutgoingSnapshots() {
       {bubbles.map((b, i) => (
         <SnapshotBubble key={b.s.snapshotId} bubble={b} index={i} total={total} composerEmpty={composerEmpty}
           onUserAction={(id, said) => { userAction.current.add(id); if (said) setAnnouncement(said); }}
-          onDelete={() => setDeleting({ draftId: b.d.draftId, snapshotId: b.s.snapshotId })} />
+          onDelete={() => setDeleting({ draftId: b.draftId, snapshotId: b.s.snapshotId })} />
       ))}
       {deleting && deletingBubble && (
         <Overlay open variant="dialog" size="md" title="Delete this unsent message?" data-snapshot-delete=""
@@ -210,7 +226,7 @@ function SnapshotBubble({ bubble: b, index, total, composerEmpty, onUserAction, 
   const root = useBrainUiRoot();
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
   const heading = useRef<HTMLHeadingElement>(null);
-  const { s, d, kind, send } = b;
+  const { s, draftId, kind, send } = b;
   const label = head(b);
   const headingId = `snapshot-${s.snapshotId}`;
   const why = s.why && s.why.kind !== "cancelled" ? `${s.why.file ? `${s.why.file}: ` : ""}${s.why.reason}` : undefined;
@@ -223,13 +239,13 @@ function SnapshotBubble({ bubble: b, index, total, composerEmpty, onUserAction, 
     // Cancel never needs a free slot: it changes this snapshot in place (rev 5 §2).
     onUserAction(s.snapshotId, "Not sent. Kept as its own message.");
     dropSnapshotUploads(root, s.snapshotId);
-    root.stores.drafts.getState().patchSnapshot(d.draftId, s.snapshotId, { state: "returned", why: { kind: "cancelled" }, uploads: [], paused: false });
+    root.stores.drafts.getState().patchSnapshot(draftId, s.snapshotId, { state: "returned", why: { kind: "cancelled" }, uploads: [], paused: false });
     heading.current?.focus();
   };
   const edit = () => {
     if (!composerEmpty) return;
     onUserAction(s.snapshotId);
-    if (!root.stores.drafts.getState().editSnapshot(d.draftId, s.snapshotId)) return;
+    if (!root.stores.drafts.getState().editSnapshot(draftId, s.snapshotId)) return;
     // The text is in the field now: the caret goes to its end.
     setTimeout(() => {
       const field = composerField();
@@ -262,7 +278,7 @@ function SnapshotBubble({ bubble: b, index, total, composerEmpty, onUserAction, 
       <div className="mt-3 flex flex-wrap justify-end gap-4" data-snapshot-actions="">
         {kind === "paused" && <Button label="Send" tone="primary" size="md" block={false} reach ariaDisabled={!connected}
           {...(!connected ? { subtitle: "needs the host" } : {})}
-          onClick={() => { if (connected) { onUserAction(s.snapshotId); root.connection.drafts.sendPaused(d.draftId, s.snapshotId); } }} />}
+          onClick={() => { if (connected) { onUserAction(s.snapshotId); root.connection.drafts.sendPaused(draftId, s.snapshotId); } }} />}
         {(kind === "held" || kind === "paused") && <Button label="Cancel" tone="ghost" size="md" block={false} reach onClick={cancel} />}
         {(kind === "cancelled" || kind === "failed" || kind === "refused" || kind === "returned") && <>
           <Button label="Edit" tone="ghost" size="md" block={false} reach ariaDisabled={!composerEmpty}
