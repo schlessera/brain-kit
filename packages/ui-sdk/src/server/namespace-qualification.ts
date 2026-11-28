@@ -43,7 +43,8 @@ export function parseMountinfo(text: string): MountRow[] | undefined {
     const fields = line.split(" ");
     const separator = fields.indexOf("-", 6);
     const [id, parent, sb, root, point, options] = fields;
-    if (separator < 0 || fields.length < separator + 3 || !/^\d+$/.test(id ?? "") || !/^\d+$/.test(parent ?? "")
+    // The filesystem type, source and super-options all follow the separator (F41).
+    if (separator < 0 || fields.length < separator + 4 || !/^\d+$/.test(id ?? "") || !/^\d+$/.test(parent ?? "")
       || !/^\d+:\d+$/.test(sb ?? "") || !root?.startsWith("/") || !point?.startsWith("/") || !options)
       throw new Error(`invalid worker mount record ${index + 1}`);
     return { id: Number(id), parent: Number(parent), sb: sb!, root: decode(root), point: decode(point), options: options.split(","),
@@ -107,6 +108,8 @@ export interface StateRootObservation {
   /** Backing coordinates: the superblock and the path inside its filesystem. */
   readonly sb: string;
   readonly fspath: string;
+  /** The host reads it through an idmapped mount: its owner there is not the inode's (F34). */
+  readonly hostIdmapped?: boolean;
 }
 
 /** What the host reads at its own paths, injected so the verdict stays pure. */
@@ -127,20 +130,21 @@ export type NamespaceVerdict =
 const describe = (row: MountRow) => `${row.id} ${row.parent} ${row.sb} ${row.root} ${row.point} ${row.fstype}`;
 
 /**
- * Overlay layer paths. `lowerdir` lists layers separated by unescaped colons;
- * `lowerdir+`, `datadir+`, `upperdir` and `workdir` each name one layer. The
- * raw value is split before anything is decoded, so a decoded byte can never
- * become a separator, and `\:` is a colon inside a path.
+ * Overlay layer paths. `lowerdir` lists layers separated by colons; Linux
+ * shows it as given, with its backslashes octal-escaped, so it is decoded
+ * first and split on the colons a `\\` does not escape (F33). `lowerdir+`,
+ * `datadir+`, `upperdir` and `workdir` each name one layer.
  */
 export function overlayLayers(superOptions: string): string[] {
   const layers: string[] = [];
-  const unescape = (part: string) => decode(part.replace(/\\:/g, ":"));
   for (const option of superOptions.split(",")) {
     const eq = option.indexOf("=");
     if (eq < 0) continue;
-    const key = option.slice(0, eq), raw = option.slice(eq + 1);
-    if (key === "lowerdir") layers.push(...raw.split(/(?<!\\):/).filter(Boolean).map(unescape));
-    else if (["lowerdir+", "datadir+", "upperdir", "workdir"].includes(key)) layers.push(unescape(raw));
+    const key = option.slice(0, eq), value = decode(option.slice(eq + 1));
+    // Linux keeps the legacy lowerdir string as given and octal-escapes its
+    // backslashes: decode first, then split on the colons it left unescaped (F33).
+    if (key === "lowerdir") layers.push(...value.split(/(?<!\\):/).filter(Boolean).map(part => part.replace(/\\:/g, ":")));
+    else if (["lowerdir+", "datadir+", "upperdir", "workdir"].includes(key)) layers.push(value);
   }
   return layers;
 }
@@ -175,7 +179,7 @@ export function evaluateNamespace(rows: readonly MountRow[], roots: readonly Sta
       if (!owner) return { result: "unknown", cause: `the owner of ${root.setting} could not be read` };
       // An idmapped mount shows another owner at the worker's name than the host
       // reads at its own: the host's owner decides nothing there (F31).
-      if (!row.options.includes("idmapped") && !workerUids.includes(owner.uid) && (owner.mode & 0o077) === 0) ownershipOnly.push(exposure);
+      if (!row.options.includes("idmapped") && !root.hostIdmapped && !workerUids.includes(owner.uid) && (owner.mode & 0o077) === 0) ownershipOnly.push(exposure);
       else return { result: "exposed", ...exposure };
     }
   }

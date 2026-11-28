@@ -1007,7 +1007,11 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
   if (wantsScratch) {
     const end = step("sandbox_scratch");
     try { preparedScratch = yield* resolveScratchMountSteps(brain, options.maintenance); }
-    catch (error) { preparedScratch = { mount: { writable: false, reason: `.brain/scratch/ could not be checked (${(error as Error).message})` }, removed: [] }; }
+    catch (error) {
+      // A launch refused for private state is the scratch check's verdict, not a read-only scratch (F40).
+      if (privateStateRefusalOf(error)) throw error;
+      preparedScratch = { mount: { writable: false, reason: `.brain/scratch/ could not be checked (${(error as Error).message})` }, removed: [] };
+    }
     end?.();
   }
   // Qualification never creates its own prerequisite. Scratch cleanup precedes
@@ -1649,7 +1653,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       yield* verifyWorkerFolderMountsSteps(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks,
         identityBroker?.brainView());
     // Every envelope, before release: no host private state reachable here (#4301).
-    yield* qualifyWorkerNamespaceSteps(pid, brain, deadline, { site: input.maintenance ? "maintenance" : "agent", masked: launchMasked(input),
+    // The registry's own key: Bun's realpathSync can name another path (F35).
+    yield* qualifyWorkerNamespaceSteps(pid, kernelRealpath(input.brainPath), deadline, { site: input.maintenance ? "maintenance" : "agent", masked: launchMasked(input),
       ...launchDescription(input, boot.env), launcher: "launchAgentWorkerSteps" });
     // Release the gate: the worker's command starts only now.
     // A separate identity opens both keys: the coordinator's gate, then STATE_GATE's line.

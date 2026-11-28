@@ -15,6 +15,7 @@ import { createWriterGate } from "../src/brain/writer-gate";
 import { createRuntimeStatus } from "../src/activity/runtime-status";
 import { WorkerIdentityCleanupError } from "../../ui-sdk/src/server/worker-identity";
 import { brainGitSync, runMaintenanceWorker } from "../../ui-sdk/src/server/maintenance-worker";
+import { prepareWorkerSandbox } from "../../ui-sdk/src/server/worker-launcher";
 import { createFixtureMaintenanceHost } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
 import { emitTurnError } from "../src/ws/bridge-capabilities/turn-error";
 import { createActivityRuntime } from "../src/activity/runtime";
@@ -255,4 +256,33 @@ describe("review round 2 at the boundary (F19, F22, F30)", () => {
     expect(lines.join("\n"), "F30_EXPOSURE_REFUSES_BOTH_PROFILES").toContain("Governed and strict turns are refused");
     expect(lines.join("\n")).not.toContain("run under strict");
   });
+});
+
+describe("review round 3 (F38, F40)", () => {
+  test("F38: a cancelled or unauthorized call never waits on a deferred check that cannot finish", async () => {
+    const root = mkdtempSync(join(tmpdir(), "odysseus-preflight-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const brain = join(root, "brain"); mkdirSync(brain);
+    const boundary = createHostBoundary({ brainPath: brain, exec: {} });
+    let checks = 0;
+    // A check that ends only when its own bound or signal ends it.
+    boundary.deferPreflight!(async (_gate, signal) => { checks++; await new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })); return undefined; });
+    const execution = { argv: ["/bin/sh", "-c", "exit 0"], env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "shared" as const, purpose: "odysseus check" };
+    await expect(boundary.run({ ...execution, assertAuthorized: () => { throw new Error("Odysseus's session expired"); } }), "F38_UNAUTHORIZED_FIRST").rejects.toThrow("session expired");
+    expect(checks, "F38_UNAUTHORIZED_NEVER_STARTS_A_CHECK").toBe(0);
+    const controller = new AbortController(), started = performance.now();
+    setTimeout(() => controller.abort(new Error("Telemachus cancelled")), 200);
+    await expect(boundary.run({ ...execution, signal: controller.signal }), "F38_CANCELLED_CALLER_STOPS_WAITING").rejects.toThrow("Telemachus cancelled");
+    expect(performance.now() - started, "F38_CANCELLATION_IS_PROMPT").toBeLessThan(5_000);
+  }, watchdogMs(60_000));
+
+  test("F40: a scratch check refused for private state refuses the sandbox, never a read-only scratch", () => {
+    const root = mkdtempSync(join(resolve(import.meta.dir, "../../../tmp"), "odysseus-scratch-exposure-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const brain = join(root, "brain"); mkdirSync(join(brain, ".brain/scratch"), { recursive: true }); writeFileSync(join(brain, ".gitignore"), ".brain/scratch/\n");
+    expect(Bun.spawnSync(["git", "init", "-q", brain], { env: { PATH: "/usr/bin:/bin" } }).exitCode).toBe(0);
+    const host = createFixtureMaintenanceHost(brain); cleanups.push(host.cleanup);
+    cleanups.push(registerWorkerPrivateState(brain, { roots: () => [VISIBLE], walk: () => undefined }));
+    let thrown: unknown;
+    try { prepareWorkerSandbox(brain, { maintenance: host }); } catch (error) { thrown = error; }
+    expect(privateStateRefusalOf(thrown)?.reason, "F40_SCRATCH_REFUSAL_KEEPS_ITS_TYPE").toBe("private_state_exposed");
+  }, watchdogMs(60_000));
 });

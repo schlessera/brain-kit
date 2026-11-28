@@ -532,6 +532,16 @@ test("an autonomous application turn releases its own boundary's private-state r
   } finally { f.db.close(); }
 });
 
+test("an autonomous turn runs the boundary's deferred boot check before any CLI launch of its admission (#4301 F37)", async () => {
+  const order: string[] = [];
+  const f = setup(async req => { order.push("backend");
+    req.bridge.emit({ type: "result", sessionId: "runtime", outcome: "success", isError: false, durationMs: 1, numTurns: 1 }); });
+  try {
+    await runAutonomousTurn({ ...f, privateIndex: { maskPaths: [], preflight: async () => { order.push("preflight"); } }, checkpoint() {} }, f.input);
+    expect(order, "F37_PREFLIGHT_BEFORE_ADMISSION_LAUNCHES").toEqual(["preflight", "backend"]);
+  } finally { f.db.close(); }
+});
+
 test("an autonomous turn's index outcome commits before the transaction that writes its terminal (#2814, #2835)", async () => {
   const proposal = { operation: "write" as const, path: "notes/ithaca.md", content: "---\ntitle: Ithaca\ntype: note\n---\nOdysseus reaches Ithaca.\n", expectedBaseHash: null };
   let applied: unknown;

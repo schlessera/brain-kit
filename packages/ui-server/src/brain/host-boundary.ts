@@ -254,7 +254,9 @@ export interface HostBoundary {
    * until it passes. It returns the refusal while still refused, and throws
    * the version requirement error once the version is known and fails.
    */
-  deferPreflight?(check: (gate: "shared" | "none") => Promise<Error | undefined>): void;
+  deferPreflight?(check: (gate: "shared" | "none", signal: AbortSignal) => Promise<Error | undefined>): void;
+  /** @internal Run a deferred boot check now, for a launch outside the boundary (an autonomous private index, F37). */
+  awaitPreflight?(signal?: AbortSignal): Promise<void>;
   /** @internal Live launch-qualification diagnostics for status (#4301 F8). */
   privateStateStatus?(): { stateBoundary: NonNullable<GovernedStatus["stateBoundary"]>; refusal?: { reason: GovernedUnavailableReason; detail: string }; diagnostic?: unknown };
   governed(startupView?: WorkerStartupView): GovernedAvailability;
@@ -417,6 +419,8 @@ const probeSlot = globalThis as { [MAINTENANCE_PROBES]?: Map<string, Extract<Wor
 const passedMaintenanceProbes = probeSlot[MAINTENANCE_PROBES] ??= new Map();
 
 
+/** The longest a deferred boot check may wait for its gate and its probe (#4301 F38). */
+const PREFLIGHT_BOUND_MS = 30_000;
 /** Marks the executions a deferred boot check makes itself (#4301 F1). */
 const preflightContext = new AsyncLocalStorage<true>();
 
@@ -508,7 +512,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   let probeRefusal: { reason: GovernedUnavailableReason; detail: string } | undefined;
   /** The refused probe's evidence, for diagnosis only: never served by status (#4301). */
   let probeDiagnostic: unknown;
-  let deferredPreflight: ((gate: "shared" | "none") => Promise<Error | undefined>) | undefined, pendingPreflight: Promise<void> | undefined;
+  let deferredPreflight: ((gate: "shared" | "none", signal: AbortSignal) => Promise<Error | undefined>) | undefined, pendingPreflight: Promise<void> | undefined;
   /**
    * Repeat a deferred boot check before any execution. A caller that holds no
    * writer gate (`gate: "none"`, such as a revert under its own exclusive hold)
@@ -517,17 +521,25 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
    * `gate: "shared"` (F1); only the check's own executions, marked by its async
    * context, pass through. A pass clears it, a version failure keeps it.
    */
-  async function preflight(gate: GateUse): Promise<void> {
+  async function preflight(gate: GateUse, signal?: AbortSignal): Promise<void> {
     if (!deferredPreflight || preflightContext.getStore()) return;
+    signal?.throwIfAborted();
     const check = deferredPreflight;
-    const run = (mode: "shared" | "none") => preflightContext.run(true, async () => {
-      const refused = await check(mode);
+    // Bounded: a gated probe never waits forever behind a writer's hold (F38).
+    const run = (mode: "shared" | "none", probeSignal: AbortSignal) => preflightContext.run(true, async () => {
+      const refused = await check(mode, probeSignal);
       if (refused) throw refused;
       if (deferredPreflight === check) deferredPreflight = undefined;
     });
-    if (gate === "none") return run("none");
-    const pending = pendingPreflight ??= run("shared").finally(() => { pendingPreflight = undefined; });
-    await pending;
+    if (gate === "none") return run("none", signal ? AbortSignal.any([signal, AbortSignal.timeout(PREFLIGHT_BOUND_MS)]) : AbortSignal.timeout(PREFLIGHT_BOUND_MS));
+    const pending = pendingPreflight ??= run("shared", AbortSignal.timeout(PREFLIGHT_BOUND_MS)).finally(() => { pendingPreflight = undefined; });
+    // Each caller waits only as long as its own signal allows.
+    if (!signal) return pending;
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => reject(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+      pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    });
   }
   /**
    * A credentialed run's own CLI provider relay (#1673), where the host relays
@@ -654,10 +666,11 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     disposePrivateState,
     privateStateStatus: () => ({ ...boundaryStatus(), ...(probeRefusal && !passedMaintenanceProbes.has(maintenanceKey) ? { refusal: probeRefusal, diagnostic: probeDiagnostic } : {}) }),
     deferPreflight(check) { deferredPreflight = check; },
+    awaitPreflight: (signal) => preflight("shared", signal),
     governed,
     async prepare(signal, preparedView, timing) {
       signal?.throwIfAborted();
-      try { await preflight("shared"); }
+      try { await preflight("shared", signal); }
       catch (error) {
         const refusal = privateStateRefusalOf(error);
         if (refusal) return { available: false as const, reason: refusal.reason, detail: refusal.message };
@@ -752,10 +765,13 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     withGate,
     async run(execution) {
-      await preflight(execution.gate);
       const admissionSignal = execution.admissionSignal
         ? execution.signal ? AbortSignal.any([execution.signal, execution.admissionSignal]) : execution.admissionSignal
         : execution.signal;
+      // Cancellation and authority first: a refused or cancelled call never waits on the deferred check (F38).
+      admissionSignal?.throwIfAborted();
+      execution.assertAuthorized?.();
+      await preflight(execution.gate, admissionSignal);
       const admission = { ...execution, signal: admissionSignal };
       admissionSignal?.throwIfAborted();
       execution.assertAuthorized?.();
@@ -829,7 +845,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       });
     },
     async launch(execution) {
-      await preflight(execution.gate);
+      execution.signal?.throwIfAborted();
+      execution.assertAuthorized?.();
+      await preflight(execution.gate, execution.signal);
       execution.signal?.throwIfAborted();
       const hold = execution.gate === "none" ? null : await holdGate(execution.gate, execution.purpose, execution.signal);
       let hostFallback: boolean;
@@ -943,7 +961,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     async runSync(execution) {
       // Synchronous maintenance holds no writer gate of its own.
-      await preflight("none");
+      await preflight("none", execution.signal);
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");
       if (!isolated()) {
         if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");

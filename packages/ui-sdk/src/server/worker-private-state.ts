@@ -122,7 +122,9 @@ export function liveDescendantMounts(rows: readonly MountRow[], path: string): M
   return rows.filter(row => {
     if (row.point === path || !holdsPath(path, row.point)) return false;
     const reached = resolveMount(rows, row.point);
-    return "row" in reached && reached.row.id === row.id;
+    // An ambiguous host table is unknown, never a silently smaller set of roots (F36).
+    if ("ambiguous" in reached) throw new Error(`the host mount table is ambiguous below ${path}: ${reached.ambiguous}`);
+    return reached.row.id === row.id;
   });
 }
 
@@ -157,10 +159,11 @@ export function observeStateRoots(roots: readonly { setting: string; path: strin
     let path: string;
     try { path = kernelRealpath(root.path); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
-    observed.push({ setting: root.setting, path, ...coordinates(path, hostRow(path, rows)) });
+    const row = hostRow(path, rows);
+    observed.push({ setting: root.setting, path, ...coordinates(path, row), ...(row.options.includes("idmapped") ? { hostIdmapped: true } : {}) });
     if (!lstatSync(path).isDirectory()) continue;
     for (const row of liveDescendantMounts(rows, path))
-      observed.push({ setting: root.setting, path: row.point, sb: row.sb, fspath: row.root });
+      observed.push({ setting: root.setting, path: row.point, sb: row.sb, fspath: row.root, ...(row.options.includes("idmapped") ? { hostIdmapped: true } : {}) });
   }
   return observed;
 }

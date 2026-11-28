@@ -542,8 +542,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   reconciled(hostExecution.reconcileExisting());
   await boundary.prepare();
   // An exposure refuses no boot: the version check is then repeated before any later execution (#4301).
-  const probeVersion = (gate?: "shared" | "none") => probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary, ...(gate ? { gate } : {}) });
-  if ((await probeVersion())?.deferred) boundary.deferPreflight?.(async gate => (await probeVersion(gate))?.deferred);
+  const probeVersion = (gate?: "shared" | "none", signal?: AbortSignal) => probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary,
+    ...(gate ? { gate } : {}), ...(signal ? { signal } : {}) });
+  if ((await probeVersion())?.deferred) boundary.deferPreflight?.(async (gate, signal) => (await probeVersion(gate, signal))?.deferred);
   // The CLI now keeps its index in .brain-index/. Delete the root-level copy
   // an earlier release left (it holds document bodies a provider-restricted
   // turn must not read); the index is rebuilt below, never moved (#1668).
@@ -1001,7 +1002,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     return result;
   };
   if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager,
-    privateIndex: { maskPaths: turnMaskPaths }, applicationPlanner: host.applicationPlanner, indexBatch,
+    privateIndex: { maskPaths: turnMaskPaths, preflight: signal => boundary.awaitPreflight?.(signal) ?? Promise.resolve() }, applicationPlanner: host.applicationPlanner, indexBatch,
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now, yieldAfterMs: config.inbox?.yieldAfterMs,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
     store: activity.store, runtime: activity.runtime, governanceWrites: activity.governanceWrites, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });

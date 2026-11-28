@@ -94,7 +94,9 @@ export interface AutonomousTurnDeps extends TurnRecorderDeps {
    * turns: the host's operational-state masks and optionally the CLI argv.
    * Absent, a turn under a provider folder rule refuses before any worker.
    */
-  privateIndex?: { maskPaths: readonly string[]; command?: readonly string[] };
+  privateIndex?: { maskPaths: readonly string[]; command?: readonly string[];
+    /** The boundary's deferred boot check, run before the private index and type translation launch the CLI (#4301 F37). */
+    preflight?: (signal: AbortSignal) => Promise<void> };
   db: Database;
   backend: AgentBackend;
   /** Must commit checkpoint + Action/block intent synchronously or throw. */
@@ -369,6 +371,8 @@ async function executeAutonomousTurn(
     startupView = await prepareNativeWorkerStartupView(brainPath, deps.nativeManager, controller.signal);
     controller.signal.throwIfAborted();
     if (!checkPrincipal()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
+    // A deferred boot version check runs before any CLI launch of this turn (F37).
+    await deps.privateIndex?.preflight?.(controller.signal);
     // Types map onto folders as for hosted turns, judged on this view (#2694).
     let typeFolders: Record<string, string[]> = {};
     if (providerTypeSelectors(policy.policy).length) {

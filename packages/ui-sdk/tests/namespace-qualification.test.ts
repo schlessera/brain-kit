@@ -138,7 +138,8 @@ describe("review round 1 (#4301)", () => {
   test("F3: one-layer overlay options keep their colons; lowerdir splits only on unescaped colons, before decoding", () => {
     expect(overlayLayers("ro,lowerdir+=/srv/ithaca:state,datadir+=/srv/aeolus:bag"), "F3_SINGLE_LAYER_OPTIONS_NOT_SPLIT").toEqual(["/srv/ithaca:state", "/srv/aeolus:bag"]);
     expect(overlayLayers("ro,lowerdir=/srv/a\\:b:/srv/c,upperdir=/srv/up\\:per,workdir=/srv/work"), "F3_ESCAPED_COLONS").toEqual(["/srv/a:b", "/srv/c", "/srv/up:per", "/srv/work"]);
-    expect(overlayLayers("ro,lowerdir=/srv/raft\\134:/srv/oar"), "F3_DECODED_BACKSLASH_IS_NOT_AN_ESCAPE").toEqual(["/srv/raft\\", "/srv/oar"]);
+    // Linux shows the legacy lowerdir as given, backslashes octal-escaped: `\\134:` is an escaped colon (F33).
+    expect(overlayLayers("ro,lowerdir=/srv/ithaca\\134:state:/srv/oar"), "F33_ESCAPED_COLON_DECODED_BEFORE_SPLIT").toEqual(["/srv/ithaca:state", "/srv/oar"]);
   });
   test("F4: a host mount stacked under another below a state root is not what that path shows", () => {
     const rows = table(line(1, 0, "8:1", "/@", "/"), line(2, 1, "8:1", "/state", "/srv/state"),
@@ -154,5 +155,21 @@ describe("review round 2 (#4301)", () => {
     expect(evaluateNamespace(rows, [STATE], [21003], ownerOnly).result, "F31_IDMAPPED_IS_EXPOSED").toBe("exposed");
     const plain = table(line(1, 0, "8:1", "/@", "/"), line(2, 1, "8:1", "/state", "/srv/ithaca/state"), seal(3, 1));
     expect(evaluateNamespace(plain, [STATE], [21003], ownerOnly).result, "F31_PLAIN_OWNER_ONLY_STAYS").toBe("ownership_only");
+  });
+});
+
+describe("review round 3 (#4301)", () => {
+  test("F41: a row with no super-options field is malformed, so the table is unknown", () => {
+    expect(() => parseMountinfo("31 1 8:1 / /srv/ithaca rw - overlay odysseus"), "F41_MISSING_SUPER_OPTIONS_MALFORMED").toThrow("invalid worker mount record 1");
+  });
+  test("F34: state the host reads through an idmapped mount never gets the ownership exception", () => {
+    const rows = table(line(1, 0, "8:1", "/@", "/"), line(2, 1, "8:1", "/state", "/srv/ithaca/state"), seal(3, 1));
+    expect(evaluateNamespace(rows, [{ ...STATE, hostIdmapped: true }], [21003], { owner: () => ({ uid: 1000, mode: 0o40700 }), layer: () => undefined }).result,
+      "F34_HOST_IDMAPPED_IS_EXPOSED").toBe("exposed");
+  });
+  test("F36: an ambiguous host table below a state root is unknown, never fewer roots", () => {
+    const rows = table(line(1, 0, "8:1", "/@", "/"), line(2, 1, "8:1", "/state", "/srv/state"),
+      line(3, 2, "8:2", "/a", "/srv/state/objects"), line(4, 2, "8:3", "/b", "/srv/state/objects"));
+    expect(() => liveDescendantMounts(rows, "/srv/state"), "F36_AMBIGUOUS_HOST_TABLE_THROWS").toThrow("ambiguous");
   });
 });
