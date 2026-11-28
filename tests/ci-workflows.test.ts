@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { CI_WORKFLOWS, checkCIWorkflows, publicationWorkflowProblems, workflowProblems } from "../scripts/check-ci-workflows.ts";
 import { ACTION_PINS, actionPinProblems, annotateActionPins, pinned } from "../scripts/action-pins.ts";
 import { BROWSER_DETERMINISM_PARTITIONS, DETERMINISM_PARTITIONS } from "../scripts/proof-shards.ts";
+import { git } from "../packages/core/tests/git-fixture";
 const ROOT = resolve(import.meta.dir, "..");
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Obj = { [key: string]: Json };
@@ -516,6 +517,23 @@ describe("the workflow lint refuses unsafe or duplicate execution shapes", () =>
       writeFileSync(join(dir,".depot/workflows/ci.yml"),original);
       expect(checkCIWorkflows(dir)).toContain("Active Depot CI workflow definitions must be removed");
     } finally { rmSync(dir,{recursive:true,force:true}); }
+  });
+  test("the workflow directories are read from the shared tree listing: an ignored local file is not a workflow (#5064)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ci-workflow-tree-"));
+    try {
+      mkdirSync(join(dir, ".github/workflows"), { recursive: true }); mkdirSync(join(dir, ".depot/workflows"), { recursive: true });
+      for (const file of readdirSync(join(ROOT, ".github/workflows"))) writeFileSync(join(dir, ".github/workflows", file), read(file));
+      writeFileSync(join(dir, ".gitignore"), "*.local.yml\n");
+      git(dir, "init", "-q"); git(dir, "add", ".");
+      expect(checkCIWorkflows(dir), "TRACKED_WORKFLOWS_PASS").toEqual([]);
+      // GitHub never sees an ignored file, so neither does the gate.
+      writeFileSync(join(dir, ".github/workflows/odysseus.local.yml"), "name: scratch\non: push\njobs: {}\n");
+      writeFileSync(join(dir, ".depot/workflows/ithaca.local.yml"), original);
+      expect(checkCIWorkflows(dir), "IGNORED_WORKFLOW_FILES_ARE_NOT_ENTRIES").toEqual([]);
+      // An untracked file that is not ignored is in the listing, and is one.
+      writeFileSync(join(dir, ".github/workflows/odysseus.yml"), "name: scratch\non: push\njobs: {}\n");
+      expect(checkCIWorkflows(dir).some(problem => problem.startsWith("GitHub must contain only")), "UNTRACKED_WORKFLOW_IS_AN_ENTRY").toBe(true);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
 

@@ -1,10 +1,11 @@
 /** GitHub is the sole CI provider; contributions share read-only workflows. */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { BROWSER_DETERMINISM_PARTITIONS, DETERMINISM_PARTITIONS, PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
 import { FEEDBACK_AGGREGATE } from "./heavy-feedback";
 import { CATEGORY_JOBS, FEEDBACK_GROUP, renderHeavyFeedbackWorkflow, sameWorkflow } from "./heavy-feedback-workflow";
 import { actionPinProblems, pinned } from "./action-pins";
+import { listTree } from "./lib/source";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
@@ -235,10 +236,23 @@ export function workflowProblems(text: string, file: string): string[] {
   return problems;
 }
 
+/**
+ * The entries directly under each of `directories`, from the tree every lint gate
+ * reads (#5064): an ignored local file is not one, as GitHub never sees it. A file
+ * in a subdirectory makes that subdirectory an entry, as a directory read would.
+ */
+function treeEntries(root: string, directories: readonly string[]): string[][] {
+  const entries = directories.map(() => new Set<string>());
+  for (const file of listTree(root)) directories.forEach((directory, at) => {
+    if (file.startsWith(`${directory}/`)) entries[at]!.add(file.slice(directory.length + 1).split("/")[0]!);
+  });
+  return entries.map(names => [...names].sort());
+}
+
 export function checkCIWorkflows(root: string): string[] {
   const problems: string[] = [];
   const directory = join(root, ".github/workflows");
-  const files = existsSync(directory) ? readdirSync(directory).sort() : [];
+  const [files, depotFiles] = treeEntries(root, [".github/workflows", ".depot/workflows"]) as [string[], string[]];
   // The red-main coordinator and its triage probe are authoritative coordination (#2942).
   const expected = ["ci.yml", "contract.yml", "project-sync.yml", "red-main.yml", "red-main-probe.yml"];
   if (files.includes("publish-pages.yml")) expected.push("publish-pages.yml");
@@ -249,8 +263,7 @@ export function checkCIWorkflows(root: string): string[] {
   if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync, red-main coordination and optional Pages/timing/archive/report/heavy-feedback workflows");
   // Every workflow, authoritative or not, runs only reviewed action commits (#4111).
   for (const file of files.filter(file => /\.ya?ml$/.test(file))) problems.push(...actionPinProblems(readFileSync(join(directory, file), "utf8"), file));
-  const depot = join(root, ".depot/workflows");
-  if (existsSync(depot) && readdirSync(depot).some(file => /\.ya?ml$/.test(file))) problems.push("Active Depot CI workflow definitions must be removed");
+  if (depotFiles.some(file => /\.ya?ml$/.test(file))) problems.push("Active Depot CI workflow definitions must be removed");
   for (const file of CI_WORKFLOWS) {
     const path = join(directory, file);
     if (!existsSync(path)) problems.push(`${file}: missing authoritative GitHub workflow`);

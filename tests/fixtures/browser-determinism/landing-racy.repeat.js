@@ -9,6 +9,7 @@ const landing = () => {
   localStorage.setItem("landings-racy", String(next));
   return next;
 };
+/** @type {(milliseconds: number, who: string) => Promise<string>} */
 const after = (milliseconds, who) => new Promise(resolve => setTimeout(() => resolve(who), milliseconds));
 
 test("the crew is aboard before the tide turns", async () => {
