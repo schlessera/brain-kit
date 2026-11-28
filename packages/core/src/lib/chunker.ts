@@ -76,12 +76,21 @@ function eolOf(text: string): string {
 }
 
 /**
+ * How many characters of blank lines open `text`. A blank line holds only
+ * spaces and tabs (CommonMark), so a line with a nonbreaking space is not
+ * one; context assembly places a lead's first line by this same rule (#4909).
+ */
+export function leadingBlankLength(text: string): number {
+  return /^(?:[ \t]*\r?\n)*/.exec(text)![0].length;
+}
+
+/**
  * Drop the blank lines around a slice, and its trailing whitespace, but not
  * the indentation of its first line: four leading spaces are what make an
  * indented code block code, and a slice is parsed again after it is cut.
  */
 function trimBlankLines(text: string): string {
-  return text.replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd();
+  return text.slice(leadingBlankLength(text)).trimEnd();
 }
 
 /**
@@ -96,7 +105,7 @@ function splitAtHeadings(content: string, depth: number): Array<{ heading: strin
   const part = (heading: string | null, head: number, from: number, to: number) => {
     const slice = content.slice(from, to);
     const text = trimBlankLines(slice);
-    const lead = /^(?:[ \t]*\r?\n)*/.exec(slice)![0].length;
+    const lead = leadingBlankLength(slice);
     return { heading, content: text, span: [heading === null ? from + lead : head, from + lead + text.length] as [number, number] };
   };
   let heading: string | null = null;
@@ -128,7 +137,7 @@ function splitBySections(content: string): Section[] {
  * each document whose stored version is another one, once, even when its file did
  * not change.
  */
-export const CHUNKER_VERSION = 4;
+export const CHUNKER_VERSION = 5;
 
 /** Every code block in the subtree, as [start, end) offsets: nothing is split inside one. HTML is not code. */
 function codeRanges(node: MdNode, base: number, ranges: Array<[number, number]>): Array<[number, number]> {
@@ -374,6 +383,9 @@ function splitLargeSection(section: Section): Section[] {
       result.push({ heading: index === 0 ? part.heading : `${part.heading} (cont.)`, content, span: null });
     });
   }
+  // Repacking can bring the section back as one chunk (its paragraphs'
+  // indentation stripped): nothing was split, so it keeps the section's span (#4909).
+  if (result.length === 1) result[0]!.span = section.span;
   return result;
 }
 
@@ -400,8 +412,9 @@ function foldLabel(heading: string, previous: string): string {
  *   result stays within 1000: a closing link list or sign-off has no next
  *   section to merge into, and alone it is a chunk carrying almost no text
  * - Records each chunk's source lines (`start_line`, `end_line`, 1-based in
- *   `content`) when it is made of whole sections; a chunk holding a piece of
- *   a split section records none (#3683), since its text is repacked
+ *   `content`) when it is made of whole sections, a section repacked into
+ *   one chunk included; a chunk holding a piece of a section split over
+ *   several chunks records none (#3683)
  */
 export function chunkDocument(input: ChunkInput): Omit<Chunk, "id">[] {
   const sections = splitBySections(input.content);

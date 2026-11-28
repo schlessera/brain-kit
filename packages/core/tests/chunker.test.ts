@@ -483,6 +483,19 @@ describe("recorded source lines", () => {
     expect(chunks.length).toBeGreaterThan(2);
     for (const piece of chunks.slice(1)) expect([piece.heading.replace(" (cont.)", ""), piece.start_line, piece.end_line]).toEqual(["Survey", null, null]);
   });
+
+  // #4909: packing strips the paragraphs' indentation, so a section over the
+  // limit can come back as one chunk. Nothing was split, so it records its lines.
+  test("an oversized section repacked into one chunk records its lines", () => {
+    const soundings = Array.from({ length: 72 }, (_, i) => `   Sounding ${i + 1} reads four fathoms over sand and shell.`).join("\n\n");
+    const content = `## Signal\n\nThe lamp code is violet.\n\n## Soundings\n\n${soundings}\n`;
+    const chunks = chunkDocument({ title: "T", documentId: 1, content });
+    // The premise: the section is over the limit as written, and was repacked.
+    expect(Math.ceil(content.length / 4)).toBeGreaterThan(MAX_TOKENS);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]!.content).toContain("\n\nSounding 1 reads");
+    expect(chunks.map((c) => [c.heading, c.start_line, c.end_line])).toEqual([["Soundings", 1, lineOf(content, "   Sounding 72 ")]]);
+  });
 });
 
 // #3683 review round 5: recording each chunk's lines must stay linear in the
