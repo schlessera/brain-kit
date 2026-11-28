@@ -1,10 +1,12 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, posix, win32 } from "path";
 
 import * as fs from "fs";
-import { resolveWritable, safeResolve, WriteRefusedError, writeFileSafely } from "../src/lib/safe-path";
+import { getMarkdownFiles } from "../src/lib/indexer";
+import { resolveWritable, safeResolve, slashPath, WriteRefusedError, writeFileSafely } from "../src/lib/safe-path";
+import { buildTaxonomy } from "../src/lib/taxonomy";
 
 const fixtures: string[] = [];
 afterAll(() => {
@@ -355,4 +357,18 @@ describe("writeFileSafely", () => {
     });
   }
 
+});
+
+describe("slashPath (#4887)", () => {
+  test("a nested path relative to the root is the key discovery gives it, whatever the separator", () => {
+    const root = makeRoot();
+    mkdirSync(join(root, "projects/archive/sail-repairs"), { recursive: true });
+    writeFileSync(join(root, "projects/archive/sail-repairs/materials.md"), "---\ntitle: Materials\ntype: note\n---\nPitch and canvas.\n");
+    const discovered = getMarkdownFiles(root, buildTaxonomy({ user: null }));
+    expect(discovered).toEqual(["projects/archive/sail-repairs/materials.md"]);
+    const windows = win32.relative("C:\\brain", "C:\\brain\\projects\\archive\\sail-repairs\\materials.md");
+    expect(windows).toBe("projects\\archive\\sail-repairs\\materials.md");
+    expect(slashPath(windows, win32.sep)).toBe(discovered[0]);
+    expect(slashPath(posix.relative("/brain", "/brain/projects/archive/sail-repairs/materials.md"), posix.sep)).toBe(discovered[0]);
+  });
 });

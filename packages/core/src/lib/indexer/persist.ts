@@ -20,6 +20,7 @@ import { nameKeys } from "../name-key.js";
 import { chunkContextKey } from "./caches.js";
 import { applyFtsTokenizer } from "./fts.js";
 import { extractWikiLinks, resolveAlias, createWikiLinkResolver } from "./links.js";
+import { loadExistingDocs } from "./scan.js";
 import type { ExistingDoc, IndexRun, ParseResult } from "./types.js";
 
 /** Frontmatter values arrive as strings, Dates, or nothing at all. */
@@ -362,11 +363,30 @@ function rebuildLinks(run: IndexRun, st: Statements, parsed: ParseResult): void 
   }
 }
 
+/** Does the index hold exactly the rows a run planned from? */
+function sameRows(planned: Map<string, ExistingDoc>, current: Map<string, ExistingDoc>): boolean {
+  if (planned.size !== current.size) return false;
+  for (const [path, row] of current) {
+    const was = planned.get(path);
+    if (!was || was.id !== row.id || was.asset_type !== row.asset_type || was.content_hash !== row.content_hash ||
+        was.chunker_version !== row.chunker_version || was.accepted_mtime !== row.accepted_mtime ||
+        was.stat_fingerprint !== row.stat_fingerprint) return false;
+  }
+  return true;
+}
+
 /**
  * Apply the parse phase's findings to the database.
  *
  * `markdownOnDisk` is the full scan result, not just the parsed subset: a file
  * that was skipped as unreadable is still on disk and must not be swept.
+ *
+ * Returns false, having written nothing, when a targeted run's plan no longer
+ * holds. Such a run trusts the rows it read before this transaction for every
+ * path it was not named, and for whether a named path is new; another
+ * connection that committed since (an MCP server, a git hook) can have
+ * inserted, changed or removed one. The rows are read again here, under the
+ * write lock, and any difference sends the caller to a complete run.
  */
 export function persistMarkdown(
   run: IndexRun,
@@ -376,9 +396,10 @@ export function persistMarkdown(
   assetsOnDisk: Set<string>,
   /** A targeted run's named paths: only these rows may be swept. */
   sweepOnly?: ReadonlySet<string>
-): void {
+): boolean {
   const st = prepareStatements(run.db);
   const write = run.db.transaction(() => {
+    if (sweepOnly && !sameRows(existingDocs, loadExistingDocs(run.db))) return false;
     applyFtsTokenizer(run);
     if (run.force) wipeMarkdownState(run.db);
 
@@ -391,6 +412,7 @@ export function persistMarkdown(
 
     sweepDeletions(run, st, existingDocs, markdownOnDisk, assetsOnDisk, sweepOnly);
     rebuildLinks(run, st, parsed);
+    return true;
   });
-  write.immediate();
+  return write.immediate();
 }

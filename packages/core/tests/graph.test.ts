@@ -8,7 +8,7 @@ import { dirname, join } from "path";
 import { getMeta, openDatabase, SCHEMA_VERSION, setMeta } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
-import { runGraphPrecompute } from "../src/lib/graph/precompute";
+import { runGraphPrecompute, runGraphPrecomputeIfChanged } from "../src/lib/graph/precompute";
 import { LAYOUT_ITERATIONS_COLD, LAYOUT_ITERATIONS_WARM, LAYOUT_NODE_CAP } from "../src/lib/graph/layout";
 import { LOUVAIN_SEED, PAGERANK_DAMPING } from "../src/lib/graph/metrics";
 import { graphRootKey, resolveGraphRoot } from "../src/lib/graph/root";
@@ -251,6 +251,50 @@ describe("precompute", () => {
       const { newest } = db.prepare("SELECT MAX(indexed_at) AS newest FROM documents").get() as { newest: string };
       expect(Date.parse(computedAt)).toBeGreaterThanOrEqual(Date.parse(newest));
     } finally {
+      db.close();
+    }
+  });
+
+  test("a title another connection commits after the fingerprint is read rebuilds the tables instead of stamping them current (#4873)", async () => {
+    const root = makeCorpus(CORPUS);
+    const path = join(root, ".brain-index", "brain.db");
+    const db = openDatabase(path);
+    const other = openDatabase(path);
+    const options = { root, taxonomy, quiet: true };
+    const prepare = db.prepare;
+    try {
+      await indexAll(db, options);
+      writeFileSync(join(root, "notes/beta.md"), md("Beta", "Links to [[gamma]].\n\nOne more line of body."));
+      // The reuse decision reads the stored fingerprint right after hashing
+      // the inputs. The rename lands exactly there, from another connection,
+      // the way a concurrent index run would commit it.
+      let renamed = false;
+      db.prepare = ((...args: Parameters<typeof prepare>) => {
+        const statement = prepare.apply(db, args);
+        if (args[0] !== "SELECT value FROM index_metadata WHERE key = ?") return statement;
+        const get = statement.get.bind(statement);
+        statement.get = ((...params: Parameters<typeof get>) => {
+          const row = get(...params);
+          if (!renamed && params[0] === "graph_input_hash") {
+            renamed = true;
+            other.prepare("UPDATE documents SET title = ?, indexed_at = ? WHERE path = ?")
+              .run("Lonely renamed", new Date().toISOString(), "notes/lonely.md");
+          }
+          return row;
+        }) as typeof statement.get;
+        return statement;
+      }) as typeof prepare;
+      const stats = await indexAll(db, options);
+      db.prepare = prepare;
+      expect(renamed).toBe(true);
+      expect(stats.graphNodes).toBe(8);
+      const meta = readGraphMeta({ brainPath: root });
+      expect(meta.ok && meta.value.stale).toBe(false);
+      // The rebuild recorded the fingerprint of the inputs it read.
+      expect(runGraphPrecomputeIfChanged(db, { root, taxonomy })).toBeNull();
+    } finally {
+      db.prepare = prepare;
+      other.close();
       db.close();
     }
   });
