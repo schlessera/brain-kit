@@ -1,7 +1,14 @@
 /** The pure half of launch qualification (#4301): parser, completeness, the kernel's walk, the verdict. */
-import { describe, expect, test } from "bun:test";
-import { liveDescendantMounts } from "../src/server/worker-private-state";
-import { evaluateNamespace, namespaceComplete, overlayLayers, parseMountinfo, resolveMount, WORKER_NAMESPACE_SEAL, type MountRow, type NamespaceInspector, type StateRootObservation } from "../src/server/namespace-qualification";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { liveDescendantMounts, routeDirectory } from "../src/server/worker-private-state";
+import { evaluateNamespace, namespaceComplete, overlayLayers, parseMountinfo, resolveMount, WORKER_NAMESPACE_SEAL, type MountRow, type NamespaceInspector, type RouteDirectory, type StateRootObservation } from "../src/server/namespace-qualification";
+
+const cleanups: (() => void)[] = [];
+afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
 /** One mountinfo line: id parent sb root point options - fstype source superOptions. */
 const line = (id: number, parent: number, sb: string, root: string, point: string, fstype = "ext4", options = "rw", superOptions = "rw") =>
@@ -117,7 +124,8 @@ describe("evaluateNamespace", () => {
         "/identity-server-private/server-ws/ui.db": { uid: 21001, mode: 0o100644 }, "/identity-server-private/server-ws": { uid: 21001, mode: 0o40755 },
         "/identity-server-private": { uid: 21001, mode: 0o40700 }, "/": { uid: 0, mode: 0o40755 } };
       // Every host path here is the backing path itself: the route is certain.
-      const host: NamespaceInspector = { owner: path => modes[path], layer: path => modes[path] ? { sb: "0:46", fspath: path } : undefined };
+      const host: NamespaceInspector = { owner: path => modes[path], layer: () => undefined,
+        route: path => modes[path] ? { sb: "0:46", fspath: path, idmapped: false, owner: modes[path] } : undefined };
       expect(evaluateNamespace(root, [DB], [21002, 21002, 21002, 21002], host), "OWNER_ONLY_ANCESTOR_RELEASES").toMatchObject({ result: "ownership_only",
         entries: [{ setting: "DB_PATH", name: DB.path }] });
       // The server's own UID traverses its directory: exposed.
@@ -125,9 +133,32 @@ describe("evaluateNamespace", () => {
       // A directory others may enter protects nothing.
       modes["/identity-server-private"] = { uid: 21001, mode: 0o40711 };
       expect(evaluateNamespace(root, [DB], [21002, 21002, 21002, 21002], host).result, "TRAVERSABLE_ANCESTOR_EXPOSED").toBe("exposed");
-      // An ancestor the host cannot read releases nothing: the open object is judged alone.
+      // A directory the host cannot open proves nothing: the open object is judged alone.
       delete modes["/identity-server-private"];
-      expect(evaluateNamespace(root, [DB], [21002, 21002, 21002, 21002], host).result, "UNREADABLE_ANCESTOR_RELEASES_NOTHING").toBe("exposed");
+      expect(evaluateNamespace(root, [DB], [21002, 21002, 21002, 21002], host).result, "UNOPENED_ANCESTOR_RELEASES_NOTHING").toBe("exposed");
+    });
+
+    describe("a proven route directory decides only with a host owner it can trust (#5055)", () => {
+      const root = table(line(709, 680, "0:46", "/", "/", "overlay", "ro"), seal(3, 709));
+      const DB: StateRootObservation = { setting: "DB_PATH", path: "/identity-server-private/server-ws/ui.db", sb: "0:46", fspath: "/identity-server-private/server-ws/ui.db" };
+      const owners: Record<string, { uid: number; mode: number } | undefined> = {
+        "/identity-server-private/server-ws/ui.db": { uid: 21001, mode: 0o100644 }, "/identity-server-private/server-ws": { uid: 21001, mode: 0o40755 },
+        "/identity-server-private": { uid: 21001, mode: 0o40700 }, "/": { uid: 0, mode: 0o40755 } };
+      // Main's separate lookups (layer, then owner) see the same layout, so the cases run against either.
+      const inspector = (directory: Partial<RouteDirectory>): NamespaceInspector => ({
+        owner: path => path === "/identity-server-private" && "owner" in directory ? directory.owner : owners[path],
+        layer: path => path in owners ? { sb: "0:46", fspath: path } : undefined,
+        route: path => path in owners ? { sb: "0:46", fspath: path, idmapped: false, owner: owners[path], ...(path === "/identity-server-private" ? directory : {}) } : undefined });
+      const uids = [21002, 21002, 21002, 21002];
+      test("the incident's route releases, as before", () => {
+        expect(evaluateNamespace(root, [DB], uids, inspector({})).result).toBe("ownership_only");
+      });
+      test("F2: an idmapped host mount under the owner-only directory makes the route unproven: exposed", () => {
+        expect(evaluateNamespace(root, [DB], uids, inspector({ idmapped: true })).result, "F2_IDMAPPED_ROUTE_EXPOSED").toBe("exposed");
+      });
+      test("F4: a proven directory whose owner the host cannot read releases nothing", () => {
+        expect(evaluateNamespace(root, [DB], uids, inspector({ owner: undefined })).result, "F4_UNREADABLE_OWNER_ON_A_PROVEN_ROUTE_EXPOSED").toBe("exposed");
+      });
     });
 
     test("an owner-only directory on a host alias the worker never crosses releases nothing (#5053 r1 F1)", () => {
@@ -141,7 +172,8 @@ describe("evaluateNamespace", () => {
         "/srv/penelope": { uid: 21001, mode: 0o40700 }, "/srv": { uid: 0, mode: 0o40755 } };
       // The alias directories back onto another filesystem path than the worker's route.
       const backing: Record<string, { sb: string; fspath: string }> = { "/srv/penelope/alias": { sb: "8:2", fspath: "/alias" }, "/srv/penelope": { sb: "8:2", fspath: "/" } };
-      const host: NamespaceInspector = { owner: path => owners[path], layer: path => backing[path] };
+      const host: NamespaceInspector = { owner: path => owners[path], layer: () => undefined,
+        route: path => backing[path] ? { ...backing[path], idmapped: false, owner: owners[path] } : undefined };
       expect(evaluateNamespace(worker, [DB], [21002, 21002, 21002, 21002], host).result, "ALIAS_ANCESTOR_RELEASES_NOTHING").toBe("exposed");
     });
     test("an owner the host cannot read is unknown, never released", () => {
@@ -210,5 +242,36 @@ describe("review round 3 (#4301)", () => {
     const rows = table(line(1, 0, "8:1", "/@", "/"), line(2, 1, "8:1", "/state", "/srv/state"),
       line(3, 2, "8:2", "/a", "/srv/state/objects"), line(4, 2, "8:3", "/b", "/srv/state/objects"));
     expect(() => liveDescendantMounts(rows, "/srv/state"), "F36_AMBIGUOUS_HOST_TABLE_THROWS").toThrow("ambiguous");
+  });
+});
+
+describe("routeDirectory: one descriptor per route directory (#5055 F3)", () => {
+  const rows = () => parseMountinfo(readFileSync("/proc/self/mountinfo", "utf8"))!;
+  const place = () => {
+    const base = mkdtempSync(join(tmpdir(), "odysseus-route-")); cleanups.push(() => rmSync(base, { recursive: true, force: true }));
+    const dir = join(base, "ithaca"); mkdirSync(dir, { mode: 0o700 });
+    symlinkSync(dir, join(base, "ogygia")); writeFileSync(join(base, "raft"), "Calypso's raft");
+    return { base: realpathSync(base), dir: join(realpathSync(base), "ithaca") };
+  };
+  test("a directory's coordinates, owner and mode come from one open descriptor, never a second lookup of its path", () => {
+    const { dir } = place();
+    const table = rows();
+    const lookups = [spyOn(fs, "statSync"), spyOn(fs, "lstatSync"), spyOn(fs, "realpathSync")];
+    const opens = spyOn(fs, "openSync");
+    let seen: RouteDirectory | undefined;
+    try { seen = routeDirectory(dir, table); }
+    finally { for (const spy of lookups) cleanups.push(() => spy.mockRestore()); cleanups.push(() => opens.mockRestore()); }
+    expect(lookups.map(spy => spy.mock.calls.length), "F3_NO_SECOND_PATH_LOOKUP").toEqual([0, 0, 0]);
+    expect(opens.mock.calls.length, "F3_ONE_DESCRIPTOR").toBe(1);
+    const info = fs.lstatSync(dir);
+    expect(seen).toMatchObject({ idmapped: false, owner: { uid: info.uid, mode: info.mode } });
+  });
+  test("a symlink, a name through a symlink, or a file is not a route directory", () => {
+    const { base } = place();
+    const table = rows();
+    expect(routeDirectory(join(base, "ogygia"), table), "SYMLINK_IS_NOT_A_ROUTE").toBeUndefined();
+    mkdirSync(join(base, "ithaca", "inner"));
+    expect(routeDirectory(join(base, "ogygia", "inner"), table), "NAME_THROUGH_A_SYMLINK_IS_NOT_A_ROUTE").toBeUndefined();
+    expect(routeDirectory(join(base, "raft"), table), "FILE_IS_NOT_A_ROUTE").toBeUndefined();
   });
 });

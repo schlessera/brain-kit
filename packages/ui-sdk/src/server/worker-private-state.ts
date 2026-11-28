@@ -4,9 +4,9 @@
  * sandbox's mount table while its start gate is closed. The verdict itself
  * is `evaluateNamespace` (`namespace-qualification.ts`).
  */
-import { closeSync, lstatSync, openSync, readFileSync, readlinkSync, statSync, constants } from "node:fs";
+import { closeSync, fstatSync, lstatSync, openSync, readFileSync, readlinkSync, statSync, constants } from "node:fs";
 import { resolve } from "node:path";
-import { evaluateNamespace, holdsPath, namespaceComplete, parseMountinfo, resolveMount, type MountRow, type NamespaceExposure, type StateRootObservation } from "./namespace-qualification.js";
+import { evaluateNamespace, holdsPath, namespaceComplete, parseMountinfo, resolveMount, type MountRow, type NamespaceExposure, type RouteDirectory, type StateRootObservation } from "./namespace-qualification.js";
 import { workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 
 /** What a launch refused for private state reports, at its top level. */
@@ -146,6 +146,35 @@ function hostRow(path: string, rows: readonly MountRow[]): MountRow {
     if (!row) throw new Error(`the host mount of ${path} is not in its mount table`);
     return row;
   } finally { closeSync(fd); }
+}
+/** A device number as mountinfo writes it, `major:minor`. */
+const deviceName = (dev: number) => {
+  const high = Math.floor(dev / 2 ** 32), low = dev % 2 ** 32;
+  // glibc's encoding: major in bits 8-19 and 44-63, minor in bits 0-7 and 20-43.
+  const major = (((low >>> 8) & 0xfff) | (high & 0xfffff000)) >>> 0;
+  const minor = ((low & 0xff) | ((((low >>> 12) | (high << 20)) & 0xffffff00) >>> 0)) >>> 0;
+  return `${major}:${minor}`;
+};
+/**
+ * A route directory as one descriptor shows it (#5055): opened once with
+ * O_PATH|O_NOFOLLOW, its canonical name, mount id, device, owner and mode all
+ * come from that descriptor, never from a second lookup of the path. A name
+ * that is not that directory itself (a symlink, an alias, another canonical
+ * name) or a mount the table no longer holds is `undefined`.
+ */
+export function routeDirectory(path: string, rows: readonly MountRow[]): RouteDirectory | undefined {
+  let fd: number;
+  try { fd = openSync(path, O_PATH | constants.O_NOFOLLOW); } catch { return undefined; }
+  try {
+    if (readlinkSync(`/proc/self/fd/${fd}`) !== path) return undefined;
+    const info = fstatSync(fd);
+    if (!info.isDirectory()) return undefined;
+    const id = Number(/^mnt_id:\s*(\d+)$/m.exec(readFileSync(`/proc/self/fdinfo/${fd}`, "utf8"))?.[1]);
+    const row = rows.find(candidate => candidate.id === id);
+    if (!row || deviceName(info.dev) !== row.sb) return undefined;
+    return { ...coordinates(path, row), idmapped: row.options.includes("idmapped"), owner: { uid: info.uid, mode: info.mode } };
+  } catch { return undefined; }
+  finally { closeSync(fd); }
 }
 /** Backing coordinates of a canonical host path inside the host row it resolves into. */
 function coordinates(path: string, row: MountRow): { sb: string; fspath: string } {
@@ -368,6 +397,10 @@ export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadlin
           const real = kernelRealpath(path), host = parseMountinfo(readFileSync("/proc/self/mountinfo", "utf8"));
           return host ? coordinates(real, hostRow(real, host)) : undefined;
         } catch { return undefined; }
+      },
+      route: path => {
+        try { const host = parseMountinfo(readFileSync("/proc/self/mountinfo", "utf8")); return host ? routeDirectory(path, host) : undefined; }
+        catch { return undefined; }
       },
     });
     if (verdict.result === "exposed") {
