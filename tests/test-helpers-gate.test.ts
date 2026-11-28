@@ -111,6 +111,41 @@ describe("the polling-helper rule", () => {
     ]) expect({ text, sites: sites(text) }).toEqual({ text, sites: [] });
   });
 
+  // The exemption reads the declaration a name resolves to, not any same-named one in the file (#5054).
+  test("an unscaled deadline next to a scaled one of the same name fails with its file and line", () => {
+    const pair = [
+      'test("the fleet sails", async () => {',
+      "  const deadline = Date.now() + watchdogMs(5000);",
+      "  while (!sailed) { if (Date.now() > deadline) throw new Error(); await Bun.sleep(5); }",
+      "});",
+      'test("the fleet docks", async () => {',
+      "  const deadline = Date.now() + 5000;",
+      "  while (!docked) { if (Date.now() > deadline) throw new Error(); await Bun.sleep(5); }",
+      "});",
+      "",
+    ].join("\n");
+    const root = tree({ "packages/ui-sdk/tests/fleet.test.ts": pair });
+    expect(scanTree(root).findings).toEqual([{ rule: "polling-helper", file: "packages/ui-sdk/tests/fleet.test.ts", line: 7, name: "deadline loop" }]);
+    const gate = runGate(root);
+    expect(gate.code).toBe(1);
+    expect(gate.stderr).toContain("packages/ui-sdk/tests/fleet.test.ts:7: deadline loop");
+  });
+
+  test("an inner unscaled deadline that shadows an outer scaled one fails", () => {
+    const shadow = [
+      "const deadline = Date.now() + watchdogMs(5000);",
+      'test("the ship docks", async () => {',
+      "  const deadline = Date.now() + 5000;",
+      "  while (!docked) { if (Date.now() > deadline) throw new Error(); await Bun.sleep(5); }",
+      "});",
+      "",
+    ].join("\n");
+    expect(sites(shadow)).toEqual([{ line: 4, name: "deadline loop" }]);
+    expect(sites("async function wait(deadline: number) {\n  while (!docked) { if (Date.now() > deadline) throw new Error(); await Bun.sleep(5); }\n}\nconst deadline = Date.now() + watchdogMs(5000);\n"))
+      .toEqual([{ line: 2, name: "wait" }]);
+    expect(sites(shadow.replace("Date.now() + 5000", "Date.now() + watchdogMs(5000)"))).toEqual([]);
+  });
+
   test("a named helper whose loop is a deadline loop is one site, at the helper", () => {
     expect(sites("async function waitFor(check: () => boolean) {\n  const end = Date.now() + 2000;\n  while (Date.now() < end) { if (check()) return; await Bun.sleep(5); }\n}\n"))
       .toEqual([{ line: 1, name: "waitFor" }]);
