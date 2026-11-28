@@ -76,7 +76,7 @@ export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono<AppEnv> {
         // Legacy clients POST without a JSON body (or with ignored text); only an
         // explicit JSON request expresses a selection, and it is validated strictly.
         const json = /^application\/json\b/i.test(c.req.header("content-type") ?? "");
-        const read = json ? await readBodyBytes(c.req.raw, JSON_BODY_LIMIT_BYTES) : { chunks: [], bytes: 0 };
+        const read = json ? await readBodyBytes(c.req.raw, JSON_BODY_LIMIT_BYTES, { copyChunks: true }) : { chunks: [], bytes: 0 };
         if (!read) return bodyTooLarge(c);
         const raw = decodeUtf8(read);
         if (raw) {
