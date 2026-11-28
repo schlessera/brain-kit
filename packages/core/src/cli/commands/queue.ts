@@ -12,7 +12,8 @@ export const ALLOWED = ["server", "key", "credential-file", "title", "text", "ur
 export const queueCommand: CoreCommand = {
   summary: "Queue intake on a UI server without filing content",
   flags: { boolean: [], value: ["credential-file", "key", "root", "server", "text", "title", "url"] },
-  helpBlock: "  brain queue add --server ORIGIN --key KEY [--credential-file FILE] [--title TITLE] [--text TEXT] [--url URL] [--json]",
+  helpBlock: "  brain queue add --server ORIGIN --key KEY [--credential-file FILE] [--title TITLE] [--text TEXT] [--url URL] [--json]\n" +
+    "  --root is accepted and ignored.",
   async run(rest, cli) {
     const { args, flags } = parseArgs(rest);
     if (args.length !== 1 || args[0] !== "add") throw new UsageError("Usage: brain queue add --server ORIGIN --key KEY --text TEXT|--url URL");

@@ -19,7 +19,7 @@ async function readBody(c: Context): Promise<unknown> {
   if (media !== "application/json") throw new ScheduleError("invalid_request", "Send application/json.");
   // The declared length is checked first, as on every other route (#4903).
   const hasBody = c.req.raw.body !== null;
-  const body = await readBodyBytes(c.req.raw, MAX_BODY_BYTES);
+  const body = await readBodyBytes(c.req.raw, MAX_BODY_BYTES, { copyChunks: true });
   if (!body) throw new ScheduleError("invalid_request", "Request body too large.");
   if (!hasBody) throw new ScheduleError("invalid_request", "Expected a JSON body.");
   let text: string;
