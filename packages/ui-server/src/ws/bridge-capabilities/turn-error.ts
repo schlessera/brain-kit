@@ -1,4 +1,4 @@
-import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { BackendBusyError, BackendRequestError, FastOutputUnavailableError } from "@schlessera/brain-ui-sdk/server";
 import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
 import { BudgetExceeded, BudgetUnavailable } from "../../brain/turn-budgets.js";
 import { JournalCapacityError } from "../../brain/journal-objects.js";
@@ -56,7 +56,7 @@ export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): vo
     host.reportTurnFailed("BACKEND_REQUEST_ERROR", turn, err.message);
     host.sendToClients(
       withTurnScope({ type: "error", code: "BACKEND_REQUEST_ERROR", message: err.message,
-        ...(err instanceof WorkerHostError ? { failure: { errorClass: err.errorClass, message: err.message } } : {}),
+        ...(err instanceof WorkerHostError || err instanceof FastOutputUnavailableError ? { failure: { errorClass: err.errorClass, message: err.message } } : {}),
         ...correlation }, turn)
     );
   } else {

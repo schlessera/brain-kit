@@ -4,7 +4,7 @@ import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk/server";
 import { VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
 
 import type { BackendLogFn } from "./options.js";
-import type { ClaudeSdkTurn } from "./sdk-options.js";
+import { directFastRouteRefusal, type ClaudeSdkTurn } from "./sdk-options.js";
 import {
   settingsRefusal,
   subscriptionRefusalMessage,
@@ -21,7 +21,7 @@ export interface PromptGateInputs {
   queryHandle: Promise<Query>;
   /** The CLI's one initialization handshake, shared with the per-turn report. */
   initialize(cli: Query): ReturnType<Query["initializationResult"]>;
-  sdkTurn: Pick<ClaudeSdkTurn, "subscriptionOnly" | "pinnedSettingsEnv">;
+  sdkTurn: Pick<ClaudeSdkTurn, "subscriptionOnly" | "pinnedSettingsEnv"> & Partial<Pick<ClaudeSdkTurn, "options" | "outputSpeed">>;
   /** The turn's relay, when its host prepared egress for it. */
   relay: TurnInferenceRelay | undefined;
   terminal: TurnTerminal;
@@ -69,9 +69,18 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
     inputs.log("warn", "inference transport check refused the turn", { "profile.id": inputs.profileId, reason });
     return terminal.withhold();
   };
-  const refuseSettings = (unreadable = false): false => {
+  const refuseFast = (reason: string): false => {
+    const message = `fast_output_unavailable: ${reason}. This conversation was started with fast output; start a new standard-speed conversation, or use a profile, account and route that serve fast output.`;
+    terminal.refused = { code: "CLAUDE_ERROR", message, failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.fast_output_unavailable, message } };
+    // Not an authentication failure: no auth_failure event, no subscription status change.
+    inputs.log("warn", "fast output check refused the turn", { "profile.id": inputs.profileId, reason });
+    return terminal.withhold();
+  };
+  const refuseSettings = (unreadable = false, bridgeConflict = false, speedConflict = false): false => {
     const message = unreadable
       ? "Claude native settings could not be read. Correct settings access before retrying."
+      : bridgeConflict ? "Claude native settings refused the hosted brain bridge: the project brain stdio entry is not disabled. Correct the conflicting settings before retrying."
+      : speedConflict ? "Claude native settings turned on fast output for a standard-speed conversation. Correct the conflicting settings before retrying."
       : "Claude native settings refused the retained tool-search selection. Correct the conflicting settings before retrying.";
     terminal.refused = { code: "CLAUDE_ERROR", message, failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.settings_conflict, message } };
     // This is configuration, not failed authentication. No auth_failure event
@@ -82,12 +91,16 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
   return async () => {
     const cli = await inputs.queryHandle;
     let account: AccountInfo | undefined;
+    let fast: { state?: string; reason?: string } = {};
     let settings: CliSettingsReport | undefined;
     let readingSettings = false;
     try {
       const check = async () => {
-        account = (await inputs.initialize(cli)).account;
-        if (!sdkTurn.subscriptionOnly && !relay?.egress && sdkTurn.pinnedSettingsEnv?.ENABLE_TOOL_SEARCH === undefined) return;
+        const initialized = await inputs.initialize(cli);
+        account = initialized.account;
+        fast = { state: initialized.fast_mode_state, reason: initialized.fast_mode_disabled_reason };
+        // A direct fast turn reads the resolved settings too: its effective route must be proven first-party.
+        if (!sdkTurn.subscriptionOnly && !relay?.egress && sdkTurn.pinnedSettingsEnv?.ENABLE_TOOL_SEARCH === undefined && sdkTurn.outputSpeed !== "fast") return;
         // Not on the public Query type; the SDK sends the CLI's own
         // `get_settings` control request. Absent means unreadable,
         // which refuses below.
@@ -100,6 +113,7 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
     } catch (error) {
       // A handshake the host cancelled is a cancelled turn, not a failed one.
       if (abortController.signal.aborted) return terminal.withhold();
+      if (readingSettings && sdkTurn.outputSpeed === "fast" && !relay?.egress) return refuseFast("not_first_party: the runtime's resolved settings could not be read");
       if (readingSettings) return refuseSettings(true);
       terminal.refused = {
         code: "CLAUDE_ERROR",
@@ -108,9 +122,25 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
       return terminal.withhold();
     }
     if (abortController.signal.aborted) return terminal.withhold();
+    // A session's speed is fixed (#4310): the runtime must serve exactly it,
+    // never fall back to standard and never turn fast on by its own settings.
+    if (sdkTurn.outputSpeed === "fast" && fast.state !== "on")
+      return refuseFast(`Claude Code reports fast output ${fast.state === undefined ? "unreported" : `${fast.state}${fast.reason ? ` (${fast.reason})` : ""}`} for this profile and route`);
+    if (sdkTurn.outputSpeed === "standard" && fast.state === "on") return refuseSettings(false, false, true);
+    // Ruling 2026-11-27 on #4310: a direct turn's EFFECTIVE route, as the
+    // runtime resolved it from project, managed and flag settings, must be the
+    // first-party origin; a relayed turn's route is qualified by the relay.
+    if (sdkTurn.outputSpeed === "fast" && !relay?.egress) {
+      const route = directFastRouteRefusal(settings);
+      if (route) return refuseFast(route);
+    }
     const discovery = sdkTurn.pinnedSettingsEnv?.ENABLE_TOOL_SEARCH;
     if (discovery !== undefined && settings?.effective?.env?.ENABLE_TOOL_SEARCH !== discovery)
       return refuseSettings();
+    if (sdkTurn.options?.mcpServers?.brain?.type === "sdk") {
+      const disabled = (settings?.effective as { disabledMcpjsonServers?: unknown } | undefined)?.disabledMcpjsonServers;
+      if (!Array.isArray(disabled) || !disabled.includes("brain")) return refuseSettings(false, true);
+    }
     if (sdkTurn.subscriptionOnly) {
       const verdict = subscriptionVerdict(account);
       const conflict = verdict.ok ? settingsRefusal(settings, sdkTurn.pinnedSettingsEnv) : null;
