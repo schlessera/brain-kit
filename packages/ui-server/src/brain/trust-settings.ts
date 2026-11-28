@@ -33,6 +33,16 @@ const TrustPrepareSchema = z.strictObject({ version: z.literal(1), expectedTrust
   ]) });
 const TrustCommitSchema = z.strictObject({ version: z.literal(1), requestId: ruleId, reviewId: ruleId, reviewedBytesHash: digest });
 type Prepare = z.output<typeof TrustPrepareSchema>;
+/** Serializes every durable trust projection write apart from `BRAIN_LOCK_KEY`,
+ * so a changed-policy refresh never waits behind a running index (#4404).
+ * Order: a holder of `BRAIN_LOCK_KEY` may take this key; a holder of this key
+ * never waits for `BRAIN_LOCK_KEY`. */
+export const TRUST_PROJECTION_LOCK_KEY = "trust-projection";
+/** Bounds a background recovery's projection lock wait; a failed attempt
+ * retries on a later stale read after the retry delay (#4352). */
+const TRUST_RECOVERY_WAIT_MS = 10_000, TRUST_RECOVERY_RETRY_MS = 1_000;
+/** While a turn subscribes, the policy metadata generation is checked this often. */
+const TRUST_WATCH_MS = 1_000;
 type Commit = z.output<typeof TrustCommitSchema>;
 export class TrustSettingsError extends Error {
   constructor(readonly code: string, readonly status: 400 | 403 | 404 | 409 | 503 = 409) { super(code); }
@@ -92,6 +102,8 @@ export function createTrustSettings(options: {
   originEnforcement?: true;
   github?: ReturnType<typeof createTrustGitHubIdentity>;
   now?: () => number;
+  /** Host-only: the background recovery's lock wait bound. */
+  recoveryWaitMs?: number;
   /** Host-only deterministic crash/race injection, never wired from HTTP. */
   checkpoint?(stage: string): void | Promise<void>;
 }) {
@@ -145,19 +157,89 @@ export function createTrustSettings(options: {
     if (after !== before) throw new TrustSettingsError("stale_revision");
     observed = { generation: after, value }; return value;
   };
-  const freshProjection = (): LiveProjection => {
+  // Fences are per reader: whichever reader writes the durable row, each one
+  // notifies its own subscribers when the view it serves changes (#4352).
+  let fenced: string | undefined, notifying = false;
+  const flush = () => { if (!notifying) return; notifying = false; for (const listener of listeners) listener(); };
+  const fence = (value: LiveProjection) => {
+    const key = JSON.stringify([value.revision, value.rules, value.ruleInstances]);
+    // An unknown earlier view (a subscriber whose first read was fenced) notifies too.
+    if (fenced !== key && listeners.size) { notifying = true; queueMicrotask(flush); }
+    fenced = key;
+  };
+  /** Stable verified rules that differ from the durable projection: serve the
+   * durable revision and hash restricted to rules the edit left byte-identical.
+   * A source instance survives only where its selector and incomingContent are
+   * unchanged, so a removed or retargeted source fails its own fence while
+   * unrelated sources and relays continue. Added rules wait for the projection. */
+  const restrictedViews = new WeakSet<LiveProjection>();
+  const restrict = (base: LiveProjection, rules: readonly TrustRule[]): LiveProjection => {
+    const verified = new Map(rules.map(rule => [rule.id, rule]));
+    const source = (rule: TrustRule | undefined) => rule && JSON.stringify([rule.selector, rule.incomingContent]);
+    const instances: Record<string,string> = {};
+    for (const rule of base.rules) if (base.ruleInstances[rule.id] !== undefined && source(verified.get(rule.id)) === source(rule)) instances[rule.id] = base.ruleInstances[rule.id]!;
+    const value = withInstances({ ...base, rules: base.rules.filter(rule => JSON.stringify(verified.get(rule.id)) === JSON.stringify(rule)), error: null }, instances);
+    restrictedViews.add(value); return value;
+  };
+  /** `strict` refuses a disagreement (durable refreshes and Settings); live
+   * reads serve the restricted view and reconcile in the background. */
+  const freshProjection = (strict = true): LiveProjection => {
     const observation = observePolicy();
     if (observation.kind === "unavailable") { const p = projection(); return withInstances({ ...p, error: "policy_unavailable" },p.ruleInstances); }
     // An unverified projection is never cached: another reader may be seeing
     // the published file while its writer is still committing the projection.
     const base = retained && retainedFor === observation ? retained : projection();
-    if (liveCache?.observation === observation && liveCache.base === base) return liveCache.value;
-    if (observation.kind === "valid" && JSON.stringify(observation.rules) !== JSON.stringify(base.rules)) throw new TrustSettingsError("stale_revision");
-    retained = base; retainedFor = observation;
-    const value = withInstances({ ...base, policyHash: observation.policyHash, error: null },base.ruleInstances);
+    if (liveCache?.observation === observation && liveCache.base === base && (!strict || !restrictedViews.has(liveCache.value))) return liveCache.value;
+    let value: LiveProjection;
+    if (observation.kind === "valid" && JSON.stringify(observation.rules) !== JSON.stringify(base.rules)) {
+      if (strict) throw new TrustSettingsError("stale_revision");
+      value = restrict(base, observation.rules);
+    } else {
+      retained = base; retainedFor = observation;
+      value = withInstances({ ...base, policyHash: observation.policyHash, error: null },base.ruleInstances);
+    }
+    fence(value);
     liveCache = { observation, base, value }; return value;
   };
-  const live = { read: freshProjection, revision: () => freshProjection().revision,
+  // A stale live read (out-of-band edit or sync during an active turn) serves
+  // the restricted view, or refuses while verification itself changed, and
+  // schedules one bounded background reconciliation. A failed attempt retries
+  // by timer; an active subscriber also watches the policy generation, so an
+  // edit is fenced and reconciled without waiting for another admission.
+  let recovering = false, recoveryAfter = 0, pending = false;
+  let retry: ReturnType<typeof setTimeout> | undefined, watch: ReturnType<typeof setInterval> | undefined;
+  const recover = () => {
+    pending = true;
+    if (recovering || now() < recoveryAfter) return;
+    recovering = true;
+    void options.lock.withLock(TRUST_PROJECTION_LOCK_KEY, project, { timeoutMs: options.recoveryWaitMs ?? TRUST_RECOVERY_WAIT_MS })
+      .then(() => { recoveryAfter = 0; }, () => {
+        recoveryAfter = now() + TRUST_RECOVERY_RETRY_MS;
+        clearTimeout(retry); retry = setTimeout(() => { retry = undefined; recoveryAfter = 0; if (pending) try { liveRead(); } catch { /* Still fenced. */ } }, TRUST_RECOVERY_RETRY_MS);
+        retry.unref?.();
+      })
+      .finally(() => { recovering = false; });
+  };
+  const liveRead = (): LiveProjection => {
+    let value: LiveProjection;
+    try { value = freshProjection(false); } catch (error) {
+      if (error instanceof TrustSettingsError && error.code === "stale_revision") recover();
+      throw error;
+    }
+    if (restrictedViews.has(value)) recover(); else pending = false;
+    return value;
+  };
+  const watchPolicy = () => {
+    if (watch || !listeners.size) return;
+    watch = setInterval(() => {
+      if (!listeners.size) { clearInterval(watch); watch = undefined; return; }
+      let current: string | undefined;
+      try { current = generation(); } catch { /* An unreadable root is read below. */ }
+      if (pending || current === undefined || current !== observed?.generation) try { liveRead(); } catch { /* Still fenced. */ }
+    }, TRUST_WATCH_MS);
+    watch.unref?.();
+  };
+  const live = { read: liveRead, revision: () => liveRead().revision,
     refresh: async (signal?: AbortSignal) => {
       signal?.throwIfAborted();
       try {
@@ -168,9 +250,15 @@ export function createTrustSettings(options: {
       } catch (error) {
         if (!(error instanceof TrustSettingsError) || error.code !== "stale_revision") throw error;
       }
-      return options.lock.withLock(BRAIN_LOCK_KEY, () => { signal?.throwIfAborted(); return refresh(); }, { signal });
-    }, subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };
-  const refresh = async (): Promise<Projection> => {
+      return refresh(signal);
+    }, subscribe(changed: () => void) {
+      listeners.add(changed);
+      try { fence(freshProjection(false)); } catch { /* The first fenced read sets it. */ }
+      watchPolicy();
+      return () => { listeners.delete(changed); if (!listeners.size) { clearInterval(watch); watch = undefined; } };
+    } };
+  /** The durable projection write. Callers hold `TRUST_PROJECTION_LOCK_KEY`. */
+  const project = async (): Promise<Projection> => {
     const old = projection(), value = observePolicy();
     if (value.kind === "unavailable") {
       const instances = await call<Record<string,string>>("projection", brain, old.revision, JSON.stringify(old.rules), old.policyHash, "policy_unavailable");
@@ -183,9 +271,11 @@ export function createTrustSettings(options: {
     const next = { revision: changed ? String(BigInt(old.revision) + 1n) : old.revision, rules, policyHash, error: null };
     const instances = await call<Record<string,string>>("projection", brain, next.revision, JSON.stringify(rules), policyHash, null);
     retained = withInstances(next,instances); retainedFor = value;
-    if (changed) for (const listener of listeners) listener();
-    return freshProjection();
+    // Publish this durable revision to this reader's fences before returning.
+    const current = freshProjection(); flush(); return current;
   };
+  const refresh = (signal?: AbortSignal): Promise<Projection> =>
+    options.lock.withLock(TRUST_PROJECTION_LOCK_KEY, () => { signal?.throwIfAborted(); return project(); }, signal ? { signal } : undefined);
   const row = (principal: string, request: string): Row => {
     authority(principal);
     const r = options.db.query("SELECT * FROM trust_settings_operations WHERE request_id=? AND brain_id=? AND principal_id=?").get(request, brain, principal) as Row | null;
@@ -215,7 +305,7 @@ export function createTrustSettings(options: {
     ownerPolicy(): ReferenceOwnerPolicy | undefined {
       try {
         const before = generation(), p = live.read();
-        if (generation() !== before) return;
+        if (generation() !== before || restrictedViews.has(p)) return;
         return { rules: p.rules, revision: p.revision, policyHash: p.policyHash, error: p.error, generation: before };
       } catch { return; }
     },
@@ -258,11 +348,12 @@ export function createTrustSettings(options: {
     },
     /** Internal binding; ordinary Settings commits cannot publish a combined review. */
     safetyReview(principal: string, request: string) { return (JSON.parse(row(principal, request).payload) as Payload).safetyReview; },
-    /** The other protected publisher already owns the shared brain lock. */
-    refreshLocked: refresh,
+    /** The other protected publisher already owns the shared brain lock; this
+     * takes the trust projection lock inside it. */
+    refreshLocked: () => refresh(),
     /** Live trust-only projection for future admissions. Ordinary policy snapshots
      * remain owned by their admitted turn; this never mutates them. */
-    async snapshot() { return options.lock.withLock(BRAIN_LOCK_KEY, refresh); },
+    async snapshot() { return options.lock.withLock(BRAIN_LOCK_KEY, () => refresh()); },
     /** Historical host publication evidence, not a current identity or source-trust grant. */
     async repositoryApproval(ruleId: string) { return options.lock.withLock(BRAIN_LOCK_KEY, async () => {
       const p = await refresh();
@@ -337,7 +428,9 @@ export function createTrustSettings(options: {
     },
     async commit(principal: string, raw: unknown, signal?: AbortSignal, safety?: { binding: NonNullable<Payload["safetyReview"]>; check(): void }) {
       const input: Commit = TrustCommitSchema.parse(raw); row(principal, input.requestId);
-      await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
+      // The trust projection lock spans the base check, publication and the
+      // post-publication projection: no other refresh can interleave a revision.
+      await options.lock.withLock(BRAIN_LOCK_KEY, () => options.lock.withLock(TRUST_PROJECTION_LOCK_KEY, async () => {
         const r = row(principal, input.requestId), payload = JSON.parse(r.payload) as Payload;
         if (JSON.stringify(payload.safetyReview) !== JSON.stringify(safety?.binding)) throw new TrustSettingsError("request_conflict");
         if (payload.reviewId !== input.reviewId || payload.proposedHash !== input.reviewedBytesHash) throw new TrustSettingsError("request_conflict");
@@ -350,7 +443,7 @@ export function createTrustSettings(options: {
           boundary?: { brain: string; ruleId: string; selector: string; identity: string }) =>
           call("stage", input.requestId, stage, JSON.stringify(receipt), proof, now(), boundary);
         try {
-          const p = await refresh(); row(principal, input.requestId);
+          const p = await project(); row(principal, input.requestId);
           if (p.error || p.revision !== payload.input.expectedTrustRevision) throw new TrustSettingsError("stale_revision");
           if (p.policyHash !== payload.input.expectedPolicyHash) throw new TrustSettingsError("stale_base");
           if (BigInt(p.revision) >= MAX_TRUST_REVISION) throw new TrustSettingsError("capacity", 503);
@@ -403,7 +496,7 @@ export function createTrustSettings(options: {
             ...(payload.githubIdentity ? { githubIdentity: payload.githubIdentity } : {}) }), payload.githubIdentity && payload.rule
               ? { brain, ruleId: payload.rule.id, selector: JSON.stringify(payload.rule.selector), identity: JSON.stringify(payload.githubIdentity) } : undefined); proved = true;
           await options.checkpoint?.("file_published");
-          const latest = await refresh(); row(principal, input.requestId);
+          const latest = await project(); row(principal, input.requestId);
           if (latest.policyHash === payload.proposedHash) receipt.publishedTrustRevision = latest.revision;
           const changedRule = payload.rule ?? p.rules.find(rule => rule.id === receipt.ruleId);
           const supported = options.originEnforcement === true && !latest.error && latest.policyHash === payload.proposedHash && (changedRule?.selector.kind === "web_origin" || changedRule?.selector.kind === "tunnel_authority");
@@ -419,7 +512,7 @@ export function createTrustSettings(options: {
             ? "repository_identity_unavailable" : published ? "recording_failed" : "publication_failed";
           await save(receipt.stage);
         } finally { publicationOpen = false; target?.close(); if (!published) for (const path of created.reverse()) { try { rmdirSync(path); } catch { /* Concurrent content remains. */ } } }
-      });
+      }));
       return read(principal, input.requestId);
     },
   };
