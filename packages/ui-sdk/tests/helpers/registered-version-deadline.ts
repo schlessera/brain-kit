@@ -6,7 +6,7 @@ export function registeredVersionDeadline(kind: "host" | "maintenance" = "host")
   const file = kind === "host" ? "version-probe.ts" : "maintenance-worker.ts";
   const source = readFileSync(new URL(`../../src/server/${file}`, import.meta.url), "utf8").split("\n");
   const registration = kind === "host" ? "timer = setTimeout(() => resolve({ timedOut: true }), VERSION_PROBE_TIMEOUT_MS)"
-    : "const timer = input.timeoutMs ? setTimeout(kill, input.timeoutMs)";
+    : "const timer = input.timeoutMs ? setTimeout(kill, ";
   const primarySite = source.findIndex(line => line.includes(registration));
   assert(primarySite > 0, "VERSION_PROBE_PRIMARY_SOURCE_EXISTS");
   assert.equal(source.filter(line => line.includes(registration)).length, 1, "VERSION_PROBE_ONE_PRIMARY_OWNER");
@@ -38,7 +38,10 @@ export function registeredVersionDeadline(kind: "host" | "maintenance" = "host")
     replace(globalThis, "setTimeout", (callback: (...args: unknown[]) => void, delay: number, ...args: unknown[]) => {
       const caller = new Error().stack?.match(/\/ui-sdk\/src\/server\/((?:version-probe|maintenance-worker)\.ts:\d+:)/)?.[1];
       if (caller !== owner) return nativeSet(callback, delay, ...args);
-      assert.equal(delay, 5_000, "VERSION_PROBE_PRODUCTION_DEADLINE_IS_5000_MS");
+      // A gated maintenance launch arms what is left of its deadline after the
+      // gate releases (#4301), so its delay is the 5 s budget less setup time.
+      if (kind === "host") assert.equal(delay, 5_000, "VERSION_PROBE_PRODUCTION_DEADLINE_IS_5000_MS");
+      else assert(delay > 0 && delay <= 5_000, "VERSION_PROBE_PRODUCTION_DEADLINE_IS_5000_MS");
       assert.equal(primary, undefined, "VERSION_PROBE_SINGLE_PRIMARY_REGISTRATION");
       primary = { callback: () => callback(...args), handle: {} as ReturnType<typeof setTimeout>, cancelled: false };
       return primary.handle;
