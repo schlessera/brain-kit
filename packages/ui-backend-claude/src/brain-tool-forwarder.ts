@@ -13,6 +13,7 @@ import { launchAgentWorkerAsync, retainWorkerStartupView, processStateLedger,
   type LaunchedWorker, type WorkerLimitReport, type WorkerSandbox, type WorkerStartupView, type WorkerLimitsPlan, type WorkerStateLimits,
 } from "@schlessera/brain-ui-sdk/internal";
 import { safeStartupTiming, type ExecWrapperConfig, type StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 
 /** Product bound for readiness and individual calls, independent of test watchdogs. */
 export const BRAIN_TOOL_TIMEOUT_MS = 30_000;
@@ -95,7 +96,14 @@ export function createBrainToolForwarder(start: (signal: AbortSignal) => Promise
     resource = await start(ownedSignal);
     ownedSignal.throwIfAborted();
     await client.connect(resource.transport, { timeout: timeoutMs });
-  }).catch(error => { failed = error; observe(error); throw error; });
+  }).catch(error => {
+    observe(error);
+    // A full budget is transient: the next read starts again once capacity
+    // returns, instead of every later read repeating it (#4894 round 7 F1).
+    if ((error as { errorClass?: unknown })?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_busy) ready = undefined;
+    else failed = error;
+    throw error;
+  });
   const startOwned = () => { void startNow().catch(() => {}); };
   const abort = () => { void client.close().catch(observe); };
   ownedSignal.addEventListener("abort", abort, { once: true });
@@ -209,11 +217,16 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
       await worker?.turnTemp?.closeAsync();
     };
     const unexited = () => new Error("brain_tool_worker_exit_unconfirmed: the sandboxed brain server did not exit; its allowance stays held until it does.");
-    /** A process that may still run keeps its storage and reservation, owned by the reconciler until it is confirmed gone (#4325 F12). */
-    const retainUnexited = (child: LaunchedWorker, error: Error) => processCleanupReconciler().retain({ bytes: reservation.bytes, turnTempBytes: reservation.turnTempBytes,
-      close: async () => { await child.exited.catch(() => {}); await child.released(); await closeStorage(); },
-      release: () => reservation.release(), report: notice => input.req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, error);
-    const release = async () => {
+    /**
+     * The ONE release for every path (normal exit, a refused start, an exit
+     * after the cleanup deadline): storage closed, then the reservation, as
+     * soon as the exit is confirmed, and never after the pipes release, so
+     * the next bridge worker can reserve the allowance at once (#4894 round
+     * 7). Every caller shares it; a storage close it cannot confirm is handed
+     * to the reconciler once.
+     */
+    let releasing: Promise<void> | undefined;
+    const release = () => releasing ??= (async () => {
       try { await closeStorage(); reservation.release(); }
       catch (error) {
         if (!worker && workerCleanupUnconfirmed(launchFailure) && !launchFailure.close)
@@ -222,7 +235,11 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
           close: closeStorage, release: () => reservation.release(), report: notice => input.req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, error);
         throw error;
       }
-    };
+    })();
+    /** A process that may still run keeps its storage and reservation, owned by the reconciler until it is confirmed gone (#4325 F12). */
+    const retainUnexited = (child: LaunchedWorker, error: Error) => processCleanupReconciler().retain({ bytes: reservation.bytes, turnTempBytes: reservation.turnTempBytes,
+      close: async () => { await child.exited.catch(() => {}); await release().catch(() => {}); await child.released(); },
+      release: () => reservation.release(), report: notice => input.req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, error);
     try {
       signal.throwIfAborted();
       const sandbox = readOnlyBrainSandbox(input.sandbox);
@@ -236,11 +253,10 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
         ...(input.startupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(input.startupView) } : {}),
         ...launch, credentialEnv: input.credentialEnv, ...(input.egress ? { egress: input.egress } : {}), turnTempBytes: reservation.turnTempBytes });
       const child = worker;
-      // Release the turn-temp handle once the worker exits: under a separate
-      // UID its stdout ends only when the identity broker closes, and the
-      // broker closes only when no handle holds it (#4325 F3). Idempotent
-      // with the release at close.
-      void child.exited.finally(() => child.turnTemp?.closeAsync().catch(() => {})).catch(() => {});
+      // Release once the worker exits: under a separate UID its stdout ends
+      // only when the identity broker closes, and the broker closes only
+      // when no handle holds it (#4325 F3).
+      void child.exited.then(release, release).catch(() => {});
       // A separate-UID supervisor may refuse or lose a signal request. That
       // never skips pipe, storage or reservation cleanup (#4325 F24).
       const kill = () => signalBrainWorkerOnce(child);
@@ -253,7 +269,9 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
       // Its stderr stream stays observable; nothing on it can signal the worker.
       input.req.workerStarted?.(Object.assign({ exited: child.exited, freeze: () => child.freeze(), resume: () => child.resume(), kill: kill }, { stderr: child.stderr }));
       let closing: Promise<void> | undefined;
-      return { worker, transport: brainWorkerTransport(worker), close() {
+      return { worker, transport: brainWorkerTransport(worker),
+        /** Settles once this worker's exit is confirmed and its allowance is free. */
+        released: release, close() {
         return closing ??= (async () => {
           if (abort) signal.removeEventListener("abort", abort);
           const exit = await stopBrainWorker(child, kill);
@@ -274,13 +292,12 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
           const launched = worker;
           const exit = await stopBrainWorker(launched, () => signalBrainWorkerOnce(launched));
           if (!exit.settled) { held = true; retainUnexited(launched, unexited()); }
-          else {
-            // A rejected exit observer is the more specific failure, as before.
-            if ("error" in exit) exitError = { error: exit.error };
-            await launched.released();
-          }
+          // A rejected exit observer is the more specific failure, as before.
+          else if ("error" in exit) exitError = { error: exit.error };
         }
       } finally { if (!held) await release(); }
+      // Pipes release after the allowance, never before it.
+      if (worker && !held) await worker.released();
       throw exitError ? exitError.error : error;
     }
   };
@@ -341,13 +358,20 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
     if (read === "deadline") { void reading.catch(() => {}); return "unavailable"; }
     const { text, code } = read;
     if (code !== 0 || ownedSignal.aborted) return "unavailable";
+    // A verdict only once the helper's allowance is free, so the forwarder
+    // can reserve it; one that cannot be freed within the bound is stdio
+    // (#4894 round 7 F1).
+    const freed = await Promise.race([started.released().then(() => "freed" as const, () => "held" as const), deadline]);
+    if (freed !== "freed" || ownedSignal.aborted) return "unavailable";
     const result = JSON.parse(text);
     if (!Array.isArray(result.enabled) || !Array.isArray(result.available)) return "unavailable";
     if (result.enabled.some((module: unknown) => !module || typeof module !== "object"
       || typeof (module as { key?: unknown }).key !== "string" || typeof (module as { name?: unknown }).name !== "string"
       || !Array.isArray((module as { tools?: unknown }).tools)
       || !(module as { tools: unknown[] }).tools.every(name => typeof name === "string" && name.length > 0))) return "unavailable";
-    return result.enabled.some((module: { tools: string[] }) => module.tools.length > 0) ? "module-tools" : "core-only";
+    // Only active modules' tools are served by the brain's MCP server; a
+    // dormant module's declarations do not count (#4894 round 7 F5).
+    return result.enabled.some((module: { tools: string[]; state?: unknown }) => module.state !== "dormant" && module.tools.length > 0) ? "module-tools" : "core-only";
   } catch { return "unavailable"; }
   finally {
     clearTimeout(timer); controller.abort();

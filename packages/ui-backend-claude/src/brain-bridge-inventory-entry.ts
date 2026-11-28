@@ -11,13 +11,17 @@
  * - served by the same `@schlessera/brain` version as the host's static read
  *   definitions, passed as the first argument, so the bridge never advertises
  *   a tool or argument the brain's own server lacks (F14; versions move in
- *   lockstep).
+ *   lockstep);
+ * - with an index the read-only forwarder can open: the bridge runs `brain
+ *   mcp` with a read-only index, which cannot create a missing one, while
+ *   the project's own stdio entry can (#4894 round 7 F4).
  * Anything else, including a missing or unreadable file, exits with
  * {@link NOT_CANONICAL}, and the host keeps the original stdio entry. A
  * qualifying brain runs `brain module list --json` and passes its output and
  * exit status through.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
+import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
 
 /** Exit status for a project entry the bridge cannot reproduce. */
 export const NOT_CANONICAL = 3;
@@ -51,11 +55,17 @@ function brainCoreVersion(): string | undefined {
   } catch { return undefined; }
 }
 
+/** Whether the brain at `root` already has its index file. */
+export function brainIndexPresent(root: string): boolean {
+  try { return statSync(indexDbPath(root)).isFile(); } catch { return false; }
+}
+
 if (import.meta.main) {
   const expectedVersion = process.argv[2];
   const entry = (readJson(".mcp.json") as { mcpServers?: Record<string, unknown> } | undefined)?.mcpServers?.brain;
   const settings = [readJson(".claude/settings.json"), readJson(".claude/settings.local.json")];
-  if (!canonicalBrainEntry(entry) || projectDisablesBrain(settings) || !expectedVersion || brainCoreVersion() !== expectedVersion)
+  if (!canonicalBrainEntry(entry) || projectDisablesBrain(settings) || !expectedVersion || brainCoreVersion() !== expectedVersion
+    || !brainIndexPresent(process.cwd()))
     process.exit(NOT_CANONICAL);
   const child = Bun.spawnSync([process.execPath, "node_modules/.bin/brain", "module", "list", "--json"],
     { stdin: "ignore", stdout: "pipe", stderr: "inherit" });

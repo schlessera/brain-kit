@@ -1725,8 +1725,9 @@ when the project `brain` entry is exactly `bun node_modules/.bin/brain mcp`,
 with no environment, working directory or other option, the project's Claude
 settings do not turn that server off, and the brain's installed
 `@schlessera/brain` is the host's own version (the static definitions are that
-version's); it runs under the tool-search setting the bridged session pins. Any
-other brain keeps stdio.
+version's), and the brain already has its index (the read-only forwarder
+cannot create one; the project's stdio entry can); it runs under the
+tool-search setting the bridged session pins. Any other brain keeps stdio.
 A turn whose host login lies inside the brain skips the helper. The forwarder
 serves read tools only: it keeps the turn's profile, view, data tree and masks
 but is launched read-only on every profile (`readOnlyBrain`: the brain itself
@@ -1738,8 +1739,11 @@ The maintainer's 2026-11-21 ruling rejects host-side hashing: its input set
 cannot safely prove that executable configuration selects the same modules,
 and reading those inputs on the host bypasses the worker boundary.
 
-A proven empty module-tool inventory permits the bridge. Config-selected
-module tools, helper failure, timeout or malformed output retain the original
+A proven empty module-tool inventory permits the bridge; a dormant module's
+declared tools do not count, as the brain's MCP server does not serve them.
+The verdict arrives only once the helper's turn-temp allowance is free, so the
+forwarder can reserve it. Active module tools, helper failure, timeout, an
+allowance not freed within the bound, or malformed output retain the original
 project stdio entry and pin search off. Owner logs record
 `brain_bridge_fallback_module_tools` or
 `brain_bridge_fallback_inventory_unavailable`; these diagnostics never enter

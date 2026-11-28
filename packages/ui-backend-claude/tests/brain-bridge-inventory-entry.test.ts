@@ -26,7 +26,7 @@ test("project settings that turn the brain server off are recognised", () => {
 });
 
 // Runs the real entry the sandbox runs, from a fictional brain root.
-function brain(mcp: unknown, options: { settings?: object; version?: string | null } = {}) {
+function brain(mcp: unknown, options: { settings?: object; version?: string | null; index?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "ithaca-bridge-entry-"));
   mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
   writeFileSync(join(root, "node_modules/.bin/brain"), `require("node:fs").writeFileSync("listed", process.argv.slice(2).join(" "));
@@ -35,6 +35,8 @@ console.log(JSON.stringify({ enabled: [{ key: "voyage", name: "voyage", tools: [
     mkdirSync(join(root, "node_modules/@schlessera/brain"), { recursive: true });
     writeFileSync(join(root, "node_modules/@schlessera/brain/package.json"), JSON.stringify({ name: "@schlessera/brain", version: options.version ?? VERSION }));
   }
+  // A fresh core-only brain has no index until its first `brain index`.
+  if (options.index !== false) { mkdirSync(join(root, ".brain-index")); writeFileSync(join(root, ".brain-index/brain.db"), ""); }
   if (options.settings) { mkdirSync(join(root, ".claude")); writeFileSync(join(root, ".claude/settings.json"), JSON.stringify(options.settings)); }
   if (mcp !== undefined) writeFileSync(join(root, ".mcp.json"), typeof mcp === "string" ? mcp : JSON.stringify({ mcpServers: { brain: mcp } }));
   return root;
@@ -48,6 +50,9 @@ for (const [name, mcp, options] of [
   ["disabled project server", CANONICAL, { settings: { disabledMcpjsonServers: ["brain"] } }],
   ["different brain version", CANONICAL, { version: "0.30.0" }],
   ["missing brain package", CANONICAL, { version: null }],
+  // #4894 round 7 F4: the read-only forwarder cannot create the index; the
+  // project's stdio entry, which can, keeps brain_read available.
+  ["missing index", CANONICAL, { settings: { enableAllProjectMcpServers: true }, index: false }],
 ] as const)
   test(`a project with a ${name} is never inventoried for the bridge`, () => {
     const root = brain(mcp, options);

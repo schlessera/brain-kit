@@ -438,6 +438,106 @@ test("a probe's allowance is free for the forwarder once its helper exits, while
   }
 });
 
+// #4894 round 7: one release for every bridge worker path, as soon as the
+// exit is confirmed and storage is closed, never after the pipes release.
+const holdPipes = (child: ReturnType<typeof worker>) => { (child.launched as { released: unknown }).released = () => new Promise<void>(() => {}); };
+const delayStorage = (child: ReturnType<typeof worker>, gate: Promise<void>) => {
+  const handle = (child.launched as unknown as { turnTemp: { closeAsync(): Promise<void> } }).turnTemp;
+  const close = handle.closeAsync.bind(handle);
+  handle.closeAsync = async () => { await gate; await close(); };
+};
+const heldAfter = async (ledger: ReturnType<typeof internal.createStateLedger>, held: number) => {
+  for (let waited = 0; waited < 2_000 && ledger.turnTempHeld !== held; waited += 10) await Bun.sleep(10);
+  return ledger.turnTempHeld;
+};
+
+test("the inventory verdict arrives only once the helper's allowance is free, so the forwarder reserves it at once", async () => {
+  const f = fixture(), probe = worker(f.state), forwarder = worker(f.state), ledger = internal.createStateLedger(), storage = Promise.withResolvers<void>();
+  holdPipes(probe); delayStorage(probe, storage.promise);
+  let launches = 0;
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockImplementation(async () => {
+    if (launches++ > 0) return forwarder.launched;
+    probe.stdout.end('{"enabled":[],"available":[]}'); probe.exit.resolve(0);
+    return probe.launched;
+  });
+  const reservation = () => ledger.reserve(undefined, f.input.turnTempLimits);
+  let started: Awaited<ReturnType<ReturnType<typeof startBrainToolWorker>>> | undefined;
+  try {
+    const verdict = probeBrainBridgeInventory({ ...f.input, reservation }, f.signal);
+    setTimeout(() => storage.resolve(), 100);
+    expect(await verdict).toBe("core-only");
+    expect(ledger.turnTempHeld, "VERDICT_ONLY_AFTER_RELEASE").toBe(0);
+    started = await startBrainToolWorker({ ...f.input, reservation })(f.signal);
+    expect(started.worker, "FORWARDER_RESERVES_ON_THE_VERDICT").toBe(forwarder.launched);
+  } finally {
+    forwarder.stdout.end(); forwarder.exit.resolve(0); await started?.close().catch(() => {});
+    launch.mockRestore(); rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("an inventory whose allowance cannot be freed within the bound is stdio", async () => {
+  const f = fixture(), probe = worker(f.state), ledger = internal.createStateLedger();
+  holdPipes(probe); delayStorage(probe, new Promise<void>(() => {}));
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockImplementation(async () => {
+    probe.stdout.end('{"enabled":[],"available":[]}'); probe.exit.resolve(0);
+    return probe.launched;
+  });
+  const timer = shortTimers({ [BRAIN_INVENTORY_TIMEOUT_MS]: 50 });
+  try {
+    expect(await probeBrainBridgeInventory({ ...f.input, reservation: () => ledger.reserve(undefined, f.input.turnTempLimits) }, f.signal),
+      "UNRELEASED_INVENTORY_IS_STDIO").toBe("unavailable");
+  } finally { timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test("a forwarder whose start found the budget full starts again on the next read", async () => {
+  let starts = 0;
+  const busy = Object.assign(new Error("worker_state_busy: the turn-temp budget is in use."), { errorClass: "worker_state_busy" });
+  const forward = createBrainToolForwarder(async () => { starts++; throw busy; }, new AbortController().signal, () => {});
+  forward.start(); await Bun.sleep(10);
+  forward.start(); await Bun.sleep(10);
+  expect(starts, "BUSY_START_IS_NOT_CACHED").toBe(2);
+  await forward.close();
+});
+
+test("a refused start frees its allowance once the worker exits, while its pipes are still held", async () => {
+  const f = fixture(), child = worker(f.state), ledger = internal.createStateLedger();
+  holdPipes(child);
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockResolvedValue(child.launched);
+  try {
+    const starting = startBrainToolWorker({ ...f.input, reservation: () => ledger.reserve(undefined, f.input.turnTempLimits),
+      req: { bridge: {}, workerStarted() { throw new Error("Ithaca turn scope refused the worker."); } } as never })(f.signal);
+    void starting.catch(() => {});
+    expect(await heldAfter(ledger, 0), "REFUSED_START_FREES_ALLOWANCE_AT_EXIT").toBe(0);
+  } finally { child.exit.resolve(0); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test("a worker that exits after its cleanup deadline frees its allowance at that exit, while its pipes are still held", async () => {
+  const f = fixture(), child = worker(f.state), ledger = internal.createStateLedger();
+  holdPipes(child);
+  (child.launched as { kill: unknown }).kill = () => {};
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockResolvedValue(child.launched);
+  const timer = shortTimers({ [BRAIN_TOOL_EXIT_WAIT_MS]: 0 });
+  try {
+    const resource = await startBrainToolWorker({ ...f.input, reservation: () => ledger.reserve(undefined, f.input.turnTempLimits) })(f.signal);
+    await expect(resource.close()).rejects.toThrow("brain_tool_worker_exit_unconfirmed");
+    expect(ledger.turnTempHeld, "UNEXITED_KEEPS_ALLOWANCE").toBe(f.input.turnTempLimits.allowanceBytes);
+    child.exit.resolve(0);
+    expect(await heldAfter(ledger, 0), "LATE_EXIT_FREES_ALLOWANCE").toBe(0);
+  } finally { child.exit.resolve(0); timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+// #4894 round 7 F5: only active modules' tools are served.
+for (const [state, verdict] of [["dormant", "core-only"], ["active", "module-tools"]] as const)
+  test(`an inventory whose only module tool is ${state} is ${verdict}`, async () => {
+    const f = fixture(), child = worker(f.state);
+    const launch = spyOn(internal, "launchAgentWorkerAsync").mockImplementation(async () => {
+      child.stdout.end(JSON.stringify({ enabled: [{ key: "voyage", name: "voyage", tools: ["voyage_chart"], state }], available: [] })); child.exit.resolve(0);
+      return child.launched;
+    });
+    try { expect(await probeBrainBridgeInventory(f.input, f.signal), `${state.toUpperCase()}_MODULE_VERDICT`).toBe(verdict); }
+    finally { launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+  });
+
 test("a valid inventory returns its verdict while the worker's pipe release is still held", async () => {
   // Its own ledger: the held release keeps this reservation for good.
   const f = fixture(), child = worker(f.state), ledger = internal.createStateLedger();

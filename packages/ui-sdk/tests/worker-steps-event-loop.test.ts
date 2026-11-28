@@ -439,6 +439,22 @@ test("an awaited close that loses control stops the supervisor and refuses uncon
   }
 });
 
+// #4894 round 7 F3: a bridge cancellation signals through the broker's async
+// request; a lost control socket stops the supervisor off the event loop too.
+test("an asynchronous broker request that loses control stops its supervisor without a synchronous subprocess", async () => {
+  const supervisor = Bun.spawn(["/bin/sh", "-c", "exec sleep 30"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  let broker: Broker | undefined;
+  try {
+    broker = readyBroker(supervisor.pid);
+    const spawns = identityControlSpawns();
+    let refusal: unknown, operations;
+    try { refusal = await broker.requestAsync("signal", { signal: "KILL" }).catch((error: unknown) => error); operations = spawns.operations(); } finally { spawns.restore(); }
+    expect(String((refusal as Error).message).split(":")[0]).toBe("worker_identity_control_lost");
+    expect(operations, "ASYNC_REQUEST_STOPS_SUPERVISOR_ASYNCHRONOUSLY").toEqual({ sync: [], async: ["signal", "supervisor-stop"] });
+    expect((await supervisor.exited, supervisor.signalCode), "CONTROL_LOSS_STOPS_SUPERVISOR").toBe("SIGKILL");
+  } finally { supervisor.kill("SIGKILL"); await supervisor.exited; broker?.discard(); }
+});
+
 test("the brain view's broker requests are awaited with the event loop free", async () => {
   const f = fixture();
   const holder = Bun.spawn(["/usr/bin/python3", "-I", "-S", "-c", "import os,sys,time\nfd=os.open(sys.argv[1],os.O_RDONLY|os.O_DIRECTORY)\nprint(fd,flush=True)\ntime.sleep(30)", f.brain],
