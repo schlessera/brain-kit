@@ -1568,6 +1568,34 @@ The cursor and subsequent subscription retain that choice. Omitting it keeps
 the original strict version-1 record shape. This metadata grants no authority
 and never infers attribution for opaque transport.
 
+Additively for #4513, `attribution=1` requests the host's attribution
+verdicts. The host decides attribution: its collector notes every tool name it
+observes under each tool-use ID of a turn (from any hook, result or loss
+report, nested calls included; an empty or `unknown` fallback name is not a
+name). An opted-in projection then carries
+`attributionUnknown: [{bindingId, toolUseIds}]`: under each listed tool-use ID
+the host saw differently named calls, so every input of that binding joined to
+it has unknown attribution. `toolUseIds: null` means the host could not check
+every ID of that turn (more than 8 reused or 2,000 tracked IDs), so every
+input of the binding has unknown attribution. These limits apply to each
+binding on its own; one binding's findings never widen another's. An open
+turn reports what its collector has seen so far; the collection's own end
+stores it. A stored finding that cannot be read keeps its binding turn-wide
+unknown. A turn never checked (one that predates this field, or ended any
+other way, such as a restart) reads as before: nothing is reported for it. A
+change to the field alone reaches an existing subscription as an update at the
+same revision, never as a gap. A subscription whose final page was answered
+more than once with differing values first receives the current field that
+way. Each page computes the field when it is
+delivered; a retained snapshot never holds it, so the snapshot limits count
+evidence only. A name first observed
+after the turn's end is not reported (#5004). A client shows no tool as the
+proven source of a flagged input and never infers attribution from its own
+transcript. The field is display-only: it changes no count, restriction,
+revision, verdict or review authority, and the enforcement projection never
+reads it. No other value or duplicate parameter is accepted; the cursor and
+subscription retain the choice. Readers that omit it keep their shape.
+
 ### Selectable dictation providers (additive, #3707)
 
 The [dictation routes](../http-api.md#selectable-dictation-providers) add
