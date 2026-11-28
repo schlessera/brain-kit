@@ -311,7 +311,7 @@ export function runBackendContract(
       for (const key of keys) {
         expect(typeof backend.capabilities[key]).toBe("boolean");
       }
-      const optional = (["autonomous", "restrictedAutonomous", "historyRemoval"] as const).filter((key) => Object.hasOwn(backend.capabilities, key));
+      const optional = (["autonomous", "restrictedAutonomous", "historyRemoval", "fastOutput"] as const).filter((key) => Object.hasOwn(backend.capabilities, key));
       for (const key of optional) expect(typeof backend.capabilities[key]).toBe("boolean");
       // Advertised history removal (#3229) is implemented; an unadvertised one is never called.
       if (backend.capabilities.historyRemoval) expect(typeof backend.removeSessionHistory).toBe("function");

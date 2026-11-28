@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { createClaudeSdkTurn } from "../../src/sdk-options.js";
 import { createClaudeBackend } from "../../src/backend.js";
+import { DEFAULT_PROFILES } from "../../src/profiles.js";
 import { historyHost } from "../../../../tests/fixtures/provider-history-host.js";
 import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { replaceNativeStartupAcquisitionForFixture } from "../../../ui-server/tests/helpers/fixture-native-startup.js";
@@ -13,6 +14,12 @@ import type { Captures, HistoryCapture } from "../../../../tests/helpers/provide
 import { REFERENCE_ACTIONS, REFERENCE_SCENARIOS, TOOL_SCENARIOS, hostToolHandlers } from "../../../../tests/fixtures/provider-history-scenarios.js";
 
 const scratch = process.argv[2]!;
+/**
+ * #4324: the shipped default profile's model. The pinned CLI sends it
+ * mid-conversation system-role messages, which an older fixture model never
+ * received, so the guard holds the request shape production actually sends.
+ */
+const PRODUCTION_MODEL = DEFAULT_PROFILES[0]!.model!;
 const captures: Captures = {};
 let capture: HistoryCapture;
 let turnIndex = 0, sequence = 0, turnOpen = false;
@@ -77,7 +84,7 @@ try {
             if (event.kind === "prompt_prefix") (capture.rosters ??= []).push(event.prefix!.tools);
           } } : {}),
           ...hostToolHandlers(scenario, turnIndex, capture) },
-      }, profile: { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({
+      }, profile: { id: "fixture", label: "Fixture", model: PRODUCTION_MODEL, billing: "api", requiredEnvKeys: [], buildEnv: () => ({
         HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), ANTHROPIC_BASE_URL: server.url.origin, ANTHROPIC_API_KEY: "offline-odysseus",
         ...(scenario === "title" ? {} : { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
       }) }, abortController: controller, allowedTools: ["Read", "Bash"], confirmPatterns: [],
@@ -107,7 +114,7 @@ try {
   const home = join(scratch, "home-budget");
   mkdirSync(join(home, ".claude"), { recursive: true });
   const budgetBackend = createClaudeBackend({ brainPath: brain, allowedTools: ["Read", "Bash"], confirmBashPatterns: [],
-    profiles: [{ id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({
+    profiles: [{ id: "fixture", label: "Fixture", model: PRODUCTION_MODEL, billing: "api", requiredEnvKeys: [], buildEnv: () => ({
       HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), ANTHROPIC_BASE_URL: server.url.origin, ANTHROPIC_API_KEY: "offline-odysseus",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
     }) }], log() {},

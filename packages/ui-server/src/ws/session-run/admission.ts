@@ -1,5 +1,5 @@
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
-import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { BackendRequestError, FastOutputUnavailableError } from "@schlessera/brain-ui-sdk/server";
 import type { WorkerNoteFacts } from "@schlessera/brain-ui-sdk/internal";
 import { requireWorkerHostRecorded } from "../../agent/worker-host.js";
 import { createTurnRecorder, type TurnRecorder } from "../../activity/recorder.js";
@@ -22,7 +22,8 @@ type WorkerHostAdmission =
  * The host check every interactive or voice turn repeats, before transcript,
  * source or failure recording and before any runtime initialization.
  */
-export async function admitWorkerHost(host: WsHost, backend: AgentBackend, work: HostWork | undefined): Promise<WorkerHostAdmission> {
+export async function admitWorkerHost(host: WsHost, backend: AgentBackend, work: HostWork | undefined,
+  outputSpeed?: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed | null): Promise<WorkerHostAdmission> {
   try {
     const workerHost = await requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime, { identitySentinelDirectory: host.identitySentinelDirectory });
     const identity: WorkerNoteFacts["identity"] | undefined = workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined
@@ -32,6 +33,9 @@ export async function admitWorkerHost(host: WsHost, backend: AgentBackend, work:
     // gains a voice posture, before any native maintenance workers start.
     if (backend.id === "pi" && work?.posture === "voice")
       throw new BackendRequestError("The pi backend declares no voice tool posture; a voice turn cannot run on it.");
+    // A fast session never runs at another speed (#4310): a backend without
+    // the mode is refused here, before any runtime starts.
+    if (outputSpeed === "fast" && !backend.capabilities.fastOutput) throw new FastOutputUnavailableError(`the ${backend.id} backend has no fast output mode`);
     return { kind: "admitted", identity };
   } catch (error) {
     return { kind: "denied", error };
@@ -178,7 +182,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
   if (!governedHold || !host.journal) lifecycle?.skip("journal");
   if (governedHold && host.budgets) {
     lifecycle?.mark("budgetStartedAt");
-    try { await host.budgets.begin(turn.turnId, resumeId, governedHold.policy.policy, billing?.pricingRoute); }
+    try { await host.budgets.begin(turn.turnId, resumeId, governedHold.policy.policy, billing?.pricingRoute, turn.outputSpeed ?? undefined); }
     catch (error) { if (error instanceof BudgetExceeded) throw error; throw new BudgetUnavailable(); }
   }
   if (governedHold && host.budgets) lifecycle?.mark("budgetAdmittedAt");

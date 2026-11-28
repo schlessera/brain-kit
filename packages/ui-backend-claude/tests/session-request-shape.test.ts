@@ -64,33 +64,59 @@ test("a dangling context alias is refused rather than replaced with a legacy ros
 });
 
 test("production assembly retains a gateway pin and confines a changed-upstream refusal to its session", async () => {
-  const assemble = (route: string, sessionId?: string, relay = true, inherited?: string, hosted = true) => createClaudeSdkTurn({
-    backend: { brainPath: brain },
+  const assemble = (route: string, sessionId?: string, relay = true, inherited?: string, hosted = true, inventory: "core-only" | "module-tools" | "unavailable" = "core-only", diagnosticsThrow = false) => createClaudeSdkTurn({
+    backend: { brainPath: brain }, brainBridgeInventory: inventory,
     req: { prompt: "Odysseus checks Ithaca.", sessionId, bridge: { emit() {} }, applicationAuthority: hosted ? "server" : undefined,
       signal: new AbortController().signal,
       workerSandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] } } as never,
     profile: { id: "fixture", label: "Fixture", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
     turnEnvironment: { ANTHROPIC_BASE_URL: route, ENABLE_TOOL_SEARCH: inherited }, ...(relay ? { hostInference: { proxyDir: brain, placeholders: { ANTHROPIC_API_KEY: INFERENCE_PLACEHOLDER } } } : {}),
     abortController: new AbortController(), allowedTools: ["Read"], confirmPatterns: [],
-    turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, log() {},
+    turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, log() { if (diagnosticsThrow) throw new Error("The owner log is unavailable."); },
   });
   const gateway = assemble("https://gateway.example.com");
   const firstParty = assemble("https://api.anthropic.com");
+  expect(firstParty.options.env!.ENABLE_TOOL_SEARCH, "FIRST_PARTY_BRIDGE_ENABLES_SEARCH").toBe("true");
+  expect(firstParty.options.mcpServers!.brain?.type, "HOSTED_BRAIN_IS_IN_PROCESS").toBe("sdk");
   const enabledId = firstParty.options.sessionId!;
-  const enabledState = JSON.parse(readFileSync(path(enabledId), "utf8"));
-  enabledState.claudeRequestShape.toolSearch = "true";
-  enabledState.claudeRequestShape.selectionDigest = selectionDigest(enabledState.claudeRequestShape.disallowedTools, "true");
-  writeFileSync(path(enabledId), JSON.stringify(enabledState));
   try {
     const resumed = assemble("https://api.anthropic.com", gateway.options.sessionId!);
     try {
       expect(resumed.options.env!.ENABLE_TOOL_SEARCH).toBe("false");
       expect((resumed.options.settings as any).env.ENABLE_TOOL_SEARCH).toBe("false");
     } finally { await resumed.finishWorker(); }
-    expect(() => assemble("https://gateway.example.com", enabledId, false), "QUALIFIED_UPSTREAM_REQUIRED_ON_RESUME").toThrow("requires its qualified first-party inference upstream");
+    expect(() => assemble("https://gateway.example.com", enabledId, true), "QUALIFIED_UPSTREAM_REQUIRED_ON_RESUME").toThrow("requires its qualified first-party inference upstream");
+    // A direct resume is refused even when its inherited URL looks first-party.
+    expect(() => assemble("https://api.anthropic.com", enabledId, false), "RELAY_REQUIRED_ON_TOOL_SEARCH_RESUME").toThrow("requires its relay");
     const direct = assemble("https://gateway.example.com", gateway.options.sessionId!, false);
     try { expect(direct.options.env!.ENABLE_TOOL_SEARCH).toBe("false"); expect((direct.options.settings as any).env.ENABLE_TOOL_SEARCH).toBe("false"); }
     finally { await direct.finishWorker(); }
+    for (const inventory of ["module-tools", "unavailable"] as const) {
+      const fallback = assemble("https://api.anthropic.com", undefined, true, undefined, true, inventory);
+      try {
+        expect(fallback.options.mcpServers!.brain, "FALLBACK_RETAINS_ORIGINAL_STDIO_ENTRY").toBeUndefined();
+        expect(fallback.options.env!.ENABLE_TOOL_SEARCH, "UNKNOWN_INVENTORY_IS_NEVER_CORE_ONLY").toBe("false");
+      } finally { await fallback.finishWorker(); }
+    }
+    let observerFailure: ReturnType<typeof assemble> | undefined;
+    expect(() => { observerFailure = assemble("https://api.anthropic.com", undefined, true, undefined, true, "unavailable", true); },
+      "OWNER_DIAGNOSTICS_CANNOT_DISABLE_STDIO_FALLBACK").not.toThrow();
+    try { expect(observerFailure!.options.env!.ENABLE_TOOL_SEARCH).toBe("false"); }
+    finally { await observerFailure?.finishWorker(); }
+    const previous = assemble("https://api.anthropic.com");
+    const previousId = previous.options.sessionId!;
+    await previous.finishWorker();
+    const previousState = JSON.parse(readFileSync(path(previousId), "utf8"));
+    previousState.claudeRequestShape.version = 4;
+    delete previousState.claudeRequestShape.brainBridge;
+    previousState.claudeRequestShape.toolSearch = "false";
+    previousState.claudeRequestShape.selectionDigest = selectionDigest(previousState.claudeRequestShape.disallowedTools, "false");
+    writeFileSync(path(previousId), JSON.stringify(previousState));
+    const previousResume = assemble("https://api.anthropic.com", previousId);
+    try {
+      expect(previousResume.options.mcpServers!.brain, "V4_SESSION_KEEPS_PROJECT_STDIO").toBeUndefined();
+      expect(previousResume.options.env!.ENABLE_TOOL_SEARCH, "V4_SESSION_KEEPS_SEARCH_OFF").toBe("false");
+    } finally { await previousResume.finishWorker(); }
     const legacyId = session();
     const legacyTurn = assemble("https://api.anthropic.com", legacyId, true, "true");
     try { expect(legacyTurn.options.env!.ENABLE_TOOL_SEARCH, "INHERITED_LEGACY_SELECTION_PRESERVED").toBe("true"); expect((legacyTurn.options.settings as any).env.ENABLE_TOOL_SEARCH).toBeUndefined(); }
@@ -156,6 +182,19 @@ test("migration refuses before an encoded snapshot would cross its read limit", 
   expect(Buffer.byteLength(before)).toBeLessThan(limit);
   writeFileSync(path(id), before);
   expect(() => retain(id, true), "MIGRATION_NEVER_WRITES_AN_UNREADABLE_CONTEXT").toThrow("storage limit");
+  expect(readFileSync(path(id), "utf8")).toBe(before);
+});
+
+
+test("the bridge marker is retained and included in the session selection digest", () => {
+  const id = session();
+  const saved = retainSessionRequestShape(brain, id, false, current, legacy, undefined, "true", 1);
+  expect(saved).toMatchObject({ version: 5, brainBridge: 1, toolSearch: "true" });
+  expect(retain(id, true), "BRIDGE_PATH_SURVIVES_LATER_DEFAULTS").toEqual(saved);
+  const state = JSON.parse(readFileSync(path(id), "utf8"));
+  delete state.claudeRequestShape.brainBridge;
+  const before = JSON.stringify(state); writeFileSync(path(id), before);
+  expect(() => retain(id, true), "LOST_BRIDGE_MARKER_IS_NOT_STDIO").toThrow("Invalid saved Claude session request shape");
   expect(readFileSync(path(id), "utf8")).toBe(before);
 });
 
