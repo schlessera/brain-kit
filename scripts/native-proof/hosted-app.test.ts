@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { linkSync, openSync, closeSync, readlinkSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { observeIndexDescendants } from "./native-worker-lifetime.js";
-import { nativeReleaseObservations } from "./native-release-observation.js";
+import { deadlineClientError, deadlineKillEnded, nativeReleaseObservations } from "./native-release-observation.js";
 import { Database } from "bun:sqlite";
 import { NativeEventLog } from "./event-log.js";
 import { proveRecoveryInventory } from "./recovery-inventory.js";
@@ -679,14 +679,15 @@ if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] 
     if (held === "descriptor") fd = openSync(join(checkpoint.path, name), "r");
     else { holder = Bun.spawn(["/bin/sh", "-c", "read line"], { cwd: checkpoint.path, env: {}, stdin: "pipe", stdout: "ignore", stderr: "ignore" });
       await until(() => { try { return readlinkSync(`/proc/${holder!.pid}/cwd`) === checkpoint.path; } catch { return false; } }); }
-    await expect(client.release(id), "PINNED_NATIVE_RELEASE_REMAINS_UNKNOWN").rejects.toThrow("Native manager outcome is unknown");
+    const released = await client.release(id).then(() => "released", (error: unknown) => String(error));
+    expect(deadlineClientError(released), `PINNED_NATIVE_RELEASE_REMAINS_UNKNOWN: ${released}`).toBe(true);
     await releaseObservations.drain();
     const path = join(ARTIFACTS, "native-release", `${id}.json`);
     expect(existsSync(path), "NATIVE_RELEASE_FAILURE_DIAGNOSTIC_RETAINED").toBe(true);
     const evidence = JSON.parse(readFileSync(path, "utf8"));
     expect(evidence.root.rootId, "NATIVE_RELEASE_DIAGNOSTIC_SAME_ROOT").toBe(checkpoint.rootId);
     expect(evidence.code, "NATIVE_RELEASE_DIAGNOSTIC_REAL_KILLED_COMMAND").toBe(137);
-    expect(evidence.signals.some((signal: any) => signal.signal === "SIGKILL" && signal.abort?.reason === "AbortError: The connection was closed."), "NATIVE_RELEASE_DIAGNOSTIC_CONNECTION_ABORT").toBe(true);
+    expect(deadlineKillEnded(evidence.signals), "NATIVE_RELEASE_DIAGNOSTIC_CONNECTION_ABORT").toBe(true);
     expect(evidence.samples.some((sample: any) => sample.references.some((reference: any) => held === "descriptor" ? reference.pid === process.pid && reference.fd === fd : reference.pid === holder?.pid && reference.kind === "cwd")),
       `NATIVE_RELEASE_DIAGNOSTIC_ACTUAL_PINNED_${held.toUpperCase()}`).toBe(true);
     expect(evidence.samples.every((sample: any) => sample.coverage.processesTruncated === false && sample.coverage.referencesTruncated === false),
