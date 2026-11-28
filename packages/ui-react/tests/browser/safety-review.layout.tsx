@@ -1,5 +1,5 @@
 /// <reference types="@vitest/browser-playwright" />
-import {afterAll,afterEach,beforeAll,expect,test} from 'vitest';
+import {afterAll,afterEach,beforeAll,expect,test,vi} from 'vitest';
 import {watchdogMs} from '../../../../scripts/test-deadlines.js';
 import {commands,page,userEvent} from 'vitest/browser';
 import {createRoot,type Root} from 'react-dom/client';
@@ -9,6 +9,9 @@ import {BrainUiProvider} from '../../src/root-context.js';
 import {MessageBubble} from '../../src/components/chat/message-bubble.js';
 import {createSafetyClient} from '../../src/lib/safety-client.js';
 import {SessionSafety} from '../../src/components/chat/safety-indicator.js';
+import {ToolCallTimeline} from '../../src/components/chat/tool-call-timeline.js';
+import {turnToolIndexBuilds} from '../../src/components/chat/turn-tool-index.js';
+import {ASK_USER_CONTRACT,visibleToolName} from '@schlessera/brain-ui-sdk/client';
 import {parseServerMessage} from '@schlessera/brain-ui-sdk/schemas';
 import type {ChatMessage} from '../../src/stores/chat-store.js';
 import type {ClientMessage,SafetyPage,SafetyRecord} from '@schlessera/brain-ui-sdk/protocol';
@@ -21,12 +24,12 @@ async function disposeView(){safetyClient?.dispose();safetyClient=undefined;if(r
 afterEach(async()=>{statusBarrier=undefined;commitBarrier=undefined;await disposeView();if(fixture)await commands.safetyServer({op:'stop',id:fixture.id});fixture=undefined;if(oldTheme===undefined)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=oldTheme;});
 const patch=(patch:Record<string,unknown>={})=>commands.safetyServer({op:'set',id:fixture!.id,patch}) as Promise<{page:SafetyPage;commits:number;prepares:number;decisions:Array<{occurrence_id:string}>}>;
 const noop=()=>{};
-const message:ChatMessage={id:'odysseus-answer',turnId:'voyage',role:'assistant',content:'Voyage notes retained.',isStreaming:false,timestamp:Date.UTC(2026,6,12,10),
+const defaultMessage:ChatMessage={id:'odysseus-answer',turnId:'voyage',role:'assistant',content:'Voyage notes retained.',isStreaming:false,timestamp:Date.UTC(2026,6,12,10),
  toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'Grep',inputJson:'{}',input:{path:'workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
  parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'text',text:'Voyage notes retained.'}]};
 let commitBarrier:((result:{status:number;body:unknown})=>Promise<void>)|undefined;
 let statusBarrier:((body:Record<string,unknown>,result:{status:number;body:unknown})=>Promise<void>)|undefined;
-async function view(independentSocket=false){
+async function view(independentSocket=false,message=defaultMessage){
  const f=fixture!;
  ui=createBrainUiRoot({storage:null,config:{backendUrl:f.url},request:async(url,init)=>{
   if(!String(url).includes('/safety/reviews/'))return Response.json({providers:[]});
@@ -46,7 +49,8 @@ async function view(independentSocket=false){
  flushSync(()=>renderer!.render(<BrainUiProvider root={current}><button type="button">Outside safety details</button><SessionSafety visibleMessages={[message]}/><MessageBubble message={message} journalVisible={false} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>));
  try{await expect.poll(()=>current.stores.safety.getState().status,{timeout:5000}).toBe('ready');}catch(error){throw new Error(`${String(error)} Frames:${JSON.stringify(frames)} Sent:${JSON.stringify(sent)} Safety:${JSON.stringify(current.stores.safety.getState())} Session:${current.stores.chat.getState().activeSessionId}`);}
 }
-async function scene(width:number,theme:string,independentSocket=false){await page.viewport(width,900);document.documentElement.dataset.theme=theme;fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view(independentSocket);}
+async function scene(width:number,theme:string,independentSocket=false,message=defaultMessage){await page.viewport(width,900);document.documentElement.dataset.theme=theme;fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view(independentSocket,message);}
+const message=defaultMessage;
 function buttonForTool(){const all=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')];return all.find(b=>b.getAttribute('aria-label')?.includes('2 unresolved'))!;}
 
 for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width} ${theme}: collapsed counts, native touch, exact scope, A/B/C and reload`,async()=>{
@@ -83,6 +87,112 @@ for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width}
  reopener.focus();
  await userEvent.keyboard('{Enter}');await expect.element(panel).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Outside safety details'}));expect(document.querySelector('[data-safety-details]')).toBeNull();
  await disposeView();await view();expect((await patch()).commits,'RELOAD_NEVER_REPLAYS_A_VERDICT').toBe(1);expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(2);
+});
+
+/** The installed runtime can reuse one tool-use ID for two differently named
+ * calls in a turn (#4513): the input still shows once, at its first step. */
+const reused:ChatMessage={...defaultMessage,toolCalls:[...defaultMessage.toolCalls,{id:'tool_c',name:'Bash',inputJson:'{}',input:{command:'cat workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
+ parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'tool',toolIndex:2},{kind:'text',text:'Voyage notes retained.'}]};
+function transcriptCounts(){
+ return [...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].filter(b=>b.getClientRects().length>0&&!b.closest('[data-safety-turn-event]'))
+  .map(b=>Number(/· (\d+) unresolved input/.exec(b.getAttribute('aria-label')??'')?.[1]??0));
+}
+async function details(button:HTMLButtonElement){
+ await userEvent.click(button);await expect.element(page.getByRole('dialog',{name:'Safety input details'})).toBeVisible();
+ const sections=[...document.querySelectorAll('[data-safety-trigger]')].map(e=>e.textContent??'');
+ await userEvent.keyboard('{Escape}');return sections;
+}
+for(const width of [320,1280])for(const hostSaw of ['id','turn',false] as const)test(`${width}: a tool-use ID reused by differently named calls keeps one reviewable input${hostSaw==='id'?', unknown when the host saw both names':hostSaw==='turn'?', unknown when the host could not check every ID':', labelled while the host saw one'}`,async()=>{
+ await scene(width,'light',false,reused);
+ if(hostSaw){await patch({action:hostSaw==='id'?'reuse':'reuse-turn',id:'tool_c'});await expect.poll(()=>ui!.stores.safety.getState().projection?.attributionUnknown?.length??0,{timeout:8000}).toBeGreaterThan(0);}
+ const collapsed=transcriptCounts();
+ expect(collapsed,'REUSED_ID_COLLAPSED_COUNT').toEqual([2]);
+ const sections=await details([...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].find(b=>!b.closest('[data-safety-turn-event]'))!);
+ expect(sections).toHaveLength(2);
+ const search=sections.find(text=>text.includes('Workspace read'))!,fetch=sections.find(text=>text.includes('Web fetch'))!;
+ if(hostSaw){
+  expect(search,'HOST_UNKNOWN_NAMES_NO_ACTION').not.toMatch(/Action · (Local search|Bash|Grep)/);
+  expect(search,'HOST_UNKNOWN_RENDERS_UNKNOWN').toContain(hostSaw==='id'?'Action · Unknown. The host saw more than one tool':'Action · Unknown. The host could not verify that only one tool used this call ID in this turn.');
+ }else expect(search,'NO_HOST_FLAG_KEEPS_THE_LABEL').toContain('Action · Local search (Grep)');
+ if(hostSaw==='turn')expect(fetch,'TURN_WIDE_COVERS_EVERY_INPUT').toContain('Action · Unknown. The host could not verify');
+ else expect(fetch,'UNIQUE_ID_KEEPS_ITS_ACTION').toContain('Action · WebFetch');
+ await userEvent.click(page.getByRole('button',{name:/^3 steps/}));
+ await expect.poll(()=>host!.querySelectorAll('[data-tool-call]').length).toBe(3);
+ expect(transcriptCounts().reduce((a,b)=>a+b,0),'REUSED_ID_EXPANDED_COUNT').toBe(2);
+ const expanded=[...host!.querySelectorAll<HTMLElement>('[data-tool-call="tool_c"]')];
+ expect(expanded.map(row=>row.querySelectorAll('[data-safety-indicator]').length),'REUSED_ID_ONE_REVIEWABLE_OCCURRENCE').toEqual([1,0]);
+ const only=await details(expanded[0]!.querySelector<HTMLButtonElement>('[data-safety-indicator] > button')!);
+ expect(only).toHaveLength(1);
+ expect(only[0],'EXPANDED_VIEW_USES_THE_SAME_ATTRIBUTION').toContain(hostSaw?'Action · Unknown':'Action · Local search (Grep)');
+ expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(3);
+});
+
+/** A refresh clears the projection until its first page (#4513): an open
+ * dialog keeps the host verdict, including the refresh after marking safe. */
+test('an open review keeps the host attribution through a refresh',async()=>{
+ await scene(320,'light',false,reused);
+ await patch({action:'reuse',id:'tool_c'});
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.attributionUnknown?.length??0,{timeout:8000}).toBeGreaterThan(0);
+ await userEvent.click([...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].find(b=>!b.closest('[data-safety-turn-event]'))!);
+ await expect.element(page.getByRole('dialog',{name:'Safety input details'})).toBeVisible();
+ const search=()=>[...document.querySelectorAll('[data-safety-trigger]')].find(e=>e.textContent?.includes('Workspace read'))?.textContent??'';
+ const seen:string[]=[];const observer=new MutationObserver(()=>seen.push(search()));
+ observer.observe(document.querySelector('[data-safety-details]')!,{subtree:true,childList:true,characterData:true});
+ try{
+  flushSync(()=>ui!.stores.safety.getState().begin('odyssey_refresh'));
+  expect(ui!.stores.safety.getState().projection).toBeNull();
+  expect(search(),'REFRESH_KEEPS_THE_HOST_VERDICT').toContain('Action · Unknown');
+  ui!.stores.safety.getState().refresh();
+  await expect.poll(()=>ui!.stores.safety.getState().status,{timeout:5000}).toBe('ready');
+  const fetch=[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('Web fetch'))!;
+  await userEvent.click([...fetch.querySelectorAll<HTMLButtonElement>('button,[role=button]')].find(b=>b.textContent==='Mark as safe')!);
+  await userEvent.click(page.getByRole('button',{name:'Mark this input as safe',exact:true}));
+  await expect.poll(()=>ui!.stores.safety.getState().status==='ready'&&ui!.stores.safety.getState().projection?.unresolvedCount===2,{timeout:5000}).toBe(true);
+ }finally{observer.disconnect();}
+ expect(seen.filter(text=>/Action · (Local search|Bash|Grep)/.test(text)),'REVIEW_NEVER_NAMES_A_FLAGGED_ACTION').toEqual([]);
+ expect(search()).toContain('Action · Unknown');
+});
+
+test('mounted tool indicators share one turn index per messages array',async()=>{
+ await scene(1280,'light',false,reused);
+ await userEvent.click(page.getByRole('button',{name:/^3 steps/}));
+ await expect.poll(()=>host!.querySelectorAll('[data-tool-call]').length).toBe(3);
+ const chat=ui!.stores.chat.getState(),buffer=chat.buffers.ithaca!,before=turnToolIndexBuilds();
+ flushSync(()=>ui!.stores.chat.setState({buffers:{...chat.buffers,ithaca:{...buffer,messages:[...buffer.messages]}}}));
+ expect(turnToolIndexBuilds()-before,'ONE_INDEX_BUILD_PER_MESSAGES_ARRAY').toBe(1);
+});
+
+/** An ask exchange draws no step: the Grep under the same ID carries the input. */
+const asked:ChatMessage={...defaultMessage,toolCalls:[{id:'tool_c',name:visibleToolName(ASK_USER_CONTRACT.name,'claude'),inputJson:'{}',input:{},status:'complete'},...defaultMessage.toolCalls],
+ parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'tool',toolIndex:2},{kind:'text',text:'Voyage notes retained.'}],
+ askUserExchanges:[{requestId:'tool_c',questions:[{question:'Sail past the sirens?',header:'Course',multiSelect:false,options:[{label:'Sail on',description:'Keep the course'},{label:'Turn back',description:'Return to Aeaea'}]}]}]};
+function allCounts(){
+ return [...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] > button')].filter(b=>b.getClientRects().length>0)
+  .reduce((n,b)=>n+Number(/· (\d+) unresolved input/.exec(b.getAttribute('aria-label')??'')?.[1]??0),0);
+}
+test('an ask exchange reusing a search ID leaves the input on the search step',async()=>{
+ await scene(320,'light',false,asked);
+ expect(allCounts(),'EVERY_UNRESOLVED_INPUT_HAS_AN_INDICATOR').toBe(ui!.stores.safety.getState().projection?.unresolvedCount);
+ await userEvent.click(page.getByRole('button',{name:/^2 steps/}));
+ await expect.poll(()=>host!.querySelectorAll('[data-tool-call]').length).toBe(2);
+ expect(host!.querySelector('[data-tool-call="tool_c"] [data-safety-indicator]'),'SEARCH_STEP_CARRIES_THE_INPUT').not.toBeNull();
+ expect(allCounts()).toBe(3);
+});
+
+test('calls under a reused ID and an ID that looks like a repeat keep distinct cards',async()=>{
+ const errors=vi.spyOn(console,'error');
+ try{
+  const calls=(['Grep','Bash','Glob'] as const).map((name,i)=>({id:i<2?'x':'x:1',name,inputJson:'{}',input:{pattern:'sirens'},output:'notes/loom.md',status:'complete' as const}));
+  await scene(320,'light',false,{...defaultMessage,toolCalls:calls,parts:[...calls.map((_,toolIndex)=>({kind:'tool' as const,toolIndex})),{kind:'text',text:'Voyage notes retained.'}]});
+  await userEvent.click(page.getByRole('button',{name:/^3 steps/}));
+  await expect.poll(()=>host!.querySelectorAll('[data-tool-call]').length,{message:'BUBBLE_DRAWS_EVERY_CALL'}).toBe(3);
+  const timeline=document.createElement('div');document.body.append(timeline);const extra=createRoot(timeline);
+  try{
+   flushSync(()=>extra.render(<BrainUiProvider root={ui!}><ToolCallTimeline live toolCalls={calls} onApproval={noop}/></BrainUiProvider>));
+   expect(timeline.querySelectorAll('[data-tool-call]').length,'TIMELINE_DRAWS_EVERY_CALL').toBe(3);
+  }finally{flushSync(()=>extra.unmount());timeline.remove();}
+  expect(errors.mock.calls.map(args=>String(args[0])).filter(text=>text.includes('same key')),'TOOL_KEYS_NEVER_COLLIDE').toEqual([]);
+ }finally{errors.mockRestore();}
 });
 
 test('open delivery, pruning, recorder loss and explicit unavailable evidence remain restrictive',async()=>{

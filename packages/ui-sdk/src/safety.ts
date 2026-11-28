@@ -14,7 +14,11 @@ export const safetyProjectionSchema = z.strictObject({ session: safetySessionKey
   coverage: z.strictObject({ detectorVersion: z.literal(1), state: z.enum(["complete", "incomplete", "unknown"]),
     epochs: z.array(z.strictObject({ id, backendId: id, startSequence: revision, endSequence: revision.nullable(),
       mandatory: z.array(id).max(32), acknowledged: z.array(id).max(32), status: z.enum(["complete", "incomplete", "unknown"]), reason: text(512).nullable() })).max(128),
-    exclusions: z.array(id).max(4) }) });
+    exclusions: z.array(id).max(4) }),
+  // Opt-in (#4513), display-only: bindings whose collector observed
+  // differently named calls under a tool-use ID, with those IDs; `null`
+  // covers every ID of the binding. A turn never checked reports nothing.
+  attributionUnknown: z.array(z.strictObject({ bindingId: id, toolUseIds: z.array(id).max(8).nullable() })).max(128).optional() });
 const source = z.enum(["web_fetch", "web_search", "staged_share", "chat_attachment", "workspace_read", "mcp_document", "user_marked", "fetching_command", "unclassified_command", "compute_output", "apify_result", "github_result", "egress_connection", "legacy_unknown"]);
 const exposure = z.enum(["open", "finalized", "interrupted_unknown"]);
 const provenance = z.union([z.null(), z.strictObject({ kind: z.literal("web_origin"), origin: z.strictObject({scheme:z.enum(["http","https"]),host:text(253),port:z.number().int().min(1).max(65535)}), verifiedBy:z.literal("host_transport") }),
@@ -70,7 +74,7 @@ export type SafetyReviewBody = z.infer<typeof safetyReviewBodySchema>;
 export type SafetyReviewReceipt = z.infer<typeof safetyReviewReceiptSchema>;
 export type SafetyReviewResponse = z.infer<typeof safetyReviewResponseSchema>;
 
-export const clientSafetyReadSchema = z.strictObject({type:z.literal("safety_read"),requestId:id,version:z.literal(1),target:safetyTargetSchema,cursor:z.string().max(512).nullable().optional(),limit:z.number().int().min(1).max(100).optional(),includeEntries:z.literal(true).optional(),includeAdmissions:z.literal(true).optional(),includeNonDelivery:z.literal(true).optional()});
+export const clientSafetyReadSchema = z.strictObject({type:z.literal("safety_read"),requestId:id,version:z.literal(1),target:safetyTargetSchema,cursor:z.string().max(512).nullable().optional(),limit:z.number().int().min(1).max(100).optional(),includeEntries:z.literal(true).optional(),includeAdmissions:z.literal(true).optional(),includeNonDelivery:z.literal(true).optional(),includeAttribution:z.literal(true).optional()});
 export const clientSafetySubscribeSchema = z.strictObject({type:z.literal("safety_subscribe"),requestId:id,version:z.literal(1),identity:safetyIdentitySchema,afterRevision:revision,snapshotId:id});
 export const clientSafetyUnsubscribeSchema = z.strictObject({type:z.literal("safety_unsubscribe"),version:z.literal(1)});
 export const serverSafetyHistorySchema = z.strictObject({type:z.literal("safety_history"),requestId:id,page:safetyPageSchema});

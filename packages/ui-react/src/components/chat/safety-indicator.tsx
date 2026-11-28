@@ -9,6 +9,7 @@ import { activeChat, useChatStore, type ChatMessage, type ToolCall } from "../..
 import { READING_COLUMN_ATTR } from "../../lib/client-environment.js";
 import { entryEvidence, safetyEvidence, type SafetyEvidence } from "../../lib/safety-evidence.js";
 import { createSafetyReviewer, type SafetyReviewProgress } from "../../lib/safety-reviewer.js";
+import { timelineSteps, turnToolIndex } from "./turn-tool-index.js";
 
 const formatAuthority = ({host,port}:{host:string;port:number}) => `${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`;
 
@@ -16,10 +17,17 @@ const sources:Record<SafetyEvidence["occurrence"]["source"],string>={web_fetch:"
   workspace_read:"Workspace read",mcp_document:"External tool input",user_marked:"Marked untrusted",fetching_command:"Fetching command",unclassified_command:"Unclassified command",
   compute_output:"Compute output",apify_result:"Apify result",github_result:"GitHub result",egress_connection:"Network input",legacy_unknown:"Input with an unknown source"};
 
-/** The host's tool identity AND turn identity must match the rendered entry. */
+/** The host's tool identity AND turn identity must match the rendered entry.
+ * The runtime can reuse one tool-use ID for several calls in a turn (#4513),
+ * so attribution and placement look at every call of the turn: the input
+ * shows once, at the turn's first drawn step under its ID. */
 export function ToolSafetyIndicator({turnId,toolCalls}:{turnId?:string;toolCalls:readonly ToolCall[]}) {
   const root=useBrainUiRoot(),records=useStore(root.stores.safety,s=>s.records);
-  const entries=useMemo(()=>entryEvidence(records,turnId,toolCalls.map(tool=>tool.id)),[records,turnId,toolCalls]);
+  const messages=useChatStore(s=>activeChat(s).messages);
+  const turn=turnId?turnToolIndex(messages).get(turnId):undefined;
+  // O(1) per call: shown here unless another drawn step under its ID comes first.
+  const ids=useMemo(()=>toolCalls.filter(tool=>!turn?.drawn.has(tool)||turn.firstStep.get(tool.id)===tool).map(tool=>tool.id),[turn,toolCalls]);
+  const entries=useMemo(()=>entryEvidence(records,turnId,ids),[records,turnId,ids]);
   return <SafetyIndicator entries={entries} toolCalls={toolCalls} turnId={turnId}/>;
 }
 
@@ -29,20 +37,12 @@ export function SessionSafety({visibleMessages}:{visibleMessages:readonly ChatMe
   const sessionId=useChatStore(s=>s.activeSessionId),auth=useStore(root.authLock.state,s=>s.phase);
   const retained=useRef<{scope:string;groups:Array<[string,SafetyEvidence[]]>;projection:typeof state.projection}>({scope:"",groups:[],projection:null});
   const [shown,setShown]=useState(25);
-  const toolsByTurn=useMemo(()=>{
-    const tools=new Map<string,ToolCall[]>();
-    for(const message of messages){
-      const turn=message.turnId??message.streamTurnId;
-      if(!turn||!message.toolCalls.length)continue;
-      const calls=tools.get(turn)??[];
-      for(const call of message.toolCalls)calls.push(call);
-      tools.set(turn,calls);
-    }
-    return tools;
-  },[messages]);
+  const index=turnToolIndex(messages);
   const groups=useMemo(()=>{
     const visible=new Set<string>();
-    for(const message of visibleMessages){const turn=message.turnId??message.streamTurnId;if(turn)for(const tool of message.toolCalls)visible.add(`${turn}\0${tool.id}`);}
+    // Only a drawn step carries an indicator: an input joined to no step
+    // keeps its own turn event here.
+    for(const message of visibleMessages){const turn=message.turnId??message.streamTurnId;if(turn)for(const tool of timelineSteps(message))visible.add(`${turn}\0${tool.id}`);}
     const result=new Map<string,SafetyEvidence[]>();
     for(const entry of safetyEvidence(state.records).values()){
       const r=entry.occurrence;
@@ -85,7 +85,7 @@ export function SessionSafety({visibleMessages}:{visibleMessages:readonly ChatMe
     {p?.reasons.includes("recording_failed")&&<p>Recording is unavailable. Restrictions remain in effect.</p>}
     <details><summary className="min-h-11 cursor-pointer py-3">What this evidence covers</summary><p>Coverage describes the host's supported detectors. It does not verify content safety. Proxied shell local reads and opaque transport may have no tool attribution.</p></details>
     {displayed.map(([turn,entries])=><div key={turn} data-safety-turn-event={turn} className="flex min-w-0 items-center gap-2">
-      <SafetyIndicator entries={entries} toolCalls={toolsByTurn.get(turn)} turnId={turn}/><span>Turn event · {entries.some(e=>e.occurrence.source==="egress_connection"&&!toolsByTurn.get(turn)?.some(tool=>tool.id===e.occurrence.entry?.toolUseId))?"Network input · The proxy could not identify the tool that opened the connection.":"Input safety evidence"}</span>
+      <SafetyIndicator entries={entries} toolCalls={index.get(turn)?.calls} turnId={turn}/><span>Turn event · {entries.some(e=>e.occurrence.source==="egress_connection"&&!index.get(turn)?.calls?.some(tool=>tool.id===e.occurrence.entry?.toolUseId))?"Network input · The proxy could not identify the tool that opened the connection.":"Input safety evidence"}</span>
     </div>)}
     {shownGroups.length>displayed.length&&<Button label={`Show more safety events (${shownGroups.length-displayed.length} remaining)`} tone="quiet" reach onClick={()=>setShown(n=>n+25)}/>}
   </aside>;
@@ -104,11 +104,19 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
   const root=useBrainUiRoot(),sessionId=useChatStore(s=>s.activeSessionId),auth=useStore(root.authLock.state,s=>s.phase);
   const supported=useStore(root.stores.safety,s=>s.supported),readReason=useStore(root.stores.safety,s=>s.reason);
   const readStatus=useStore(root.stores.safety,s=>s.status),historyScopeKey=useStore(root.stores.safety,s=>s.historyScopeKey);
+  // The host decides attribution (#4513); never inferred from the transcript.
+  const liveAttribution=useStore(root.stores.safety,s=>s.projection?.attributionUnknown),projectionLoaded=useStore(root.stores.safety,s=>!!s.projection);
   const chatCount=useStore(root.stores.safety,s=>s.status==="ready"&&s.identity&&"sessionId" in s.identity&&s.identity.sessionId===sessionId?s.projection?.unresolvedCount:undefined);
   const chatTotal=chatCount===undefined?"Whole chat · current count unavailable":`Whole chat · ${chatCount} unresolved input${chatCount===1?"":"s"}`;
   const [open,setOpen]=useState(false),[limit,setLimit]=useState(20),[position,setPosition]=useState({left:12,top:12});
   const trigger=useRef<HTMLButtonElement>(null),panel=useRef<HTMLDivElement>(null),id=useId();
   const scope=`${sessionId}\0${root.authLock.epoch()}\0${historyScopeKey}`,held=useRef<{scope:string;entries:SafetyEvidence[]}>({scope,entries:[]});
+  // A refresh clears the projection until its first page: an open dialog
+  // keeps the last host verdict, and before any loads it names no action.
+  const verdict=useRef<{scope:string;loaded:boolean;value:typeof liveAttribution}>({scope,loaded:false,value:undefined});
+  if(verdict.current.scope!==scope)verdict.current={scope,loaded:false,value:undefined};
+  if(projectionLoaded)verdict.current={scope,loaded:true,value:liveAttribution};
+  const attribution=verdict.current.value,attributionLoaded=verdict.current.loaded;
   const allowed=auth==="active"&&supported&&(readStatus!=="unavailable"||readReason==="disconnected");
   if(held.current.scope!==scope||!allowed)held.current={scope,entries:[]};
   if(currentEntries.length&&allowed)held.current={scope,entries:currentEntries};
@@ -165,13 +173,23 @@ function SafetyIndicator({entries:currentEntries,toolCalls,turnId}:{entries:Safe
       style={{...position,width:"min(384px, calc(100vw - 24px))",maxHeight:"min(65vh, 520px)",overflowWrap:"anywhere"}}>
       <div className="flex items-center justify-between gap-2"><strong>{name}</strong><IconButton icon="dismiss" name="Close safety details" style={{minWidth:44,minHeight:44}} onClick={close}/></div>
       <p className="mb-3 text-xs">Marking an input safe accepts that input for this chat. Its contents stay in the model’s context.</p>
-      {entries.slice(0,limit).map(entry=><SafetyTrigger key={entry.occurrence.id} entry={entry} nextIndicator={nextIndicator} showNext={showNext} toolName={entry.occurrence.turnId===turnId ? toolCalls?.find(tool=>tool.id===entry.occurrence.entry?.toolUseId)?.name : undefined}/>)}
+      {entries.slice(0,limit).map(entry=><SafetyTrigger key={entry.occurrence.id} entry={entry} nextIndicator={nextIndicator} showNext={showNext} unattributed={unknownAttribution(attribution,entry)}
+        toolName={unknownAttribution(attribution,entry) ? null : !attributionLoaded&&entry.occurrence.entry ? undefined : entry.occurrence.turnId===turnId ? toolCalls?.find(tool=>tool.id===entry.occurrence.entry?.toolUseId)?.name : undefined}/>)}
       {entries.length>limit&&<Button label="Show more inputs" tone="quiet" reach onClick={()=>setLimit(n=>n+20)}/>}
     </div>,document.body)}
   </span>;
 }
 
-function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvidence;toolName?:string;nextIndicator:()=>HTMLButtonElement|null|undefined;showNext:()=>void}) {
+/** Why the host reports an input's tool as unknown (#4513): it saw several
+ * names under its tool-use ID, or could not check every ID of the turn. */
+function unknownAttribution(flags:readonly {bindingId:string;toolUseIds:readonly string[]|null}[]|undefined,entry:SafetyEvidence):"id"|"turn"|undefined {
+  const id=entry.occurrence.entry?.toolUseId;
+  if(!id)return undefined;
+  const flag=flags?.find(f=>f.bindingId===entry.occurrence.bindingId);
+  return !flag?undefined:flag.toolUseIds===null?"turn":flag.toolUseIds.includes(id)?"id":undefined;
+}
+
+function SafetyTrigger({entry,toolName,unattributed,nextIndicator,showNext}:{entry:SafetyEvidence;toolName?:string|null;unattributed?:"id"|"turn";nextIndicator:()=>HTMLButtonElement|null|undefined;showNext:()=>void}) {
   const root=useBrainUiRoot(),state=useStore(root.stores.safety),auth=useStore(root.authLock.state,s=>s.phase);
   const [savedRule,setSavedRule]=useState<string|null>(null);
   const [future,setFuture]=useState(false),[recipient,setRecipient]=useState(false),[prepared,setPrepared]=useState<SafetyFuturePrepared|null>(null);
@@ -229,7 +247,9 @@ function SafetyTrigger({entry,toolName,nextIndicator,showNext}:{entry:SafetyEvid
     <p>Observed · {r.detector==="tool_search_output"?"Local search result":sources[r.source]} · <time dateTime={new Date(r.observedAt).toISOString()}>{new Date(r.observedAt).toLocaleString()}</time></p>
     {toolName&&<p>Action · {["Grep","grep","Glob"].includes(toolName)?`Local search (${toolName})`:toolName}</p>}
     {r.provenance&&<p>Destination · {provenance}</p>}
-    {r.source==="egress_connection"&&!toolName&&<p>The proxy saw this connection. It could not identify which tool opened it.</p>}
+    {toolName===null&&<p>{unattributed==="turn"?"Action · Unknown. The host could not verify that only one tool used this call ID in this turn."
+      :"Action · Unknown. The host saw more than one tool use this call ID, so none of them is proven to be the source of this input."}</p>}
+    {r.source==="egress_connection"&&toolName===undefined&&<p>The proxy saw this connection. It could not identify which tool opened it.</p>}
     {noDelivery&&<p>The fetch never ran. This attempt stays in history and needs no review.</p>}
     {!noDelivery&&!r.provenance&&<p>{r.detector==="tool_search_output"?searchSource :"The host did not record a verified origin for this input."}</p>}
     {savedRule&&<p role="status">{savedRule}</p>}
