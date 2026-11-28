@@ -131,6 +131,23 @@ describe("bounded hygiene repair CLI", () => {
     expect(snapshot(root)).toEqual(before); expect(bytes(root)).toBe(original);
   });
 
+  test("a preview and a check leave the tracked caches byte-identical; brain index still prunes them (#4875)", async () => {
+    const root = brain(), fp = await fingerprint(root);
+    // Entries nothing in the brain reaches any more: what an index run prunes.
+    write(root, ".brain-cache/contexts.jsonl", '{"k":"stale-context","v":"from a note long gone"}\n');
+    write(root, ".brain-cache/assets.jsonl", '{"k":"deadbeef:Gone","v":"a description of nothing"}\n');
+    const before = snapshot(root);
+    expect(Object.keys(before)).toEqual(expect.arrayContaining([".brain-cache/contexts.jsonl", ".brain-cache/assets.jsonl"]));
+    await preview(root, fp);
+    expect(snapshot(root)).toEqual(before);
+    const checked = await cli(root, "check", LINK);
+    expect(checked.code).toBe(0); expect(checked.out.status).toBe("still_detected");
+    expect(snapshot(root)).toEqual(before);
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    expect(readFileSync(join(root, ".brain-cache/contexts.jsonl"), "utf8")).toBe("");
+    expect(readFileSync(join(root, ".brain-cache/assets.jsonl"), "utf8")).toBe("");
+  });
+
   test("stale fingerprint writes nothing", async () => {
     const root = brain(), fp = await fingerprint(root), p = await preview(root, fp), before = snapshot(root);
     const r = await apply(root, "000000000000", p);
