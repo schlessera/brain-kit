@@ -39,13 +39,14 @@ describe("launch sites (#4301 A6)", () => {
   test("workerCommand feeds only the bootstrap; the bootstrap has exactly the classified callers", () => {
     expect(calls("workerCommand"), "WORKER_COMMAND_CALLERS").toEqual(["packages/ui-sdk/src/server/worker-launcher.ts:workerBootstrap"]);
     expect(calls("workerBootstrap"), "WORKER_BOOTSTRAP_CALLERS").toEqual([
+      // L3: synchronous maintenance on spawnSync, not qualified; it walks (#4301 path O5, #5026).
+      "packages/ui-sdk/src/server/maintenance-worker.ts:runMaintenanceWorkerSteps",
       "packages/ui-sdk/src/server/worker-launcher.ts:spawnQualifiedSteps",
       "packages/ui-sdk/src/server/worker-launcher.ts:launchAgentWorkerSteps",
       "packages/ui-sdk/src/server/worker-launcher.ts:probeWorkerHostSteps",
     ]);
     expect(calls("spawnQualifiedSteps").map(site => relative("packages", site)).sort(), "DIRECT_SPAWN_CALLERS").toEqual([
       "ui-sdk/src/server/maintenance-worker.ts:launchMaintenanceWorkerSteps",
-      "ui-sdk/src/server/maintenance-worker.ts:runMaintenanceWorkerSteps",
     ]);
   });
   test("both caller-command launch functions qualify the namespace before they release the gate", () => {

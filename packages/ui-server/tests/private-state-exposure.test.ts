@@ -4,7 +4,7 @@
  * unavailable worker host, never refuses boot, and is recorded without a
  * synchronous write on the launch path.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -14,7 +14,8 @@ import { createHostBoundary } from "../src/brain/host-boundary";
 import { createWriterGate } from "../src/brain/writer-gate";
 import { createRuntimeStatus } from "../src/activity/runtime-status";
 import { WorkerIdentityCleanupError } from "../../ui-sdk/src/server/worker-identity";
-import { brainGitSync, runMaintenanceWorker } from "../../ui-sdk/src/server/maintenance-worker";
+import * as maintenanceWorker from "../../ui-sdk/src/server/maintenance-worker";
+import { runMaintenanceWorker } from "../../ui-sdk/src/server/maintenance-worker";
 import { prepareWorkerSandbox } from "../../ui-sdk/src/server/worker-launcher";
 import { createFixtureMaintenanceHost } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
 import { emitTurnError } from "../src/ws/bridge-capabilities/turn-error";
@@ -61,14 +62,6 @@ describe("one typed refusal at every wrap and flatten site (A18)", () => {
     }
   });
 
-  test("brainGitSteps rethrows a refusal instead of answering 127", () => {
-    const root = mkdtempSync(join(resolve(import.meta.dir, "../../../tmp"), "odysseus-git-exposure-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
-    const host = createFixtureMaintenanceHost(root); cleanups.push(host.cleanup);
-    cleanups.push(registerWorkerPrivateState(root, { roots: () => [VISIBLE], walk: () => undefined }));
-    let thrown: unknown;
-    try { brainGitSync(root, ["rev-parse", "--git-dir"], host); } catch (error) { thrown = error; }
-    expect(privateStateRefusalOf(thrown)?.reason, "GIT_REFUSAL_NOT_127").toBe("private_state_exposed");
-  }, watchdogMs(30_000));
 });
 
 describe("runtime.privateStateLastExposure (A28)", () => {
@@ -275,14 +268,17 @@ describe("review round 3 (F38, F40)", () => {
     expect(performance.now() - started, "F38_CANCELLATION_IS_PROMPT").toBeLessThan(5_000);
   }, watchdogMs(60_000));
 
+  // Under path O5 the scratch query is a synchronous maintenance launch, which
+  // walks and never refuses; the rethrow keeps the type for #5026's qualified
+  // form, so the refusal is supplied at the query's own seam.
   test("F40: a scratch check refused for private state refuses the sandbox, never a read-only scratch", () => {
-    const root = mkdtempSync(join(resolve(import.meta.dir, "../../../tmp"), "odysseus-scratch-exposure-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
-    const brain = join(root, "brain"); mkdirSync(join(brain, ".brain/scratch"), { recursive: true }); writeFileSync(join(brain, ".gitignore"), ".brain/scratch/\n");
-    expect(Bun.spawnSync(["git", "init", "-q", brain], { env: { PATH: "/usr/bin:/bin" } }).exitCode).toBe(0);
-    const host = createFixtureMaintenanceHost(brain); cleanups.push(host.cleanup);
-    cleanups.push(registerWorkerPrivateState(brain, { roots: () => [VISIBLE], walk: () => undefined }));
+    const root = mkdtempSync(join(tmpdir(), "odysseus-scratch-exposure-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const brain = join(root, "brain"); mkdirSync(join(brain, ".brain/scratch"), { recursive: true });
+    const refused = spyOn(maintenanceWorker, "brainGitSteps").mockImplementation(() => { throw exposure(); });
+    cleanups.push(() => refused.mockRestore());
     let thrown: unknown;
-    try { prepareWorkerSandbox(brain, { maintenance: host }); } catch (error) { thrown = error; }
+    try { prepareWorkerSandbox(brain, {}); } catch (error) { thrown = error; }
+    expect(refused, "F40_SCRATCH_QUERY_RAN").toHaveBeenCalled();
     expect(privateStateRefusalOf(thrown)?.reason, "F40_SCRATCH_REFUSAL_KEEPS_ITS_TYPE").toBe("private_state_exposed");
   }, watchdogMs(60_000));
 });

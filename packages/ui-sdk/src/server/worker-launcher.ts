@@ -2,7 +2,7 @@ import { diagnosticInterval } from "./startup-timing.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { registerWorkerRtk } from "./worker-rtk.js";
-import { createWorkerStatusPipe, createWorkerStatusPipeSteps } from "./worker-status.js";
+import { createWorkerStatusPipe, createWorkerStatusPipeSteps, WorkerStatusInterrupted } from "./worker-status.js";
 import { WORKER_NAMESPACE_SEAL } from "./namespace-qualification.js";
 import { kernelRealpath, privateStateRefusalOf, qualifyWorkerNamespaceSteps } from "./worker-private-state.js";
 import { prepareWorkerIdentity, workerCleanupUnconfirmed, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
@@ -11,7 +11,6 @@ import { conformingPrivateSocket, createPrivateSocketDirectory, verifyPrivateSoc
 import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
   realpathSync, rmSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
 import { createWorkerFreezer } from "./worker-freezer.js";
@@ -68,6 +67,13 @@ const STATE_GATE = ["/bin/sh", "-c", 'IFS= read -r go && [ "$go" = go ] || exit 
  * descriptor. Only the shell and its builtins run, never a PATH lookup.
  */
 const START_GATE = ["/bin/sh", "-c", 'IFS= read -r go <&4 && [ "$go" = go ] || exit 125; exec 4<&-; exec "$@"', "brain-worker-start-gate"];
+/**
+ * The start gate of a direct-spawn maintenance or transport launch (#4301).
+ * It sits before the rlimit prefix, so the payload keeps its limits and
+ * prlimit's own diagnostic for a missing executable, and it reads the gate
+ * line in a subshell, so no variable of the payload's environment changes.
+ */
+const DIRECT_START_GATE = ["/bin/sh", "-c", '( IFS= read -r go <&4 && [ "$go" = go ] ) || exit 125; exec 4<&-; exec "$@"', "brain-worker-start-gate"];
 /**
  * A separate-identity payload's own start gate (#3402). The helper protocol
  * gates bubblewrap with `--block-fd` on a pipe whose only writer is the
@@ -1078,7 +1084,9 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
  * Private trusted bootstrap. It validates/clears descriptors, joins the
  * worker's cgroup when it has one, then resets signal dispositions and execs the launcher.
  */
-export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: { source: string; gateSource: string }): { command: string[]; env: Record<string, string>; payload: WorkerLaunchPayload } {
+export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: { source: string; gateSource: string },
+  /** A direct spawn's gate goes before the rlimit prefix (#4301). */
+  direct = false): { command: string[]; env: Record<string, string>; payload: WorkerLaunchPayload } {
   // Resolve using this package's source/build output, never the brain's module resolver.
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
   const { limits: _limits, populateState: _populate, ...launch } = input;
@@ -1093,7 +1101,8 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: {
     // before verification and freezer setup: bubblewrap's reaper outlives
     // its blocked gate shell.
     const payloadStart = argv.length - payloadCommand(input).length;
-    if (gated(input)) argv.splice(payloadStart - STATE_GATE.length, STATE_GATE.length, ...START_GATE);
+    if (direct && !gated(input)) argv.splice(payloadStart - rlimitPrefix(launchLimits(input)).length, 0, ...DIRECT_START_GATE);
+    else if (gated(input)) argv.splice(payloadStart - STATE_GATE.length, STATE_GATE.length, ...START_GATE);
     else argv.splice(payloadStart, 0, ...START_GATE);
     // Bun execve closes descriptors above stdio. Reopen only these host-owned
     // FIFOs after the unchanged bootstrap filter. bubblewrap keeps the status
@@ -1186,49 +1195,59 @@ function* supervisorGoneSteps(child: SpawnedWorkerProcess, boundMs: number): Wor
 export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number; stdout: number; stderr: number },
   onSpawn?: (child: SpawnedWorkerProcess) => void,
   /**
-   * `timeoutMs` counts from the spawn, as `Bun.spawnSync`'s did, and zero
-   * disables it as there: a launch whose setup outlasts it is stopped
-   * unreleased and reported `timedOut`. An abort seen before release stops
-   * the sandbox and throws its reason. Neither ever starts the payload.
+   * `timeoutMs` counts from the spawn, and zero disables it: a launch whose
+   * setup outlasts it is stopped unreleased with SIGKILL, as the caller's own
+   * timer would have, and reported `timedOut`. An abort seen before release
+   * stops the sandbox and throws its reason as given. Both are checked while
+   * the PID is awaited too. Neither ever starts the payload.
    */
   options: { timeoutMs?: number; signal?: AbortSignal } = {}): WorkerSteps<GatedWorkerSpawn> {
   const status = yield* createWorkerStatusPipeSteps();
-  let child: ReturnType<typeof Bun.spawn> | undefined, aborted = false;
+  let child: ReturnType<typeof Bun.spawn> | undefined, stopped = false;
   try {
-    const boot = workerBootstrap(input, undefined, status);
+    const boot = workerBootstrap(input, undefined, status, true);
     const spawnedAt = Date.now();
     const deadline = options.timeoutMs !== undefined && options.timeoutMs > 0 ? spawnedAt + options.timeoutMs : undefined;
     child = Bun.spawn(boot.command, { cwd: "/", env: boot.env, ...stdio });
     onSpawn?.(child);
     const supervisor = child;
     const close = () => { status.close(supervisor); };
+    const timedOut = () => deadline !== undefined && Date.now() >= deadline;
+    const unreleasedTimeout = (pid?: number): GatedWorkerSpawn => {
+      // Stopped as the caller's timer stops a running launch, never released.
+      supervisor.kill("SIGKILL");
+      return { child: supervisor, spawnedAt, ...(deadline ? { deadline } : {}), ...(pid ? { pid } : {}), timedOut: true, close };
+    };
     let pid: number;
-    try { pid = yield* status.childPidSteps(child.pid, spawnedAt + STATE_SETUP_MS); }
+    try { pid = yield* status.childPidSteps(child.pid, spawnedAt + STATE_SETUP_MS, () => Boolean(options.signal?.aborted) || timedOut()); }
     catch (error) {
+      if (error instanceof WorkerStatusInterrupted) {
+        if (options.signal?.aborted) { stopped = true; throw options.signal.reason; }
+        return unreleasedTimeout();
+      }
       // Bubblewrap that is gone, or goes, failed its own setup: its exit stands.
       if (yield* supervisorGoneSteps(child, SUPERVISOR_EXIT_BOUND_MS)) { close(); return { child, spawnedAt, ...(deadline ? { deadline } : {}), close }; }
+      stopped = true;
       throw new WorkerHostError(error instanceof Error ? error.message : String(error));
     }
     status.closeWriter();
-    // An asynchronous caller's exit closes it; a synchronous one calls `close`.
+    // The caller's exit callback closes it once the child is gone.
     void child.exited.then(close, close);
     yield* qualifyWorkerNamespaceSteps(pid, kernelRealpath(input.brainPath), spawnedAt + STATE_SETUP_MS,
       { site: input.transport ? "transport" : "maintenance", masked: launchMasked(input), ...launchDescription(input, boot.env), launcher: "spawnQualifiedSteps" });
-    if (options.signal?.aborted) { aborted = true; throw options.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"); }
-    if (deadline !== undefined && Date.now() >= deadline) {
-      // Its deadline passed during setup: stopped as spawnSync's timeout stopped it, never released.
-      child.kill("SIGTERM");
-      return { child, spawnedAt, deadline, pid, timedOut: true, close };
-    }
+    if (options.signal?.aborted) { stopped = true; throw options.signal.reason; }
+    if (timedOut()) return unreleasedTimeout(pid);
     status.release();
     return { child, spawnedAt, ...(deadline ? { deadline } : {}), pid, close };
   } catch (error) {
+    // The fallback kill first: observing the gated tree must never skip it.
+    child?.kill("SIGKILL");
     // An unreleased start gate closes only after its sandbox is dead (#3387).
     const gateClosed = status.close(child);
-    child?.kill("SIGKILL");
-    // A refusal or an abort leaves as itself once its sandbox is gone and,
-    // for an asynchronous caller, its gate descriptors are closed.
-    if (child && (aborted || privateStateRefusalOf(error))) {
+    // An abort, a live gate failure or a private-state refusal leaves as
+    // itself once its sandbox is gone and, for an asynchronous caller, its
+    // gate descriptors are closed.
+    if (child && (stopped || privateStateRefusalOf(error))) {
       yield* awaitWorkerExitSteps(child);
       yield* workerStep(() => undefined, () => gateClosed);
     }
@@ -1252,59 +1271,14 @@ function launchMasked(input: WorkerLaunch): boolean {
   return Boolean(input.maintenance?.maskPaths?.length || input.sandbox?.maskPaths?.length);
 }
 
-let waitpid: ((pid: number) => void) | null | undefined;
 /**
- * Reap one exited child of this process without blocking (`waitpid` with
- * WNOHANG). Without libc or FFI the zombie stays until Bun's event loop reaps it.
+ * Wait for a spawned launch's outer process to exit. Only an asynchronous
+ * caller waits; a synchronous one returns at once and Bun's event loop
+ * observes the exit, as before the gate existed.
  */
-function reapChild(pid: number): void {
-  if (waitpid === undefined) {
-    waitpid = null;
-    try {
-      const { dlopen, ptr } = createRequire(import.meta.url)("bun:ffi") as typeof import("bun:ffi");
-      const api = dlopen("libc.so.6", { waitpid: { args: ["i32", "ptr", "i32"], returns: "i32" } });
-      const status = new Int32Array(1);
-      waitpid = target => { api.symbols.waitpid(target, ptr(status), 1); };
-    } catch { /* The event loop reaps it later. */ }
-  }
-  waitpid?.(pid);
-}
-
-/**
- * Wait for a spawned launch's outer process, killing it with SIGTERM at the
- * deadline as `Bun.spawnSync`'s timeout did. `exitCode` is null when a signal
- * ended it. The synchronous form never returns to the event loop, so it reads
- * the exit status the kernel keeps for an unreaped child.
- */
-/** Exit status of a child this process reaped itself; Bun can no longer report it (F7). */
-const reapedExits = new WeakMap<object, number | null>();
-export function awaitWorkerExitSteps(child: SpawnedWorkerProcess, deadline?: number): WorkerSteps<{ exitCode: number | null }> {
-  return workerStep(() => {
-    if (reapedExits.has(child)) return { exitCode: reapedExits.get(child)! };
-    let signalled = false;
-    for (let wait = 1; ; wait = Math.min(wait * 2, 10)) {
-      let stat: string | undefined;
-      try { stat = readFileSync(`/proc/${child.pid}/stat`, "utf8"); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-      if (stat === undefined) {
-        if (child.exitCode !== null || child.signalCode !== null) return { exitCode: child.exitCode };
-        throw new WorkerHostError("the worker's exit status is unavailable");
-      }
-      const fields = stat.slice(stat.lastIndexOf(") ") + 2).split(" ");
-      if (fields[0] === "Z") {
-        const status = Number(fields[49]), exitCode = status & 0x7f ? null : (status >> 8) & 0xff;
-        // Reap it as spawnSync did: consecutive synchronous launches leave no zombies.
-        reapedExits.set(child, exitCode);
-        reapChild(child.pid);
-        return { exitCode };
-      }
-      if (!signalled && deadline !== undefined && Date.now() >= deadline) { signalled = true; child.kill("SIGTERM"); }
-      Bun.sleepSync(wait);
-    }
-  }, async () => {
-    if (reapedExits.has(child)) return { exitCode: reapedExits.get(child)! };
-    const timer = deadline === undefined ? undefined : setTimeout(() => child.kill("SIGTERM"), Math.max(0, deadline - Date.now()));
-    try { await child.exited; } finally { clearTimeout(timer); }
+export function awaitWorkerExitSteps(child: SpawnedWorkerProcess): WorkerSteps<{ exitCode: number | null }> {
+  return workerStep(() => ({ exitCode: child.exitCode }), async () => {
+    await child.exited.catch(() => undefined);
     return { exitCode: child.exitCode };
   });
 }

@@ -525,9 +525,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     privateStateEvents: event => onPrivateStateEvent(event) });
   bootCleanup.push(() => hostExecution.release());
   // A masked launch for a brain with no registered layout runs unqualified, never silently (#4301 Q1 ruling).
-  const stopUnqualifiedLog = onUnqualifiedLaunch(launch => brainLog.emit({ severityText: "WARN",
-    body: `a masked ${launch.site} launch skipped private-state qualification: no private-state layout is registered for brain ${launch.brain} in this process`,
-    attributes: { "launch.site": launch.site, "launch.brain": launch.brain } }));
+  // One WARN per site and brain: synchronous maintenance is never qualified and runs often (#4301 path O5).
+  const loggedUnqualified = new Set<string>();
+  const stopUnqualifiedLog = onUnqualifiedLaunch(launch => loggedUnqualified.has(`${launch.site} ${launch.brain}`) ? undefined : (loggedUnqualified.add(`${launch.site} ${launch.brain}`), brainLog.emit({ severityText: "WARN",
+    body: `a masked ${launch.site} launch skipped private-state qualification: ${launch.site === "synchronous-maintenance" ? `synchronous maintenance is not qualified and walks instead (brain ${launch.brain})` : `no private-state layout is registered for brain ${launch.brain} in this process`}`,
+    attributes: { "launch.site": launch.site, "launch.brain": launch.brain } })));
   bootCleanup.push(stopUnqualifiedLog);
   const boundary = hostExecution.boundary;
   const reconciled = (results: ReturnType<typeof hostExecution.attach>) => {

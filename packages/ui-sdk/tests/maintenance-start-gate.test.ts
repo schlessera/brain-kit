@@ -1,16 +1,16 @@
 /**
  * #4301 commit C2: the direct-spawn maintenance launches (L2
  * `launchMaintenanceWorker`/`runMaintenanceWorker`, L3
- * `runMaintenanceWorkerSync` and its steps) wait at START_GATE before their
+ * stays on main's spawnSync and walks (#4301 path O5)) waits at START_GATE before its
  * payload starts. These pin what must not change (G1-G13 of the design).
  */
 import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { launchMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSteps, runMaintenanceWorkerSync } from "../src/server/maintenance-worker";
+import { launchMaintenanceWorker, runMaintenanceWorker } from "../src/server/maintenance-worker";
+import { WorkerHostError } from "../src/server/worker-launcher";
 import { probeWorkerHost } from "../src/server/worker-launcher";
 import { createOutputStagingStorage } from "./helpers/worker-copy-output";
-import { runWorkerStepsAsync } from "../src/server/worker-steps";
 import { createFixtureWorkerStartupView } from "./helpers/worker-startup-view-fixture";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 
@@ -94,53 +94,6 @@ describe("L2 runMaintenanceWorker", () => {
   }, watchdogMs(30_000));
 });
 
-describe("L3 runMaintenanceWorkerSync and its steps", () => {
-  test("G5: the timeout yields exitCode 1, killed, counted from the spawn, in both forms", async () => {
-    const f = fixture();
-    let started = performance.now();
-    const sync = runMaintenanceWorkerSync({ ...command(f, sh("sleep 30")), timeoutMs: 1_000 });
-    expect(sync, "G5_SYNC_TIMEOUT").toEqual({ stdout: "", stderr: "", exitCode: 1, killed: true });
-    expect(performance.now() - started).toBeLessThan(15_000);
-    started = performance.now();
-    const stepped = await runWorkerStepsAsync(runMaintenanceWorkerSteps({ ...command(f, sh("sleep 30")), timeoutMs: 1_000 }));
-    expect(stepped, "G5_STEPPED_TIMEOUT").toEqual({ stdout: "", stderr: "", exitCode: 1, killed: true });
-    expect(performance.now() - started).toBeLessThan(15_000);
-  }, watchdogMs(60_000));
-
-  test("G5b: a zero timeout disables the deadline, as spawnSync's did, in both forms", async () => {
-    const f = fixture();
-    const options = { ...command(f, sh("sleep 0.3; printf landed")), timeoutMs: 0 };
-    expect(runMaintenanceWorkerSync(options), "G5B_SYNC_ZERO_TIMEOUT_RUNS").toMatchObject({ exitCode: 0, killed: false, stdout: "landed" });
-    expect(await runWorkerStepsAsync(runMaintenanceWorkerSteps(options)), "G5B_STEPPED_ZERO_TIMEOUT_RUNS").toMatchObject({ exitCode: 0, killed: false, stdout: "landed" });
-  }, watchdogMs(30_000));
-
-  test("G5c: a deadline shorter than the sandbox's setup passes before release: killed, the payload never runs, in every form", async () => {
-    const f = fixture();
-    const options = { ...command(f, sh("printf ran")), timeoutMs: 1 };
-    const asynchronous = await runMaintenanceWorker(options);
-    expect(asynchronous, "G5C_ASYNC_DEADLINE_COUNTS_FROM_SPAWN").toMatchObject({ killed: true, stdout: "" });
-    expect(runMaintenanceWorkerSync(options), "G5C_SYNC_DEADLINE_COUNTS_FROM_SPAWN").toMatchObject({ exitCode: 1, killed: true, stdout: "" });
-    // The direct launch itself stops it unreleased: its gate says so, and its exit follows.
-    const worker = launchMaintenanceWorker({ ...options } as Parameters<typeof launchMaintenanceWorker>[0]);
-    expect(worker.gate?.timedOut, "G5C_GATE_STOPPED_UNRELEASED").toBe(true);
-    await Promise.all([new Response(worker.stdout).text(), new Response(worker.stderr).text(), worker.input(""), worker.exited]);
-    await worker.released();
-  }, watchdogMs(30_000));
-
-  test("G12: the synchronous form blocks for the child's lifetime; the stepped form yields", async () => {
-    const f = fixture();
-    let ticks = 0;
-    const timer = setInterval(() => ticks++, 5);
-    try {
-      runMaintenanceWorkerSync({ ...command(f, sh("sleep 0.5")), timeoutMs: 10_000 });
-      const blocked = ticks;
-      await runWorkerStepsAsync(runMaintenanceWorkerSteps({ ...command(f, sh("sleep 0.5")), timeoutMs: 10_000 }));
-      expect(blocked, "G12_SYNC_BLOCKS").toBe(0);
-      expect(ticks, "G12_STEPPED_YIELDS").toBeGreaterThan(10);
-    } finally { clearInterval(timer); }
-  }, watchdogMs(30_000));
-});
-
 describe("both paths", () => {
   test("G6: exit codes 0, 7, 125, 126, 127 and a signal death report exactly as before", async () => {
     const f = fixture();
@@ -148,8 +101,6 @@ describe("both paths", () => {
     for (const [argv, code] of cases) {
       const options = { ...command(f, argv), timeoutMs: 20_000 };
       expect((await runMaintenanceWorker(options)).exitCode, `G6_L2_${code}`).toBe(code);
-      expect(runMaintenanceWorkerSync(options).exitCode, `G6_L3_SYNC_${code}`).toBe(code);
-      expect((await runWorkerStepsAsync(runMaintenanceWorkerSteps(options))).exitCode, `G6_L3_STEPPED_${code}`).toBe(code);
     }
   }, watchdogMs(120_000));
 
@@ -161,56 +112,37 @@ describe("both paths", () => {
     for (let i = 0; i < 3; i++) {
       expect((await runMaintenanceWorker(base)).exitCode, "G8_SUCCESS_RELEASES").toBe(0);
       await expect(runMaintenanceWorker({ ...base, command: ["odysseus"] }), "G8_SPAWN_REFUSAL").rejects.toThrow();
-      expect(runMaintenanceWorkerSync(base).exitCode, "G8_SYNC_SUCCESS_RELEASES").toBe(0);
     }
     expect(existsSync(f.startupView.root), "G8_CALLER_VIEW_KEPT").toBe(true);
   }, watchdogMs(120_000));
 
-  test("G8b: a sandbox setup failure reports bubblewrap's own exit code and stderr, never a throw, 20 times in both forms", async () => {
+  test("G8b: a sandbox setup failure reports bubblewrap's own exit code and stderr, never a throw, 20 times", async () => {
     const f = fixture();
     // The writable file exists when the argv is built and is gone when bubblewrap
     // binds it: bubblewrap itself fails its setup and starts no payload.
     const log = join(f.root, "voyage.log");
     const failing = { ...command(f, sh("exit 0")), writeFiles: [log], timeoutMs: 20_000 };
-    const spawn = Bun.spawn, spawnSync = Bun.spawnSync;
-    const removeFirst = (args: unknown[]) => { if ((args[1] as { env?: Record<string, string> } | undefined)?.env?.BRAIN_WORKER_LAUNCH) rmSync(log, { force: true }); };
-    const spies = [spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => { removeFirst(args); return (spawn as (...a: unknown[]) => unknown)(...args); }) as typeof Bun.spawn),
-      spyOn(Bun, "spawnSync").mockImplementation(((...args: unknown[]) => { removeFirst(args); return (spawnSync as (...a: unknown[]) => unknown)(...args); }) as typeof Bun.spawnSync)];
-    cleanups.push(() => { for (const spy of spies) spy.mockRestore(); });
+    const spawn = Bun.spawn;
+    const spy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
+      if ((args[1] as { env?: Record<string, string> } | undefined)?.env?.BRAIN_WORKER_LAUNCH) rmSync(log, { force: true });
+      return (spawn as (...a: unknown[]) => unknown)(...args);
+    }) as typeof Bun.spawn);
+    cleanups.push(() => spy.mockRestore());
     for (let i = 0; i < 20; i++) {
       writeFileSync(log, "");
-      const asynchronous = await runMaintenanceWorker(failing);
-      expect(asynchronous.exitCode, "G8B_ASYNC_SETUP_FAILURE_EXIT").not.toBe(0);
-      expect(asynchronous.stderr, "G8B_ASYNC_SETUP_FAILURE_STDERR").toContain("bwrap");
-      writeFileSync(log, "");
-      const synchronous = runMaintenanceWorkerSync(failing);
-      expect(synchronous.exitCode, "G8B_SYNC_SETUP_FAILURE_EXIT").not.toBe(0);
-      expect(synchronous.stderr, "G8B_SYNC_SETUP_FAILURE_STDERR").toContain("bwrap");
+      const result = await runMaintenanceWorker(failing);
+      expect(result.exitCode, "G8B_SETUP_FAILURE_EXIT").not.toBe(0);
+      expect(result.stderr, "G8B_SETUP_FAILURE_STDERR").toContain("bwrap");
     }
-  }, watchdogMs(240_000));
-
-  test("G9b: 200 consecutive synchronous launches with no await leave no descriptor behind", async () => {
-    const f = fixture();
-    const options = { ...command(f, sh("exit 0")), timeoutMs: 20_000 };
-    runMaintenanceWorkerSync(options);
-    await Bun.sleep(50);
-    // Bun holds one pidfd per spawned child until its event loop next runs; nothing synchronous can release it.
-    const kinds = () => readdirSync("/proc/self/fd").map(fd => { try { return readlinkSync(`/proc/self/fd/${fd}`); } catch { return "gone"; } });
-    const others = () => kinds().filter(target => target !== "anon_inode:[pidfd]").length;
-    const before = { all: kinds().length, others: others() };
-    for (let i = 0; i < 200; i++) expect(runMaintenanceWorkerSync(options).exitCode).toBe(0);
-    expect(others(), "G9B_NO_DESCRIPTOR_LEFT_IN_ONE_SYNCHRONOUS_STRETCH").toBeLessThanOrEqual(before.others);
-    await Bun.sleep(100);
-    expect(kinds().length, "G9B_NO_DESCRIPTOR_LEFT_AFTER_ONE_TICK").toBeLessThanOrEqual(before.all);
   }, watchdogMs(240_000));
 
   test("G9: no descriptor leaks after 200 launches", async () => {
     const f = fixture();
     const options = { ...command(f, sh("exit 0")), timeoutMs: 20_000 };
-    await runMaintenanceWorker(options); runMaintenanceWorkerSync(options);
+    await runMaintenanceWorker(options);
     await Bun.sleep(50);
     const before = openFds();
-    for (let i = 0; i < 100; i++) { await runMaintenanceWorker(options); runMaintenanceWorkerSync(options); }
+    for (let i = 0; i < 200; i++) await runMaintenanceWorker(options);
     await Bun.sleep(200);
     expect(openFds(), "G9_NO_DESCRIPTOR_LEAK").toBeLessThanOrEqual(before);
   }, watchdogMs(240_000));
@@ -221,4 +153,78 @@ describe("both paths", () => {
       tempLimits: { allowanceBytes: 4 * 1024 * 1024, budgetBytes: 64 * 1024 * 1024 }, timeoutMs: 30_000 })));
     expect(results.map(result => result.stdout), "G13_CONCURRENT_START").toEqual(["0", "1", "2", "3", "4", "5", "6", "7"]);
   }, watchdogMs(60_000));
+});
+
+/** Stop the launch's outer process as soon as it is spawned: bubblewrap never reports, the gate's PID wait stalls. */
+function stallSetup() {
+  const spawn = Bun.spawn;
+  const spy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
+    const child = (spawn as (...a: unknown[]) => ReturnType<typeof Bun.spawn>)(...args);
+    if ((args[1] as { env?: Record<string, string> } | undefined)?.env?.BRAIN_WORKER_LAUNCH) process.kill(child.pid, "SIGSTOP");
+    return child;
+  }) as typeof Bun.spawn);
+  cleanups.push(() => spy.mockRestore());
+}
+
+describe("L2 gate lifecycle (#5016 review r1)", () => {
+  test("G5: a timeout counted from the spawn stops the launch unreleased: killed, the payload never runs, the gate says so", async () => {
+    const f = fixture();
+    const options = { ...command(f, sh("printf ran")), timeoutMs: 1 };
+    // SIGKILL, as the caller's timer sends it: 137, never SIGTERM's 143 (F4).
+    expect(await runMaintenanceWorker(options), "G5_DEADLINE_COUNTS_FROM_SPAWN").toMatchObject({ killed: true, exitCode: 137, stdout: "" });
+    const worker = launchMaintenanceWorker({ ...options } as Parameters<typeof launchMaintenanceWorker>[0]);
+    expect(worker.gate?.timedOut, "G5_GATE_STOPPED_UNRELEASED").toBe(true);
+    await Promise.all([new Response(worker.stdout).text(), new Response(worker.stderr).text(), worker.input(""), worker.exited]);
+    await worker.released();
+  }, watchdogMs(30_000));
+
+  test("G14 (F1, F13): an abort while the PID wait stalls rejects at once with its own reason, null included", async () => {
+    const f = fixture();
+    stallSetup();
+    for (const reason of ["Penelope recalls the ship", null]) {
+      const controller = new AbortController(), started = performance.now();
+      setTimeout(() => controller.abort(reason), 300);
+      const rejected = await runMaintenanceWorker({ ...command(f, sh("printf ran")), signal: controller.signal, timeoutMs: 60_000 }).then(() => "resolved", error => ({ error }));
+      expect(rejected, "G14_ABORT_REASON_AS_GIVEN").toEqual({ error: reason });
+      expect(performance.now() - started, "G14_ABORT_DURING_PID_WAIT_IS_PROMPT").toBeLessThan(3_000);
+    }
+  }, watchdogMs(60_000));
+
+  test("G15 (F1, F4): a deadline while the PID wait stalls stops the launch with SIGKILL, as the caller's timer does: killed, 137", async () => {
+    const f = fixture();
+    stallSetup();
+    const started = performance.now();
+    const result = await runMaintenanceWorker({ ...command(f, sh("printf ran")), timeoutMs: 300 });
+    expect(result, "G15_STALLED_DEADLINE_IS_SIGKILL").toMatchObject({ killed: true, exitCode: 137, stdout: "" });
+    expect(performance.now() - started, "G15_DEADLINE_DURING_PID_WAIT_IS_PROMPT").toBeLessThan(3_000);
+  }, watchdogMs(60_000));
+
+  test("G16 (F2): a gate that fails while bubblewrap lives throws WorkerHostError itself, after stopping it", async () => {
+    const f = fixture();
+    stallSetup();
+    const rejected = await runMaintenanceWorker({ ...command(f, sh("printf ran")), timeoutMs: 0 }).catch(error => error);
+    expect(rejected instanceof WorkerHostError, `G16_LIVE_GATE_FAILURE_IS_WORKER_HOST_ERROR: ${rejected?.name}`).toBe(true);
+  }, watchdogMs(60_000));
+
+  test("G17 (F10): the gate runs outside the payload's rlimits; the payload keeps them", async () => {
+    const f = fixture();
+    const saved = process.env.BRAIN_UI_WORKER_LIMITS;
+    process.env.BRAIN_UI_WORKER_LIMITS = "open_files=8";
+    cleanups.push(() => { if (saved === undefined) delete process.env.BRAIN_UI_WORKER_LIMITS; else process.env.BRAIN_UI_WORKER_LIMITS = saved; });
+    const result = await runMaintenanceWorker({ ...command(f, sh('printf "%s" "$(ulimit -n)"')), timeoutMs: 20_000 });
+    expect(result, `G17_GATE_OUTSIDE_PAYLOAD_LIMITS: ${result.stderr}`).toMatchObject({ exitCode: 0, stdout: "8" });
+  }, watchdogMs(30_000));
+
+  test("G18 (F11): a missing payload executable keeps prlimit's own diagnostic", async () => {
+    const f = fixture();
+    const result = await runMaintenanceWorker({ ...command(f, ["/usr/bin/odysseus-oar"]), timeoutMs: 20_000 });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr, "G18_PRLIMIT_DIAGNOSTIC_KEPT").toContain("prlimit: failed to execute");
+  }, watchdogMs(30_000));
+
+  test("G19 (F12): the gate overwrites no variable of the payload's environment", async () => {
+    const f = fixture();
+    const result = await runMaintenanceWorker({ ...command(f, sh('printf "%s" "$go"')), env: { PATH: "/usr/bin:/bin", go: "old" }, credentials: true, network: false, timeoutMs: 20_000 });
+    expect(result.stdout, `G19_ENV_UNCHANGED: ${result.stderr}`).toBe("old");
+  }, watchdogMs(30_000));
 });

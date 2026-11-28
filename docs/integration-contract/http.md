@@ -1244,7 +1244,10 @@ The additive `private_state_exposed` reason (#4301) means a launched worker's
 own mount table made host private state reachable: a state root, a directory
 above one or part of one is live at a name the launch's UID can open. The host
 reads that table while the sandbox's start gate is closed, so the payload never
-runs; the launch function throws a typed refusal with that reason. It refuses
+runs; the launch function throws a typed refusal with that reason. Agent
+workers and asynchronous maintenance and transport launches are qualified;
+synchronous maintenance (`runMaintenanceWorkerSync`) is not, and keeps the
+admission walk alone (its qualification is tracked separately). It refuses
 only that launch, and the turn whose admission probe it was, for governed and
 strict alike; status advertises no strict fallback for it. Nothing is stored:
 the next launch is qualified again, so removing or masking the alias clears it
@@ -1265,12 +1268,15 @@ restart: `{ at, reason: "private_state_exposed", setting, path, row, scope:
 written off the launch path; a failed write never changes a launch.
 `runtime.operationalStateLastFailure` keeps its type and meaning: an exposure is
 never written to it. The optional authenticated status field
-`runtime.unqualifiedLaunches` counts masked launches that skipped launch
-qualification because no private-state layout is registered for their brain in
-this process (a backend or library used on its own): `{ count, last?: { at,
-site: "agent" | "maintenance" | "transport", brain } }`. It is absent while there
-are none, and each skip also writes a WARN line naming the launch site and brain
-to the host's diagnostic log; a skip is never silent.
+`runtime.unqualifiedLaunches` counts masked launches that ran without launch
+qualification: those whose brain has no private-state layout registered in
+this process (a backend or library used on its own), and every masked
+synchronous maintenance launch (`site: "synchronous-maintenance"`), which walks
+instead: `{ count, last?: { at, site: "agent" | "maintenance" | "transport" |
+"synchronous-maintenance", brain } }`. It is absent while there are none. The
+host's diagnostic log gets a WARN line naming the launch site and brain the
+first time each site and brain is seen in a process; with no host log, one JSON
+line goes to stderr instead. A skip is never silent.
 The authenticated status field `runtime.operationalStateLastFailure` retains
 the last incomplete check across recovery and restart: `{ at,
 errorClass: "OperationalStateAliasVerificationUnavailable", callSite:

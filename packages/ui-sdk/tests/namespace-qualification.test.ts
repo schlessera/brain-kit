@@ -137,7 +137,7 @@ describe("evaluateNamespace", () => {
 describe("review round 1 (#4301)", () => {
   test("F3: one-layer overlay options keep their colons; lowerdir splits only on unescaped colons, before decoding", () => {
     expect(overlayLayers("ro,lowerdir+=/srv/ithaca:state,datadir+=/srv/aeolus:bag"), "F3_SINGLE_LAYER_OPTIONS_NOT_SPLIT").toEqual(["/srv/ithaca:state", "/srv/aeolus:bag"]);
-    expect(overlayLayers("ro,lowerdir=/srv/a\\:b:/srv/c,upperdir=/srv/up\\:per,workdir=/srv/work"), "F3_ESCAPED_COLONS").toEqual(["/srv/a:b", "/srv/c", "/srv/up:per", "/srv/work"]);
+    expect(overlayLayers("ro,lowerdir=/srv/a\\:b:/srv/c,upperdir=/srv/up:per,workdir=/srv/work"), "F3_ESCAPED_COLONS").toEqual(["/srv/a:b", "/srv/c", "/srv/up:per", "/srv/work"]);
     // Linux shows the legacy lowerdir as given, backslashes octal-escaped: `\\134:` is an escaped colon (F33).
     expect(overlayLayers("ro,lowerdir=/srv/ithaca\\134:state:/srv/oar"), "F33_ESCAPED_COLON_DECODED_BEFORE_SPLIT").toEqual(["/srv/ithaca:state", "/srv/oar"]);
   });

@@ -216,7 +216,7 @@ export interface ExposureDiagnostic {
 }
 
 /** Where an unqualified launch came from: the launch function and the envelope it built. */
-export type UnqualifiedLaunchSite = "agent" | "maintenance" | "transport";
+export type UnqualifiedLaunchSite = "agent" | "maintenance" | "transport" | "synchronous-maintenance";
 /** One masked launch that skipped qualification because its brain has no registered layout (#4301 Q1 ruling). */
 export interface UnqualifiedLaunch { at: number; site: UnqualifiedLaunchSite; brain: string }
 /** Process-wide, like the registry: the count and the last one, for status. */
@@ -235,6 +235,12 @@ export function onUnqualifiedLaunch(listener: (launch: UnqualifiedLaunch) => voi
 }
 /** The sites and brains already reported on stderr, with no host log listening (F25). */
 const reportedWithoutListener = new Set<string>();
+/**
+ * Record one masked launch that ran without qualification: a brain with no
+ * registered layout, or a synchronous maintenance launch, which walks
+ * instead (#4301 path O5).
+ */
+export function recordUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: string): void { recordUnqualified(site, brain); }
 function recordUnqualified(site: UnqualifiedLaunchSite, brain: string): void {
   const launch = { at: Date.now(), site, brain };
   unqualified.count++; unqualified.last = launch;
@@ -244,8 +250,8 @@ function recordUnqualified(site: UnqualifiedLaunchSite, brain: string): void {
   if (!unqualified.listeners.size && !reportedWithoutListener.has(key)) {
     reportedWithoutListener.add(key);
     try {
-      process.stderr.write(JSON.stringify({ kind: "worker_launch_unqualified", reason: "no_private_state_layout", site, brain,
-        message: `a masked ${site} launch skipped private-state qualification: no private-state layout is registered for brain ${brain} in this process` }) + "\n");
+      process.stderr.write(JSON.stringify({ kind: "worker_launch_unqualified", reason: site === "synchronous-maintenance" ? "synchronous_maintenance_walks" : "no_private_state_layout", site, brain,
+        message: `a masked ${site} launch skipped private-state qualification: ${site === "synchronous-maintenance" ? `synchronous maintenance is not qualified and walks instead (brain ${brain})` : `no private-state layout is registered for brain ${brain} in this process`}` }) + "\n");
     } catch { /* A diagnostic never changes the launch. */ }
   }
 }

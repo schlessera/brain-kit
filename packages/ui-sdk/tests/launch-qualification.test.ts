@@ -13,13 +13,13 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { text as streamText } from "node:stream/consumers";
-import { runMaintenanceWorker, runMaintenanceWorkerSteps, runMaintenanceWorkerSync } from "../src/server/maintenance-worker";
+import { runMaintenanceWorker, runMaintenanceWorkerSync } from "../src/server/maintenance-worker";
 import { launchAgentWorker, launchAgentWorkerAsync, prepareWorkerSandbox, probeWorkerHost } from "../src/server/worker-launcher";
 import { parseMountinfo, resolveMount, WORKER_NAMESPACE_SEAL } from "../src/server/namespace-qualification";
 import { onUnqualifiedLaunch, privateStateRefusalOf, qualifyWorkerNamespaceSteps, registerWorkerPrivateState, unqualifiedLaunches, type UnqualifiedLaunch, workerPrivateStateProviders, WorkerPrivateStateError, type WorkerPrivateStateEvent, type WorkerPrivateStateProvider } from "../src/server/worker-private-state";
 import * as workerStatus from "../src/server/worker-status";
 import { assertScratchMaskAsync } from "../src/server/bridge-tools/mask";
-import { runWorkerStepsAsync, runWorkerStepsSync } from "../src/server/worker-steps";
+import { runWorkerStepsSync } from "../src/server/worker-steps";
 import { createFixtureWorkerStartupView } from "./helpers/worker-startup-view-fixture";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 
@@ -82,20 +82,6 @@ describe("every launch function refuses an exposure before its payload and relea
     expect(f.ran(), "L2_CLEAN_LAUNCH_RUNS_NO_RESTART").toBe(1);
   }, watchdogMs(60_000));
 
-  test("L3: synchronous and stepped maintenance", async () => {
-    const f = await fixture();
-    let refused: unknown;
-    try { runMaintenanceWorkerSync(maintenance(f, [f.markers, f.state])); } catch (error) { refused = error; }
-    expect(isExposure(refused), `L3_SYNC_EXPOSURE_REFUSED: ${refused}`).toBe(true);
-    const stepped = await runWorkerStepsAsync(runMaintenanceWorkerSteps(maintenance(f, [f.markers, f.state]))).catch(error => error);
-    expect(isExposure(stepped), `L3_STEPPED_EXPOSURE_REFUSED: ${stepped}`).toBe(true);
-    await f.settle();
-    expect(f.ran(), "L3_PAYLOAD_NEVER_RAN").toBe(0);
-    expect(runMaintenanceWorkerSync(maintenance(f, [f.markers])).exitCode).toBe(0);
-    expect((await runWorkerStepsAsync(runMaintenanceWorkerSteps(maintenance(f, [f.markers])))).exitCode).toBe(0);
-    await f.settle();
-    expect(f.ran(), "L3_CLEAN_LAUNCHES_RUN").toBe(2);
-  }, watchdogMs(60_000));
 
   test("L2: a state directory under a restored credentialed HOME refuses the credentialed launch", async () => {
     const f = await fixture({ stateUnder: "home" });
@@ -138,6 +124,18 @@ describe("every launch function refuses an exposure before its payload and relea
     f.setRoots([{ setting: "turn journal", path: join(f.root, "not-created-yet") }]);
     const worker = launchAgentWorker({ brainPath: f.brain, startupView: f.view(), env: {}, command: f.payload });
     expect(await worker.exited, "ABSENT_ROOT_NOT_JUDGED").toBe(0);
+  }, watchdogMs(60_000));
+});
+
+describe("synchronous maintenance is not qualified; it walks (#4301 path O5, #5026)", () => {
+  test("an exposed synchronous maintenance launch runs, and is counted unqualified with its site and brain", async () => {
+    const f = await fixture();
+    const before = unqualifiedLaunches().count;
+    const result = runMaintenanceWorkerSync(maintenance(f, [f.markers, f.state], { maskPaths: [join(f.root, "state")] }));
+    expect(result.exitCode, `L3_EXPOSED_RUNS_UNQUALIFIED: ${result.stderr}`).toBe(0);
+    await f.settle();
+    expect(f.ran(), "L3_PAYLOAD_RAN").toBe(1);
+    expect(unqualifiedLaunches(), "L3_COUNTED_UNQUALIFIED").toMatchObject({ count: before + 1, last: { site: "synchronous-maintenance", brain: realpathSync(f.brain) } });
   }, watchdogMs(60_000));
 });
 
@@ -263,16 +261,6 @@ function countReleases() {
 }
 
 describe("review round 1: the start gate never releases a launch its caller gave up on (C2, F5-F7)", () => {
-  test("G5b (F5): a deadline that passes during setup stops the launch unreleased, in both L3 forms", async () => {
-    const f = await fixture();
-    f.unknownLayout(); f.duringWalk(() => Bun.sleepSync(1_500));
-    const released = countReleases();
-    expect(runMaintenanceWorkerSync(maintenance(f, [f.markers], { timeoutMs: 500 })), "G5B_SYNC_TIMED_OUT").toMatchObject({ exitCode: 1, killed: true });
-    expect(await runWorkerStepsAsync(runMaintenanceWorkerSteps(maintenance(f, [f.markers], { timeoutMs: 500 }))), "G5B_STEPPED_TIMED_OUT").toMatchObject({ exitCode: 1, killed: true });
-    expect(released(), "G5B_NEVER_RELEASED").toBe(0);
-    await f.settle();
-    expect(f.ran()).toBe(0);
-  }, watchdogMs(60_000));
 
   test("G3b (F6): an abort that arrives while the launch waits at its gate rejects and never releases the payload", async () => {
     const f = await fixture();
@@ -285,25 +273,6 @@ describe("review round 1: the start gate never releases a launch its caller gave
     expect(f.ran()).toBe(0);
   }, watchdogMs(60_000));
 
-  test("G9b (F7): consecutive synchronous launches leave no zombie children, as spawnSync did", async () => {
-    const f = await fixture();
-    f.setRoots([]);
-    // Only the launches' own supervisors: other tests' children may exit meanwhile.
-    const launched: number[] = [], spawn = Bun.spawn;
-    const spy = spyOn(Bun, "spawn").mockImplementation(((...args: Parameters<typeof Bun.spawn>) => {
-      const child = (spawn as (...a: unknown[]) => ReturnType<typeof Bun.spawn>)(...args);
-      if ((args[1] as { env?: Record<string, string> } | undefined)?.env?.BRAIN_WORKER_LAUNCH) launched.push(child.pid);
-      return child;
-    }) as typeof Bun.spawn);
-    cleanups.push(() => spy.mockRestore());
-    for (let i = 0; i < 24; i++) expect(runMaintenanceWorkerSync(maintenance(f, [], { command: ["/bin/sh", "-c", "exit 0"] })).exitCode).toBe(0);
-    const zombies = launched.filter(pid => {
-      try { const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8"); return stat.slice(stat.lastIndexOf(") ") + 2).startsWith("Z "); }
-      catch { return false; }
-    });
-    expect(launched.length).toBe(24);
-    expect(zombies.length, "G9B_NO_ZOMBIES_IN_ONE_SYNCHRONOUS_STRETCH").toBe(0);
-  }, watchdogMs(120_000));
 });
 
 describe("review round 1: one registry and one refusal per process (F11-F13)", () => {

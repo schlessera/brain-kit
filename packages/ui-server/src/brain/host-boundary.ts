@@ -961,7 +961,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     async runSync(execution) {
       // Synchronous maintenance holds no writer gate of its own.
-      await preflight("none", execution.signal);
+      await preflight("none");
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");
       if (!isolated()) {
         if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
