@@ -13,10 +13,14 @@ export class SafetyReadUnavailable extends Error {
   constructor(readonly reason: Reason = "unavailable") { super(reason); }
 }
 interface Snapshot { id:string; principalId:string; target:SafetyTarget; identity:SafetyIdentity; highWater:string;
-  projection:SafetyPage["projection"]; membership:string; expiresAt:number; pruned:number; bytes:number; entries:boolean; admissions:boolean; nonDelivery:boolean }
+  projection:SafetyPage["projection"]; membership:string; expiresAt:number; pruned:number; bytes:number; entries:boolean; admissions:boolean; nonDelivery:boolean; attribution:boolean;
+  /** The attribution fingerprint of each final page this snapshot delivered (#4513), append-only, at most 4; `null` once more differed. */
+  delivered:Set<string>|null }
 interface Row { id:string; sequence:string; observed_at:number; kind:string; occurrence_id:string; source:string|null;
   detector:string|null; state:string|null; payload:string; detail_pruned:number; turn_id:string; collection_id:string }
 const same = (a:unknown,b:unknown) => JSON.stringify(a)===JSON.stringify(b);
+/** The projection without its display-only attribution (#4513). */
+const enforcement = (projection:SafetyPage["projection"]) => { const copy = { ...projection }; delete copy.attributionUnknown; return copy; };
 const fingerprint = (value:unknown) => new Bun.CryptoHasher("sha256").update(JSON.stringify(value)).digest("hex");
 const bytes = (value:unknown) => Buffer.byteLength(JSON.stringify(value));
 const wireId = (value:string) => {
@@ -24,9 +28,18 @@ const wireId = (value:string) => {
   return value;
 };
 
+/** A stored reuse verdict (#4513): its IDs, or `null` (turn-wide) for
+ * ["*"] and for anything that is not exactly what the end writes. */
+function storedToolReuse(value:string):string[]|null {
+  let stored:unknown;
+  try{stored=JSON.parse(value);}catch{return null;}
+  if(!Array.isArray(stored)||stored.length>8||stored.includes("*"))return null;
+  return stored.every((id):id is string=>typeof id==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(id))?stored:null;
+}
+
 export class SafetyHistory {
   private readonly subscriptions = new Map<object, { principal:Principal; identity:SafetyIdentity; revision:string; membership:string; projectionHash:string; valid:()=>boolean;
-    send:(value:SafetyUpdate|Unavailable)=>void; busy:boolean; entries:boolean; admissions:boolean; nonDelivery:boolean }>();
+    send:(value:SafetyUpdate|Unavailable)=>void; busy:boolean; entries:boolean; admissions:boolean; nonDelivery:boolean; attribution:boolean; attributionHash:string }>();
   private readonly snapshots = new Map<string, Snapshot>();
   private readonly cursors = new Map<string, {snapshotId:string; after:string}>();
   private retainedBytes = 0;
@@ -96,13 +109,39 @@ export class SafetyHistory {
     const pending=[...local.pending].filter(r=>r.turnId!==null&&turns.has(r.turnId)||"sessionId" in identity&&r.sessionId===identity.sessionId).length;
     return {pending,failed:local.failed};
   }
-  private projection(identity:SafetyIdentity):SafetyPage["projection"] {
+  private projection(identity:SafetyIdentity,attribution=false):SafetyPage["projection"] {
     const p=safetyProjection(this.db,"turnId" in identity?identity.turnId:null,"sessionId" in identity?identity.sessionId:null);
     const {pending,failed}=this.localState(identity);
     if(pending||failed){p.restriction="restricted";p.pendingCount=Math.max(p.pendingCount,pending);
       if(pending&&!p.reasons.includes("recording_pending"))p.reasons.push("recording_pending");
       if(failed){p.coverage.state="incomplete";if(!p.reasons.includes("recording_failed"))p.reasons.push("recording_failed");}}
-    return p as SafetyPage["projection"];
+    // Display-only, for opted-in readers; enforcement never reads it (#4513).
+    return (attribution?{...p,attributionUnknown:this.attributionUnknown(identity)}:p) as SafetyPage["projection"];
+  }
+  /**
+   * The bindings whose collector observed differently named calls under a
+   * tool-use ID (#4513), with those IDs; `null` covers every ID of the
+   * binding. An open turn reads its live tracker, an ended one the column
+   * its own end wrote. A turn never checked (NULL) reads as before: nothing
+   * is reported. A stored verdict that cannot be read is turn-wide: it was
+   * checked, so its uncertainty stays. Each binding carries its own at most
+   * 8 IDs; the projection holds at most 128 bindings.
+   */
+  private attributionUnknown(identity:SafetyIdentity):{bindingId:string;toolUseIds:string[]|null}[] {
+    const {sql,args}=this.scope(identity),live=safetyQueue(this.db).attribution;
+    const rows=this.db.query(`SELECT c.id,c.turn_id,c.tool_reuse FROM safety_collections c WHERE ${sql} ORDER BY c.rowid LIMIT 129`).all(...args) as {id:string;turn_id:string;tool_reuse:string|null}[];
+    if(rows.length>128)throw new SafetyReadUnavailable("capacity");
+    const out:{bindingId:string;toolUseIds:string[]|null}[]=[];
+    for(const row of rows){
+      const tracker=live.get(row.turn_id);
+      let ids:string[]|null;
+      if(tracker)ids=tracker.all?null:[...tracker.reused];
+      else if(row.tool_reuse===null)continue;
+      else ids=storedToolReuse(row.tool_reuse);
+      if(ids&&!ids.length)continue;
+      out.push({bindingId:row.id,toolUseIds:ids});
+    }
+    return out;
   }
   private records(identity:SafetyIdentity,after:string,through:string,limit:number,entries:boolean,admissions:boolean,nonDelivery:boolean):SafetyRecord[] {
     const {sql,args}=this.scope(identity);
@@ -141,30 +180,37 @@ export class SafetyHistory {
     return ()=>{const left=this.pendingReads.get(principal.id)!-1;if(left)this.pendingReads.set(principal.id,left);else this.pendingReads.delete(principal.id);};
   }
   /** Every await precedes fresh authority, identity and clock checks. */
-  async read(principal:Principal,target:SafetyTarget,cursor:string|null=null,limit:number=50,entries=false,admissions=false,nonDelivery=false):Promise<SafetyPage> {
+  async read(principal:Principal,target:SafetyTarget,cursor:string|null=null,limit:number=50,entries=false,admissions=false,nonDelivery=false,attribution=false):Promise<SafetyPage> {
     if(!Number.isInteger(limit)||limit<1||limit>100||cursor!==null&&cursor.length>512)throw new SafetyReadUnavailable();
     this.authorize(principal,target);
     const release=this.reserveRead(principal);
     try { await this.settled();
     return Database.prototype.transaction.call(this.db,()=>{
       const identity=this.authorize(principal,target);this.prune();
+      // Read the display-only attribution first: a read that fails retains
+      // and charges nothing (#4513).
+      const attributionNow=attribution?this.attributionUnknown(identity):undefined;
       let snapshot:Snapshot,after="0";
       if(cursor!==null){
         const position=this.cursors.get(cursor),s=position&&this.snapshots.get(position.snapshotId);
-        if(!s||s.principalId!==principal.id||!same(s.target,target)||s.entries!==entries||s.admissions!==admissions||s.nonDelivery!==nonDelivery)throw new SafetyReadUnavailable("expired");
+        if(!s||s.principalId!==principal.id||!same(s.target,target)||s.entries!==entries||s.admissions!==admissions||s.nonDelivery!==nonDelivery||s.attribution!==attribution)throw new SafetyReadUnavailable("expired");
         snapshot=s;after=position!.after;
         if(!same(identity,s.identity))throw new SafetyReadUnavailable("generation_changed");
         if(this.membership(identity,s.highWater)!==s.membership)throw new SafetyReadUnavailable("gap");
         if(this.pruned(identity)!==s.pruned)throw new SafetyReadUnavailable("expired");
       }else{
         if(this.snapshots.size>=256||[...this.snapshots.values()].filter(s=>s.principalId===principal.id).length>=32)throw new SafetyReadUnavailable("capacity");
-        const projection=this.projection(identity),size=bytes(projection)+2048;
+        // A snapshot retains the projection without its display-only
+        // attribution, which each page recomputes at delivery (#4513): the
+        // retained bytes are exactly what the aggregate limit counts.
+        const projection=enforcement(this.projection(identity)),size=bytes(projection)+2048;
         if(this.retainedBytes+size>4194304)throw new SafetyReadUnavailable("capacity");
-        snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,membership:this.membership(identity,projection.evidenceRevision),expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size,entries,admissions,nonDelivery};
+        snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,membership:this.membership(identity,projection.evidenceRevision),expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size,entries,admissions,nonDelivery,attribution,delivered:new Set()};
         this.snapshots.set(snapshot.id,snapshot);this.retainedBytes+=size;
       }
       const fetched=this.records(identity,after,snapshot.highWater,limit+1,snapshot.entries,snapshot.admissions,snapshot.nonDelivery),records:SafetyRecord[]=[];
-      const page:SafetyPage={version:1,identity,snapshotId:snapshot.id,cursor,highWater:snapshot.highWater,projection:snapshot.projection,records,nextCursor:null,snapshotComplete:false,detailPruned:snapshot.pruned>0};
+      const delivered=snapshot.attribution?{...snapshot.projection,attributionUnknown:attributionNow}:snapshot.projection;
+      const page:SafetyPage={version:1,identity,snapshotId:snapshot.id,cursor,highWater:snapshot.highWater,projection:delivered,records,nextCursor:null,snapshotComplete:false,detailPruned:snapshot.pruned>0};
       for(const record of fetched.slice(0,limit)){if(bytes({...page,records:[...records,record]})>261000)break;records.push(record);}
       if(fetched.length&&!records.length)throw new SafetyReadUnavailable("capacity");
       page.snapshotComplete=records.length===fetched.length;
@@ -178,26 +224,33 @@ export class SafetyHistory {
       }
       if(this.clock()>=snapshot.expiresAt)throw new SafetyReadUnavailable("expired");
       if(!same(identity,this.authorize(principal,target)))throw new SafetyReadUnavailable("generation_changed");
-      return safetyPageSchema.parse(page);
+      const parsed=safetyPageSchema.parse(page);
+      // Each delivered final page's attribution, so a subscription can start
+      // from what its response actually carried.
+      if(snapshot.attribution&&page.snapshotComplete&&snapshot.delivered){
+        snapshot.delivered.add(fingerprint(delivered.attributionUnknown??null));
+        if(snapshot.delivered.size>4)snapshot.delivered=null;
+      }
+      return parsed;
     }).deferred() as SafetyPage;
     }finally{release();}
   }
   async delta(principal:Principal,identity:SafetyIdentity,after:string,snapshotId:string):Promise<SafetyUpdate> {
     const anchor=this.anchor(principal,identity,after,snapshotId);
-    const result=await this.readDelta(principal,identity,after,anchor.membership,anchor.entries,anchor.admissions,anchor.nonDelivery);
+    const result=await this.readDelta(principal,identity,after,anchor.membership,anchor.entries,anchor.admissions,anchor.nonDelivery,anchor.attribution);
     this.anchor(principal,identity,after,snapshotId);
     this.delivery(principal,identity,snapshotId,result.update.projection);
     if(this.membership(identity,result.update.toRevision)!==result.membership)throw new SafetyReadUnavailable("gap");
     return result.update;
   }
-  private async readDelta(principal:Principal,identity:SafetyIdentity,after:string,membership:string,entries:boolean,admissions:boolean,nonDelivery:boolean):Promise<{update:SafetyUpdate;membership:string}> {
+  private async readDelta(principal:Principal,identity:SafetyIdentity,after:string,membership:string,entries:boolean,admissions:boolean,nonDelivery:boolean,attribution:boolean):Promise<{update:SafetyUpdate;membership:string}> {
     const target:SafetyTarget="sessionId" in identity?{sessionId:identity.sessionId}:identity;
     this.authorize(principal,target);const release=this.reserveRead(principal);
     try{await this.settled();
     return Database.prototype.transaction.call(this.db,()=>{
       if(!same(this.authorize(principal,target),identity))throw new SafetyReadUnavailable("generation_changed");
       if(this.membership(identity,after)!==membership)throw new SafetyReadUnavailable("gap");
-      const projection=this.projection(identity);
+      const projection=this.projection(identity,attribution);
       if(BigInt(after)>BigInt(projection.evidenceRevision))throw new SafetyReadUnavailable("gap");
       const records=this.records(identity,after,projection.evidenceRevision,101,entries,admissions,nonDelivery);
       const update:SafetyUpdate={version:1,identity,fromRevision:after,toRevision:projection.evidenceRevision,projection,records};
@@ -210,7 +263,12 @@ export class SafetyHistory {
   subscribe(key:object,principal:Principal,identity:SafetyIdentity,revision:string,snapshotId:string,valid:()=>boolean,send:(value:SafetyUpdate|Unavailable)=>void):void {
     if(!this.subscriptions.has(key)&&this.subscriptions.size>=256)throw new SafetyReadUnavailable("capacity");
     const anchor=this.anchor(principal,identity,revision,snapshotId);
-    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(anchor.projection),valid,send,busy:false,entries:anchor.entries,admissions:anchor.admissions,nonDelivery:anchor.nonDelivery});this.poll();
+    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(enforcement(anchor.projection)),valid,send,busy:false,entries:anchor.entries,admissions:anchor.admissions,nonDelivery:anchor.nonDelivery,attribution:anchor.attribution,
+      // An opted-in subscription starts from the attribution its snapshot's
+      // final page delivered (#4513). When responses of that page differed
+      // (a retry after reuse) it starts knowing none, so its first poll
+      // delivers the current attribution: no response can leave it stale.
+      attributionHash:!anchor.attribution?fingerprint(null):anchor.delivered?.size===1?[...anchor.delivered][0]!:""});this.poll();
   }
   unsubscribe(key:object):void {this.subscriptions.delete(key);}
   revoke(principalIds:readonly string[]):void {
@@ -238,26 +296,46 @@ export class SafetyHistory {
   }
   /** Shares the host's existing authorization sweep; no per-read timer. */
   poll():void {
-    this.prune();
+    this.prune();this.pruneAttribution();
     for(const [key,s] of this.subscriptions){
       if(!s.valid()||!this.valid(s.principal)){this.subscriptions.delete(key);continue;}
       if(s.busy)continue;s.busy=true;
-      void this.readDelta(s.principal,s.identity,s.revision,s.membership,s.entries,s.admissions,s.nonDelivery).then(({update,membership})=>{
+      void this.readDelta(s.principal,s.identity,s.revision,s.membership,s.entries,s.admissions,s.nonDelivery,s.attribution).then(({update,membership})=>{
         if(this.subscriptions.get(key)!==s||!s.valid()||!this.valid(s.principal))return;
         try{this.delivery(s.principal,s.identity,undefined,update.projection);
           if(this.membership(s.identity,update.toRevision)!==membership)throw new SafetyReadUnavailable("gap");
         }catch(error){this.subscriptions.delete(key);s.send({version:1,reason:error instanceof SafetyReadUnavailable?error.reason:"unavailable"});return;}
         // Local pending/loss latches can change even when their durable write
         // rolled back. Equal durable revisions do not prove equal read state.
-        const projectionHash=fingerprint(update.projection);
+        const projectionHash=fingerprint(enforcement(update.projection)),attributionHash=fingerprint(update.projection.attributionUnknown??null);
+        // A display-only attribution change at an equal revision is an update
+        // on this subscription, never a gap that costs the reader a snapshot.
+        if(update.toRevision===s.revision&&projectionHash===s.projectionHash&&attributionHash!==s.attributionHash){
+          s.send(update);s.attributionHash=attributionHash;return;
+        }
         if(update.toRevision===s.revision&&projectionHash!==s.projectionHash){
           this.subscriptions.delete(key);s.send({version:1,reason:"gap"});return;
         }
-        if(update.toRevision!==s.revision){s.send(update);s.revision=update.toRevision;s.membership=membership;s.projectionHash=projectionHash;}
+        if(update.toRevision!==s.revision){s.send(update);s.revision=update.toRevision;s.membership=membership;s.projectionHash=projectionHash;s.attributionHash=attributionHash;}
       },error=>{
         if(this.subscriptions.get(key)!==s||!s.valid()||!this.valid(s.principal))return;
         this.subscriptions.delete(key);s.send({version:1,reason:error instanceof SafetyReadUnavailable?error.reason:"unavailable"});
       }).finally(()=>{s.busy=false;});
+    }
+  }
+  /** Drops trackers whose turn can no longer end through its collector
+   * (#4513): its chat was retired or scrubbed, or its collection is gone or
+   * ended another way. A tracker whose end is committing stays. */
+  private pruneAttribution():void {
+    const live=safetyQueue(this.db).attribution;if(!live.size)return;
+    for(const [turnId,tracker] of live){
+      if(tracker.ending)continue;
+      // A read that fails keeps the tracker for the next sweep; nothing
+      // escapes the host's timer.
+      let row:{ended:number;retired:number}|null;
+      try{row=this.db.query("SELECT ended,EXISTS(SELECT 1 FROM safety_retired_turns WHERE turn_id=?1) retired FROM safety_collections WHERE turn_id=?1").get(turnId) as {ended:number;retired:number}|null;}
+      catch{continue;}
+      if(!row||row.ended||row.retired)live.delete(turnId);
     }
   }
   close():void {this.closed=true;this.subscriptions.clear();this.snapshots.clear();this.cursors.clear();this.retainedBytes=0;}
