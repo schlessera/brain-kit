@@ -66,12 +66,38 @@ const STATE_GATE = ["/bin/sh", "-c", 'IFS= read -r go && [ "$go" = go ] || exit 
  */
 const START_GATE = ["/bin/sh", "-c", 'IFS= read -r go <&4 && [ "$go" = go ] || exit 125; exec 4<&-; exec "$@"', "brain-worker-start-gate"];
 /**
- * The start gate of a direct-spawn maintenance or transport launch (#4301).
- * It sits before the rlimit prefix, so the payload keeps its limits and
- * prlimit's own diagnostic for a missing executable, and it reads the gate
- * line in a subshell, so no variable of the payload's environment changes.
+ * The start gate of a direct-spawn maintenance or transport launch (#4301,
+ * #5016). Fail-closed like START_GATE: EOF or any other line exits 125, so a
+ * server that dies before release never starts the payload (bubblewrap's
+ * `--block-fd` would, #3392). It sits before the rlimit prefix, so the
+ * payload keeps its limits and prlimit's own diagnostic.
+ *
+ * The shell starts from bubblewrap's cleared environment (only the `PWD` it
+ * sets): the caller's variables are not `--setenv` arguments of this launch
+ * but `NAME=VALUE` arguments here, so no loader or shell start-up reads them
+ * before release (F34). After release, `env -i` execs the command with
+ * exactly those assignments, in bubblewrap's order and with its `PWD` last,
+ * byte for byte (F29); they are never sourced or expanded.
+ *
+ * Arguments: the trusted `env`, the number of assignments, the assignments,
+ * then the command, whose first word is always absolute (`workerCommand`
+ * refuses any other). Where main's bubblewrap would fail its own `execvp`
+ * with ENOENT, the gate prints bubblewrap's diagnostic and exits 1 as it did
+ * (F30). Residual difference: any other exec failure of that first program
+ * (EACCES, ENOEXEC, ENOTDIR) reports `env`'s diagnostic and 126 or 127
+ * instead of bubblewrap's message and 1.
  */
-const DIRECT_START_GATE = ["/bin/sh", "-c", '( IFS= read -r go <&4 && [ "$go" = go ] ) || exit 125; exec 4<&-; exec "$@"', "brain-worker-start-gate"];
+const DIRECT_START_GATE_SCRIPT = [
+  "set -f",
+  '( IFS= read -r go <&4 && [ "$go" = go ] ) || exit 125',
+  "exec 4<&-",
+  'env=$1 count=$2; shift 2',
+  'seen=0 command=',
+  'for argument do if [ "$seen" -lt "$count" ]; then seen=$((seen + 1)); else command=$argument; break; fi; done',
+  '[ -e "$command" ] || { printf "bwrap: execvp %s: No such file or directory\\n" "$command" >&2; exit 1; }',
+  'exec "$env" -i -- "$@"',
+].join("\n");
+const DIRECT_START_GATE = ["/bin/sh", "-c", DIRECT_START_GATE_SCRIPT, "brain-worker-start-gate"];
 /**
  * A separate-identity payload's own start gate (#3402). The helper protocol
  * gates bubblewrap with `--block-fd` on a pipe whose only writer is the
@@ -538,7 +564,13 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
 
 
 /** The only argv builder used by both live workers and the actual host probe. */
-export function workerCommand(input: WorkerLaunch): string[] {
+export function workerCommand(input: WorkerLaunch,
+  /**
+   * Given, the launch's variables are written here as `NAME=VALUE`, with
+   * bubblewrap's own `PWD` last, instead of as `--setenv` arguments: a direct
+   * start gate restores them after release (#5016 F34).
+   */
+  environment?: string[]): string[] {
   if (input.startupView && input.sandbox?.profile === "governed" && !input.restricted && !input.maintenance) {
     throw new WorkerHostError("governed workers require their shared live brain; an immutable startupView cannot be mounted over that writable root");
   }
@@ -739,15 +771,24 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (emptyHome) argv.push("--tmpfs", WORKER_EMPTY_HOME, "--remount-ro", WORKER_EMPTY_HOME);
   // A governed or strict turn worker holds no provider credential its own
   // inference does not need (#1666); the CLI's providers name what is missing.
-  argv.push(...workerEnvironmentArgs({ env: input.env, ...(input.credentialEnv ? { credentialEnv: input.credentialEnv } : {}),
+  const setenv = [...workerEnvironmentArgs({ env: input.env, ...(input.credentialEnv ? { credentialEnv: input.credentialEnv } : {}),
     turnProfile: !maintenance && !transport && !input.restricted && (input.sandbox?.profile === "governed" || input.sandbox?.profile === "strict"),
     transport: Boolean(transport), relayedKeyNames,
     ...(providerRelay ? { providerRelaySocket: WORKER_PROVIDER_RELAY_SOCKET }
       : maintenance?.providerRelay ? { providerRelaySocket: `${WORKER_PROVIDER_RELAY_DIR}/relay.sock` } : {}),
     ...(dataTree ? { dataTree: { root: WORKER_DATA_ROOT, configRoot: brain } } : {}),
-    ...(maintenance?.githubRelay ? { githubSocket: `${WORKER_MODULE_GITHUB_DIR}/github.sock` } : {}) }));
-  argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
-    "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []),
+    ...(maintenance?.githubRelay ? { githubSocket: `${WORKER_MODULE_GITHUB_DIR}/github.sock` } : {}) }),
+    ...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch];
+  const chdir = transport ? transport.mirror : brain;
+  if (environment) {
+    for (let at = 0; at < setenv.length; at += 3) {
+      if (setenv[at] !== "--setenv") throw new WorkerHostError("the worker environment is not a list of --setenv arguments");
+      environment.push(`${setenv[at + 1]}=${setenv[at + 2]}`);
+    }
+    // bubblewrap sets PWD to its --chdir after every --setenv.
+    environment.push(`PWD=${chdir}`);
+  } else argv.push(...setenv);
+  argv.push("--chdir", chdir, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []),
     ...payloadCommand(input));
   const outputStorage = input.areaOutput?.storage ?? maintenance?.output?.storage;
   if (outputStorage) {
@@ -1081,7 +1122,9 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: {
   // Resolve using this package's source/build output, never the brain's module resolver.
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
   const { limits: _limits, populateState: _populate, ...launch } = input;
-  let argv = workerCommand(input);
+  // A direct gate restores the launch's variables itself after release (#5016 F34).
+  const environment = direct && status !== undefined && !gated(input) ? [] as string[] : undefined;
+  let argv = workerCommand(input, environment);
   if (status !== undefined) {
     if (![status.source, status.gateSource].every(source => new RegExp(`^/proc/${process.pid}/fd/[0-9]+$`).test(source))) throw new WorkerHostError("invalid trusted worker status source");
     const bwrap = argv.indexOf(Bun.which("bwrap")!);
@@ -1092,7 +1135,11 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: {
     // before verification and freezer setup: bubblewrap's reaper outlives
     // its blocked gate shell.
     const payloadStart = argv.length - payloadCommand(input).length;
-    if (direct && !gated(input)) argv.splice(payloadStart - rlimitPrefix(launchLimits(input)).length, 0, ...DIRECT_START_GATE);
+    if (environment) {
+      const env = ["/usr/bin/env", "/bin/env"].find(path => existsSync(path));
+      if (!env) throw new WorkerHostError("GNU coreutils env is required for the direct start gate");
+      argv.splice(payloadStart - rlimitPrefix(launchLimits(input)).length, 0, ...DIRECT_START_GATE, env, String(environment.length), ...environment);
+    }
     else if (gated(input)) argv.splice(payloadStart - STATE_GATE.length, STATE_GATE.length, ...START_GATE);
     else argv.splice(payloadStart, 0, ...START_GATE);
     // Bun execve closes descriptors above stdio. Reopen only these host-owned
@@ -1144,95 +1191,137 @@ export interface SpawnedWorkerProcess {
 /** A direct-spawn launch held at its start gate, then released (#4301). */
 export interface GatedWorkerSpawn {
   child: SpawnedWorkerProcess;
-  /** When the spawn happened; a caller's deadline counts from here. */
+  /** When the spawn happened, on the monotonic `performance.now()` clock; a caller's deadline counts from here (#5016 F33). */
   spawnedAt: number;
-  /** The caller's deadline (spawn plus a positive timeout), or absent: a timeout of zero or none waits as long as the child runs. */
+  /** The caller's deadline on the same clock (spawn plus the timeout as Bun's timers normalize it), or absent: a timeout of zero or none waits as long as the child runs. */
   deadline?: number;
   /** The sandbox's PID, absent when bubblewrap exited before reporting it: no payload started. */
   pid?: number;
   /** The caller's deadline passed before release: the launch was stopped unreleased. */
   timedOut?: boolean;
   /**
-   * Close the start-gate status channel. Whoever confirms the child's exit
-   * calls it; a synchronous caller cannot wait for the exit callback (#4301).
+   * Close the start-gate status channel. It also closes by itself once the
+   * child exits, whichever way the launch returned (#5016 F25); calling it
+   * again is harmless.
    */
   close(): void;
 }
 
+/**
+ * The delay Bun's `setTimeout` actually waits for `ms`: anything outside
+ * 1..2^31-1, NaN and Infinity included, is 1 ms (#5016 F32). A gated
+ * launch's deadline normalizes before it subtracts setup time, so the
+ * remaining timer is what main's would have been.
+ */
+export function workerTimerDelay(ms: number): number {
+  return ms >= 1 && ms <= 2_147_483_647 ? ms : 1;
+}
+
+/**
+ * An abort that stopped a gated launch before release. It carries the
+ * caller's reason, which the launcher rethrows as given once cleanup is
+ * done; no cleanup classifier ever reads the reason itself (#5016 F27).
+ */
+export class WorkerLaunchAborted extends Error {
+  constructor(readonly reason: unknown) { super("the worker launch was aborted before release"); this.name = "WorkerLaunchAborted"; }
+}
+
 /** How long a bubblewrap that stopped reporting is given to exit on its own before the gate failure is its host's. */
 const SUPERVISOR_EXIT_BOUND_MS = 250;
-/** Whether the spawned supervisor has exited, or does so within `boundMs`. */
-function* supervisorGoneSteps(child: SpawnedWorkerProcess, boundMs: number): WorkerSteps<boolean> {
-  const until = Date.now() + boundMs;
+/**
+ * Whether the spawned supervisor has exited, or does so within `boundMs`;
+ * "interrupted" once the caller's abort or deadline arrives first (#5016 F26).
+ */
+function* supervisorGoneSteps(child: SpawnedWorkerProcess, boundMs: number, interrupted: () => boolean): WorkerSteps<boolean | "interrupted"> {
+  const until = performance.now() + boundMs;
   for (;;) {
     try {
       const stat = readFileSync(`/proc/${child.pid}/stat`, "utf8");
       if (["Z", "X", "x"].includes(stat.slice(stat.lastIndexOf(") ") + 2)[0]!)) return true;
     } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return true; throw error; }
-    if (Date.now() >= until) return false;
+    if (interrupted()) return "interrupted";
+    if (performance.now() >= until) return false;
     yield* workerStepSleep(5);
   }
 }
 
 /**
- * Spawn a caller-command launch behind START_GATE and release it (#4301): the
- * direct-spawn maintenance and transport launches. Every caller runs as the
- * server, so the status pipe belongs to the spawning UID. A bubblewrap that
- * exits before its PID is verified never opened the gate; its own exit code
- * and stderr stand, as they did before the gate existed. A gate that fails
- * while bubblewrap is still alive kills the sandbox and throws
- * `WorkerHostError`; the gate shell exits 125 if the server dies first.
+ * Spawn a caller-command launch behind DIRECT_START_GATE and release it
+ * (#4301): the direct-spawn maintenance and transport launches. Every caller
+ * runs as the server, so the status pipe belongs to the spawning UID. A
+ * bubblewrap that exits before its PID is verified, or before its gate
+ * could be written, never opened the gate; its own exit code and stderr
+ * stand, as they did before the gate existed. A gate step that fails while
+ * bubblewrap is still alive stops the sandbox and throws `WorkerHostError`
+ * (#5016 F31); the gate shell exits 125 if the server dies first.
  */
 export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number; stdout: number; stderr: number },
   onSpawn?: (child: SpawnedWorkerProcess) => void,
   /**
-   * `timeoutMs` counts from the spawn, and zero disables it: a launch whose
-   * setup outlasts it is stopped unreleased with SIGKILL, as the caller's own
-   * timer would have, and reported `timedOut`. An abort seen before release
-   * stops the sandbox and throws its reason as given. Both are checked while
-   * the PID is awaited too. Neither ever starts the payload.
+   * `timeoutMs` counts from the spawn on the monotonic clock, as Bun's timer
+   * would normalize it, and zero (or none) disables it: a launch whose setup
+   * outlasts it is stopped unreleased, as the caller's own timer would have,
+   * and reported `timedOut`. An abort seen before release stops the sandbox
+   * and throws `WorkerLaunchAborted` with its reason. Both are checked while
+   * the PID is awaited and while a silent supervisor is given time to exit.
+   * Neither ever starts the payload.
+   *
+   * `stop` is the caller's registered cancellation path, which freezes the
+   * supervisor and enumerates its children before it kills it (#5016 F28);
+   * without one, the status channel's own freeze-then-kill stops it.
    */
-  options: { timeoutMs?: number; signal?: AbortSignal } = {}): WorkerSteps<GatedWorkerSpawn> {
+  options: { timeoutMs?: number; signal?: AbortSignal; stop?: (child: SpawnedWorkerProcess) => void } = {}): WorkerSteps<GatedWorkerSpawn> {
   const status = yield* createWorkerStatusPipeSteps();
   let child: ReturnType<typeof Bun.spawn> | undefined, stopped = false;
+  const stop = (supervisor: SpawnedWorkerProcess) => { if (options.stop) options.stop(supervisor); else void status.close(supervisor); };
   try {
     const boot = workerBootstrap(input, undefined, status, true);
-    const spawnedAt = Date.now();
-    const deadline = options.timeoutMs !== undefined && options.timeoutMs > 0 ? spawnedAt + options.timeoutMs : undefined;
+    const delay = options.timeoutMs ? workerTimerDelay(options.timeoutMs) : undefined;
     child = Bun.spawn(boot.command, { cwd: "/", env: boot.env, ...stdio });
+    const spawnedAt = performance.now();
+    const deadline = delay !== undefined ? spawnedAt + delay : undefined;
     onSpawn?.(child);
     const supervisor = child;
-    const close = () => { status.close(supervisor); };
-    const timedOut = () => deadline !== undefined && Date.now() >= deadline;
-    const unreleasedTimeout = (pid?: number): GatedWorkerSpawn => {
+    const close = () => { void status.close(supervisor); };
+    // Registered before any return: whoever drops the result, the channel closes with the child (F25).
+    void supervisor.exited.then(close, close);
+    const timedOut = () => deadline !== undefined && performance.now() >= deadline;
+    const interrupted = () => Boolean(options.signal?.aborted) || timedOut();
+    const result = (extra: Partial<GatedWorkerSpawn> = {}): GatedWorkerSpawn =>
+      ({ child: supervisor, spawnedAt, ...(deadline !== undefined ? { deadline } : {}), ...extra, close });
+    const interruption = (pid?: number): GatedWorkerSpawn => {
+      if (options.signal?.aborted) { stopped = true; throw new WorkerLaunchAborted(options.signal.reason); }
       // Stopped as the caller's timer stops a running launch, never released.
-      supervisor.kill("SIGKILL");
-      return { child: supervisor, spawnedAt, ...(deadline ? { deadline } : {}), ...(pid ? { pid } : {}), timedOut: true, close };
+      stop(supervisor);
+      return result({ ...(pid ? { pid } : {}), timedOut: true });
     };
-    let pid: number;
-    try { pid = yield* status.childPidSteps(child.pid, spawnedAt + STATE_SETUP_MS, () => Boolean(options.signal?.aborted) || timedOut()); }
-    catch (error) {
-      if (error instanceof WorkerStatusInterrupted) {
-        if (options.signal?.aborted) { stopped = true; throw options.signal.reason; }
-        return unreleasedTimeout();
-      }
-      // Bubblewrap that is gone, or goes, failed its own setup: its exit stands.
-      if (yield* supervisorGoneSteps(child, SUPERVISOR_EXIT_BOUND_MS)) { close(); return { child, spawnedAt, ...(deadline ? { deadline } : {}), close }; }
+    /** Bubblewrap that is gone, or goes, failed its own setup: its exit stands. A live one is its host's failure. */
+    function* gateFailure(error: unknown): WorkerSteps<GatedWorkerSpawn> {
+      const gone = yield* supervisorGoneSteps(supervisor, SUPERVISOR_EXIT_BOUND_MS, interrupted);
+      if (gone === "interrupted") return interruption();
+      if (gone) { close(); return result(); }
       stopped = true;
       throw new WorkerHostError(error instanceof Error ? error.message : String(error));
     }
+    let pid: number;
+    try { pid = yield* status.childPidSteps(child.pid, performance.now() + STATE_SETUP_MS, interrupted, () => performance.now()); }
+    catch (error) {
+      if (error instanceof WorkerStatusInterrupted) return interruption();
+      return yield* gateFailure(error);
+    }
     status.closeWriter();
-    // The caller's exit callback closes it once the child is gone.
-    void child.exited.then(close, close);
-    if (options.signal?.aborted) { stopped = true; throw options.signal.reason; }
-    if (timedOut()) return unreleasedTimeout(pid);
-    status.release();
-    return { child, spawnedAt, ...(deadline ? { deadline } : {}), pid, close };
+    if (interrupted()) return interruption(pid);
+    try { status.release(); } catch (error) { return yield* gateFailure(error); }
+    return result({ pid });
   } catch (error) {
-    // The fallback kill first: observing the gated tree must never skip it.
-    child?.kill("SIGKILL");
-    // An unreleased start gate closes only after its sandbox is dead (#3387).
-    const gateClosed = status.close(child);
+    // Freeze and enumerate before any kill (F28); the fallback kill follows,
+    // so observing the gated tree never skips it.
+    let gateClosed: Promise<void> | undefined;
+    try {
+      if (child) stop(child);
+      // An unreleased start gate closes only after its sandbox is dead (#3387).
+      gateClosed = status.close(child);
+    } finally { if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); }
     // An abort or a live gate failure leaves as itself once its sandbox is
     // gone and, for an asynchronous caller, its gate descriptors are closed.
     if (child && stopped) {

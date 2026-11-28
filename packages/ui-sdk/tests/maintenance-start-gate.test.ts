@@ -7,7 +7,8 @@
 import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { launchMaintenanceWorker, runMaintenanceWorker } from "../src/server/maintenance-worker";
+import { launchMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "../src/server/maintenance-worker";
+import * as workerStatus from "../src/server/worker-status";
 import { WorkerHostError } from "../src/server/worker-launcher";
 import { probeWorkerHost } from "../src/server/worker-launcher";
 import { createOutputStagingStorage } from "./helpers/worker-copy-output";
@@ -226,5 +227,168 @@ describe("L2 gate lifecycle (#5016 review r1)", () => {
     const f = fixture();
     const result = await runMaintenanceWorker({ ...command(f, sh('printf "%s" "$go"')), env: { PATH: "/usr/bin:/bin", go: "old" }, credentials: true, network: false, timeoutMs: 20_000 });
     expect(result.stdout, `G19_ENV_UNCHANGED: ${result.stderr}`).toBe("old");
+  }, watchdogMs(30_000));
+});
+
+const restores: (() => void)[] = [];
+/** Spawn spy: optionally stall the bootstrap, record every signal sent through the child handle, and run `after` once it is spawned. */
+function watchSpawn(options: { stall?: boolean; after?: () => void } = {}) {
+  const spawn = Bun.spawn, kills: string[] = [];
+  const spy = spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => {
+    const child = (spawn as (...a: unknown[]) => ReturnType<typeof Bun.spawn>)(...args);
+    if (!(args[1] as { env?: Record<string, string> } | undefined)?.env?.BRAIN_WORKER_LAUNCH) return child;
+    if (options.stall) process.kill(child.pid, "SIGSTOP");
+    const kill = child.kill.bind(child);
+    Object.defineProperty(child, "kill", { configurable: true, value: (signal?: NodeJS.Signals | number) => { // Only a signal to a live supervisor counts; Bun ignores one sent after its exit.
+      if (child.exitCode === null && child.signalCode === null) kills.push(String(signal ?? "SIGTERM"));
+      kill(signal); } });
+    options.after?.();
+    return child;
+  }) as typeof Bun.spawn);
+  restores.push(() => spy.mockRestore());
+  return kills;
+}
+/** Replace one step of the status channel; the rest stays real. */
+function patchStatus(patch: (real: ReturnType<typeof workerStatus.createWorkerStatusPipe>) => Partial<ReturnType<typeof workerStatus.createWorkerStatusPipe>>) {
+  const original = workerStatus.createWorkerStatusPipeSteps;
+  const spy = spyOn(workerStatus, "createWorkerStatusPipeSteps").mockImplementation(function* () {
+    const real = yield* original();
+    return { ...real, ...patch(real) };
+  } as typeof original);
+  restores.push(() => spy.mockRestore());
+}
+/** Undo the spies installed so far, keeping the fixture. */
+const restoreSpies = () => { for (const restore of restores.splice(0).reverse()) restore(); };
+afterEach(restoreSpies);
+/** Descriptors are released asynchronously once the child is gone; wait for the count to come back. */
+async function descriptorsBackTo(baseline: number) {
+  const until = performance.now() + 5_000;
+  while (openFds() > baseline && performance.now() < until) await Bun.sleep(10);
+  return openFds();
+}
+const environmentOf = (stdout: string) => stdout.split("\0").filter(Boolean);
+
+describe("L2 gate (#5016 review r2): the payload starts exactly as main's bubblewrap started it", () => {
+  test("F29: the payload's environment is the ungated launch's, byte for byte and in order, IFS included", async () => {
+    const f = fixture();
+    const env = { PATH: "/usr/bin:/bin", IFS: "odysseus", ODYSSEUS: "sails\n $HOME \\ 'Ithaca' \"Penelope\" *", PWD: "/srv/caller" };
+    // A credentialed launch keeps the caller's variables as given.
+    const launch = { ...command(f, ["/usr/bin/env", "-0"]), env, credentials: true, network: false, timeoutMs: 20_000 };
+    const gated = await runMaintenanceWorker(launch);
+    const ungated = runMaintenanceWorkerSync(launch);
+    expect(gated.exitCode, gated.stderr).toBe(0);
+    expect(environmentOf(gated.stdout), "F29_ENVIRONMENT_AS_UNGATED").toEqual(environmentOf(ungated.stdout));
+    expect(environmentOf(gated.stdout), "F29_IFS_KEPT").toContain("IFS=odysseus");
+    expect(environmentOf(gated.stdout)).toContain(`ODYSSEUS=${env.ODYSSEUS}`);
+  }, watchdogMs(30_000));
+
+  test("F34: nothing the caller's environment selects runs before release: the loader sees it exactly as often as ungated", async () => {
+    const f = fixture();
+    const env = { PATH: "/usr/bin:/bin", LD_PRELOAD: "/odysseus/missing-oar.so" };
+    const count = (stderr: string) => stderr.split("missing-oar.so").length - 1;
+    const launch = { ...command(f, ["/bin/true"]), env, credentials: true, network: false, timeoutMs: 20_000 };
+    const gated = await runMaintenanceWorker(launch);
+    const ungated = runMaintenanceWorkerSync(launch);
+    expect(count(ungated.stderr), ungated.stderr).toBeGreaterThan(0);
+    expect(count(gated.stderr), `F34_NO_CALLER_ENVIRONMENT_BEFORE_RELEASE: ${gated.stderr}`).toBe(count(ungated.stderr));
+  }, watchdogMs(30_000));
+
+  test("F30: with every rlimit off, a missing executable exits as main's bubblewrap did: 1 and its execvp diagnostic", async () => {
+    const f = fixture();
+    const saved = process.env.BRAIN_UI_WORKER_LIMITS;
+    process.env.BRAIN_UI_WORKER_LIMITS = "processes=off,data=off,file_size=off,open_files=off";
+    cleanups.push(() => { if (saved === undefined) delete process.env.BRAIN_UI_WORKER_LIMITS; else process.env.BRAIN_UI_WORKER_LIMITS = saved; });
+    // A worker executable is always absolute (workerCommand refuses any other).
+    for (const argv of [["/usr/bin/odysseus-oar"], ["/srv/ithaca/odysseus-oar"]]) {
+      const gated = await runMaintenanceWorker({ ...command(f, argv), timeoutMs: 20_000 });
+      const ungated = runMaintenanceWorkerSync({ ...command(f, argv), timeoutMs: 20_000 });
+      expect(ungated, "the ungated launch is main's").toMatchObject({ exitCode: 1, stderr: `bwrap: execvp ${argv[0]}: No such file or directory\n` });
+      expect({ exitCode: gated.exitCode, stderr: gated.stderr }, `F30_MISSING_EXECUTABLE_AS_UNGATED: ${argv[0]}`).toEqual({ exitCode: ungated.exitCode, stderr: ungated.stderr });
+    }
+  }, watchdogMs(30_000));
+});
+
+describe("L2 gate lifecycle (#5016 review r2)", () => {
+  test("F25: a launch stopped before its PID is known releases its status and gate descriptors once it exits", async () => {
+    const f = fixture();
+    // Warm: the domain's temp accounting database opens on its first launch and stays open.
+    await runMaintenanceWorker({ ...command(f, sh("exit 0")), timeoutMs: 20_000 });
+    const baseline = openFds();
+    watchSpawn({ stall: true });
+    const worker = launchMaintenanceWorker({ ...command(f, sh("printf ran")), timeoutMs: 300 } as Parameters<typeof launchMaintenanceWorker>[0]);
+    await Promise.all([new Response(worker.stdout).text(), new Response(worker.stderr).text(), worker.input(""), worker.exited]);
+    await worker.released();
+    expect(await descriptorsBackTo(baseline), "F25_DESCRIPTORS_RELEASED").toBe(baseline);
+  }, watchdogMs(30_000));
+
+  test("F26: an abort or a deadline while a silent bubblewrap is given time to exit wins over the gate failure", async () => {
+    const f = fixture();
+    watchSpawn({ stall: true });
+    const controller = new AbortController();
+    patchStatus(() => ({ *childPidSteps() { controller.abort("Penelope recalls the ship"); throw new Error("Odysseus lost the status line"); } }));
+    const rejected = await runMaintenanceWorker({ ...command(f, sh("printf ran")), signal: controller.signal, timeoutMs: 60_000 }).then(() => "resolved", error => ({ error }));
+    expect(rejected, "F26_ABORT_DURING_SUPERVISOR_WAIT").toEqual({ error: "Penelope recalls the ship" });
+    restoreSpies();
+    watchSpawn({ stall: true });
+    patchStatus(() => ({ *childPidSteps() { Bun.sleepSync(400); throw new Error("Odysseus lost the status line"); } }));
+    const result = await runMaintenanceWorker({ ...command(f, sh("printf ran")), timeoutMs: 200 }).catch(error => error);
+    expect(result, `F26_DEADLINE_DURING_SUPERVISOR_WAIT: ${result?.name}`).toMatchObject({ killed: true, exitCode: 137, stdout: "" });
+  }, watchdogMs(60_000));
+
+  test("F27: an abort reason that reads like an unconfirmed cleanup is returned as given and never skips the cleanup", async () => {
+    const f = fixture();
+    // One worker's allowance is the whole budget: a reservation left behind refuses the next launch.
+    const one = { ...command(f, sh("printf ran")), tempLimits: { allowanceBytes: 4 * 1024 * 1024, budgetBytes: 4 * 1024 * 1024 }, timeoutMs: 60_000 };
+    await runMaintenanceWorker({ ...one, command: sh("exit 0") });
+    const baseline = openFds();
+    watchSpawn({ stall: true });
+    const reason = Object.assign(new Error("Penelope recalls the ship"), { cleanupUnconfirmed: true });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(reason), 300);
+    const rejected = await runMaintenanceWorker({ ...one, signal: controller.signal }).then(() => "resolved", error => error);
+    expect(rejected, "F27_REASON_AS_GIVEN").toBe(reason);
+    restoreSpies();
+    expect(await descriptorsBackTo(baseline), "F27_DESCRIPTORS_RELEASED").toBe(baseline);
+    const next = await runMaintenanceWorker(one);
+    expect(next, `F27_RESERVATION_RELEASED: ${next.stderr}`).toMatchObject({ exitCode: 0, stdout: "ran" });
+  }, watchdogMs(60_000));
+
+  test("F28: a stopped launch is frozen and its children enumerated before any kill, on a deadline and on an abort", async () => {
+    const f = fixture();
+    const timedOut = watchSpawn({ stall: true });
+    await runMaintenanceWorker({ ...command(f, sh("printf ran")), timeoutMs: 300 });
+    expect(timedOut[0], `F28_DEADLINE_FROZEN_BEFORE_KILLED: ${timedOut}`).not.toBe("SIGKILL");
+    restoreSpies();
+    const aborted = watchSpawn({ stall: true });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort("Penelope recalls the ship"), 300);
+    await runMaintenanceWorker({ ...command(f, sh("printf ran")), signal: controller.signal, timeoutMs: 60_000 }).catch(() => undefined);
+    expect(aborted[0], `F28_ABORT_FROZEN_BEFORE_KILLED: ${aborted}`).not.toBe("SIGKILL");
+  }, watchdogMs(60_000));
+
+  test("F31: a gate write that fails while bubblewrap lives throws WorkerHostError", async () => {
+    const f = fixture();
+    patchStatus(real => ({ release() { real.closeWriter(); throw new Error("Odysseus's gate write failed"); } }));
+    const rejected = await runMaintenanceWorker({ ...command(f, sh("printf ran")), timeoutMs: 20_000 }).catch(error => error);
+    expect(rejected instanceof WorkerHostError, `F31_GATE_WRITE_FAILURE_IS_WORKER_HOST_ERROR: ${rejected?.name}`).toBe(true);
+  }, watchdogMs(30_000));
+
+  test("F32: a timeout Bun's timer clamps to 1 ms stops the launch as main's timer did", async () => {
+    const f = fixture();
+    const started = performance.now();
+    const result = await runMaintenanceWorker({ ...command(f, sh("sleep 20")), timeoutMs: 2 ** 31 });
+    expect(result.killed, "F32_CLAMPED_TIMEOUT_KILLS").toBe(true);
+    expect(performance.now() - started).toBeLessThan(10_000);
+  }, watchdogMs(30_000));
+
+  test("F33: a wall-clock jump during setup neither kills the launch nor shortens its timeout", async () => {
+    const f = fixture();
+    const now = Date.now.bind(Date);
+    let offset = 0;
+    const clock = spyOn(Date, "now").mockImplementation(() => now() + offset);
+    cleanups.push(() => clock.mockRestore());
+    watchSpawn({ after: () => { offset = 10 * 24 * 60 * 60 * 1000; } });
+    const result = await runMaintenanceWorker({ ...command(f, sh("printf ran")), timeoutMs: 60_000 });
+    expect(result, `F33_MONOTONIC_DEADLINE: ${result.stderr}`).toMatchObject({ exitCode: 0, killed: false, stdout: "ran" });
   }, watchdogMs(30_000));
 });

@@ -17,7 +17,7 @@ import { pipeline } from "node:stream/promises";
 import { basename, dirname, join } from "node:path";
 import { prepareNativeMaintenanceIndex, authorizeNativeMaintenanceIndex, finishNativeMaintenanceIndex, prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { createWorkerPipes, createWorkerPipesSteps, fifoStream } from "./worker-pipes.js";
-import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, spawnQualifiedSteps, workerBootstrap, WorkerHostError, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
+import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, spawnQualifiedSteps, workerBootstrap, WorkerHostError, WorkerLaunchAborted, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
 import { WorkerIdentityCleanupError, workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 import { createWorkerStartupView, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
@@ -318,7 +318,9 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
     const gated = yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] },
       // The launcher's own Bun child, typed structurally on its published surface.
       spawned => { child = spawned as ReturnType<typeof Bun.spawn>; registerWorker(child); },
-      { signal: (input as { signal?: AbortSignal }).signal, timeoutMs: (input as { timeoutMs?: number }).timeoutMs });
+      { signal: (input as { signal?: AbortSignal }).signal, timeoutMs: (input as { timeoutMs?: number }).timeoutMs,
+        // The registered cancellation path: freeze, enumerate the children, then kill (#5016 F28).
+        stop: spawned => killWorker(spawned as ReturnType<typeof Bun.spawn>, "SIGKILL") });
     pipes.closeChild();
     const ends = pipes.take();
     let inputClosed = false;
@@ -357,7 +359,9 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       }
       throw error;
     }
-    if (workerCleanupUnconfirmed(error)) throw error;
+    // The caller's abort reason is never classified: it leaves as given, after cleanup (#5016 F27).
+    const aborted = error instanceof WorkerLaunchAborted ? error : undefined;
+    if (!aborted && workerCleanupUnconfirmed(error)) throw error;
     if (executionView) {
       // The helper launcher may already have begun dropping this idempotent
       // reference. Keep admission until both owned references are released.
@@ -379,14 +383,14 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       // An abort's or a gate failure's sandbox has already been stopped: it
       // leaves as itself, once what the launch owns is released (an
       // asynchronous caller waits for that).
-      if ((input as { signal?: AbortSignal }).signal?.aborted || error instanceof WorkerHostError) {
+      if (aborted || (input as { signal?: AbortSignal }).signal?.aborted || error instanceof WorkerHostError) {
         yield* workerStep(() => undefined, () => cleanup);
-        throw error;
+        throw aborted ? aborted.reason : error;
       }
       throw Object.assign(new WorkerIdentityCleanupError("maintenance_worker_launch_cleanup_pending"), { cause: error });
     }
     try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
-    throw error;
+    throw aborted ? aborted.reason : error;
   }
 }
 
@@ -414,7 +418,7 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
   // A gated launch's deadline counts from its spawn: the timer gets what is
   // left, and a deadline that passed before release reports killed (#4301).
   if (worker.gate?.timedOut) kill();
-  const timer = input.timeoutMs ? setTimeout(kill, worker.gate?.deadline !== undefined ? Math.max(0, worker.gate.deadline - Date.now()) : input.timeoutMs) : undefined;
+  const timer = input.timeoutMs ? setTimeout(kill, worker.gate?.deadline !== undefined ? Math.max(0, worker.gate.deadline - performance.now()) : input.timeoutMs) : undefined;
   let bytes = 0;
   const collect = async (stream: ReadableStream<Uint8Array>) => {
     const chunks: Uint8Array[] = [];
