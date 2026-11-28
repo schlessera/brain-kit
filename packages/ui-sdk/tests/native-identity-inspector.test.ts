@@ -158,7 +158,8 @@ function killBeforeExitCallback(child: Bun.Subprocess<"pipe", "pipe", "pipe">) {
       expect(currentFields[19], "THE_KERNEL_OBSERVATION_IS_THE_SAME_OWNED_PROCESS").toBe(fields[19]);
       state = currentFields[0]!;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // A reaped process answers ENOENT on open and ESRCH on a read after open.
+      if (!["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
       state = "gone";
     }
     if (state === "Z" || state === "gone") break;
