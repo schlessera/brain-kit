@@ -23,6 +23,11 @@ const REFUSAL_BRAND = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-
 export class WorkerPrivateStateError extends Error {
   readonly errorClass: WorkerPrivateStateReason;
   readonly [REFUSAL_BRAND] = true;
+  /**
+   * For diagnosis only, never in the message (#4301): the sandbox rows on the
+   * refused name's path and below it, and what the launch was given.
+   */
+  diagnostic?: ExposureDiagnostic;
   constructor(readonly reason: WorkerPrivateStateReason, message: string, readonly exposure?: NamespaceExposure) {
     super(message);
     this.name = "WorkerPrivateStateError";
@@ -176,6 +181,27 @@ const report = (provider: WorkerPrivateStateProvider, event: WorkerPrivateStateE
  * its refusal throws with the walk's reason while a pass releases. The walk's
  * time is not counted against `deadline`, which bounds the observation only.
  */
+/** What a launch was given, for an exposure's diagnostic. */
+export interface LaunchDescription {
+  site: UnqualifiedLaunchSite;
+  masked: boolean;
+  /** The launch function that held the gate. */
+  launcher?: "launchAgentWorkerSteps" | "spawnQualifiedSteps";
+  /** The mask paths the launch declared. */
+  masks?: readonly string[];
+  /** The `--tmpfs` targets of the argv actually spawned. */
+  tmpfs?: readonly string[];
+  /** Whether output staging went through the keeper's namespace (`nsenter`). */
+  staged?: boolean;
+}
+/** An exposure's evidence: the rows that decide its name, and the launch's inputs. */
+export interface ExposureDiagnostic {
+  name: string;
+  /** Rows at the name, at any directory above it, or below it, as `id parent sb root point fstype`. */
+  rows: string[];
+  launch: LaunchDescription;
+}
+
 /** Where an unqualified launch came from: the launch function and the envelope it built. */
 export type UnqualifiedLaunchSite = "agent" | "maintenance" | "transport";
 /** One masked launch that skipped qualification because its brain has no registered layout (#4301 Q1 ruling). */
@@ -201,7 +227,7 @@ function recordUnqualified(site: UnqualifiedLaunchSite, brain: string): void {
 }
 
 export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadline: number,
-  launch: { site: UnqualifiedLaunchSite; masked: boolean }): WorkerSteps<NamespaceQualification> {
+  launch: LaunchDescription): WorkerSteps<NamespaceQualification> {
   const registered = workerPrivateStateProviders(brain), reporters = workerPrivateStateReporters(brain);
   // No layout registered for this brain in this process (a backend or library
   // used on its own, whose masks are credential files): nothing to judge or
@@ -234,7 +260,11 @@ export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadlin
       const { result: _result, ...exposure } = verdict;
       const detail = `WorkerPrivateStateError: ${exposure.setting} is reachable in the worker's namespace at ${exposure.name} (mount ${exposure.row}); remove or mask that mount or alias, or make the state owner-only for a separate worker identity. The next launch is checked again.`;
       for (const provider of reporters) report(provider, { kind: "refused", reason: "private_state_exposed", detail, exposure });
-      throw new WorkerPrivateStateError("private_state_exposed", detail, exposure);
+      const refused = new WorkerPrivateStateError("private_state_exposed", detail, exposure);
+      refused.diagnostic = { name: exposure.name, launch,
+        rows: rows.filter(row => holdsPath(row.point, exposure.name) || holdsPath(exposure.name, row.point))
+          .map(row => `${row.id} ${row.parent} ${row.sb} ${row.root} ${row.point} ${row.fstype} ${row.options.join(",")}`) };
+      throw refused;
     }
     if (verdict.result === "ownership_only") {
       for (const provider of reporters) report(provider, { kind: "ownership_only", entries: verdict.entries });

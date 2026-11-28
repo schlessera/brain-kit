@@ -256,7 +256,7 @@ export interface HostBoundary {
    */
   deferPreflight?(check: () => Promise<Error | undefined>): void;
   /** @internal Live launch-qualification diagnostics for status (#4301 F8). */
-  privateStateStatus?(): { stateBoundary: NonNullable<GovernedStatus["stateBoundary"]>; refusal?: { reason: GovernedUnavailableReason; detail: string } };
+  privateStateStatus?(): { stateBoundary: NonNullable<GovernedStatus["stateBoundary"]>; refusal?: { reason: GovernedUnavailableReason; detail: string }; diagnostic?: unknown };
   governed(startupView?: WorkerStartupView): GovernedAvailability;
   /** Qualifies maintenance with a fresh native input lease, then awaits release. */
   prepare(signal?: AbortSignal, startupView?: WorkerStartupView, timing?: PhaseTimer): Promise<GovernedAvailability>;
@@ -506,6 +506,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
    * no admission reads it, and a passing probe clears it.
    */
   let probeRefusal: { reason: GovernedUnavailableReason; detail: string } | undefined;
+  /** The refused probe's evidence, for diagnosis only: never served by status (#4301). */
+  let probeDiagnostic: unknown;
   let deferredPreflight: (() => Promise<Error | undefined>) | undefined, pendingPreflight: Promise<void> | undefined;
   /**
    * Repeat a deferred boot check before any execution. Concurrent callers wait
@@ -645,7 +647,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         maintenance: { tempLimits: maintenanceTemp, maskPaths, ...(tempDomain ? { tempDomain } : {}) } }) },
     isolated,
     disposePrivateState,
-    privateStateStatus: () => ({ ...boundaryStatus(), ...(probeRefusal && !passedMaintenanceProbes.has(maintenanceKey) ? { refusal: probeRefusal } : {}) }),
+    privateStateStatus: () => ({ ...boundaryStatus(), ...(probeRefusal && !passedMaintenanceProbes.has(maintenanceKey) ? { refusal: probeRefusal, diagnostic: probeDiagnostic } : {}) }),
     deferPreflight(check) { deferredPreflight = check; },
     governed,
     async prepare(signal, preparedView, timing) {
@@ -697,7 +699,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       } catch (error) {
         // A private-state refusal answers this admission only; nothing is stored (#4301).
         const refusal = privateStateRefusalOf(error);
-        if (refusal) { endProbe?.(); probeRefusal = { reason: refusal.reason, detail: refusal.message }; return { available: false as const, ...probeRefusal }; }
+        if (refusal) { endProbe?.(); probeRefusal = { reason: refusal.reason, detail: refusal.message }; probeDiagnostic = refusal.diagnostic; return { available: false as const, ...probeRefusal }; }
         if (!(error instanceof WorkerStateError)) throw error;
         signal?.throwIfAborted();
         endProbe?.();

@@ -1184,7 +1184,7 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     const closeStatus = () => status.close(supervisor);
     void child.exited.then(closeStatus, closeStatus);
     yield* qualifyWorkerNamespaceSteps(pid, realpathSync(input.brainPath), spawnedAt + STATE_SETUP_MS,
-      { site: input.transport ? "transport" : "maintenance", masked: launchMasked(input) });
+      { site: input.transport ? "transport" : "maintenance", masked: launchMasked(input), ...launchDescription(input, boot.env), launcher: "spawnQualifiedSteps" });
     if (options.signal?.aborted) { aborted = true; throw options.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"); }
     if (options.timeoutMs !== undefined && Date.now() >= spawnedAt + options.timeoutMs) {
       // Its deadline passed during setup: stopped as spawnSync's timeout stopped it, never released.
@@ -1205,6 +1205,17 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     }
     throw error;
   }
+}
+
+/** What a launch was given, for an exposure's diagnostic only (#4301). */
+function launchDescription(input: WorkerLaunch, env: Record<string, string>): { masks: readonly string[]; tmpfs: string[]; staged: boolean } {
+  let tmpfs: string[] = [];
+  try {
+    const argv = (JSON.parse(env.BRAIN_WORKER_LAUNCH ?? "{}") as { argv?: string[] }).argv ?? [];
+    tmpfs = argv.flatMap((arg, at) => arg === "--tmpfs" && argv[at + 1] ? [argv[at + 1]!] : []);
+  } catch { /* Diagnostic only. */ }
+  return { masks: input.maintenance?.maskPaths ?? input.sandbox?.maskPaths ?? [], tmpfs,
+    staged: Boolean(input.maintenance?.output?.storage || input.areaOutput?.storage) };
 }
 
 /** Whether a launch names private host paths to mask (#4301 Q1). */
@@ -1613,7 +1624,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       yield* verifyWorkerFolderMountsSteps(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks,
         identityBroker?.brainView());
     // Every envelope, before release: no host private state reachable here (#4301).
-    yield* qualifyWorkerNamespaceSteps(pid, brain, deadline, { site: input.maintenance ? "maintenance" : "agent", masked: launchMasked(input) });
+    yield* qualifyWorkerNamespaceSteps(pid, brain, deadline, { site: input.maintenance ? "maintenance" : "agent", masked: launchMasked(input),
+      ...launchDescription(input, boot.env), launcher: "launchAgentWorkerSteps" });
     // Release the gate: the worker's command starts only now.
     // A separate identity opens both keys: the coordinator's gate, then STATE_GATE's line.
     if (identityBroker) { yield* identityBroker.requestSteps("release"); writeSync(pipes.parent[0], STATE_GATE_OPEN); }
