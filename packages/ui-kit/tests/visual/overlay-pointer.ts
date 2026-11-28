@@ -20,9 +20,26 @@ export const overlayMouse: BrowserCommand<[{ x: number; y: number }]> = async (c
   await ctx.page.mouse.click(x, y);
 };
 
+/**
+ * Move the real mouse to a page corner outside the test frame. The mouse
+ * belongs to the page, not the frame, so an earlier file's click leaves it
+ * over whatever a later capture draws there, and that control paints its
+ * hover state into the screenshot (#5011).
+ */
+export const parkPointer: BrowserCommand<[]> = async (ctx) => {
+  const bounds = await (await ctx.frame()).frameElement().then(element => element.boundingBox());
+  const viewport = ctx.page.viewportSize();
+  if (!bounds || !viewport) throw new Error("Parking the pointer needs a painted test frame and a page viewport");
+  const corners = [[viewport.width - 1, viewport.height - 1], [0, 0], [viewport.width - 1, 0], [0, viewport.height - 1]] as const;
+  const outside = corners.find(([x, y]) => x < bounds.x || x >= bounds.x + bounds.width || y < bounds.y || y >= bounds.y + bounds.height);
+  if (!outside) throw new Error("The test frame covers every page corner; there is nowhere outside it to park the pointer");
+  await ctx.page.mouse.move(outside[0], outside[1]);
+};
+
 declare module "vitest/browser" {
   interface BrowserCommands {
     overlayMouse(point: { x: number; y: number }): Promise<void>;
+    parkPointer(): Promise<void>;
   }
 }
 

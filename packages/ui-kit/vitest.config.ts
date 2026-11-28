@@ -36,7 +36,7 @@ import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
 import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/visual/ghost-browser.ts";
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { sheetInput } from "./tests/visual/sheet-pointer.ts";
-import { overlayMouse, destinationPaint, destinationMotion, destinationSafeArea, destinationFilesImportGate } from "./tests/visual/overlay-pointer.ts";
+import { overlayMouse, parkPointer, destinationPaint, destinationMotion, destinationSafeArea, destinationFilesImportGate } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
 import { designFontUsage } from "./tests/visual/design-font-browser.ts";
 import { canvasEncodingLoad } from "./tests/visual/canvas-encoding-load.ts";
@@ -190,7 +190,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { clientTurnServer, safetyServer, recordingProof, rankTap, conversationServer, mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, storageServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, safetyGapChats, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { clientTurnServer, safetyServer, recordingProof, rankTap, conversationServer, mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, parkPointer, dictationMotion, policyServer, storageServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, safetyGapChats, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.
