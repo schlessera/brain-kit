@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { parseProcStat, procChildren, readProcStat } from "./proc-identity.js";
 import { runWorkerStepsSync, workerStepRun, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 
+/** The caller stopped waiting for the sandbox's PID: its abort or its deadline (#4301). */
+export class WorkerStatusInterrupted extends Error { constructor() { super("worker status wait interrupted"); this.name = "WorkerStatusInterrupted"; } }
+
 const MAX_STATUS_BYTES = 4096;
 /** How long a refusal waits for its supervisor to stop before reading its children. */
 const SUPERVISOR_STOP_MS = 2_000;
@@ -98,13 +101,22 @@ export function* createWorkerStatusPipeSteps() {
     gateWriter = openSync(gate, constants.O_WRONLY);
     const source = `/proc/${process.pid}/fd/${writer}`, gateSource = `/proc/${process.pid}/fd/${gateReader}`;
     let closed = false, writerClosed = false, gateClosed = false;
+    let gateClosing: Promise<void> = Promise.resolve();
     let gated: ProcessIdentity | undefined;
     const closeGate = () => { if (!gateClosed) { gateClosed = true; closeSync(gateReader!); closeSync(gateWriter!); } };
-    function* childPidSteps(supervisor: number, deadline: number): WorkerSteps<number> {
+    /**
+     * `interrupted` is asked on every wait: a caller's abort or deadline ends
+     * the wait at once (#4301). `now` is the clock `deadline` is on; a direct
+     * launch passes the monotonic one (#5016 F33).
+     */
+    function* childPidSteps(supervisor: number, deadline: number, interrupted?: () => boolean, now: () => number = Date.now): WorkerSteps<number> {
       if (closed) throw new Error("Worker status pipe is closed");
       const buffer = Buffer.alloc(MAX_STATUS_BYTES + 1);
       let used = 0;
       for (;;) {
+        // The channel closes when the supervisor exits, possibly while this
+        // waits: its descriptor number may already name another file (#5016 r3 F54).
+        if (closed) throw new Error("bubblewrap exited before reporting worker status");
         try { used += readSync(reader!, buffer, used, buffer.length - used, null); }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== "EAGAIN") throw error; }
         const end = buffer.subarray(0, used).indexOf(10);
@@ -126,7 +138,8 @@ export function* createWorkerStatusPipeSteps() {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error("bubblewrap exited before reporting worker status");
           throw error;
         }
-        if (Date.now() >= deadline) throw new Error("Worker did not report authenticated bubblewrap status in time");
+        if (interrupted?.()) throw new WorkerStatusInterrupted();
+        if (now() >= deadline) throw new Error("Worker did not report authenticated bubblewrap status in time");
         yield* workerStepSleep(1);
       }
     }
@@ -152,17 +165,19 @@ export function* createWorkerStatusPipeSteps() {
        * open for good: a held descriptor, never a released payload. Only a
        * gate with no supervisor, which nothing can have opened, closes at once.
        */
-      close(supervisor?: WorkerStatusSupervisor) {
-        if (closed) return;
+      /** Resolves once the gate is closed, or once its sandbox's death could not be confirmed (it stays held). */
+      close(supervisor?: WorkerStatusSupervisor): Promise<void> {
+        if (closed) return gateClosing;
         closed = true;
         closeSync(reader!);
         if (!writerClosed) { writerClosed = true; closeSync(writer!); }
-        if (gateClosed) return;
-        if (!supervisor) { closeGate(); return; }
+        if (gateClosed) return gateClosing;
+        if (!supervisor) { closeGate(); return gateClosing; }
         const doomed = killGatedSandbox(supervisor, gated);
-        void supervisor.exited.then(() => undefined, () => undefined)
+        gateClosing = supervisor.exited.then(() => undefined, () => undefined)
           .then(() => confirmedDead(doomed, Date.now() + REFUSAL_DEATH_MS))
           .then(dead => { if (dead) closeGate(); });
+        return gateClosing;
       },
     };
   } catch (error) {
