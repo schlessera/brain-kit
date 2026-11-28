@@ -65,12 +65,15 @@ interface WorkingSessions {
   views: ReadonlyMap<string, TrackerView>;
 }
 
+const NONE: WorkingSessions = { shown: [], overflow: new Set(), views: new Map() };
+
 /**
  * The root's trackers (#948), ready to draw: the pills below 1280, and the
  * Working group of the drawer and of the ≥1280 pane. Labels come from the
- * root's session list.
+ * root's session list. A consumer that draws nothing right now (a closed
+ * drawer) passes `active: false` and gets no rows, built from nothing (#4892).
  */
-export function useWorkingSessions(): WorkingSessions {
+export function useWorkingSessions(active = true): WorkingSessions {
   const records = useRootStore("trackers", (s) => s.records);
   const evidence = useRootStore("trackers", (s) => s.evidence);
   const unconfirmed = useRootStore("trackers", (s) => s.unconfirmed);
@@ -79,8 +82,9 @@ export function useWorkingSessions(): WorkingSessions {
   const sessions = useRootStore("sessions", (s) => s.sessions);
   // Only the fallback labels of tracked sessions, as one string, so a
   // streaming delta does not redraw the pills.
-  const prompts = useRootStore("chat", (s) => JSON.stringify(Object.keys(records).map((id) => [id, firstPrompt(s, id)])));
+  const prompts = useRootStore("chat", (s) => !active ? "[]" : JSON.stringify(Object.keys(records).map((id) => [id, firstPrompt(s, id)])));
   return useMemo(() => {
+    if (!active) return NONE;
     const all = trackerViews({ records, evidence, unconfirmed, recoverySupported }, queueNotes);
     const { shown, overflow } = trackerRow(all);
     const listed = new Map(sessions.map((s) => [s.id, s]));
@@ -91,5 +95,5 @@ export function useWorkingSessions(): WorkingSessions {
       overflow: new Set(overflow.map((v) => v.sessionId)),
       views: new Map(all.map((v) => [v.sessionId, v])),
     };
-  }, [records, evidence, unconfirmed, recoverySupported, queueNotes, prompts, sessions]);
+  }, [active, records, evidence, unconfirmed, recoverySupported, queueNotes, prompts, sessions]);
 }

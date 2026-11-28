@@ -1,5 +1,6 @@
-// What a store write re-renders (#4750): the composer, the Actions page, a
-// run's orbit and the tracker announcer select only what they draw, so a
+// What a store write re-renders (#4750, #4893): the composer, the voice Start
+// card and conversation field, the Actions page, a run's orbit and the
+// tracker announcer select only what they draw, so a
 // streamed frame or a recognition fragment that changes none of it commits
 // none of them. Mounted on a real root with no host; a Profiler counts the
 // commits of a component mounted on its own, and inside the real ChatPage a
@@ -20,6 +21,8 @@ import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { useOrbitAgents } from "../../src/components/activity/run-orbit.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { Composer } from "../../src/components/chat/composer.js";
+import { ConversationField } from "../../src/components/voice/conversation-field.js";
+import { ConversationStartCard } from "../../src/components/voice/start-card.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 
@@ -163,6 +166,47 @@ describe("the composer", () => {
     act(() => r.connection.conversation.state.setState({ available: true, active: true }));
     expect(view.container.querySelector("[data-conversation-field]")).not.toBeNull();
     expect(view.container.querySelector("[data-composer]")).toBeNull();
+  });
+});
+
+describe("a live conversation", () => {
+  /** Twenty recognition fragments: the one write each that retains it, as the client makes. */
+  function fragments(r: BrainUiRoot, field: "recognition" | "unassigned") {
+    const conversation = r.connection.conversation.state;
+    for (let i = 0; i < 20; i++) act(() => conversation.setState({ [field]: [...conversation.getState()[field], { id: `f-${i}`, text: "Sing, Muse" } as never] }));
+  }
+  function live(r: BrainUiRoot, disclosureOpen: boolean) {
+    // The card resolves its host from the page's own origin.
+    (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL("http://127.0.0.1/");
+    act(() => r.connection.conversation.state.setState({ available: true, active: true, connection: "Connected", capture: "listening", sessionId: IN_VIEW, disclosureOpen }));
+  }
+
+  test("recognition fragments commit nothing in the Start card", async () => {
+    const r = fixture();
+    live(r, true);
+    const c = commits();
+    const view = render(<BrainUiProvider root={r}><Profiler id="start" onRender={c.onRender}><ConversationStartCard backend="claude" onLeave={() => {}} /></Profiler></BrainUiProvider>);
+    await tick();
+    expect(view.container.querySelector(".bk-voice-start")).not.toBeNull();
+    c.reset();
+    fragments(r, "recognition");
+    expect(c.count()).toBe(0);
+  });
+
+  test("recognition the field does not draw commits nothing; its held text still does", async () => {
+    const r = fixture();
+    live(r, false);
+    const c = commits();
+    const view = render(<BrainUiProvider root={r}><Profiler id="field" onRender={c.onRender}><ConversationField backend="claude" onLeave={() => {}} /></Profiler></BrainUiProvider>);
+    await tick();
+    expect(view.container.querySelector("[data-conversation-field]")).not.toBeNull();
+    c.reset();
+    fragments(r, "recognition");
+    fragments(r, "unassigned");
+    expect(c.count()).toBe(0);
+    act(() => r.connection.conversation.state.setState({ text: "Sing, Muse" }));
+    expect(c.count()).toBeGreaterThan(0);
+    expect(view.container.textContent).toContain("Sing, Muse");
   });
 });
 

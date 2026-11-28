@@ -55,7 +55,7 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
   const unavailable = useProviderStore((s) => s.unavailable);
   const backendName = useBackendName();
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
-  const tracked = useWorkingSessions();
+  const tracked = useWorkingSessions(visible);
   const now = useNow(AGE_TICK_MS);
   const fresh = useRootStore("drafts", (s) => s.fresh);
 
