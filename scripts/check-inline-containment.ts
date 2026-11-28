@@ -26,6 +26,7 @@
 import { readFileSync } from "fs";
 import { relative, resolve } from "path";
 import ts from "typescript";
+import { parse, treeFiles } from "./lib/source";
 
 /** Package source whose inline prefixes are not paths, how many, and why. */
 export const NOT_A_PATH: ReadonlyArray<{ file: string; count: number; reason: string }> = [
@@ -93,8 +94,7 @@ export function isRootPlusSeparator(arg: ts.Expression): boolean {
 }
 
 export function scanSource(file: string, text: string): Finding[] {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true,
-    file.endsWith(".tsx") ? ts.ScriptKind.TSX : /\.[mc]?js$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS);
+  const source = parse(file, text);
   const findings: Finding[] = [];
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
@@ -117,9 +117,8 @@ export interface Report {
 }
 
 export function scanTree(root: string): Report {
-  const files = [...new Bun.Glob(SCANNED).scanSync({ cwd: root })]
-    .filter((file) => !/(^|\/)(node_modules|dist)\//.test(file))
-    .sort();
+  const files = treeFiles(root, SCANNED)
+    .filter((file) => !/(^|\/)(node_modules|dist)\//.test(file));
   const findings: Finding[] = [];
   const counts = new Map<string, number>();
   for (const file of files) {
@@ -133,12 +132,12 @@ export function scanTree(root: string): Report {
   return { findings, miscounted };
 }
 
-if (import.meta.main) {
-  const root = resolve(process.argv[2] ?? process.cwd());
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
   const { findings, miscounted } = scanTree(root);
   if (findings.length === 0 && miscounted.length === 0) {
     console.log("No package source checks path containment with an inline startsWith; every check goes through isWithin.");
-    process.exit(0);
+    return 0;
   }
   if (findings.length > 0) {
     console.error("Inline path-containment checks (`startsWith(`${root}/`)`, `startsWith(root + sep)`):");
@@ -155,5 +154,7 @@ if (import.meta.main) {
       "@schlessera/brain-common/internal/safe-path; a prefix that is not a path goes in NOT_A_PATH " +
       "(scripts/check-inline-containment.ts) with its reason.",
   );
-  process.exit(1);
+  return 1;
 }
+
+if (import.meta.main) process.exit(lintGate(resolve(process.argv[2] ?? process.cwd())));

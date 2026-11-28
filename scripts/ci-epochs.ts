@@ -6,6 +6,7 @@
  * so a comparison never silently spans a policy change. */
 import { percentage, seconds } from "./ci-timing-stats";
 import { classify, loadPathSet, parsePathSet, type PathSet } from "./proof-system";
+import { git } from "./lib/git";
 
 const PATH_SET = "scripts/proof-system-paths.json";
 
@@ -21,12 +22,6 @@ export interface Delivery { number: number; merge: string | null; firstMainOutco
 export const UNBOUNDED = "unbounded";
 /** Commits classified beyond the window's oldest commit while looking for the epoch it starts in. */
 export const DEFAULT_LOOKBACK = 2000;
-
-function git(cwd: string, args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed (${result.exitCode}): ${result.stderr.toString().trim()}`);
-  return result.stdout.toString();
-}
 
 /** First-parent history of `ref` in a local checkout. Each squash is classified
  * with the path set in force when it merged, read from its first parent; history

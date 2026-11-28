@@ -1,4 +1,4 @@
-// Refuses raw control and invisible characters in tracked text files.
+// Refuses raw control and invisible characters in the tree's text files: tracked, or untracked and not ignored.
 //
 // Why: a single raw NUL byte makes grep and ripgrep classify a source file as
 // binary, so it silently vanishes from every search — the symptom that led
@@ -12,9 +12,9 @@
 //
 // This file deliberately contains no invisible characters of its own: every
 // codepoint it hunts for is written as a number.
-import { execFileSync } from "child_process";
 import { readFileSync } from "fs";
 import { join, resolve } from "path";
+import { listTree } from "./lib/source";
 
 const CONTROL_NAMES: Record<number, string> = {
   0x00: "NUL",
@@ -114,16 +114,8 @@ export function scanText(file: string, text: string): Finding[] {
 }
 
 export function scanRepo(root: string): Finding[] {
-  const tracked = execFileSync("git", ["ls-files", "-z"], {
-    cwd: root,
-    maxBuffer: 1 << 28,
-  })
-    .toString("utf-8")
-    .split(String.fromCharCode(0))
-    .filter(Boolean);
-
   const findings: Finding[] = [];
-  for (const relative of tracked) {
+  for (const relative of listTree(root)) {
     if (BINARY_EXTENSIONS.test(relative)) continue;
     if (ALLOWED_PATHS.includes(relative)) continue;
     let text: string;

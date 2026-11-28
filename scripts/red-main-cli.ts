@@ -12,6 +12,9 @@ import { GitReservationStore, reservationServerTime, type Snapshot as StoreSnaps
 import { coordinate, type CoordinatorIO, type WorkflowRun } from "./red-main-coordinator";
 import { gateDecision, type Category } from "./red-main";
 import { PROBE_RECEIPT } from "./red-main-expedite";
+import { gh as ghCommand } from "./lib/gh";
+
+const CLI_GH = { error: (args: readonly string[], _code: number, stderr: string) => `gh ${args.slice(0, 2).join(" ")} failed: ${stderr.trim()}` };
 
 // Hosted jobs run from the checkout root; fixtures run from their own repository.
 const root = process.cwd();
@@ -50,38 +53,31 @@ export function inClosure(sha: string, failure: { test: string | null; category:
   } catch { return null; }
 }
 
-async function gh(args: string[], input?: string): Promise<string> {
-  const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe", stdin: input === undefined ? "ignore" : new TextEncoder().encode(input) });
-  const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-  if (code !== 0) throw new Error(`gh ${args.slice(0, 2).join(" ")} failed: ${err.trim()}`);
-  return out;
-}
-
 function liveIO(repository: string): CoordinatorIO {
   const store = new GitReservationStore(root);
   return {
     repository,
-    async json(path) { return JSON.parse(await gh(["api", path])); },
+    async json(path) { return JSON.parse(await ghCommand(["api", path], CLI_GH)); },
     async write(method, path, body) {
-      const out = await gh(["api", "-X", method, path, ...(body === undefined ? [] : ["--input", "-"])], body === undefined ? undefined : JSON.stringify(body));
+      const out = await ghCommand(["api", "-X", method, path, ...(body === undefined ? [] : ["--input", "-"])], { ...CLI_GH, input: body === undefined ? undefined : JSON.stringify(body) });
       return out.trim() ? JSON.parse(out) : {};
     },
-    async now() { return reservationServerTime(await gh(["api", "--include", "-H", "Cache-Control: no-cache", `repos/${repository}/git/ref/heads/main?red_main_clock=${crypto.randomUUID()}`])); },
+    async now() { return reservationServerTime(await ghCommand(["api", "--include", "-H", "Cache-Control: no-cache", `repos/${repository}/git/ref/heads/main?red_main_clock=${crypto.randomUUID()}`], CLI_GH)); },
     read() { return store.read(); },
     publish(snapshot, record) { return store.publishRedMain(snapshot as StoreSnapshot, record); },
     async artifactFiles(runId, name, file) {
-      const listing = JSON.parse(await gh(["api", `repos/${repository}/actions/runs/${runId}/artifacts?per_page=100`]));
+      const listing = JSON.parse(await ghCommand(["api", `repos/${repository}/actions/runs/${runId}/artifacts?per_page=100`], CLI_GH));
       if (!(listing.artifacts ?? []).some((artifact: { name: string; expired: boolean }) => artifact.name === name && !artifact.expired)) return [];
       const dir = mkdtempSync(join(tmpdir(), "red-main-artifact-"));
       try {
-        await gh(["run", "download", String(runId), "--repo", repository, "--name", name, "--dir", dir]);
+        await ghCommand(["run", "download", String(runId), "--repo", repository, "--name", name, "--dir", dir], CLI_GH);
         const found: { name: string; text: string }[] = [];
         const walk = (path: string) => { for (const entry of readdirSync(path)) { const full = join(path, entry); if (statSync(full).isDirectory()) walk(full); else if (file.test(entry)) found.push({ name: entry, text: readFileSync(full, "utf8") }); } };
         walk(dir);
         return found;
       } finally { rmSync(dir, { recursive: true, force: true }); }
     },
-    async log(job) { return gh(["api", "--allow-escape-sequences", `repos/${repository}/actions/jobs/${job}/logs`]); },
+    async log(job) { return ghCommand(["api", "--allow-escape-sequences", `repos/${repository}/actions/jobs/${job}/logs`], CLI_GH); },
     inClosure,
     range(since, until) { return must(["git", "rev-list", "--first-parent", "--reverse", `${since}..${until}`]).split("\n").filter(Boolean); },
     isAncestor: (a, b) => isAncestor(a, b),

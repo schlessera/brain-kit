@@ -11,6 +11,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import ts from "typescript";
+import { parse, treeFiles } from "./lib/source";
 
 interface LayerRule {
   /** Names the rule in the gate's report. */
@@ -58,7 +59,7 @@ export function isLowerLayer(file: string): boolean {
 export function checkLayerDirection(source: string, file: string): string[] {
   const rule = ruleFor(file);
   if (!rule) return [];
-  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const tree = parse(file, source, ts.ScriptKind.TSX);
   const findings: string[] = [];
   const check = (literal: ts.Node) => {
     if (!ts.isStringLiteralLike(literal) || !literal.text.startsWith(".")) return;
@@ -78,27 +79,40 @@ export function checkLayerDirection(source: string, file: string): string[] {
   return findings;
 }
 
-if (import.meta.main) {
-  const root = resolve(process.argv[2] ?? ".");
+/** Findings for every lower-layer file under `root`, and how many files each rule checked, in rule order. */
+export function scanLayerDirection(root: string): { checked: { rule: LayerRule; files: number }[]; findings: string[] } {
   const findings: string[] = [];
-  const report: string[] = [];
+  const checked: { rule: LayerRule; files: number }[] = [];
   for (const rule of RULES) {
-    let checked = 0;
-    for (const file of new Bun.Glob(`${rule.src}/**/*.{ts,tsx}`).scanSync(root)) {
+    let files = 0;
+    for (const file of treeFiles(root, `${rule.src}/**/*.{ts,tsx}`)) {
       if (ruleFor(file) !== rule) continue;
-      checked++;
+      files++;
       findings.push(...checkLayerDirection(readFileSync(resolve(root, file), "utf8"), file));
     }
-    if (checked === 0) {
+    checked.push({ rule, files });
+  }
+  return { checked, findings };
+}
+
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
+  const { checked, findings } = scanLayerDirection(root);
+  const report: string[] = [];
+  for (const { rule, files } of checked) {
+    if (files === 0) {
       // A glob that matches nothing would pass forever.
       console.error(`layer-direction: no files under ${rule.lower.join(", ")}; the gate checked nothing`);
-      process.exit(1);
+      return 1;
     }
-    report.push(`${checked} ${rule.name}`);
+    report.push(`${files} ${rule.name}`);
   }
   if (findings.length) {
     console.error(findings.join("\n"));
-    process.exit(1);
+    return 1;
   }
   console.log(`layer-direction: ${report.join("; ")}`);
+  return 0;
 }
+
+if (import.meta.main) process.exit(lintGate(resolve(process.argv[2] ?? ".")));

@@ -8,6 +8,7 @@
  * before acting on it.
  */
 import type { IssueRef } from "./select";
+import { realGh } from "../lib/gh";
 
 export interface Issue { number: number; title: string; body: string; labels: string[]; assignees: number }
 
@@ -42,21 +43,21 @@ export function mapIssues(issues: readonly Issue[], files: readonly string[]): M
   return mapped;
 }
 
-function gh(args: string[], cwd: string): string {
-  const result = Bun.spawnSync(["gh", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) throw new Error(`gh ${args.slice(0, 2).join(" ")}: ${result.stderr.toString().trim()}`);
-  return result.stdout.toString();
+function listed(args: string[], cwd: string): string {
+  const result = realGh(args, cwd);
+  if (result.code !== 0) throw new Error(`gh ${args.slice(0, 2).join(" ")}: ${result.stderr.trim()}`);
+  return result.stdout;
 }
 
 interface RawIssue { number: number; title: string; body: string | null; labels: Array<{ name: string }>; assignees: unknown[] }
 
 export function fetchIssues(root: string): Issue[] {
-  const raw = JSON.parse(gh(["issue", "list", "--state", "open", "--limit", "1000", "--json", "number,title,body,labels,assignees"], root)) as RawIssue[];
+  const raw = JSON.parse(listed(["issue", "list", "--state", "open", "--limit", "1000", "--json", "number,title,body,labels,assignees"], root)) as RawIssue[];
   return raw.map(issue => ({ number: issue.number, title: issue.title, body: issue.body ?? "", labels: issue.labels.map(label => label.name), assignees: issue.assignees.length }));
 }
 
 /** Files that open pull requests already touch. A run leaves them alone rather than race the other change. */
 export function fetchOpenPrFiles(root: string): Set<string> {
-  const raw = JSON.parse(gh(["pr", "list", "--state", "open", "--limit", "200", "--json", "number,files"], root)) as Array<{ files?: Array<{ path: string }> }>;
+  const raw = JSON.parse(listed(["pr", "list", "--state", "open", "--limit", "200", "--json", "number,files"], root)) as Array<{ files?: Array<{ path: string }> }>;
   return new Set(raw.flatMap(pr => (pr.files ?? []).map(file => file.path)));
 }

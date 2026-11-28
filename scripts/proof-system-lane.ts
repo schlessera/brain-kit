@@ -11,6 +11,9 @@
  * bounded: at most `MAX_MAIN_RUNS` main-run reads and `MAX_QUALIFICATION_RUNS` run
  * reads per decision. */
 import { classify, type ClassifyOptions } from "./proof-system";
+import { git } from "./lib/git";
+
+const LANE_GIT = { trim: true, error: (args: readonly string[], _code: number | null, stderr: string) => `git ${args.join(" ")} failed: ${stderr.trim()}` } as const;
 
 /** Main-push runs one lane decision reads at most: the own run and up to nine later ones. */
 export const MAX_MAIN_RUNS = 10;
@@ -48,12 +51,6 @@ export interface LaneDecision {
   next: string | null;
 }
 
-function git(cwd: string, args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString().trim()}`);
-  return result.stdout.toString().trim();
-}
-
 /** Only a completed, successful run is green: missing, queued, in-progress,
  * cancelled, failed, skipped or timed-out runs are not. */
 export function isGreen(run: MainRun | null): boolean {
@@ -69,7 +66,7 @@ export interface ProofSystemHistory { squash: string | null; later: string[]; om
  * parent is a proof-system change, and the newest squashes after it within the bound. */
 export function lastProofSystemSquash(main: string, options: ClassifyOptions & { limit?: number } = {}): ProofSystemHistory {
   const cwd = options.cwd ?? process.cwd();
-  const lines = git(cwd, ["rev-list", "--first-parent", "--parents", `--max-count=${options.limit ?? SCAN_LIMIT}`, main]).split("\n").filter(Boolean);
+  const lines = git(cwd, ["rev-list", "--first-parent", "--parents", `--max-count=${options.limit ?? SCAN_LIMIT}`, main], LANE_GIT).split("\n").filter(Boolean);
   const newestFirst: string[] = [];
   for (const line of lines) {
     const [sha, parent] = line.split(" ") as [string, string | undefined];
@@ -124,7 +121,7 @@ export function decideLane(main: string, history: ProofSystemHistory, runs: Read
 /** Reads the decision: local first-parent history plus at most `MAX_MAIN_RUNS` run lookups. */
 export async function readLane(main: string, runAt: (sha: string) => Promise<MainRun | null>, options: ClassifyOptions = {}): Promise<LaneDecision> {
   const cwd = options.cwd ?? process.cwd();
-  const resolved = git(cwd, ["rev-parse", "--verify", "--end-of-options", `${main}^{commit}`]);
+  const resolved = git(cwd, ["rev-parse", "--verify", "--end-of-options", `${main}^{commit}`], LANE_GIT);
   const history = lastProofSystemSquash(resolved, options);
   const runs = new Map<string, MainRun | null>();
   for (;;) {

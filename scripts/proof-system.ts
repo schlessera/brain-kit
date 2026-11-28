@@ -15,6 +15,7 @@
  * never reports `false`. */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { git } from "./lib/git";
 
 export interface PathSet { paths: string[]; timeoutCheckScope: string[] }
 
@@ -199,23 +200,15 @@ export function timeoutChanges(patch: string, path: { base: string; head: string
   return reasons;
 }
 
-function git(cwd: string, args: string[]): string {
-  const result = Bun.spawnSync(["git", "-c", "core.quotePath=false", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} failed (${result.exitCode}): ${result.stderr.toString().trim()}`);
-  }
-  return result.stdout.toString();
-}
-
 function resolveCommit(cwd: string, rev: string): string {
   if (!rev || rev.startsWith("-")) throw new Error(`Invalid revision: ${JSON.stringify(rev)}`);
-  return git(cwd, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${rev}^{commit}`]).trim();
+  return git(cwd, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${rev}^{commit}`], { quotePath: false }).trim();
 }
 
 interface Change { base: string; head: string; existing: boolean }
 
 function changedFiles(cwd: string, base: string, head: string): Change[] {
-  const fields = git(cwd, ["diff", "--name-status", "-z", "-M", "--no-ext-diff", base, head, "--"]).split("\0");
+  const fields = git(cwd, ["diff", "--name-status", "-z", "-M", "--no-ext-diff", base, head, "--"], { quotePath: false }).split("\0");
   if (fields.at(-1) === "") fields.pop();
   const changes: Change[] = [];
   for (let i = 0; i < fields.length;) {
@@ -247,7 +240,7 @@ export function classify(base: string, head: string, options: ClassifyOptions = 
   for (const change of changes) {
     if (!firstMatch(change.base, set.timeoutCheckScope) && !firstMatch(change.head, set.timeoutCheckScope)) continue;
     const patch = git(cwd, ["diff", "--unified=0", "-M", "--no-color", "--no-ext-diff", "--text", baseSha, headSha,
-      "--", ...new Set([`:(literal)${change.base}`, `:(literal)${change.head}`])]);
+      "--", ...new Set([`:(literal)${change.base}`, `:(literal)${change.head}`])], { quotePath: false });
     reasons.push(...timeoutChanges(patch, change, change.existing));
   }
   return { schemaVersion: 1, base: baseSha, head: headSha, proofSystem: reasons.length > 0, reasons };

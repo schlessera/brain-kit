@@ -123,9 +123,12 @@ describe("main selection includes the open red set", () => {
     const planner = readFileSync(join(ROOT, "scripts/ci-plan.ts"), "utf8");
     writeFileSync(join(dir, "scripts/ci-plan.ts"), planner.replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
     // Shim every sibling module the planner imports, read from its source: a hand list missed ./proof-shards (#4108).
-    const siblings = [...planner.matchAll(/from "\.\/([\w-]+)"/g)].map(match => match[1]!);
+    const siblings = [...planner.matchAll(/from "\.\/([\w/-]+)"/g)].map(match => match[1]!);
     expect(siblings, "PLANNER_SIBLINGS_FOUND").toContain("red-main");
-    for (const name of siblings) writeFileSync(join(dir, `scripts/${name}.ts`), `export * from ${JSON.stringify(join(ROOT, `scripts/${name}.ts`))};\n`);
+    for (const name of siblings) {
+      mkdirSync(join(dir, "scripts", name, ".."), { recursive: true });
+      writeFileSync(join(dir, `scripts/${name}.ts`), `export * from ${JSON.stringify(join(ROOT, `scripts/${name}.ts`))};\n`);
+    }
     writeFileSync(join(dir, "docs/notes.md"), "Ithaca.\n"); git(dir, "add", "."); git(dir, "commit", "-qm", "base");
     const before = git(dir, "rev-parse", "HEAD");
     writeFileSync(join(dir, "docs/notes.md"), "Ithaca, again.\n"); git(dir, "commit", "-qam", "docs only");

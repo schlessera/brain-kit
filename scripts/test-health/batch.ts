@@ -16,6 +16,9 @@ import type { Profile } from "./config";
 import type { BatchState, ClusterRecord, LedgerState } from "./ledger";
 import { resolveGroup } from "./select";
 import { countSignals, scanSource } from "./signals";
+import { git, gitResult } from "../lib/git";
+
+const BATCH_GIT = { error: (args: readonly string[], _code: number | null, stderr: string) => `git ${args[0]}: ${stderr.trim()}` } as const;
 
 export const TRAILER = "Test-Health";
 /** The commit trailer that ties a commit to its recorded audit. */
@@ -107,22 +110,12 @@ export interface VerifyResult {
     testsRemoved: number; declaredRemoved: number };
 }
 
-function git(root: string, args: string[]): string;
-function git(root: string, args: string[], allowFailure: true): string | null;
-function git(root: string, args: string[], allowFailure = false): string | null {
-  const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) {
-    if (allowFailure) return null;
-    throw new Error(`git ${args[0]}: ${result.stderr.toString().trim()}`);
-  }
-  return result.stdout.toString();
-}
 
 export async function verifyBatch(input: VerifyInput): Promise<VerifyResult> {
   const { root, base, head } = input;
   const violations: string[] = [];
-  const mergeBase = git(root, ["merge-base", base, head]).trim();
-  const changed = git(root, ["diff", "--name-only", "--no-renames", "-z", mergeBase, head, "--"]).split("\0").filter(Boolean).sort();
+  const mergeBase = git(root, ["merge-base", base, head], BATCH_GIT).trim();
+  const changed = git(root, ["diff", "--name-only", "--no-renames", "-z", mergeBase, head, "--"], BATCH_GIT).split("\0").filter(Boolean).sort();
   for (const path of changed) {
     if (!allowedInBatch(path)) violations.push(`${path}: outside test code; a product or tooling change is filed, not made here`);
   }
@@ -134,23 +127,24 @@ export async function verifyBatch(input: VerifyInput): Promise<VerifyResult> {
   const records = new Map(input.clusters.map(record => [`${record.runId}#${record.cluster}`, record]));
   const findings = input.clusters.flatMap(record => record.worksheet.findings);
   const compared = new Set(input.clusters.flatMap(record => (record.accounting ?? []).filter(entry => entry.runtime !== null).map(entry => entry.file)));
-  const existedAtBase = (path: string) => git(root, ["cat-file", "-e", `${mergeBase}:${path}`], true) !== null;
+  const shown = (args: string[]) => { const result = gitResult(root, args); return result.code === 0 ? result.stdout : null; };
+  const existedAtBase = (path: string) => gitResult(root, ["cat-file", "-e", `${mergeBase}:${path}`]).code === 0;
   const dropped = new Map((input.voided ?? []).map(record => [`${record.runId}#${record.cluster}`, record]));
   for (const [key, record] of dropped) {
     const left = record.worksheet.members.filter(file => changed.includes(file));
     if (left.length) violations.push(`${key} was dropped, but ${left.join(", ")} still differ${left.length === 1 ? "s" : ""} from the base`);
   }
-  const commits = git(root, ["rev-list", "--no-merges", `${mergeBase}..${head}`]).split("\n").filter(Boolean);
+  const commits = git(root, ["rev-list", "--no-merges", `${mergeBase}..${head}`], BATCH_GIT).split("\n").filter(Boolean);
   for (const commit of input.netOnly ? [] : commits) {
     const short = commit.slice(0, 10);
-    const message = git(root, ["show", "-s", "--format=%B", commit]);
+    const message = git(root, ["show", "-s", "--format=%B", commit], BATCH_GIT);
     const trailer = new RegExp(`^${TRAILER}: (\\S+)$`, "m").exec(message)?.[1];
     const record = trailer ? records.get(trailer) : undefined;
     if (!trailer) { violations.push(`commit ${short}: no ${TRAILER} trailer, so no audit stands behind it`); continue; }
     // A dropped cluster's commit and its revert cancel out; the check above holds them to that.
     if (dropped.has(trailer)) continue;
     if (!record) { violations.push(`commit ${short}: ${trailer} is not a recorded cluster`); continue; }
-    const touched = git(root, ["show", "--name-only", "--no-renames", "--format=", "-z", commit]).split("\0").filter(Boolean);
+    const touched = git(root, ["show", "--name-only", "--no-renames", "--format=", "-z", commit], BATCH_GIT).split("\0").filter(Boolean);
     for (const path of touched) {
       // A new test file has nothing to lose and no audit to belong to: adding the cheap owner of a case is how a tier move starts.
       if (TEST_FILE.test(path) && existedAtBase(path) && !record.worksheet.members.includes(path)) violations.push(`commit ${short}: ${path} is not a member of ${trailer}`);
@@ -160,8 +154,8 @@ export async function verifyBatch(input: VerifyInput): Promise<VerifyResult> {
   const stats: VerifyResult["stats"] = { commits: commits.length, files: 0, testsBefore: 0, testsAfter: 0, assertionsBefore: 0, assertionsAfter: 0, testsRemoved: 0, declaredRemoved: 0 };
   for (const path of changed.filter(file => TEST_FILE.test(file))) {
     stats.files++;
-    const before = scanSource(path, git(root, ["show", `${mergeBase}:${path}`], true) ?? "");
-    const after = scanSource(path, git(root, ["show", `${head}:${path}`], true) ?? "");
+    const before = scanSource(path, shown(["show", `${mergeBase}:${path}`]) ?? "");
+    const after = scanSource(path, shown(["show", `${head}:${path}`]) ?? "");
     stats.testsBefore += before.tests; stats.testsAfter += after.tests;
     stats.assertionsBefore += before.matchers; stats.assertionsAfter += after.matchers;
     const [was, now] = [countSignals(before.signals), countSignals(after.signals)];

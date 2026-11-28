@@ -15,6 +15,7 @@
 import { spawnSync } from "node:child_process";
 import { changedFiles, planUnitChecks, workspaces, type CheckPlan, type Workspace } from "./ci-plan";
 import { discoverUnitImports, unitImportOwners, type UnitImportGraph } from "./unit-test-consumers";
+import { gitResult } from "./lib/git";
 
 export interface OpenPr { number: number; head: string; base: string; draft: boolean; baseRef?: string }
 
@@ -59,15 +60,10 @@ export interface CollisionOptions {
 
 interface Closure { changed: string[]; owners: Set<string>; affected: Set<string>; categories: Set<string>; global: boolean }
 
-function git(root: string, args: string[], allow: number[] = [0]) {
-  // GIT_OPTIONAL_LOCKS=0 keeps even status-style refreshes from rewriting the index.
-  const result = spawnSync("git", args, { cwd: root, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } });
-  if (result.error || !allow.includes(result.status ?? -1))
-    throw new Error(`git ${args[0]} failed: ${(result.stderr || String(result.error ?? "")).trim()}`);
-  return { status: result.status!, stdout: result.stdout };
-}
+/** GIT_OPTIONAL_LOCKS=0 keeps even status-style refreshes from rewriting the index. */
+const COLLISION_GIT = { optionalLocks: false, error: (args: readonly string[], _code: number | null, stderr: string) => `git ${args[0]} failed: ${stderr.trim()}` } as const;
 
-const hasCommit = (root: string, sha: string) => git(root, ["cat-file", "-e", `${sha}^{commit}`], [0, 1, 128]).status === 0;
+const hasCommit = (root: string, sha: string) => gitResult(root, ["cat-file", "-e", `${sha}^{commit}`], { ...COLLISION_GIT, allow: [0, 1, 128] }).code === 0;
 
 /** Objects only: no destination refspec, no FETCH_HEAD, no opportunistic tracking update, no maintenance. */
 function fetchMissing(root: string, remote: string, prs: readonly OpenPr[]) {
@@ -76,8 +72,8 @@ function fetchMissing(root: string, remote: string, prs: readonly OpenPr[]) {
     ...(hasCommit(root, pr.base) || !pr.baseRef ? [] : [`refs/heads/${pr.baseRef}`]),
   ]);
   if (!wanted.length) return;
-  git(root, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--refmap=", "--no-auto-maintenance",
-    "--no-recurse-submodules", remote, ...new Set(wanted)], [0, 1, 128]);
+  gitResult(root, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--refmap=", "--no-auto-maintenance",
+    "--no-recurse-submodules", remote, ...new Set(wanted)], { ...COLLISION_GIT, allow: [0, 1, 128] });
 }
 
 /** Pure set comparison; `undefined` on either side means the closure is unknown. */
@@ -112,7 +108,7 @@ export async function collisions(options: CollisionOptions): Promise<CollisionRe
   if (options.pr !== undefined && !listed.some(pr => pr.number === options.pr))
     throw new Error(`PR #${options.pr} is not an open PR of this repository`);
   if (options.fetch) fetchMissing(root, options.remote ?? "origin", listed);
-  const commit = git(root, ["rev-parse", "HEAD"]).stdout.trim();
+  const commit = gitResult(root, ["rev-parse", "HEAD"], { ...COLLISION_GIT, allow: [0] }).stdout.trim();
 
   let graph: UnitImportGraph | undefined, graphReason: string | undefined, packages: Workspace[] = [];
   try { packages = workspaces(root); graph = (options.buildGraph ?? discoverUnitImports)(root); }
@@ -138,7 +134,7 @@ export async function collisions(options: CollisionOptions): Promise<CollisionRe
 
   if (options.paths) {
     const globs = options.paths.map(pattern => new Bun.Glob(pattern));
-    const tracked = git(root, ["ls-files", "-z"]).stdout.split("\0").filter(Boolean);
+    const tracked = gitResult(root, ["ls-files", "-z"], { ...COLLISION_GIT, allow: [0] }).stdout.split("\0").filter(Boolean);
     const literal = options.paths.filter(pattern => !/[*?[\]{}!]/.test(pattern));
     const query = [...new Set([...tracked.filter(path => globs.some(glob => glob.match(path))), ...literal])].sort();
     const QUERY = -1;
@@ -161,7 +157,7 @@ export async function collisions(options: CollisionOptions): Promise<CollisionRe
       }
       // Exit 1 is a conflicted merge; anything else is an error, which is unknown rather than clean.
       const merge = (() => {
-        try { return git(root, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", a.head, b.head], [0, 1]); }
+        try { return gitResult(root, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", a.head, b.head], { ...COLLISION_GIT, allow: [0, 1] }); }
         catch (error) { return error as Error; }
       })();
       if (merge instanceof Error) {
@@ -172,7 +168,7 @@ export async function collisions(options: CollisionOptions): Promise<CollisionRe
       // (the other side carries newer main). A pairwise conflict needs a path
       // both PRs changed; drift-only conflicts belong to each PR's own refresh.
       const both = new Set(changed.get(a.number)!.filter(path => changed.get(b.number)!.includes(path)));
-      const paths = merge.status === 1 ? [...new Set(merge.stdout.split("\0").filter(Boolean).slice(1))].filter(path => both.has(path)).sort() : [];
+      const paths = merge.code === 1 ? [...new Set(merge.stdout.split("\0").filter(Boolean).slice(1))].filter(path => both.has(path)).sort() : [];
       if (paths.length) {
         found.push({ kind: "textual", prs, paths, categories: [], workspaces: [] });
         continue;
@@ -244,7 +240,7 @@ if (import.meta.main) {
   let args: ReturnType<typeof parseArgs>;
   try { args = parseArgs(process.argv.slice(2)); }
   catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(2); }
-  const root = git(process.cwd(), ["rev-parse", "--show-toplevel"]).stdout.trim();
+  const root = gitResult(process.cwd(), ["rev-parse", "--show-toplevel"], { ...COLLISION_GIT, allow: [0] }).stdout.trim();
   try {
     const report = await collisions({ root, listPrs: () => githubPrs(root, args.repo), pr: args.pr, paths: args.paths, fetch: args.fetch });
     console.log(args.json ? JSON.stringify(report, null, 2) : formatReport(report));
