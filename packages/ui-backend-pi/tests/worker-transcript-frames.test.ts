@@ -4,6 +4,7 @@
  * byte what a whole rewrite of the worker's list would write.
  */
 import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
+import * as sdkInternal from "@schlessera/brain-ui-sdk/internal";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -20,7 +21,7 @@ import { createPiWorkerReceipts, type PiWorkerReceipts } from "../src/worker-rec
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 type Entry = Record<string, any>;
-type Frame = { type: string; base?: number; entries?: Entry[] };
+type Frame = { type: string; base?: number; entries?: Entry[]; event?: Entry };
 let root: string, brain: string, sessionDir: string;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "pi-transcript-frames-"));
@@ -70,8 +71,11 @@ function fakeChild() {
   return { child, stdout };
 }
 
-/** Feeds frames to the real host reader and receipts; records the session file after every save. */
-async function readOnHost(frames: Frame[], receipts: PiWorkerReceipts, resumedIds: Set<unknown> = new Set()) {
+/**
+ * Feeds frames to the real host reader and receipts; records the session file after every save.
+ * With `listener`, the turn's events reach the reader too, and the listener sees each one.
+ */
+async function readOnHost(frames: Frame[], receipts: PiWorkerReceipts, resumedIds: Set<unknown> = new Set(), listener?: (event: Entry) => void) {
   const { child, stdout } = fakeChild();
   const state: PiWorkerTurnState = { active: true, initialized: true, ended: false, error: undefined, cost: 0,
     thinkingLevel: undefined, levels: [], model: undefined, ownedPrompt: undefined };
@@ -80,10 +84,11 @@ async function readOnHost(frames: Frame[], receipts: PiWorkerReceipts, resumedId
   receipts.persist = (recover?: boolean) => { persist(recover); files.push(existsSync(path) ? readFileSync(path, "utf8") : undefined); };
   const reading = readPiWorkerProtocol({ child, state, ready: Promise.withResolvers<void>(), done: Promise.withResolvers<void>(), sessionId: SESSION,
     backend: { brainPath: brain }, startupStarted: 0, promptContext: undefined, sessionBudgetLimits: undefined, autonomous: false, resumed: false,
-    turnContext: createTurnContext(), nativeVersions: { cancelPending() {} } as unknown as NativeFileVersions, receipts, resumedIds, listeners: new Set(),
+    turnContext: createTurnContext(), nativeVersions: { cancelPending() {} } as unknown as NativeFileVersions, receipts, resumedIds,
+    listeners: new Set(listener ? [listener as never] : []),
     proof: { loaded: () => {}, started: () => {}, ended: () => undefined }, toolExecution: undefined, dispatch: async () => undefined, send: () => {},
     fail: () => {}, reportLimitHits: () => {}, limitEnded: async () => undefined, diagnostic: () => "" });
-  for (const frame of transcriptFrames(frames)) sendPipe(stdout, frame);
+  for (const frame of listener ? frames.filter(frame => frame.type === "event" || transcriptFrames([frame]).length) : transcriptFrames(frames)) sendPipe(stdout, frame);
   sendPipe(stdout, { type: "done", cost: 0 });
   stdout.end();
   await reading;
@@ -200,4 +205,46 @@ test("the host bounds appends by the size a whole snapshot of its transcript wou
   expect(receipts.latestEntries.map(entry => entry.id)).toEqual([SESSION, "u1", "f1", "f2"]);
   await expect(readOnHost(frames({ ...b, data: b.data + "x" }), receiptsFor()), "PI_HOST_BOUNDS_THE_WHOLE_TRANSCRIPT")
     .rejects.toBeInstanceOf(SessionTooLargeError);
+});
+
+test("a ten-round streamed turn holds all four per-turn counters at once (#5067)", async () => {
+  const { frames, lines, final } = await runWorker("stream");
+  // No transcript entry crosses the pipe twice.
+  const seen = new Set<unknown>();
+  for (const [index, frame] of transcriptFrames(frames).entries()) {
+    const ids = frame.entries!.map(entry => entry.id);
+    expect(ids.filter(id => seen.has(id)), `PI_STREAMED_TURN_FRAME_${index}_RESENDS_NO_ENTRY`).toEqual([]);
+    ids.forEach(id => seen.add(id));
+  }
+  expect(lists(frames).at(-1)).toEqual(final!);
+  // Every message_update frame is its delta plus one fixed envelope, however long the answer grows.
+  const updates = lines.filter((_, i) => frames[i]!.type === "event" && frames[i]!.event!.type === "message_update");
+  expect(updates).toHaveLength(30);
+  const envelope = Buffer.byteLength(JSON.stringify({ type: "event", event: { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "" } } }));
+  for (const [index, line] of updates.entries()) {
+    const delta = Buffer.byteLength(JSON.stringify((JSON.parse(line) as Frame).event!.assistantMessageEvent.delta)) - 2;
+    expect(Buffer.byteLength(line), `PI_STREAMED_UPDATE_${index}_IS_ITS_DELTA_PLUS_AN_ENVELOPE`).toBeLessThanOrEqual(delta + envelope);
+  }
+
+  // The host records one application receipt per round, as the apply RPC does.
+  const original = sdkInternal.sessionReplay, written: Entry[] = [];
+  const replay = spyOn(sdkInternal, "sessionReplay").mockImplementation((...args: Parameters<typeof original>) => {
+    const store = original(...args);
+    return { ...store, retainReceipt(receipt: Parameters<typeof store.retainReceipt>[0]) { written.push(receipt); store.retainReceipt(receipt); } };
+  });
+  const truncate = spyOn(fs, "ftruncateSync");
+  try {
+    const receipts = receiptsFor();
+    await readOnHost(frames, receipts, new Set(), event => {
+      if (event.type !== "tool_execution_start") return;
+      receipts.applications.set(event.toolCallId, { name: "brain_add", input: { content: event.toolCallId }, result: { ok: true } as never });
+      receipts.persist();
+    });
+    expect(truncate.mock.calls.length, "PI_STREAMED_TURN_TRUNCATES_AT_MOST_ONCE").toBeLessThanOrEqual(1);
+    expect(readPiSession(join(sessionDir, `${SESSION}.jsonl`)) as Entry[]).toEqual(final!);
+    // Each receipt has one state: its call's assistant entry, its result. It is written once.
+    const calls = Array.from({ length: 10 }, (_, i) => `first-call-${i + 1}`);
+    expect(written.map(receipt => [receipt.id, receipt.anchor]), "PI_STREAMED_TURN_WRITES_EACH_RECEIPT_STATE_ONCE")
+      .toEqual(calls.map((call, i) => [call, `first-a${i + 1}`]));
+  } finally { replay.mockRestore(); truncate.mockRestore(); }
 });

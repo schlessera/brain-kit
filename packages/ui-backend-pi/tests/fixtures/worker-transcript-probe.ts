@@ -1,5 +1,6 @@
 // Isolated process: replace the session runtime with a scripted transcript, run the real entry.
-// Modes: `turn` (a new session, ten tool rounds), `resume` (continues init.entries and leaves
+// Modes: `turn` (a new session, ten tool rounds), `stream` (the same rounds, each streaming
+// its answer as upstream `message_update` events first), `resume` (continues init.entries and leaves
 // its last call unanswered), `branch` (the list is rebuilt from the same entries in another
 // order) and `bound:<extra>` (small appends up to a whole snapshot of PI_PIPE_MAX_BYTES + extra).
 // Writes the worker's final list to `<scratch>/final.json`.
@@ -32,6 +33,16 @@ mock.module("../../src/native-session-runtime.js", () => ({
       ({ parentId: list.at(-1)?.id ?? null, message: value, id, timestamp: at, type: "message" });
     async function round(prefix: string, n: number, answered = true) {
       const call = `${prefix}-call-${n}`;
+      if (mode === "stream") {
+        // As upstream sends them: every delta carries the answer so far, twice.
+        let text = "";
+        for (const delta of [`Round ${n}: `, "ask ", "Tiresias."]) {
+          text += delta;
+          const partial = { role: "assistant", content: [{ type: "text", text }], model: "odysseus-model", stopReason: "stop", usage, timestamp: 1 };
+          listener({ type: "message_update", message: partial, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta, partial } });
+        }
+        await tick();
+      }
       append(message(`${prefix}-a${n}`, { usage, stopReason: "toolUse", model: "odysseus-model", content: [
         { type: "text", text: `Round ${n}: ask Tiresias.` }, { arguments: { path: `voyage/${n}.md` }, name: "read_file", id: call, type: "toolCall" }],
         role: "assistant", timestamp: 1 }));
@@ -52,7 +63,7 @@ mock.module("../../src/native-session-runtime.js", () => ({
         const prefix = mode === "resume" ? "second" : "first";
         append(message(`${prefix}-u`, { content: text, role: "user", timestamp: 1 }));
         await tick();
-        if (mode === "turn") for (let n = 1; n <= 10; n++) await round(prefix, n);
+        if (mode === "turn" || mode === "stream") for (let n = 1; n <= 10; n++) await round(prefix, n);
         if (mode === "resume") { for (let n = 1; n <= 3; n++) await round(prefix, n); await round(prefix, 4, false); }
         if (mode === "branch") {
           for (let n = 1; n <= 2; n++) await round(prefix, n);
