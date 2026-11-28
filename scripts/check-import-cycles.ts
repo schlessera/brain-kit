@@ -41,10 +41,6 @@ export const ALLOWLIST: CycleAllowlistEntry[] = [
   { files: ["packages/ui-react/src/components/chat/brain-markdown.tsx", "packages/ui-react/src/components/chat/share-block.tsx"],
     reason: "permanent: mutual recursion by design; a share block renders markdown and markdown renders share blocks, inside components" },
 
-  // #4819 cuts the voice tray cycle in ui-react.
-  { files: ["packages/ui-react/src/components/voice/associate-recordings.tsx", "packages/ui-react/src/components/voice/recordings-tray.tsx"],
-    reason: "the tray and the associate dialog import each other for two label helpers; #4819 cuts it" },
-
   // #2530 cuts the worker-runtime cycle in ui-sdk.
   { files: [
     "packages/ui-sdk/src/server/maintenance-worker.ts", "packages/ui-sdk/src/server/worker-launcher.ts",
