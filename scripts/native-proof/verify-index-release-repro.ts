@@ -2,6 +2,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { deadlineSigkill } from "./native-release-observation.js";
 import { ownedCleanupComplete } from "./verify-owned-remove.js";
 
 function requireFact(value: unknown, name: string): asserts value {
@@ -39,7 +40,7 @@ export function verifyIndexReleaseReproduction(directory: string, exitCode: numb
       || process.identity?.value?.status?.some((line: string) => /^State:\s+Z\b/.test(line)))
     && sample.coverage.processesTruncated === false && sample.coverage.descriptorsTruncated === false
     && sample.coverage.referencesTruncated === false && sample.coverage.namespaceReferencesTruncated === false && sample.coverage.mountsTruncated === false), "NAMESPACE_ONLY_CORRELATION");
-  requireFact(evidence.signals.some((signal: any) => signal.signal === "SIGKILL" && signal.abort?.reason === "AbortError: The connection was closed."), "CONNECTION_ABORT");
+  requireFact(evidence.signals.some(deadlineSigkill), "CONNECTION_ABORT");
   const operations = lines(join(run, "native-operations.jsonl"));
   const sameRoot = operations.filter(row => row.stage === "end" && row.command?.join(" ") === `subvolume sync /brain-fixture ${evidence.root.rootId}`);
   requireFact(sameRoot.some(row => row.code === 137) && sameRoot.some(row => row.code === 0 && row.wallAt >= pin.closedWallAt), "SAME_ROOT_RECLAIMED_AFTER_CLOSE");

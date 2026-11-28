@@ -64,6 +64,19 @@ function snapshot(root: Root, pid: number) {
 }
 
 /** Called only by the real native fixture's existing spawn observer, never production. */
+/**
+ * The two equal deadlines that end a held sync: the client's request timeout
+ * closes the connection, and the manager's per-operation timer aborts the
+ * spawn. Either may fire first (#5027), so either reason is the expected kill.
+ */
+export const DEADLINE_ABORT_REASONS = [
+  "AbortError: The connection was closed.",
+  "Error: Native manager transport operation timeout exceeded; configure operationTimeoutMs for this host workload.",
+] as const;
+export function deadlineSigkill(signal: any): boolean {
+  return signal?.signal === "SIGKILL" && (DEADLINE_ABORT_REASONS as readonly string[]).includes(signal.abort?.reason);
+}
+
 export function nativeReleaseObservations(directory: string) {
   const roots = new Map<string, Root>(), active = new Set<Promise<void>>(), failures: unknown[] = [];
   const abortDescriptor = Object.getOwnPropertyDescriptor(AbortController.prototype, "abort")!;
