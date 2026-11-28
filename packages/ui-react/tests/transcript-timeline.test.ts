@@ -489,3 +489,31 @@ test("a grouped reading keeps its fragments' arrival order when its key comes fr
     expect(rows().map(entryText)).toEqual(["Which note?"]);
   } finally { root.dispose(); }
 });
+
+// #4741 ruling: grouping and finish-only attachment see one session only.
+test("another session's activity neither splits a reading nor lends it finish-only evidence", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const voice = root.connection.conversation.state;
+    const fragment = (sequence: number, text: string, sessionId: string, finalization?: "final") => ({ kind: "unassigned_input_fragment" as const, sequence, text, conversationId: "voyage", epoch: 1, sessionId, providerId: "gpt-live", activation: 1, contextual: true, ...(finalization ? { finalization } : {}) });
+    const readings = (sessionId: string) => transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e => e.kind === "recognition" && e.sessionId === sessionId).map(e => e.kind === "recognition" && e.fragments.map(f => f.sequence));
+    voice.setState({ recognition: [fragment(0, "Which", "ithaca")] });
+    root.stores.chat.getState().addUserMessage("pylos", "A separate harbour.");
+    voice.setState(s => ({ recognition: [...s.recognition, fragment(1, " note?", "ithaca"), fragment(2, "", "pylos", "final")] }));
+    expect(readings("ithaca"), "ONE_SESSION_READING_STAYS_WHOLE").toEqual([[0, 1]]);
+    expect(readings("pylos")).toEqual([]);
+  } finally { root.dispose(); }
+});
+
+// #4741 ruling: the flat list is each session's entries in turn.
+test("the flat entry list holds each session's entries in turn", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState();
+    for (const sessionId of ["ithaca", "pylos", "ithaca", "pylos"]) chat.addUserMessage(sessionId, `Watch from ${sessionId}.`);
+    const { entries } = transcriptTimelineFor(root.stores.chat).state.getState();
+    expect(entries.map(e => e.sessionId), "SESSIONS_IN_TURN").toEqual(["ithaca", "ithaca", "pylos", "pylos"]);
+    const { sessions } = transcriptTimelineFor(root.stores.chat).state.getState();
+    expect(entries).toEqual([...sessions.values()].flat());
+  } finally { root.dispose(); }
+});
