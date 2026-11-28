@@ -146,6 +146,33 @@ describe("the polling-helper rule", () => {
     expect(sites(shadow.replace("Date.now() + 5000", "Date.now() + watchdogMs(5000)"))).toEqual([]);
   });
 
+  // A clock held in a local, a derived elapsed value, and a check in an inner loop that does not sleep (#5056).
+  const LOCAL_READING = 'test("the ship docks", async () => {\n  const end = Date.now() + 5000;\n  while (!docked) {\n    const now = Date.now();\n    if (now > end) throw new Error();\n    await Bun.sleep(5);\n  }\n});\n';
+  const ELAPSED = 'test("the ship docks", async () => {\n  const start = Date.now();\n  while (!docked) {\n    const elapsed = Date.now() - start;\n    if (elapsed > 5000) throw new Error();\n    await Bun.sleep(5);\n  }\n});\n';
+  const INNER_LOOP = 'test("the fleet docks", async () => {\n  const end = Date.now() + 5000;\n  while (!docked) {\n    for (const ship of fleet) {\n      if (Date.now() > end) throw new Error(ship);\n    }\n    await Bun.sleep(5);\n  }\n});\n';
+
+  test("a clock held in a local, an elapsed value and a check in an inner loop fail with their file and line", () => {
+    const root = tree({ "packages/ui-sdk/tests/local.test.ts": LOCAL_READING, "packages/ui-sdk/tests/elapsed.test.ts": ELAPSED, "packages/ui-sdk/tests/inner.test.ts": INNER_LOOP });
+    expect(scanTree(root).findings).toEqual([
+      { rule: "polling-helper", file: "packages/ui-sdk/tests/elapsed.test.ts", line: 3, name: "deadline loop" },
+      { rule: "polling-helper", file: "packages/ui-sdk/tests/inner.test.ts", line: 3, name: "deadline loop" },
+      { rule: "polling-helper", file: "packages/ui-sdk/tests/local.test.ts", line: 3, name: "deadline loop" },
+    ]);
+    const gate = runGate(root);
+    expect(gate.code).toBe(1);
+    for (const file of ["local", "elapsed", "inner"]) expect(gate.stderr).toContain(`packages/ui-sdk/tests/${file}.test.ts:3: deadline loop`);
+  });
+
+  test("the same shapes with a watchdogMs bound pass, and a sleeping inner loop is the one site", () => {
+    for (const text of [
+      LOCAL_READING.replace("Date.now() + 5000", "Date.now() + watchdogMs(5000)"),
+      ELAPSED.replace("elapsed > 5000", "elapsed > watchdogMs(5000)"),
+      INNER_LOOP.replace("Date.now() + 5000", "Date.now() + watchdogMs(5000)"),
+      "const deadline = Date.now() + watchdogMs(5000);\nwhile (!docked) {\n  const remaining = deadline - Date.now();\n  if (remaining <= 0) throw new Error();\n  await Bun.sleep(5);\n}\n",
+    ]) expect({ text, sites: sites(text) }).toEqual({ text, sites: [] });
+    expect(sites(INNER_LOOP.replace("throw new Error(ship);", "throw new Error(ship);\n      await Bun.sleep(1);"))).toEqual([{ line: 4, name: "deadline loop" }]);
+  });
+
   test("a named helper whose loop is a deadline loop is one site, at the helper", () => {
     expect(sites("async function waitFor(check: () => boolean) {\n  const end = Date.now() + 2000;\n  while (Date.now() < end) { if (check()) return; await Bun.sleep(5); }\n}\n"))
       .toEqual([{ line: 1, name: "waitFor" }]);
