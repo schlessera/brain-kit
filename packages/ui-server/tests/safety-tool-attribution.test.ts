@@ -169,9 +169,10 @@ test("T9 reuse followed by another record arrives in the update's projection", a
     const read = await page(f.history, f);
     const sent: { projection?: { attributionUnknown?: unknown } }[] = [];
     f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent.push(value as never));
-    // Let the subscription's first poll settle at the snapshot's revision.
-    await settled(f.history);
-    expect(sent).toEqual([]);
+    // The first poll delivers the attribution the subscription starts from.
+    await until(() => sent.length > 0, () => sent);
+    expect(sent.map(value => value.projection?.attributionUnknown), "SUBSCRIPTION_STARTS_WITH_THE_CURRENT_ATTRIBUTION").toEqual([[]]);
+    sent.length = 0;
     const recorded = f.add("calypso");
     collector.admitting?.("fetch", "Bash");
     await recorded;
@@ -200,6 +201,8 @@ test("T10 another chat's reuse, live or stored, never reaches this chat", async 
     const read = await page(f.history, f);
     const sent: unknown[] = [];
     f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent.push(value));
+    await until(() => sent.length > 0, () => sent);
+    sent.length = 0;
     const elsewhere = collect(f, "aeaea");
     elsewhere.admitting?.("circe", "WebFetch"); elsewhere.admitting?.("circe", "Bash");
     f.history.poll();
@@ -355,5 +358,41 @@ test("T19 a failing read in the sweep keeps the tracker and never escapes the ti
     expect(safetyQueue(f.db).attribution.size, "FAILED_READ_KEEPS_THE_TRACKER").toBe(1);
     f.history.poll();
     expect(safetyQueue(f.db).attribution.size, "NEXT_SWEEP_DROPS_IT").toBe(0);
+  } finally { await f.close(); }
+});
+
+test("T20 a failed attribution read retains no snapshot: 31 failures, then reads still succeed", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    await page(f.history, f);
+    const query = f.db.query.bind(f.db);
+    f.db.query = ((sql: string) => { if (sql.includes("tool_reuse")) throw new Error("The loom is unravelled"); return query(sql); }) as typeof f.db.query;
+    let failures = 0;
+    try { for (let i = 0; i < 31; i++) await page(f.history, f).catch(() => { failures++; }); } finally { f.db.query = query as typeof f.db.query; }
+    expect(failures).toBe(31);
+    expect((f.history as unknown as { snapshots: Map<string, unknown> }).snapshots.size, "FAILED_READS_RETAIN_NOTHING").toBe(1);
+    await page(f.history, f, false);
+    expect((await page(f.history, f)).projection.attributionUnknown, "READS_RECOVER").toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("T21 a subscription started from an older response still receives the current attribution", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    await f.add("loom"); await f.add("calypso");
+    const collector = collect(f);
+    collector.admitting?.("fetch", "WebFetch");
+    const first = await f.history.read(f.principal, { sessionId: "ithaca" }, null, 1, true, true, true, true);
+    let final = first;
+    while (final.nextCursor) final = await f.history.read(f.principal, { sessionId: "ithaca" }, final.nextCursor, 1, true, true, true, true);
+    expect(final.projection.attributionUnknown).toEqual([]);
+    collector.admitting?.("fetch", "Bash");
+    // The same final page, read again, now carries the finding.
+    const retried = await f.history.read(f.principal, { sessionId: "ithaca" }, final.cursor, 1, true, true, true, true);
+    expect(retried.projection.attributionUnknown).toEqual([{ bindingId: f.bindingId, toolUseIds: ["fetch"] }]);
+    const sent: { projection?: { attributionUnknown?: unknown } }[] = [];
+    f.history.subscribe({}, f.principal, final.identity, final.highWater, final.snapshotId, () => true, value => sent.push(value as never));
+    await until(() => sent.length > 0, "ORIGINAL_RESPONSE_SUBSCRIBER_GETS_THE_UPDATE");
+    expect(sent[0]?.projection?.attributionUnknown, "ORIGINAL_RESPONSE_SUBSCRIBER_GETS_THE_UPDATE").toEqual([{ bindingId: f.bindingId, toolUseIds: ["fetch"] }]);
   } finally { await f.close(); }
 });
