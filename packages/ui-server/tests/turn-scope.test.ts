@@ -11,6 +11,7 @@ import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { createTurnScope, SCOPE_DISCONNECTED_MS } from "../src/brain/turn-scope.js";
 import { scopeFixture } from "./helpers/scope-fixture.js";
 import { registeredInterval } from "./helpers/registered-interval.js";
+import { vanishedProcess } from "./helpers/vanished-process.js";
 async function wait(check: () => boolean, timeout = 5000) { const end = Date.now() + watchdogMs(timeout); while (!check()) { if (Date.now() > end) throw Error("Scope fixture timed out"); await Bun.sleep(10); } }
 /** Process names below `pid`, read from the host's /proc, which sees into the worker's PID namespace. */
 function descendantNames(pid: number): string[] {
@@ -293,7 +294,7 @@ test("one long single Bash loop is frozen by the registered 15-second observatio
         // A sleep that exited just before STOP may be an unreaped zombie;
         // it cannot write. Require at least one remaining live writer task.
         return [...((name === "sh" || name === "sleep") && state !== "Z" ? [frozen] : []), ...writerStates(childPid)];
-      } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+      } catch (error) { if (vanishedProcess(error)) return []; throw error; }
     });
   }
   let frozenAt = 0, captureAt = 0, captureCount = 0, snapshotCount = 0, observationCount = 0;
