@@ -520,6 +520,7 @@ mechanical backend and the keyless CI smoke path.
   --type <type>           Filter by document type
   --tag <tag>             Filter by tag
   --status <status>       Filter by status (active|archived|draft)
+  --include-archived      Include archived documents (implied by --status archived)
   --relevance <level>     Filter by relevance
   --limit <n>             Max results, 1-100 (default: 20)
   --path-prefix <path>    Only documents at or below this folder or file (whole segments)
@@ -584,6 +585,8 @@ This command communicates over stdin/stdout and is intended for MCP clients.
   disable <name> Park workflows while retaining validated config and content
   settings <name> [--set key=value] [--revision REV] --json
                 Read or save validated per-module settings
+    --stdin                Save the settings object read from stdin as JSON
+    --action <id>          Run one of the module's declared settings actions
     --migrate [--preview]  Preview/apply a declared lossless content migration
 
 Legacy mixed generated instruction sections require explicit migration first.
@@ -638,6 +641,7 @@ API key). The CLI reports the decision; a skill applies the operations.
     "code": 0,
     "stdout": 
 "  brain queue add --server ORIGIN --key KEY [--credential-file FILE] [--title TITLE] [--text TEXT] [--url URL] [--json]
+  --root is accepted and ignored.
 "
 ,
   },
@@ -751,6 +755,7 @@ Chrome binary; --format html needs neither and produces the same document.
   brain schedule cancel ID --server ORIGIN [--credential-file FILE] --key KEY [--json]
   brain schedule reconcile ID --server ORIGIN [--credential-file FILE] --key KEY [--json]
   brain schedule due --server ORIGIN [--credential-file FILE] [--limit N] [--cursor CURSOR] [--json]
+  --root is accepted by every verb and ignored.
 "
 ,
   },

@@ -16,7 +16,7 @@ export function createSessionProfileRoutes(profiles: SessionProfiles) {
         if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id)) throw new SessionProfileError(400, "Invalid chat identity.");
         if (c.req.method === "GET" || c.req.method === "HEAD") return c.json(setting === "code-changes" ? profiles.readCodeChanges(principal.id, kind, id) : profiles.read(principal.id, kind, id));
         if (c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return c.json({ error: "Use JSON." }, 415);
-        const read = await readBodyBytes(c.req.raw, 4096);
+        const read = await readBodyBytes(c.req.raw, 4096, { copyChunks: true });
         if (!read) return c.json({ error: "Profile request is too large." }, 413);
         let body: unknown;
         try { body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(read.chunks, read.bytes))); }

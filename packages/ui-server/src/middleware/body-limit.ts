@@ -20,9 +20,11 @@ interface BodyBytes {
  * and a client may lie), so the bytes are also counted off the stream itself.
  * The reader is cancelled and released on every exit: overflow, a failed read
  * and the end of the body alike. The chunks are returned as they arrived, not
- * concatenated, so a multipart caller need not copy the payload a second time;
- * `copyChunks` copies each chunk out of the reader's view first, for a caller
- * that keeps them beyond the read.
+ * concatenated; `copyChunks` copies each chunk out of the reader's view first,
+ * for a caller that keeps them beyond the read. Every route caller does
+ * (#4996): an in-process stream may enqueue one buffer twice, changing it in
+ * between. The copy is per chunk and the reader's own chunk is not kept, so
+ * the body is still held once until the caller joins it.
  *
  * Returns null when the body is over the limit. No body reads as zero bytes.
  */
