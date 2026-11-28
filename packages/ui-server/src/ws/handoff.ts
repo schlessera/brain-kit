@@ -172,6 +172,8 @@ export async function startHandoff(
       text: composeHandoffText(msg.text, references),
       attachments: [],
       providerId: destination.id,
+      // The destination is a new conversation: it takes the requested speed (#4310).
+      ...(msg.outputSpeed ? { outputSpeed: msg.outputSpeed } : {}),
       source: "handoff",
       ...(msg.client ? { client: msg.client } : {}),
       ...(msg.requestId ? { requestId: msg.requestId } : {}),

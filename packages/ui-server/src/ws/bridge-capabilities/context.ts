@@ -32,7 +32,7 @@ export interface MakeBridgeOptions {
   workspaceReadOnly?: boolean;
   workerProfile?: WorkerProfileBinding | undefined;
   onUsage?: ((usage: TurnUsage, backstop?: boolean) => TurnUsage | void) | undefined;
-  pricingContext?: { billingMode?: BillingMode; pricingRoute?: PricingRoute } | undefined;
+  pricingContext?: { billingMode?: BillingMode; pricingRoute?: PricingRoute; outputSpeed?: "fast" } | undefined;
   mainModel?: MainModelBinding | undefined;
   /** The admitted turn's masked provider folders (`sandbox.providerMasks.folders`) and the policy that named them. */
   providerMasks?: { folders: readonly string[]; policy: TurnGovernancePolicy; typeFolders?: Readonly<Record<string, readonly string[]>>; recipient?: string } | undefined;

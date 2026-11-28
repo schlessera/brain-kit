@@ -1,6 +1,6 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { body, bytes, captureOffline, discoveredToolNames, identical, main, pairs, history, messages, providerTools, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { body, bytes, captureOffline, sentMessages, withoutMessageCacheControls, discoveredToolNames, identical, main, pairs, history, providerTools, system, type Captures } from "../../../tests/helpers/provider-history.js";
 import { HOST_UNUSED_BUILTINS } from "../src/session-request-shape.js";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import baseline from "./fixtures/legacy-sdk-inputs.json" with { type: "json" };
@@ -16,8 +16,8 @@ test("new Claude sessions retain their removal selection and fixed batching brie
   for (const input of capture.budgets as any[]) {
     for (const name of HOST_UNUSED_BUILTINS) expect(input.disallowed, "PRODUCTION_REMOVAL_SELECTION").toContain(name);
     expect(input.disallowed).not.toContain("NotebookEdit");
-    expect(input.env).toBe("false");
-    expect(input.settings).toBe("false");
+    expect(input.env).toBe("true");
+    expect(input.settings).toBe("true");
   }
   for (const exchange of main(capture)) {
     const names = body(exchange).tools.map((tool: { name: string }) => tool.name);
@@ -65,70 +65,65 @@ test("legacy sessions retain SDK inputs and wire tools after metadata and append
   for (const [a, b] of pairs(capture)) { identical(body(a).tools, body(b).tools, "LEGACY_TOOLS_SURVIVE_METADATA_UPGRADE"); identical(system(a), system(b), "LEGACY_SYSTEM_WIRE"); }
 });
 
-// Qualification evidence for #4306, deliberately separate from the strict
-// provider-history guard: production non-blocking project MCP startup is red.
-test("#4306 qualification: non-blocking project startup and resume violate strict tool history", () => {
-  const capture = captures.discovery!, first = body(main(capture)[0]!), next = body(main(capture)[1]!);
+test("#4325: static core reads survive non-blocking startup and graph discovery adds exactly one definition", () => {
+  const capture = captures.discovery!, exchanges = main(capture), first = body(exchanges[0]!), next = body(exchanges[1]!);
   expect(capture.qualification!.mcpStartup).toBe("project .mcp.json, production non-blocking");
+  expect(capture.qualification!.effectiveDisabledMcpjsonServers).toContain("brain");
+  expect(capture.qualification!.promptReleased).toBe(true);
+  expect(capture.qualification!.firstRequestBeforeMcpRelease, "FIRST_REQUEST_PRECEDES_SLOW_MCP_READINESS").toBe(true);
+  expect(capture.qualification!.brainProcessStarts, "ONLY_ONE_BRAIN_MCP_PER_HOSTED_TURN").toEqual([1, 1, 1]);
   expect(first.tools.some((tool: any) => tool.name === "ToolSearch")).toBe(true);
+  expect(first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__")).map((tool: any) => tool.name).sort(), "FIVE_CORE_READS_IN_FIRST_NONBLOCKING_REQUEST")
+    .toEqual(["brain_context", "brain_list", "brain_read", "brain_read_many", "brain_search"].map(name => `mcp__brain__${name}`));
+  // Independent explicit roster: omitting or deferring any host bridge tool
+  // must fail qualification even when all five core reads remain inline.
+  const hostTools = [
+    "show_block", "propose_policy_change", "get_current_location", "ask_user", "ask_user_list",
+    "ask_user_rank", "ask_user_form", "request_image_mask", "request_image_markup", "query_activity",
+    "turn_temp", "inbox_list", "inbox_get", "inbox_add", "resolve_action",
+    "complete_share", "reference_source", "reference_worktree", "reference_read", "brain_compute_health",
+    "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
+    "brain_apify_availability", "brain_apify_approvals", "brain_apify_revoke", "brain_apify_discover", "brain_apify_inspect",
+    "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort",
+    "brain_github_issue_read", "brain_github_issue_search", "brain_github_issue_create", "brain_github_issue_comment", "read_attachment",
+    "brain_add", "brain_update", "brain_archive", "write_file", "edit_file",
+    "apply_staged_changes", "brain_read_base",
+  ];
+  expect(first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain-ui__")).map((tool: any) => tool.name).sort(), "EVERY_HOST_BRIDGE_TOOL_IN_FIRST_REQUEST")
+    .toEqual(hostTools.map(name => `mcp__brain-ui__${name}`).sort());
+  for (const name of [...hostTools.map(name => `mcp__brain-ui__${name}`),
+    ...["brain_context", "brain_list", "brain_read", "brain_read_many", "brain_search"].map(name => `mcp__brain__${name}`)]) {
+    const definition = first.tools.find((tool: any) => tool.name === name);
+    expect(definition, `INLINE_BRIDGE_DEFINITION_${name}`).toBeDefined();
+    expect(definition.defer_loading, `BRIDGE_TOOL_IS_INLINE_${name}`).not.toBe(true);
+  }
   const prior = new Set(first.tools.map((tool: any) => tool.name));
   const added = next.tools.filter((tool: any) => !prior.has(tool.name));
-  console.log("PRODUCTION_STARTUP_DISCOVERY_QUALIFICATION", JSON.stringify({ initialCore: first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__")).map((tool: any) => tool.name), added: added.map((tool: any) => ({ name: tool.name, defer_loading: tool.defer_loading })) }));
-  expect(first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__"))).toHaveLength(0);
-  expect(added).toHaveLength(6);
-  expect(discoveredToolNames(main(capture)[0]!, main(capture)[1]!)).toEqual(["mcp__brain__brain_graph"]);
-  // Assert every retained definition before examining the known violation;
-  // arbitrary corruption must not satisfy an expected failure.
-  identical(first.tools, next.tools.filter((tool: any) => prior.has(tool.name)), "DISCOVERY_PRESERVES_EARLIER_DEFINITIONS_AND_ORDER");
-  expect(new Set(next.tools.map((tool: any) => tool.name)).size).toBe(next.tools.length);
-  expect(added.map((tool: any) => tool.name)).toEqual(["brain_context", "brain_graph", "brain_list", "brain_read", "brain_read_many", "brain_search"].map(name => `mcp__brain__${name}`));
-  expect(added.find((tool: any) => tool.name === "mcp__brain__brain_graph").defer_loading).toBe(true);
-  expect(added.every((tool: any) => tool.defer_loading === true)).toBe(true);
-  expect(() => providerTools(main(capture)[0]!, main(capture)[1]!, "production discovery"), "UNREFERENCED_DEFINITIONS_REMAIN_A_VIOLATION").toThrow("production discovery: definition was actually referenced by this ToolSearch");
-  // The pinned client moves the six intact definitions on first resume:
-  // selected graph first, then the other five, before its deferred placeholder.
-  // Assert that exact invalid ordering and every definition's bytes so it
-  // cannot mask a lost discovery, edited schema, or another reordered tool.
-  const [loaded, resumed] = pairs(capture)[1]!;
-  const split = first.tools.findIndex((tool: any) => tool.name === "DeferredToolPlaceholder");
-  expect(split).toBeGreaterThan(0);
-  const graph = added.find((tool: any) => tool.name === "mcp__brain__brain_graph");
-  const expectedResume = [...first.tools.slice(0, split), graph,
-    ...added.filter((tool: any) => tool.name !== graph.name), ...first.tools.slice(split)];
-  identical(expectedResume, body(resumed).tools, "EXACT_NATIVE_RESUME_ORDER_AND_DEFINITIONS");
-  expect(() => providerTools(loaded, resumed, "production resume")).toThrow("production resume: first differing byte");
-  for (const [a, b] of pairs(capture).slice(2)) providerTools(a, b, "SUBSEQUENT_RESUME_ROSTER_EXACT");
-  for (const [a, b] of pairs(capture)) identical(system(a), system(b), "qualification system");
+  expect(added.map((tool: any) => ({ name: tool.name, defer_loading: tool.defer_loading })), "ONLY_REFERENCED_GRAPH_DEFINITION_ADDED")
+    .toEqual([{ name: "mcp__brain__brain_graph", defer_loading: true }]);
+  expect(discoveredToolNames(exchanges[0]!, exchanges[1]!)).toEqual(["mcp__brain__brain_graph"]);
+  for (const [a, b] of pairs(capture)) { providerTools(a, b, "BRIDGED_DISCOVERY_AND_RESUME"); identical(system(a), system(b), "bridged system"); }
 });
 
-test.each(["same-turn", "resume"] as const)("#4324 %s qualification records exact earlier-message outcomes", scope => {
-  const transitions: Array<{ scenario: string; fromTurn: number; toTurn: number; rewrite: boolean }> = [];
-  // This is evidence of invalid native history, not a passing strict guard.
-  // Check the complete prefix, including a successor, on every transition.
-  for (const [scenario, capture] of Object.entries(captures)) for (const [a, b] of pairs(capture).filter(([a, b]) => scope === "same-turn" ? a.turn === b.turn : a.turn !== b.turn)) {
-    expect(a.turn === b.turn ? "same-turn" : "resume", "QUALIFICATION_TRANSITION_SCOPE").toBe(scope);
-    const expected = [...messages(a), a.answer], actual = messages(b);
-    expect(actual.length, "EVERY_TRANSITION_HAS_A_SUCCESSOR").toBeGreaterThan(expected.length);
-    const observed = actual.slice(0, expected.length);
-    let knownRewrite = false;
-    for (const [index, message] of expected.entries()) {
-      if (bytes(message) === bytes(observed[index])) continue;
-      expect(message.role, "ONLY_THE_RECORDED_4324_VIOLATION_IS_EVIDENCE").toBe("system");
-      expect(Array.isArray(message.content)).toBe(true);
-      identical(message.content, message.content.map((part: any) => ({ type: "text", text: part.text })), "4324 original text blocks");
-      identical({ ...message, content: message.content.map((part: any) => part.text).join("") }, observed[index], "EXACT_4324_REWRITE_ONLY");
-      knownRewrite = true;
+// #4324 (ruling 2026-11-26): string content equals one text block with the
+// same text. Through the relay, every transition keeps the complete strict
+// prefix under that equivalence, and the raw wire differs only by the carrier.
+test.each(["same-turn", "resume"] as const)("#4324 %s transitions keep every earlier message under the carrier equivalence", scope => {
+  let examined = 0, carriers = 0;
+  for (const capture of Object.values(captures)) for (const [a, b] of pairs(capture).filter(([a, b]) => scope === "same-turn" ? a.turn === b.turn : a.turn !== b.turn)) {
+    history(a, b);
+    examined++;
+    const sent = sentMessages(a), resent = sentMessages(b);
+    for (const [index, message] of sent.entries()) {
+      if (bytes(withoutMessageCacheControls([message])) === bytes(withoutMessageCacheControls([resent[index]]))) continue;
+      expect(message.role, "ONLY_THE_CARRIER_CHANGES_ENCODING").toBe("system");
+      expect(resent[index], "EXACT_CARRIER_TO_STRING_ONLY").toEqual({ ...message, content: message.content[0].text });
+      carriers++;
     }
-    if (knownRewrite) expect(() => history(a, b), "4324_IS_NOT_A_STRICT_GUARD_EXCEPTION").toThrow(`messages turn ${a.turn} -> ${b.turn}`);
-    else history(a, b);
-    transitions.push({ scenario, fromTurn: a.turn, toTurn: b.turn, rewrite: knownRewrite });
   }
-  expect(transitions.length, "EACH_QUALIFICATION_SCOPE_IS_EXERCISED").toBeGreaterThan(0);
-  const rewrites = transitions.filter(item => item.rewrite);
-  console.log("4324_HISTORY_QUALIFICATION", JSON.stringify({ scope, examined: transitions.length, rewrites }));
-  // Independently reproduce the pinned client's known violation in each
-  // scope: same-turn failures cannot satisfy the resume qualification.
-  expect(rewrites.length, scope === "same-turn" ? "FIRST_TURN_4324_REPRODUCTION" : "RESUME_4324_REPRODUCTION").toBeGreaterThan(0);
+  console.log("4324_RELAY_CARRIER_TRANSITIONS", JSON.stringify({ scope, examined, carriers }));
+  expect(examined, "EACH_SCOPE_IS_EXERCISED").toBeGreaterThan(0);
+  expect(carriers, scope === "same-turn" ? "RELAY_CARRIER_WITHIN_TURN" : "RELAY_CARRIER_ON_RESUME").toBeGreaterThan(0);
 });
 
 // A pre-upgrade session has no recorded original environment. This is
@@ -155,17 +150,17 @@ test("production gateway pin and deadline factor reach the runtime unchanged", (
   for (const capture of Object.values(captures)) expect(capture.qualification!.watchdogMs).toBe(watchdogMs(45_000));
 });
 
-test("fast-mode keyless relay qualification records requested and effective API and subscription speed", () => {
+test("a fast session's production assembly runs at fast speed through the relay on every turn with a byte-stable prefix (#4310)", () => {
   for (const name of ["fast-api", "fast-subscription"]) {
     const capture = captures[name]!;
     expect(capture.sessions).toHaveLength(3);
     expect(capture.rosters?.map(value => JSON.parse(value!))).toEqual(Array.from({ length: 3 }, () => ({ version: "2.1.293", state: "on" })));
-    expect((capture.budgets![0] as { requestedFast: boolean }).requestedFast).toBe(true);
-    for (const exchange of main(capture)) expect(body(exchange).speed, "FAST_MODE_RELAY_WIRE_QUALIFICATION").toBe("fast");
+    for (const input of capture.budgets as Array<{ requestedFast: boolean }>) expect(input.requestedFast, "PRODUCTION_ASSEMBLY_PINS_FAST_EVERY_TURN").toBe(true);
+    for (const exchange of main(capture)) expect(body(exchange).speed, "FAST_SPEED_ON_EVERY_REQUEST").toBe("fast");
     for (const [a, b] of pairs(capture)) {
       identical(body(a).tools, body(b).tools, "FAST_MODE_TOOLS_STABLE");
       identical(system(a), system(b), "FAST_MODE_SYSTEM_STABLE");
-      // Earlier-message qualification is separate evidence for #4324 above.
+      history(a, b);
     }
   }
   expect(JSON.parse(captures.gateway!.rosters![0]!)).toEqual({ version: "2.1.293", state: "off", reason: "sdk_opt_in_required" });
@@ -219,14 +214,24 @@ test("native managed policy overriding a gateway selection is refused before pro
   expect(capture.exchanges, "MANAGED_OVERRIDE_RELEASES_NO_PROVIDER_REQUEST").toHaveLength(0);
 }, 180_000);
 
-test("project settings alone cannot turn on a host-pinned-off session", () => {
-  const capture = captures["project-on"]!;
-  expect(capture.qualification!.projectToolSearch, "PROJECT_CASE_REQUESTS_TRUE").toBe("true");
+test("project settings alone cannot turn off a first-party bridge session", () => {
+  const capture = captures["project-off"]!;
+  expect(capture.qualification!.projectToolSearch, "PROJECT_CASE_REQUESTS_FALSE").toBe("false");
   for (const input of capture.budgets as any[]) {
-    expect(input.env, "PROJECT_TRUE_CANNOT_OVERRIDE_OFF_ENV").toBe("false");
-    expect(input.settings, "PROJECT_TRUE_CANNOT_OVERRIDE_OFF_FLAGS").toBe("false");
+    expect(input.env, "HOST_PINS_ENV_ON").toBe("true");
+    expect(input.settings, "HOST_PINS_FLAG_ON").toBe("true");
   }
-  for (const exchange of main(capture)) expect(body(exchange).tools.some((tool: any) => tool.name === "ToolSearch"), "PROJECT_TRUE_CANNOT_ENABLE_WIRE_DISCOVERY").toBe(false);
+  // The runtime's own resolution: the host pin wins over the project's "false".
+  expect(capture.qualification!.effectiveToolSearch, "EFFECTIVE_VALUE_IS_THE_HOST_PIN").toBe("true");
+  expect(capture.qualification!.promptReleased, "PINNED_SESSION_RELEASED").toBe(true);
+  for (const exchange of main(capture)) expect(body(exchange).tools.some((tool: any) => tool.name === "ToolSearch"), "PROJECT_CANNOT_DISABLE_WIRE_DISCOVERY").toBe(true);
+  // Control: without the pin the same project setting is what the runtime resolves,
+  // and the gate withholds the prompt for the retained selection.
+  const control = captures["project-off-unpinned"]!;
+  expect([(control.budgets as any[])[0].env, (control.budgets as any[])[0].settings], "CONTROL_HAS_NO_HOST_PIN").toEqual([undefined, undefined]);
+  expect(control.qualification!.effectiveToolSearch, "CONTROL_RESOLVES_THE_PROJECT_VALUE").toBe("false");
+  expect(control.qualification!.promptReleased, "CONTROL_PROMPT_WITHHELD").toBe(false);
+  expect(control.exchanges, "CONTROL_SENDS_NO_REQUEST").toHaveLength(0);
 });
 
 test("incompatible authority refuses before inference and compatible resume preserves every writer definition", () => {
@@ -256,4 +261,48 @@ test("a native session predating host snapshots resumes and retains its first po
     providerTools(a, b, "PRE_SNAPSHOT_NATIVE_ROSTER_STABLE");
     identical(system(a), system(b), "PRE_SNAPSHOT_NATIVE_SYSTEM_STABLE");
   }
+});
+
+// #4310 (ruling 2026-11-27): a direct fast turn runs under the runtime's own
+// first-party provider policy. Keyless, through the pinned runtime, on a
+// runner without an admin managed tier (captureOffline hides the host's).
+test("a direct fast turn's provider policy is in force and the runtime itself refuses every other route", () => {
+  const q = (name: string) => captures[name]!.qualification as Record<string, any>;
+  const exchanges = (name: string) => captures[name]!.exchanges.length;
+  console.log("FAST_DIRECT_QUALIFICATION", JSON.stringify(Object.fromEntries(["fast-direct-policy", "fast-direct-socket-env", "fast-direct-socket-project",
+    "fast-direct-gateway", "fast-direct-socket-injected", "fast-direct-socket-unpinned", "fast-direct-gateway-unpinned"].map(name => [name, { ...q(name), exchanges: exchanges(name) }]))));
+  // Policy in force: assembly pins it, the runtime reports it, the gate admits on that proof.
+  expect(q("fast-direct-policy").managedSettings, "FAST_DIRECT_ASSEMBLY_PINS_FIRST_PARTY").toEqual({ allowedProviders: ["anthropic"] });
+  expect(q("fast-direct-policy").effectiveAllowedProviders, "FAST_DIRECT_POLICY_IN_FORCE").toEqual(["anthropic"]);
+  // The control that passes the gate: admitted on the route proof itself, with
+  // no refusal, gate error or unreadable report, and the pin in the policy tier.
+  expect({ allowed: q("fast-direct-policy").gateAllowed, refusal: q("fast-direct-policy").gateRefusal ?? null,
+    gateError: q("fast-direct-policy").gateError ?? null, settingsError: q("fast-direct-policy").settingsError ?? null },
+  "FAST_DIRECT_POLICY_PASSES_ROUTE_PROOF").toEqual({ allowed: true, refusal: null, gateError: null, settingsError: null });
+  expect(q("fast-direct-policy").settingsSources.filter((entry: { source: string }) => entry.source === "policySettings"),
+    "FAST_DIRECT_PIN_IN_POLICY_TIER").toEqual([{ source: "policySettings", keys: ["allowedProviders"], allowedProviders: ["anthropic"] }]);
+  expect(exchanges("fast-direct-policy")).toBe(0);
+  // A socket in the inherited environment is named before anything starts.
+  expect(q("fast-direct-socket-env").assemblyRefusal, "FAST_DIRECT_SOCKET_ENV_REFUSED_BY_NAME").toMatchObject({ errorClass: "fast_output_unavailable",
+    message: expect.stringContaining("ANTHROPIC_UNIX_SOCKET") });
+  expect(exchanges("fast-direct-socket-env")).toBe(0);
+  // A route chosen by project settings, or a socket that reached the runtime's
+  // environment, is refused by the runtime itself, even with the prompt
+  // released, and the same route works without the pin.
+  for (const name of ["fast-direct-socket-project", "fast-direct-gateway", "fast-direct-socket-injected"]) {
+    expect(exchanges(name), `FAST_DIRECT_${name}_NO_REQUEST_LEAVES`).toBe(0);
+    expect((q(name).results as Array<{ startup_failure_reason: unknown }>).map(result => result.startup_failure_reason),
+      `FAST_DIRECT_${name}_REFUSED_BY_THE_RUNTIME`).toContain("provider_not_allowed");
+  }
+  // Without the pin the route works, and the gate refuses it at its route
+  // check, for that check's reason: no policy at all, or a pin only project
+  // settings supplied (which the runtime does not enforce).
+  for (const [name, reason] of [["fast-direct-socket-unpinned", "policy is not in force"],
+    ["fast-direct-gateway-unpinned", "policy tier does not hold the first-party pin"]] as const) {
+    expect(exchanges(name), `FAST_DIRECT_${name}_CONTROL_REACHES_UPSTREAM`).toBeGreaterThan(0);
+    expect({ allowed: q(name).gateAllowed, gateError: q(name).gateError ?? null, errorClass: q(name).gateRefusal?.failure?.errorClass },
+      `FAST_DIRECT_${name}_GATE_REACHED_ROUTE_CHECK`).toEqual({ allowed: false, gateError: null, errorClass: "fast_output_unavailable" });
+    expect(String(q(name).gateRefusal?.message), `FAST_DIRECT_${name}_REFUSED_FOR_ITS_ROUTE`).toContain(reason);
+  }
+  expect(q("fast-direct-gateway-unpinned").effectiveAllowedProviders, "PROJECT_PIN_IS_EFFECTIVE_BUT_NOT_ENFORCED").toEqual(["anthropic"]);
 });

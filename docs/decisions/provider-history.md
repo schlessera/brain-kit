@@ -111,7 +111,8 @@ directly:
   referenced deferred definitions at any position, preserving every earlier
   definition's bytes and relative order;
 - every request's `messages` extend the previous request's `messages` plus that
-  request's answer;
+  request's answer, where a non-empty string content equals one text block
+  with the same text ([2026-11-26](#2026-11-26--string-content-equals-one-text-block-4324));
 - between the turns, the test changes everything that legitimately changes in
   real use: the repository (a commit and an untracked file), the device, the
   budget, the sandbox facts and the posture.
@@ -210,16 +211,14 @@ hypothetical append; this keyless comparison does not measure provider cache
 hits, tokens or savings.
 
 The direct-runtime path also rewrites earlier system-role message content from
-a block array to a string within a turn and on resume. Those remain provider-history violations,
-tracked in #4324; fast-mode product work in #4310 waits for its fix. Same-turn
-and resume transitions are qualified and reported separately; evidence in one
-scope does not establish a violation in the other. The strict
-history guard has no exception for it, on resume or within a turn. A separate
-qualification test records the reproduction by asserting that the strict guard
-rejects the captured bytes; it does not establish passing history qualification.
-Worker boundary proof remains in the original guard; the companion launches
-the runtime directly inside an offline namespace and makes no worker-boundary
-claim.
+a block array to a string within a turn and on resume. Until the cause was
+known these were treated as provider-history violations, tracked in #4324.
+The [2026-11-26 amendment](#2026-11-26--string-content-equals-one-text-block-4324)
+identifies them as the cache-breakpoint carrier and compares that one encoding
+equivalence; same-turn and resume transitions are each still required to show
+the carrier and nothing else. Worker boundary proof remains in the original
+guard; the companion launches the runtime directly inside an offline namespace
+and makes no worker-boundary claim.
 
 New hosted sessions retain their native disallow selection and tool-search pin
 atomically in private prompt-context storage, beside an initialization marker.
@@ -273,3 +272,29 @@ Cache-breakpoint normalization is limited to API tool definitions, system blocks
 and message content blocks (including tool-result content). Arbitrary nested
 JSON stays exact: an input-schema property or tool input named `cache_control`
 is content, not a cache breakpoint.
+
+## 2026-11-26 — String content equals one text block (#4324)
+
+The maintainer amends the 2026-11-20 treatment of the system-role rewrite once
+its cause is known. For the production model, the pinned CLI (2.1.293) sends
+mid-conversation `role: "system"` messages as plain strings. The one message
+that carries the moving cache breakpoint is the exception: it is wrapped as
+`[{type: "text", text, cache_control}]`, and it reverts to a string with the
+same text once the breakpoint moves on. User and assistant messages follow the
+same serializer rule. The Messages API documents a string `content` as
+shorthand for an array of one `text` block, so the two forms are the same
+provider input.
+
+The guard therefore compares message content in that canonical form: a
+non-empty string equals exactly one `text` block with the same text and no
+other field. Nothing wider is equal. Changed text, an empty string, another
+role, two blocks or an extra field each still fail. The top-level `system`, the
+tools, every other byte of every earlier message, and the transcript checks
+that reuse the cache-breakpoint normalization stay strict. This is the same
+kind of allowance the guard already makes for a moving cache breakpoint. No
+product code normalizes anything. The worker-path probe runs the shipped
+default model (`DEFAULT_PROFILES`), so the guard covers the request shape
+production sends. Both the worker-path and the relay capture also assert that
+the raw wire differs only by this carrier, within a turn and on resume, so the
+equivalence cannot hide another change. The real provider cache effect is not
+measured by these keyless captures.
