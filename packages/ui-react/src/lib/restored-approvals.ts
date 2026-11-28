@@ -45,13 +45,18 @@ function isOpenRestored(tool: ToolCall): boolean {
   return !!tool.restored && tool.status === "pending_approval" && (!tool.readOnly || tool.readOnly === "unlisted");
 }
 
-/** The open restored cards in one buffer. */
+/** The open restored cards in one buffer (both ordinary tool calls and network approval stack items). */
 export function openRestoredCards(chat: SessionChat | null | undefined): AwaitingRestoredCard[] {
   if (!chat) return [];
   const out: AwaitingRestoredCard[] = [];
   for (const message of chat.messages) {
     for (const tool of message.toolCalls) {
       if (isOpenRestored(tool)) out.push({ toolUseId: tool.id, turnId: tool.approvalTurnId ?? null });
+    }
+  }
+  for (const item of chat.networkApprovals ?? []) {
+    if (item.restored && (!item.readOnly || item.readOnly === "unlisted")) {
+      out.push({ toolUseId: item.toolUseId, turnId: item.turnId ?? null });
     }
   }
   return out;

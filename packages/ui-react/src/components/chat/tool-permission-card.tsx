@@ -24,8 +24,10 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
   const keys = useUIStore(s => s.singleKeyShortcuts);
   const printKeys = useFinePointer() && keys;
   const card = useRef<HTMLDivElement>(null);
-  const decision = useRef({ id: toolCall.id, sent: false });
-  if (decision.current.id !== toolCall.id) decision.current = { id: toolCall.id, sent: false };
+  const decision = useRef({ id: toolCall.id, revision: toolCall.approvalRevision, sent: false });
+  if (decision.current.id !== toolCall.id || decision.current.revision !== toolCall.approvalRevision) {
+    decision.current = { id: toolCall.id, revision: toolCall.approvalRevision, sent: false };
+  }
   registerBuiltinRenderers(root.renderers);
   const renderer = forced ?? root.renderers.resolve(toolCall, backendId ?? activeBackend) ?? GENERIC_RENDERER;
   if (!awaitsDecision(toolCall)) return null;

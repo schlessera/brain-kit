@@ -127,6 +127,37 @@ export function ActivityPage() {
    */
   const [receipt, setReceipt] = useState<{ text: string; target: string; effect: string } | null>(null);
   const [drained, setDrained] = useState(false);
+  const pendingNetworkReceipts = useRef(new Map<string, { target: string }>());
+  const networkReceipts = useChatStore(useShallow((s) =>
+    [...Object.values(s.buffers), ...(s.draft ? [s.draft] : [])].flatMap((b) => b.networkReceipts ?? [])
+  ));
+  useEffect(() => {
+    if (pendingNetworkReceipts.current.size === 0) return;
+    for (const item of networkReceipts) {
+      const pending = pendingNetworkReceipts.current.get(item.toolUseId);
+      if (!pending) continue;
+      pendingNetworkReceipts.current.delete(item.toolUseId);
+      const text = item.reason ?? (
+        item.state === "granted"
+          ? item.scope === "once"
+            ? "Allowed once"
+            : item.scope === "session"
+              ? "Allowed all sites for this chat"
+              : `Allowed ${item.originLabel} for this chat`
+          : item.state === "unknown"
+            ? "This request had already closed — nothing ran"
+            : item.state === "withdrawn"
+              ? `Withdrawn · ${item.originLabel}`
+              : `Expired · ${item.originLabel}`
+      );
+      setReceipt({
+        text,
+        target: pending.target,
+        effect: item.state === "granted" ? "Confirmed by host" : "Nothing ran",
+      });
+      setDrained(inbox.length + approvals.length === 0);
+    }
+  }, [networkReceipts, inbox.length, approvals.length]);
   const loadInbox = useActivityStore((s) => s.loadInbox);
   const acknowledgeIntent = useActivityStore((s) => s.acknowledgeIntent);
   const acknowledgeAllIntents = useActivityStore((s) => s.acknowledgeAllIntents);
@@ -390,9 +421,27 @@ export function ActivityPage() {
     setDrained(approvals.length === 0);
     void acknowledgeAllIntents();
   }
-  function decideApproval(key: string | null, toolUseId: string, approved: boolean, asked?: boolean) {
+  function decideApproval(
+    key: string | null,
+    toolUseId: string,
+    approved: boolean,
+    asked?: boolean,
+    networkScope?: import("@schlessera/brain-ui-sdk/protocol").NetworkApprovalScope
+  ) {
     const tool = approvals.find((a) => a.tool.id === toolUseId)?.tool;
-    const { receipt, frame } = approvalOutcome(tool, toolUseId, approved, asked);
+    const { receipt, frame } = approvalOutcome(tool, toolUseId, approved, asked, networkScope);
+    if (!frame) return;
+    // Network approvals are host-owned (#4967): mark Sending… and wait for tool_resolution.
+    if (tool?.approvalNetwork || tool?.approvalOrigin) {
+      const chatState = root.stores.chat.getState();
+      chatState.markNetworkApprovalSending(key, toolUseId, networkScope);
+      if (!root.connection.send(frame)) {
+        chatState.resetNetworkApprovalSending(key, toolUseId);
+        return;
+      }
+      pendingNetworkReceipts.current.set(toolUseId, { target: receipt.target });
+      return;
+    }
     // A refused send keeps the card open and produces no decision receipt.
     if (!root.connection.send(frame)) return;
     setReceipt(receipt);
@@ -686,7 +735,7 @@ export function ActivityPage() {
                           tool={tool}
                           origin={key ? `session ${key.slice(0, 8)}` : "this conversation"}
                           keys={keys}
-                          onDecide={(approved, always) => decideApproval(key, tool.id, approved, always)}
+                          onDecide={(approved, always, networkScope) => decideApproval(key, tool.id, approved, always, networkScope)}
                         />
                       ))}
                     </div>

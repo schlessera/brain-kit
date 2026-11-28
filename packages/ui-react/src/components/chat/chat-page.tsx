@@ -18,6 +18,9 @@ import { MaskEditor } from "../images/mask-editor.js";
 import { MarkupEditorHost } from "../images/markup-editor.js";
 import { MessageBubble } from "./message-bubble.js";
 import { SessionSafety } from "./safety-indicator.js";
+import { ChatApprovalStack } from "./approval-stack.js";
+import { NetworkApprovalReceipts } from "./network-receipts.js";
+import { NetworkGrantsBar } from "./network-grants-bar.js";
 import { useWorkRestore } from "../../hooks/use-local-work.js";
 import { messageFingerprint } from "../../lib/local-work.js";
 
@@ -767,6 +770,7 @@ export function ChatPage() {
                 >
                   {dialogueNotice && <p role="status" className="py-3 text-sm">{dialogueNotice}</p>}
                   <SessionSafety visibleMessages={visibleToolMessages} />
+                  <NetworkGrantsBar />
                   {dialoguePage?.coverage === "legacy" && <p className="py-3 text-sm">Earlier spoken dialogue was not saved.</p>}
                   {dialoguePage?.before !== undefined && <Button label="Load earlier conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`,true)} />}
                   {dialoguePage && (dialoguePage.records.length > 0 || dialoguePage.through > 0) && <Button label="Show latest conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`)} />}
@@ -826,6 +830,7 @@ export function ChatPage() {
                   ); })}
                   </TranscriptReadingScope>
                   <ConversationPermissionOutcomes sessionId={sessionId} />
+                  <NetworkApprovalReceipts />
                   {unlinked && <MarkAsSeen onMark={markSeen} />}
                   {/* Live frames drawn before the history arrived (#1328). */}
                   {restoring && <RestorationState onNewChat={clearMessages} />}
@@ -851,6 +856,7 @@ export function ChatPage() {
           <HandoffSheet />
           <ChatComposerRow wide={wide} onOpenTracker={openTracker} />
           <StateRoomNotice onDismissFocus={() => { composerRef.current?.focusEnd(); }} />
+          <ChatApprovalStack send={send} />
           <Composer send={send} handle={composerRef} />
         </div>
       </div>

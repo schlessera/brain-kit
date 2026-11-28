@@ -8,7 +8,7 @@ import { readSyncResult } from "./sync-stream.js";
 import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
 import { safetyReviewResponseSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { SafetyReviewBody } from "@schlessera/brain-ui-sdk/protocol";
-import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, HygienePreviewResponse, HygieneWorktreeDetailsRead, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, HygienePreviewResponse, HygieneWorktreeDetailsRead, SessionNetworkGrantsResponse, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { ContentRendererDeclaration, ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export class ApiRequestError extends Error {
@@ -968,6 +968,17 @@ export function createBrainApi(
         method: "POST",
         body: JSON.stringify({ endpoint }),
       }),
+
+    /** Active origin/session network grants for one chat session (#3595). */
+    listNetworkGrants: (sessionId: string) =>
+      fetchJson<SessionNetworkGrantsResponse>(`/sessions/${encodeURIComponent(sessionId)}/network-grants`),
+
+    /** Revoke one active network grant; affects later connections only (#3595). */
+    revokeNetworkGrant: (sessionId: string, grantId: string) =>
+      fetchJson<{ revoked: boolean; grantId: string }>(
+        `/sessions/${encodeURIComponent(sessionId)}/network-grants/${encodeURIComponent(grantId)}`,
+        { method: "DELETE" }
+      ),
   };
 }
 

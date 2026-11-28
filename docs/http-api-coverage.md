@@ -141,6 +141,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/sessions/:id/safety/reviews/future/prepare` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/future/prepare` | SR |
 | `POST /api/sessions/:id/safety/reviews/future/commit` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/future/commit` | SR |
 | `POST /api/sessions/:id/safety/reviews/future/status` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/future/status` | SR |
+| `GET /api/sessions/:id/network-grants` | `mounted supported handler: GET /api/sessions/:id/network-grants` | NG |
+| `DELETE /api/sessions/:id/network-grants/:grantId` | `mounted supported handler: DELETE /api/sessions/:id/network-grants/:grantId` | NG |
 | `GET /api/sessions/:id/attachment-reads` | `mounted supported handler: GET /api/sessions/:id/attachment-reads` | X |
 | `GET /api/sessions/:id/recovery` | `mounted supported handler: GET /api/sessions/:id/recovery` | S |
 | `POST /api/queue` | `mounted supported handler: POST /api/queue` | Q |
@@ -594,6 +596,13 @@ the owner, foreign, agent and unknown answers through `createApp` and cookies.
 The safety read additionally runs real password-authenticated loopback HTTP/WS
 fixtures in `packages/ui-server/tests/safety-history.test.ts`, including stale
 cursors, revocation/retirement after a held read and independent A/B/C records.
+
+**NG — Session network grants.** [network-approval-scopes.test.ts](../packages/ui-server/tests/network-approval-scopes.test.ts)
+exercises `once`, `origin` and `session` grants, new-class suspension,
+`network.deny` and voice precedence, managed GitHub acquisition isolation, and
+mounted `GET /api/sessions/:id/network-grants` /
+`DELETE /api/sessions/:id/network-grants/:grantId` listing, revocation and
+cross-session/unauthorized refusal.
 
 Checkout receipt behavior is covered by `code-change-receipt.test.ts` (real Git,
 owned endpoints, sandbox denial, crash recovery),

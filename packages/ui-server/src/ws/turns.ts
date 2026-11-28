@@ -21,6 +21,8 @@ import type {
   HostStopCause,
   LocalExchange,
   MessageSource,
+  NetworkApprovalOffer,
+  NetworkApprovalScope,
   QueuedFollowUpView,
   ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
@@ -303,6 +305,20 @@ export interface RunningTurn extends TurnFields {
   draftId: string | null;
 }
 
+export type ApprovalExpiryCause = "safety_changed" | "turn_ended" | "grant_storage_failed" | "operation_cancelled";
+
+/** Map a host expiry cause + turn state to its truthful Activity span outcome (#1763). */
+export function expirySpanOutcome(
+  turn: Pick<RunningTurn, "timedOutTurnId">,
+  turnId: string,
+  cause: ApprovalExpiryCause,
+  reason: string
+): "timeout" | "cancelled" {
+  return cause === "turn_ended" && (turn.timedOutTurnId === turnId || reason === "Turn timed out")
+    ? "timeout"
+    : "cancelled";
+}
+
 // Pending interactive requests are tagged with their turn so a per-session
 // cancel/disconnect can drain only that session's pending entries, and with
 // the turnId that raised them (the slot's id mutates across queued follow-ups).
@@ -315,13 +331,16 @@ export interface PendingApproval {
    * locks; an approval must survive that and reappear, not silently die.
    */
   request: PermissionRequest;
+  /** When this card's revision was last updated in place (#4966 arming window). */
+  revisionUpdatedAt?: number;
   /** Final synchronous revalidation, including after a grant-store wait. */
   revalidate?: () => string | null;
   /** Retain the terminal fact before resolving a safety-aware backend wait. */
-  expire?: (reason: string, cause: "safety_changed" | "turn_ended" | "grant_storage_failed") => void;
+  expire?: (reason: string, cause: ApprovalExpiryCause) => void;
   resolve: (
     decision: PermissionDecision,
-    response?: { principalId: string; always?: boolean; channel?: ApprovalChannel }
+    response?: { principalId: string; always?: boolean; channel?: ApprovalChannel; networkScope?: NetworkApprovalScope },
+    expired?: { cause: ApprovalExpiryCause; reason: string; outcome: "timeout" | "cancelled" }
   ) => void;
 }
 
@@ -333,11 +352,21 @@ export interface PendingApproval {
  */
 interface ToolResolutionRecord {
   outcome: "granted" | "denied" | "expired";
-  expiryCause?: "safety_changed" | "turn_ended" | "grant_storage_failed";
+  expiryCause?: ApprovalExpiryCause;
   turnId: string;
   sessionId: string | null;
   channel?: ApprovalChannel;
   reason?: string;
+  networkScope?: NetworkApprovalScope;
+  grantedByGrant?: boolean;
+}
+
+/** Provisional expiry state held while durable withdrawal writes commit (#4966). */
+interface ExpiringApprovalRecord {
+  turnId: string;
+  sessionId: string | null;
+  reason: string;
+  expiryCause: ApprovalExpiryCause;
 }
 
 /** Settled outcomes retained for late replies; the oldest is evicted first. */
@@ -515,7 +544,7 @@ export class TurnCoordinator {
   readonly #pendingApprovals = new Map<string, PendingApproval>();
   /** A client owns the answer, but invalidation/teardown still own its lifetime. */
   readonly #claimedApprovals = new Map<string, PendingApproval>();
-  readonly #expiringApprovals = new Set<string>();
+  readonly #expiringApprovals = new Map<string, ExpiringApprovalRecord>();
   readonly #resolvedApprovals = new Map<string, ToolResolutionRecord>();
   readonly #asks = new Map<string, PendingAsk>();
   readonly #pendingLocation = new Map<string, PendingLocation>();
@@ -566,6 +595,11 @@ export class TurnCoordinator {
   /** Permission requests waiting for an answer, by toolUseId. */
   get pendingApprovals(): ReadonlyMap<string, PendingApproval> {
     return this.#pendingApprovals;
+  }
+
+  /** Approvals currently writing their durable expiry fact (#4966 no ghost window). */
+  get expiringApprovals(): ReadonlyMap<string, ExpiringApprovalRecord> {
+    return this.#expiringApprovals;
   }
 
   /** Settled permission outcomes by toolUseId, bounded by MAX_RESOLVED_APPROVALS. */
@@ -850,34 +884,115 @@ export class TurnCoordinator {
     return p;
   }
 
+  /** Update a pending approval card in place under the same toolUseId (#4966). */
+  updateApproval(
+    toolUseId: string,
+    update: { revision: string; description?: string; network?: NetworkApprovalOffer }
+  ): PendingApproval | undefined {
+    const p = this.#pendingApprovals.get(toolUseId);
+    if (!p) return undefined;
+    p.request = {
+      ...p.request,
+      revision: update.revision,
+      ...(update.description !== undefined ? { description: update.description } : {}),
+      ...(update.network !== undefined ? { network: update.network } : {}),
+    };
+    p.revisionUpdatedAt = Date.now();
+    return p;
+  }
+
+  /** Settle a pending Network approval host-side as granted by a sibling or standing grant (#4966, #3595). */
+  settleApprovalByGrant(
+    toolUseId: string,
+    scope: NetworkApprovalScope | undefined,
+    reason: string,
+    grantedClasses?: readonly string[]
+  ): boolean {
+    const p = this.#pendingApprovals.get(toolUseId);
+    if (!p) return false;
+    if (p.request.networkCard?.signal?.aborted) {
+      this.expireApproval(toolUseId, "The network request stopped waiting.", "operation_cancelled", entry => entry === p);
+      return false;
+    }
+    const refusal = p.revalidate?.();
+    if (refusal) {
+      this.expireApproval(toolUseId, refusal, "safety_changed", entry => entry === p);
+      return false;
+    }
+    this.#pendingApprovals.delete(toolUseId);
+    p.request.networkCard?.onGrantedByGrant?.(scope, grantedClasses);
+    this.recordApprovalOutcome(toolUseId, {
+      outcome: "granted",
+      turnId: p.turnId,
+      sessionId: p.turn.sessionId,
+      ...(scope ? { networkScope: scope } : {}),
+      grantedByGrant: true,
+      reason,
+    });
+    p.resolve({ behavior: "allow", ...(scope ? { networkScope: scope } : {}), grantedByGrant: true });
+    return true;
+  }
+
+  /** Settle every pending non-managed Network approval in `sessionId` (or `sourceTurnId` when unbound) matching `predicate`. */
+  settleSiblingNetworkApprovals(
+    sessionId: string | null,
+    sourceTurnId: string,
+    excludeToolUseId: string,
+    predicate: (req: PermissionRequest) => boolean,
+    scope: NetworkApprovalScope | undefined,
+    reason: string,
+    grantedClasses?: readonly string[]
+  ): number {
+    let settled = 0;
+    for (const [id, p] of [...this.#pendingApprovals]) {
+      if (id === excludeToolUseId) continue;
+      if (sessionId !== null ? p.turn.sessionId !== sessionId : p.turnId !== sourceTurnId) continue;
+      if (p.request.toolName !== "Network" || !p.request.networkCard) continue;
+      if (p.request.network?.managedReference) continue;
+      if (!predicate(p.request)) continue;
+      if (this.settleApprovalByGrant(id, scope, reason, grantedClasses)) settled++;
+    }
+    return settled;
+  }
+
   /** Expire a waiting or claimed answer; late handlers can no longer settle it. */
-  expireApproval(toolUseId: string, reason: string, cause: "safety_changed" | "turn_ended" | "grant_storage_failed",
+  expireApproval(toolUseId: string, reason: string, cause: ApprovalExpiryCause,
     accepts: (p: PendingApproval) => boolean = () => true): boolean {
     const p = this.#pendingApprovals.get(toolUseId) ?? this.#claimedApprovals.get(toolUseId);
     if (!p || !accepts(p)) return false;
     this.#pendingApprovals.delete(toolUseId);
     this.#claimedApprovals.delete(toolUseId);
-    this.#expiringApprovals.add(toolUseId);
+    this.#expiringApprovals.set(toolUseId, {
+      turnId: p.turnId,
+      sessionId: p.turn.sessionId,
+      reason,
+      expiryCause: cause,
+    });
     if (p.expire) p.expire(reason, cause);
     else {
       this.recordApprovalOutcome(toolUseId, { outcome: "expired", turnId: p.turnId, sessionId: p.turn.sessionId, expiryCause: cause, reason });
-      p.resolve({ behavior: "deny", message: reason });
+      p.resolve({ behavior: "deny", message: reason }, undefined, { cause, reason, outcome: expirySpanOutcome(p.turn, p.turnId, cause, reason) });
     }
     return true;
   }
 
-  /** Answer a claimed permission request and record its outcome. */
+  /** Whether `claimed` is still the live claimed approval for `toolUseId`. */
+  isApprovalClaimed(toolUseId: string, claimed: PendingApproval): boolean {
+    return this.#claimedApprovals.get(toolUseId) === claimed;
+  }
+
+  /** Answer a claimed permission request and record its outcome. Returns true iff settled. */
   settleApproval(
     toolUseId: string,
     claimed: PendingApproval,
     decision: PermissionDecision,
-    response: { principalId: string; always?: boolean; channel?: ApprovalChannel }
-  ): void {
-    if (this.#claimedApprovals.get(toolUseId) !== claimed) return;
+    response: { principalId: string; always?: boolean; channel?: ApprovalChannel; networkScope?: NetworkApprovalScope }
+  ): boolean {
+    if (this.#claimedApprovals.get(toolUseId) !== claimed) return false;
     const refusal = decision.behavior === "allow" ? claimed.revalidate?.() : null;
     if (refusal) {
       this.expireApproval(toolUseId, refusal, "safety_changed", p => p === claimed);
-      return;
+      return false;
     }
     this.#claimedApprovals.delete(toolUseId);
     this.recordApprovalOutcome(toolUseId, {
@@ -885,8 +1000,10 @@ export class TurnCoordinator {
       turnId: claimed.turnId,
       sessionId: claimed.turn.sessionId,
       ...(response.channel ? { channel: response.channel } : {}),
+      ...(response.networkScope ? { networkScope: response.networkScope } : {}),
     });
     claimed.resolve(decision, response);
+    return true;
   }
 
   /** Open a location request unless another turn holds its id; says whether it opened. */
@@ -1101,8 +1218,9 @@ export class TurnCoordinator {
       dropped: { entries: handingOver ? [handingOver, ...taken] : taken, reason },
     });
     clearTimeout(turn.timeoutHandle);
-    turn.abortController.abort();
+    // Drain before abort listeners run so pending cards retain cancellation reason (#1763).
     this.drainPendingForTurn(turn, reason);
+    turn.abortController.abort();
   }
 
   /** Record now, or retain the actor across the pre-recorder startup window. */
@@ -1157,10 +1275,10 @@ export class TurnCoordinator {
   }
 
   /** Resolve/reject every pending interactive request belonging to one turn. */
-  drainPendingForTurn(turn: RunningTurn, reason: string): void {
-    // Timeout drains cards before abort listeners run, so the card and any
-    // later question retain the same terminal reason.
-    const ended = turn.timedOutTurnId === turn.turnId || turn.abortController?.signal.aborted;
+  drainPendingForTurn(turn: RunningTurn, reason: string, options?: { terminal?: boolean }): void {
+    // Timeout and budget stops drain cards before abort listeners run, so the
+    // card and any later question retain the same terminal reason.
+    const ended = options?.terminal === true || turn.timedOutTurnId === turn.turnId || turn.hostStop?.turnId === turn.turnId || turn.cancelled || turn.abortController?.signal.aborted;
     if (ended && this.#drained.get(turn)?.turnId !== turn.turnId)
       this.#drained.set(turn, { turnId: turn.turnId, reason });
     for (const [id, p] of [...this.#pendingApprovals, ...this.#claimedApprovals]) {

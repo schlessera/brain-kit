@@ -491,6 +491,42 @@ export function safetyScopeTurns(db:Database,turnId:string|null,sessionId:string
  if(turnId!==null)turns.add(turnId);
  return turns;
 }
+/** Sorted set of unresolved untrusted-input classes (committed + pending `taint` writes in scope, #4966). */
+export function unresolvedTaintClasses(db:Database,turnId:string|null,sessionId:string|null):string[] {
+ const read=()=>{
+  const {scope,args}=safetyScope(db,turnId,sessionId);
+  const rows=db.query<{source:string|null},(string|null)[]>(`SELECT DISTINCT r.source FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
+   WHERE ${scope} AND ${unresolvedOccurrence} AND r.source IS NOT NULL`).all(...args);
+  const classes=new Set<string>();
+  for(const row of rows)if(row.source)classes.add(row.source);
+  const queue=safetyQueue(db);
+  if(queue.pending.size){
+   const turns=safetyScopeTurns(db,turnId,sessionId);
+   for(const item of queue.pending){
+    if(item.source!==null&&((item.turnId!==null&&turns.has(item.turnId))||(sessionId!==null&&item.sessionId===sessionId))){
+     classes.add(item.source);
+    }
+   }
+  }
+  return [...classes].sort();
+ };
+ return db.inTransaction?read():Database.prototype.transaction.call(db,read).deferred() as string[];
+}
+
+/** Canonical history generation of the session or turn collection (#3595). */
+export function sessionHistoryGeneration(db:Database,turnId:string|null,sessionId:string|null):string {
+ const s=sessionId?one<Session|null>(db,"SELECT * FROM safety_sessions WHERE session_id=?",sessionId):null;
+ const target=turnId?collection(db,turnId):null;
+ const ownerId=s?.history_owner_id??target?.history_owner_id??null;
+ const owner=sessionId
+  ? one<{generation:number}|null>(db,`SELECT generation FROM dialogue_owners WHERE id=COALESCE((SELECT id FROM dialogue_owners WHERE session_id=?),(SELECT owner_id FROM dialogue_aliases WHERE id=?),?)`,sessionId,ownerId,ownerId)
+  : ownerId
+   ? one<{generation:number}|null>(db,`SELECT generation FROM dialogue_owners WHERE id=COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=?),?)`,ownerId,ownerId)
+   : null;
+ const safetyGen=target?.generation??s?.generation??"1";
+ return owner?`${safetyGen}:d${owner.generation}`:safetyGen;
+}
+
 /** Last immutable append in the same canonical scope as the aggregate. */
 export function safetyEvidenceSequence(db:Database,turnId:string|null,sessionId:string|null,excludedOccurrenceId:string|readonly string[]|null=null,excludedCollectionStart:string|readonly string[]|null=null):string {
  const {scope,args}=safetyScope(db,turnId,sessionId);

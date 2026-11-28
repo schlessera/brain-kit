@@ -32,9 +32,13 @@ export const HOST_STOP_UNSPECIFIED_REASON = "Stopped by the host";
 export function stopTurnForHost(host: { readonly coordinator: Pick<TurnCoordinator, "drainPendingForTurn"> }, turn: RunningTurn, turnId: string,
   controller: AbortController, cause: HostStopCause, error: unknown): void {
   const records = turn.turnId === turnId && !controller.signal.aborted && !turn.cancelled;
-  if (records) turn.hostStop = { turnId, cause };
+  if (records) {
+    turn.hostStop = { turnId, cause };
+    // Drain before abort listeners run so cards retain the host-stop reason
+    // instead of being overwritten by safety abort invalidation (#1763, #4565).
+    host.coordinator.drainPendingForTurn(turn, HOST_STOP_REASONS[cause]);
+  }
   controller.abort(error);
-  if (records) host.coordinator.drainPendingForTurn(turn, HOST_STOP_REASONS[cause]);
 }
 
 /** The cause the host stopped turn `turnId` for, if it did. */

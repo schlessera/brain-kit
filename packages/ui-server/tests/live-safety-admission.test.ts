@@ -700,7 +700,8 @@ for (const kind of ["tool", "command", "policy", "actor"] as const) for (const c
       expect(decision).toBe(change === "healthy" ? "allow" : "deny");
       expect(queryGovernanceEvents(f.db, { sessionId: "ithaca", kinds: ["safety_admission_expired"], limit: 100 })).toHaveLength(change === "healthy" ? 0 : 1);
       expect(host.coordinator.resolvedApprovals.get("direct-card")?.outcome).toBe(change === "healthy" ? "granted" : "expired");
-      expect(frames.filter(frame => frame.type === "tool_resolution" && frame.outcome === (change === "healthy" ? "granted" : "expired"))).toHaveLength(1);
+      expect(frames.filter(frame => frame.type === "tool_resolution" && (change === "healthy" ? frame.outcome === "granted" : frame.outcome === "expired" && frame.expiryCause !== undefined))).toHaveLength(1);
+      expect(frames.filter(frame => frame.type === "tool_resolution" && frame.outcome === "unknown")).toHaveLength(0);
     } finally { host.close(); await run; origin.stop(true); await f.close(); }
   });
 }

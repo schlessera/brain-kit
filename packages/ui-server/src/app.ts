@@ -9,6 +9,7 @@ import { createTrustSettingsRoutes } from "./routes/trust-settings.js";
 import { createTrustGitHubIdentity } from "./brain/trust-github-identity.js";
 import { SafetyHistory } from "./governance/safety-history.js";
 import { createSessionSafetyRoutes } from "./routes/session-safety.js";
+import { createNetworkGrantRoutes } from "./routes/network-grants.js";
 import { createOwnerSafetyReviewRoutes } from "./routes/owner-safety-review.js";
 import { OwnerSafetyReviews } from "./governance/owner-safety-reviews.js";
 import { occurrence } from "./governance/occurrence.js";
@@ -1344,6 +1345,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // which a client reads as a host too old to answer (#964).
   if (supportsSessionRecovery(host)) app.route("/api", createSessionRecoveryRoutes(host));
   app.route("/api", createSessionSafetyRoutes(safetyHistory,principal=>host.isPrincipalValid(principal)));
+  app.route("/api", createNetworkGrantRoutes({
+    db,
+    governanceWrites: activity.governanceWrites,
+    isPrincipalValid: (principal) => host.isPrincipalValid(principal),
+    onGrantsChanged: (sessionId) => host.broadcastNetworkGrants(sessionId),
+  }));
 
   app.route("/api", createPolicyProposalRoutes(host));
   app.route("/api", createAgentPolicyRoutes(host, () => activity.runtime.snapshot().workerHost?.limits ?? null));

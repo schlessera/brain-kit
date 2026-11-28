@@ -126,29 +126,32 @@ for (const mode of ["network grant","network deny","network expiry","network rev
         try {
           await Promise.race([raised.promise,exchange.then(res=>{throw new Error("Missing first card: "+res.body);})]);
           const first = frames.find(f=>f.type==="tool_approval_request")!;
-          const ctx = {host,ws,requireEcho:true,connection:{principal,authorization,capabilities:{toolResolution:true}}} as never;
-          const click = (id:string)=>handleToolApproval(ctx,{type:"tool_approval",turnId:"voyage",toolUseId:id,channel:"card"});
+          const ctx = {host,ws,requireEcho:true,connection:{principal,authorization,capabilities:{toolResolution:true,approvalUpdates:true}}} as never;
+          const click = (id:string, revision?:string)=>handleToolApproval(ctx,{type:"tool_approval",turnId:"voyage",toolUseId:id,channel:"card",...(revision?{revision}:{})});
           if(mode==="network expiry")armTurnTimeout(host,turn,controller);
           else if(mode==="network revocation")await writes.safetyFail("voyage");
-          else {
-            if (otherRead) otherExchange = fetchThroughProxy(otherRead.url);
-            else await add("voyage");
-            const second = await Promise.race([nextCard.promise,exchange.then(res=>{throw new Error("Missing replacement: "+res.body);})]);
-            expect(second.toolUseId).not.toBe(first.toolUseId);
-            expect(second.description).toContain("New safety evidence");
-            expect(second.input).toMatchObject({port:upstream.port,host:"127.0.0.1"});
-            await click(first.toolUseId);
+          else if(mode==="network grant"){
+            // A concurrent allowlisted fetch introduces a new untrusted-input class (egress_connection):
+            // the Network card updates in place under the same toolUseId with a new revision (#4966).
+            otherExchange = fetchThroughProxy(otherRead!.url);
+            const updated = await Promise.race([nextCard.promise,exchange.then(res=>{throw new Error("Missing in-place update: "+res.body);})]);
+            expect(updated.toolUseId).toBe(first.toolUseId);
+            expect(updated.revision).not.toBe(first.revision);
+            expect(updated.input).toMatchObject({port:upstream.port,host:"127.0.0.1"});
+            // Answering the stale revision is rejected without withdrawing the card.
+            await click(first.toolUseId, first.revision);
             expect(delivered).toBe(0);
-            expect(host.coordinator.pendingApprovals.has(second.toolUseId)).toBe(true);
-            if(mode==="network grant"){
-              releaseRead.resolve();
-              expect(await otherExchange).toEqual({status:200,body:"Pylos"});
-              const third=await Promise.race([thirdCard.promise,exchange.then(res=>{throw new Error("Missing current card: "+res.body);})]);
-              await click(second.toolUseId);
-              expect(delivered).toBe(0);
-              await click(third.toolUseId);
-            }
-            else await handleToolDenial(ctx,{type:"tool_denial",turnId:"voyage",toolUseId:second.toolUseId,channel:"card",message:STALE_SAFETY_ADMISSION});
+            expect(host.coordinator.pendingApprovals.has(first.toolUseId)).toBe(true);
+            releaseRead.resolve();
+            expect(await otherExchange).toEqual({status:200,body:"Pylos"});
+            await writer.idle();
+            // Finalizing the already-shown class leaves the updated revision valid.
+            await click(updated.toolUseId, updated.revision);
+          } else {
+            // Another occurrence of the same class (web_fetch) keeps the Network card valid (#4966).
+            await add("voyage");
+            expect(host.coordinator.pendingApprovals.has(first.toolUseId)).toBe(true);
+            await handleToolDenial(ctx,{type:"tool_denial",turnId:"voyage",toolUseId:first.toolUseId,channel:"card",revision:first.revision,message:"user declined"});
           }
           const response=await exchange;
           expect(response.status).toBe(mode==="network grant"?200:mode==="network revocation"?503:mode==="network expiry"?0:403);
@@ -156,11 +159,11 @@ for (const mode of ["network grant","network deny","network expiry","network rev
           if(mode==="network deny")expect(response.body).toContain("user declined");
           if(mode==="network expiry"){
             await new Promise(resolve=>setImmediate(resolve));await writer.idle();
-            await click(first.toolUseId);
+            await click(first.toolUseId, first.revision);
             expect(host.coordinator.resolvedApprovals.get(first.toolUseId)).toMatchObject({outcome:"expired",reason:"Turn timed out"});
           }
           if(mode==="network revocation")expect(response.body).toContain("recording");
-          expect(queryGovernanceEvents(db,{kinds:["safety_admission_expired"],limit:10})).toHaveLength(mode==="network grant"?2:1);
+          expect(queryGovernanceEvents(db,{kinds:["safety_admission_expired"],limit:10})).toHaveLength(mode==="network grant"||mode==="network deny"?0:1);
         } finally {
           releaseRead.resolve(); egress.stop();
           await Promise.allSettled([exchange,otherExchange]); await egress.settled();

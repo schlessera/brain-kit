@@ -116,12 +116,45 @@ export interface BackendCapabilities {
 }
 
 export type PermissionDecision =
-  | { behavior: "allow"; updatedInput?: Record<string, unknown>; always?: boolean }
+  | { behavior: "allow"; updatedInput?: Record<string, unknown>; always?: boolean; networkScope?: import("../protocol.js").NetworkApprovalScope; grantedByGrant?: boolean }
   | { behavior: "deny"; message: string };
+
+/** @internal Host-only live update / expiry / grant-commit controller for Network taint cards (#4966, #3595). */
+export interface NetworkCardController {
+  /** Aborts when the waiting connection closes, expiring the card with `operation_cancelled`. */
+  readonly signal?: AbortSignal;
+  /** Re-evaluates what a safety or trust change means for this pending Network taint card. */
+  evaluateChange():
+    | "noop"
+    | { action: "update"; revision: string; description: string; network?: import("../protocol.js").NetworkApprovalOffer }
+    | { action: "withdraw"; reason: string }
+    | { action: "settle_allowed"; reason: string };
+  /** Final synchronous revalidation before settling a reply. */
+  revalidate(expectedRevision?: string): string | null;
+  /** Host-side grant persistence and sibling settlement for a chosen network scope (#3595). */
+  commitScope?(
+    scope: import("../protocol.js").NetworkApprovalScope | undefined,
+    principalId: string,
+    stillClaimed?: () => boolean
+  ): Promise<
+    | {
+        ok: true;
+        scope?: import("../protocol.js").NetworkApprovalScope;
+        grantedByGrant?: boolean;
+        onSettled?: () => void;
+        onAborted?: () => Promise<void> | void;
+      }
+    | { ok: false; reason: string; cause: "grant_storage_failed" | "safety_changed" | "operation_cancelled" }
+  >;
+  /** Called synchronously when this card is settled by a sibling or standing grant. */
+  onGrantedByGrant?(scope: import("../protocol.js").NetworkApprovalScope | undefined, grantedClasses?: readonly string[]): void;
+}
 
 export interface PermissionRequest {
   /** @internal Host snapshot for withdrawing stale cards; never client authority. */
   admissionSnapshot?: import("./admission-safety.js").AdmissionSafetySnapshot;
+  /** @internal Host-only live controller for Network taint cards (#4966, #3595). */
+  networkCard?: NetworkCardController;
   toolUseId: string;
   toolName: string;
   input: Record<string, unknown>;
@@ -151,6 +184,12 @@ export interface PermissionRequest {
    * never authority.
    */
   display?: import("../protocol.js").ApprovalDisplay;
+  /** Card revision hash for in-place Network card updates (#4966). */
+  revision?: string;
+  /** Canonical origin grouping key (`[managed:]scheme://host:port`, #4966). */
+  origin?: string;
+  /** Host-advertised scopes and destination tuple for a tainted Network card (#3595). */
+  network?: import("../protocol.js").NetworkApprovalOffer;
 }
 
 export interface AskUserResult {

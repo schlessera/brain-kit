@@ -39,6 +39,7 @@ export function contactedHosts(db: Database, sessionId: string | null): string[]
       AND coalesce(json_extract(payload, '$.dispatched'), 1) = 1
       AND json_extract(payload, '$.inference') IS NULL AND json_extract(payload, '$.provider') IS NULL
       AND json_extract(payload, '$.managedReference') IS NULL
+      AND (json_extract(payload, '$.approvalScope') IS NULL OR json_extract(payload, '$.approvalScope') = 'legacy')
       AND (json_extract(payload, '$.recipientApproved') = 1 OR
         (json_extract(payload, '$.trustedSource') IS NULL AND json_extract(payload, '$.standingRecipient') IS NULL))`).all(sessionId) as { host: string }[];
   return [...new Set(rows.map(row => canonicalEgressHost(row.host)))];

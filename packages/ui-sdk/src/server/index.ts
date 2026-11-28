@@ -19,6 +19,7 @@ export type {
   SessionHistoryRemovalResult,
   PermissionDecision,
   PermissionRequest,
+  NetworkCardController,
   AskUserResult,
   AskUserListResult,
   AskUserRankResult,

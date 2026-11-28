@@ -229,7 +229,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     }
     const reservation=crypto.randomUUID();
     const payload=JSON.parse(row.payload);
-    const pending = {id:reservation,occurrenceId:input.kind==="taint"?payload.occurrence?.id??null:payload.occurrenceId??null, turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };
+    const pending = {id:reservation,occurrenceId:input.kind==="taint"?payload.occurrence?.id??null:payload.occurrenceId??null, turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:null, bytes };
 
     pendingTaints.add(pending); shared.bytes += bytes;
     notifySafetyChanged(db);
@@ -325,8 +325,8 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
         if (shared.failed||lostInScope(turnId,sessionId)) return { eventId: 0, source: "legacy_unknown" };
         const committed = sessionTaint(db, turnId, sessionId);
         if (committed && committed.eventId>0) return committed;
-        const pending=pendingInScope(turnId,sessionId)[0];
-        if(pending)return {eventId:0,source:pending.source};
+        const pending=pendingInScope(turnId,sessionId).find(p=>p.source!==null);
+        if(pending)return {eventId:0,source:pending.source!};
         return committed;
       });
     },

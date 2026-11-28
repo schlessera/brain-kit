@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual and combined future-source safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings, sync policy-review and storage-events routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 208 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, session network-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual and combined future-source safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload, human trust Settings, sync policy-review and storage-events routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 210 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -177,6 +177,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/sessions/:id/safety/reviews/future/prepare` | S | Prepare one selected verdict and optional future source rule | Live password-mode human owner, exact Origin and bounded JSON; host-attested origin/tunnel and exact evidence revision; no publication or verdict yet (#3611). |
 | POST | `/api/sessions/:id/safety/reviews/future/commit` | S | Publish the reviewed rule then commit its original selected verdict | Same live owner/session authority; exact review ID and reviewed-bytes hash; durable publication proof precedes verdict; retries never republish (#3611). |
 | POST | `/api/sessions/:id/safety/reviews/future/status` | S | Read retained combined completion and current rule presence | Same live owner, exact Origin and bounded JSON session/occurrence; read-only, redacted uncommitted verdict handles, JSON null for unretained receipts (#3611). |
+| GET | `/api/sessions/:id/network-grants` | S | List active standing network grants for a chat | Authenticated owner of the session's account (#3595); read-only, `Cache-Control: no-store`, reflects live taint-class suspension. |
+| DELETE | `/api/sessions/:id/network-grants/:grantId` | S | Revoke one standing network grant for a chat | Authenticated owner of the session's account (#3595); records `network_grant_revoked`, `Cache-Control: no-store`, affects later connections only. |
 | GET | `/api/sessions/:id/github/:owner/:repo/:number/:part` | I | Page one part of a GitHub object a session's GitHub tool result returned | Chat GitHub components (#3796, #3795); owner account only, display data never provider context, no compatibility guarantee. |
 | GET | `/api/sessions/:id/github/avatars/:login` | I | Serve the avatar of a login in a session's GitHub results from this origin | Chat GitHub components (#3796, #3795); owner account only, magic-byte image check, bounded in-memory cache, every failure 404. |
 | GET | `/api/sessions/:id/attachment-reads` | S | Read a session's recorded attachment reads, outcome and scope only | Sent-row read states (#3589, #3155); preserve the session and message-reference filters, no text and no provider path. |
@@ -241,7 +243,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 208 declared endpoints are mounted regardless of backend, renderer or
+All 210 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1953,8 +1955,10 @@ read by any authenticated principal.
 
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
-| `safety_admission_expired` | 1 | `toolUseId`, `evidenceRevision`, `trustRevision`, `authorityEpoch`, `reason` | A waiting or claimed safety-bound approval was withdrawn before dispatch. The server commits this terminal fact before settling the backend wait or publishing the coordinator's `expired` result. Revisions describe the card's original root host snapshot (never the causal view's local revision); `reason` is `safety_changed`, `turn_ended` or `grant_storage_failed`. Storage failure stops the turn with an explicit failed terminal outcome, without claiming durable withdrawal. This grants no replay and changes no historical approval. |
-| `egress_connection` | 1 | `connectionId` (optional), `dispatched` (optional), `failureReason` (optional), `recipientAdmission` (optional), `recipientApproved` (optional), `standingRecipient` (optional), `trustedSource` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, optional inference clocks (`admitMs`, `bodyMs`, `credentialMs`, `dispatchMs`, `headersMs`, `firstChunkMs`, `loopLagMaxMs`), optional provider usage (`inputTokens`, `cacheReadTokens`, `cacheCreationTokens`), `outcome`, `inference` (optional), `provider` (optional, #3246), `managedReference` (optional, #3613), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, only a validated provider-relay operation sets `provider: true`, and only the fixed host GitHub acquisition wire sets `managedReference: true`. Each operation supplies its own exclusive tag. These host records grant no contacted-host authority to a tainted session's worker traffic. Managed acquisition retains ordinary recipient restrictions and claims no model-content delivery or repository trust. Headers, query strings and content are absent. |
+| `safety_admission_expired` | 1 | `toolUseId`, `evidenceRevision`, `trustRevision`, `authorityEpoch`, `reason` | A waiting or claimed safety-bound approval was withdrawn before dispatch. The server commits this terminal fact before settling the backend wait or publishing the coordinator's `expired` result. Revisions describe the card's original root host snapshot (never the causal view's local revision); `reason` is `safety_changed`, `turn_ended`, `grant_storage_failed` or `operation_cancelled` (the underlying network connection closed before the user answered, #4966). Storage failure stops the turn with an explicit failed terminal outcome, without claiming durable withdrawal. This grants no replay and changes no historical approval. |
+| `egress_connection` | 1 | `connectionId` (optional), `dispatched` (optional), `failureReason` (optional), `recipientAdmission` (optional), `recipientApproved` (optional), `approvalScope` (optional, #3595), `standingRecipient` (optional), `trustedSource` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, optional inference clocks (`admitMs`, `bodyMs`, `credentialMs`, `dispatchMs`, `headersMs`, `firstChunkMs`, `loopLagMaxMs`), optional provider usage (`inputTokens`, `cacheReadTokens`, `cacheCreationTokens`), `outcome`, `inference` (optional), `provider` (optional, #3246), `managedReference` (optional, #3613), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, only a validated provider-relay operation sets `provider: true`, and only the fixed host GitHub acquisition wire sets `managedReference: true`. Optional `approvalScope` (`once`, `origin`, `session` or `legacy`) records which tainted-destination approval scope admitted the connection; a connection admitted with `once`, `origin` or `session` does not pollute `contactedHosts`. Each operation supplies its own exclusive tag. These host records grant no contacted-host authority to a tainted session's worker traffic. Managed acquisition retains ordinary recipient restrictions and claims no model-content delivery or repository trust. Headers, query strings and content are absent. |
+| `network_grant` | 1 | `grantId`, `scope`, `origin` (optional), `transport` (optional), `scheme` (optional), `host` (optional), `port` (optional), `grantedClasses`, `historyGeneration`, `toolUseId`, `principalId` | A host-owned standing `origin` or `session` network grant created by approving a tainted-destination `Network` card (#3595). Active for the chat's current `historyGeneration` while unresolved taint classes remain a subset of `grantedClasses` and no `network_grant_revoked` event exists for `grantId`. Never overrides `network.deny`, voice restrictions or managed GitHub acquisition isolation. |
+| `network_grant_revoked` | 1 | `grantId`, `principalId` | Explicit owner revocation of a session's standing network grant via `DELETE /api/sessions/:id/network-grants/:grantId` (#3595). Affects later connections only. |
 
 | `steering_change` | 1 | `path`, `sequence`, `beforeHash`, `afterHash`, `taintSourceEventId`, `overlappingTurnIds`, `tainted` (optional) | One observed steering change, attributed to its turn. Hashes identify retained regular-file versions or are `null`; the source is the current unresolved taint event or `null`. New observations may carry `tainted: true` for effective restriction, including unknown coverage without an attributable source. Historical rows retain their original attribution. Shared windows remain shared, not exclusive writer claims. |
 | `policy_change` | 1 | `requestId`, `baseHash`, `proposedHash`, `sections`, `outcome` | Explicit user-approved policy publication. Actor is `user`; outcome is `updated`; hashes identify the exact reviewed and written bytes. |
@@ -2564,3 +2568,25 @@ retention expires. Neither status nor retries republish a rule. Uncommitted
 verdict handles are redacted. The complete envelopes, partial/unknown semantics,
 legacy capability encoding and browser correlation requirements are specified in
 the [combined-review wire contract](integration-contract/wire.md#combined-single-trigger-and-future-source-review-3611).
+
+### Session network grants (#3595)
+
+`GET /api/sessions/:id/network-grants` lists the non-revoked standing (`origin`
+or `session`) tainted-destination network grants for the authenticated owner's
+session: `{ sessionId, grants }` (`SessionNetworkGrantsResponse`), where each
+grant is a `NetworkGrantView` (`grantId`, `scope`, optional `origin`,
+`transport`, `scheme`, `host`, `port`, `grantedClasses`, `suspended`,
+`createdAt`). Grants from an older history generation and revoked grants are
+omitted; grants whose `grantedClasses` no longer cover the session's current
+unresolved taint classes carry `suspended: true`.
+
+`DELETE /api/sessions/:id/network-grants/:grantId` revokes one active grant for
+that session, records a `network_grant_revoked` governance event, broadcasts an
+updated `network_grants` frame to subscribed connections and answers `200` with
+`{ revoked: true, grantId }`. Revocation affects later connections only; already
+dispatched connections are not recalled.
+
+Both routes require an authenticated live principal belonging to the session's
+account (`401` unauthenticated/revoked, `400` malformed identifier, `403`
+another account's session, `404` unknown/retired session or unknown/inactive
+grant) and return `Cache-Control: no-store`.

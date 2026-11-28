@@ -3,7 +3,7 @@ import type {
   PermissionDecision,
   PermissionRequest,
 } from "./backend.js";
-import { sameSafetyAdmission, safetySnapshotRefusal, STALE_SAFETY_ADMISSION } from "./admission-safety.js";
+import { sameAuthority, sameSafetyAdmission, safetySnapshotRefusal, STALE_SAFETY_ADMISSION } from "./admission-safety.js";
 import {
   ARCHIVING_UPDATE_REASON,
   archivesDocument,
@@ -295,21 +295,39 @@ export function requestToolPermission(
 async function requestGuardedPermission(bridge: Pick<BackendBridge, "requestPermission" | "admissionSafety">,
   request: PermissionRequest): Promise<PermissionDecision> {
   let guarded = request;
+  const networkCard = request.networkCard;
   try {
     if (bridge.admissionSafety) {
       const before = bridge.admissionSafety.read();
-      for (const pending of bridge.admissionSafety.pendingRecording?.(before, undefined) ?? []) await pending;
-      const snapshot = before.recordingAvailable ? before : bridge.admissionSafety.read();
-      if (safetySnapshotRefusal(snapshot, before)) return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
+      if (!networkCard) {
+        for (const pending of bridge.admissionSafety.pendingRecording?.(before, undefined) ?? []) await pending;
+      }
+      const snapshot = before.recordingAvailable || networkCard ? before : bridge.admissionSafety.read();
+      if (networkCard) {
+        if ((!snapshot.recordingAvailable && !snapshot.recordingPending) || !sameAuthority(snapshot, before)) {
+          return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
+        }
+      } else if (safetySnapshotRefusal(snapshot, before)) {
+        return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
+      }
       guarded = { ...request, admissionSnapshot: snapshot };
     }
   } catch { return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION }); }
   const decision = await bridge.requestPermission(guarded);
   try {
     if (bridge.admissionSafety && guarded.admissionSnapshot) {
-      const current = bridge.admissionSafety.read();
-      if (safetySnapshotRefusal(current) || !sameSafetyAdmission(guarded.admissionSnapshot, current))
-        return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
+      if (networkCard) {
+        // Network taint cards own their card-revision & class-set fence (#4966);
+        // only authority or non-pending recording loss fails closed here.
+        const current = bridge.admissionSafety.read();
+        if ((!current.recordingAvailable && !current.recordingPending) || !sameAuthority(current, guarded.admissionSnapshot)) {
+          return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
+        }
+      } else {
+        const current = bridge.admissionSafety.read();
+        if (safetySnapshotRefusal(current) || !sameSafetyAdmission(guarded.admissionSnapshot, current))
+          return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
+      }
     }
   } catch { return { behavior: "deny", message: STALE_SAFETY_ADMISSION }; }
   return snapshotEdit(request, decision);
@@ -334,8 +352,30 @@ function snapshotEdit(request: PermissionRequest, decision: PermissionDecision):
     const message = (decision as { message?: unknown }).message;
     return { behavior: "deny", message: typeof message === "string" ? message : "Denied." };
   }
+  const rawScope = (decision as { networkScope?: unknown }).networkScope;
+  let networkScope: "once" | "origin" | "session" | undefined;
+  if (rawScope !== undefined) {
+    const advertised = request.network?.scopes;
+    const allowedScope =
+      (rawScope === "once" || rawScope === "origin" || rawScope === "session")
+      && advertised !== undefined
+      && advertised.includes(rawScope)
+      && !(request.network?.managedReference && rawScope !== "once");
+    if (!allowedScope) {
+      return {
+        behavior: "deny",
+        message: "The selected network approval scope is not offered for this request.",
+      };
+    }
+    networkScope = rawScope;
+  }
+  const grantedByGrant = (decision as { grantedByGrant?: unknown }).grantedByGrant === true ? true : undefined;
+  const extra = {
+    ...(networkScope ? { networkScope } : {}),
+    ...(grantedByGrant ? { grantedByGrant } : {}),
+  };
   const updatedInput = (decision as { updatedInput?: unknown }).updatedInput;
-  if (updatedInput === undefined) return { behavior: "allow" };
+  if (updatedInput === undefined) return { behavior: "allow", ...extra };
   let snapshot: unknown;
   try {
     snapshot = JSON.parse(JSON.stringify(updatedInput));
@@ -348,5 +388,5 @@ function snapshotEdit(request: PermissionRequest, decision: PermissionDecision):
       message: `The approval for ${request.toolName} came back with an input that cannot be applied, so it did not run. Re-issue the call as you want it.`,
     };
   }
-  return { behavior: "allow", updatedInput: snapshot as Record<string, unknown> };
+  return { behavior: "allow", updatedInput: snapshot as Record<string, unknown>, ...extra };
 }

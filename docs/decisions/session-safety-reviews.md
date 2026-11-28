@@ -285,6 +285,41 @@ or stop at the removed-rule boundary. Invalid publication retains last-valid
 policy with an honest error. No retroactive recall or automatic operation replay
 is implied; stale cards terminate through the existing coordinator.
 
+### Stable tainted network cards and session-scoped grants (#4966, #3595)
+
+Amended for `toolName: "Network"` tainted-destination cards (2026-11-27):
+
+- **Card revision vs. evidence revision (#4966).** A `Network` taint card stays
+  open across further occurrences of already-shown taint classes and across
+  in-flight safety-ledger writes (`recordingPending`) while the host recorder
+  stays healthy. Its card revision hashes `(origin.key, method, restricted,
+  sorted taint classes, coverage.state, non-pending loss/coverage reasons)`, not
+  the global `evidenceRevision`. When a new taint class arrives while a card is
+  waiting, the card updates in place with a new `revision` string and a brief
+  arming window (500 ms) rather than withdrawing; stale-revision and
+  during-arming revisionless replies are refused without settling the card and
+  the host redelivers the current card. If the session clears to unrestricted or
+  a trust-policy rule now allows the destination, the waiting card settles
+  allowed; authority revocation, a non-pending recording/coverage failure, turn
+  end, or closing the underlying proxy connection before the click
+  (`operation_cancelled`) withdraws the card immediately. Outward, policy, actor
+  and ordinary tool cards keep the strict withdrawal rule unchanged.
+- **Scoped network grants (#3595).** Interactive network cards offer `once`,
+  `origin` (exact `(transport, scheme, canonical host, port)`), and `session`
+  (any non-denied destination in that chat) scopes; managed GitHub acquisition
+  (`managedReference`) keeps `once` only and never joins or creates a standing
+  grant. A `once` approval permits exactly that one connection and never adds
+  the host to `contactedHosts`. An `origin` or `session` grant is persisted as
+  a host-owned `network_grant` governance event bound to `(sessionId,
+  historyGeneration, grantedClasses)`, survives further occurrences of its
+  granted taint classes, suspends immediately when a new taint class arrives
+  (requiring a fresh approval card that includes the new class), never overrides
+  `network.deny` or voice restrictions, and is inspectable and revocable through
+  `GET /api/sessions/:id/network-grants` and
+  `DELETE /api/sessions/:id/network-grants/:grantId` (recording
+  `network_grant_revoked` and affecting later connections only). Nothing enters
+  provider history.
+
 Deny/allowlist rules, byte ceilings, credentials, provider routing, Git writes
 and force-push approval, outward effects and voice authority remain independent.
 Private Git still requires a live principal's repository/credential grant.

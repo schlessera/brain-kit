@@ -53,6 +53,7 @@ const CONNECTION_WIDE = new Set<ServerMessage["type"]>([
   "local_exchange_result",
   "handoff_draft",
   "handoff_receipt",
+  "network_grants",
 ]);
 
 /**

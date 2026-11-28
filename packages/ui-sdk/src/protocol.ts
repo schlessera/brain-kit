@@ -107,6 +107,80 @@ export const FOLLOW_UP_QUEUE_CAPABILITY = "followUpQueue";
  */
 export const ACTIVITY_COMPUTE_CAPABILITY = "activityCompute";
 
+/**
+ * `server_hello` capability (additive, #4966): the host updates pending
+ * Network taint approval cards in place under the same `toolUseId` with a new
+ * `revision`, accepts `revision` echoes on approval replies, and emits
+ * `operation_cancelled` expiry causes.
+ */
+export const APPROVAL_UPDATES_CAPABILITY = "approvalUpdates";
+
+/**
+ * `server_hello` capability (additive, #3595): tainted Network approval cards
+ * advertise `once`, `origin` and `session` scopes and replies may select one
+ * via `networkScope`.
+ */
+export const NETWORK_APPROVAL_SCOPES_CAPABILITY = "networkApprovalScopes";
+
+/**
+ * `server_hello` / `client_hello` capability (additive, #3595): the host
+ * serves `GET /api/sessions/:id/network-grants` and
+ * `DELETE /api/sessions/:id/network-grants/:grantId`, and pushes
+ * `network_grants` frames to connections declaring the flag.
+ */
+export const NETWORK_GRANTS_CAPABILITY = "networkGrants";
+
+/** Host-advertised scope choices for a tainted Network approval (#3595). */
+export type NetworkApprovalScope = "once" | "origin" | "session";
+
+/** Why a pending approval expired on the host (additive, #4966). */
+export type ToolResolutionExpiryCause =
+  | "safety_changed"
+  | "turn_ended"
+  | "grant_storage_failed"
+  | "operation_cancelled";
+
+/** Structured host offer on a tainted Network approval request (additive, #3595). */
+export interface NetworkApprovalOffer {
+  transport: "http" | "connect";
+  scheme: "http" | "https" | "connect";
+  host: string;
+  port: number;
+  managedReference?: boolean;
+  scopes: NetworkApprovalScope[];
+  /** True when a standing origin/session grant was suspended by a new untrusted-input class. */
+  suspendedGrant?: boolean;
+  /** Untrusted-input classes active when this card revision was built. */
+  classes?: string[];
+}
+
+/** One active network grant for a chat session (#3595). */
+export interface NetworkGrantView {
+  grantId: string;
+  scope: "origin" | "session";
+  origin?: string;
+  transport?: "http" | "connect";
+  scheme?: "http" | "https" | "connect";
+  host?: string;
+  port?: number;
+  grantedClasses: string[];
+  suspended: boolean;
+  createdAt: number;
+}
+
+/** `GET /api/sessions/:id/network-grants` (#3595). */
+export interface SessionNetworkGrantsResponse {
+  sessionId: string;
+  grants: NetworkGrantView[];
+}
+
+/** Server → Client (additive, #3595): active network grants for one session changed. */
+export interface ServerNetworkGrants {
+  type: "network_grants";
+  sessionId: string;
+  grants: NetworkGrantView[];
+}
+
 /** `error.code` for an ask answer the host refused because it carried no `submissionId`. */
 export const ASK_ANSWER_UPDATE_REQUIRED = "ASK_ANSWER_UPDATE_REQUIRED";
 
@@ -888,6 +962,10 @@ export interface ClientToolApproval {
   channel?: ApprovalChannel;
   /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
   turnId?: string;
+  /** Echo of the card's `revision` (additive, #4966); stale revisions are not applied. */
+  revision?: string;
+  /** Explicit scope chosen on a tainted Network card (additive, #3595). */
+  networkScope?: NetworkApprovalScope;
 }
 
 export interface ClientToolDenial {
@@ -898,6 +976,8 @@ export interface ClientToolDenial {
   channel?: ApprovalChannel;
   /** Echo of the request's turnId (rev 2, additive) for host-side correlation. */
   turnId?: string;
+  /** Echo of the card's `revision` (additive, #4966); stale revisions are not applied. */
+  revision?: string;
 }
 
 export interface ClientCancelRequest {
@@ -996,7 +1076,8 @@ export type ServerMessage =
   | ServerUsage
   | ServerChatRetired
   | ServerAttachmentRead
-  | ServerLiveSettings;
+  | ServerLiveSettings
+  | ServerNetworkGrants;
 
 /**
  * The frames `BrainUiClient` hands its consumer: every {@link ServerMessage}
@@ -1343,6 +1424,12 @@ export interface ServerToolApprovalRequest extends SessionScoped {
    * card shows its neutral state instead and the approval works as before.
    */
   display?: ApprovalDisplay;
+  /** Card revision hash for in-place Network card updates (additive, #4966). */
+  revision?: string;
+  /** Canonical origin grouping key (`[managed:]scheme://host:port`, additive, #4966). */
+  origin?: string;
+  /** Host-advertised scopes and destination tuple for a tainted Network card (additive, #3595). */
+  network?: NetworkApprovalOffer;
 }
 
 /** Host-verified facts an approval card may show (#4154). Display only. */
@@ -2809,6 +2896,12 @@ export interface ServerToolResolution extends SessionScoped {
   /** Channel of the decision that settled it, when one did. */
   channel?: ApprovalChannel;
   reason?: string;
+  /** Host cause when `outcome === "expired"` (additive, #4966). Absent on provisional replies. */
+  expiryCause?: ToolResolutionExpiryCause;
+  /** Host-confirmed network scope when granted on a tainted Network card (additive, #3595). */
+  networkScope?: NetworkApprovalScope;
+  /** True when settled by a sibling or standing network grant (additive, #3595). */
+  grantedByGrant?: boolean;
 }
 
 /**

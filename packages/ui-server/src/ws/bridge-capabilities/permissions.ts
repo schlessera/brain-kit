@@ -8,6 +8,7 @@ import type { BridgeContext, BridgeSlice } from "./context.js";
 import { waitWhile } from "../../brain/authority-hold.js";
 import { STORAGE_SETTLEMENT_MS } from "../../db/settlement.js";
 import { stopTurnForHost } from "../host-stop.js";
+import { expirySpanOutcome, type ApprovalExpiryCause } from "../turns.js";
 
 /**
  * Permission requests: a remembered grant, a policy proposal's checkpoint, or
@@ -25,35 +26,47 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
     // cancellation must not replace it with a new safety diagnosis.
     const drained = coordinator.drainedReason(turn, turnId);
     if (drained !== undefined) {
-      coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId: turn.sessionId, reason: drained });
-      recorder?.onApprovalDecision(req.toolUseId, "deny", req.kind ?? "tool");
+      coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId: turn.sessionId, expiryCause: "turn_ended", reason: drained });
+      recorder?.onApprovalDecision(req.toolUseId, "expire", req.kind ?? "tool", undefined, undefined, {
+        outcome: expirySpanOutcome(turn, turnId, "turn_ended", drained),
+        cause: "turn_ended",
+        reason: drained,
+      });
       return Promise.resolve({ behavior: "deny", message: drained });
     }
     // This is the common boundary for SDK tools AND host-internal callers
     // (applications, policy publication, compute and actors). Caller metadata
     // cannot opt a card out of withdrawal or supply its authority.
     const bridge=self();
+    const networkCard = req.toolName === "Network" ? req.networkCard : undefined;
     let safety:ReturnType<typeof toolAdmissionSafety>,snapshot:AdmissionSafetySnapshot|undefined,hostSnapshot:AdmissionSafetySnapshot|undefined;
     try {
       hostSnapshot=bridge.admissionSafety?.read();
       // Policy and actor cards represent host operations, not backend input.
-      safety=req.kind==='policy'||req.kind==='actor'?bridge.admissionSafety:toolAdmissionSafety(bridge,req.toolUseId,req.toolName);snapshot=safety?.read();
+      safety=req.kind==='policy'||req.kind==='actor'||networkCard?bridge.admissionSafety:toolAdmissionSafety(bridge,req.toolUseId,req.toolName);snapshot=safety?.read();
       const before=snapshot;
-      let waited=false;
-      for(const pending of safety?.pendingRecording?.(before,ctx.signal)??[]){waited=true;await pending;}
-      snapshot=waited||before?.recordingAvailable===false?safety?.read():before;
-      if(snapshot&&!sameAuthority(snapshot,before))return {behavior:"deny",message:STALE_SAFETY_ADMISSION};
-      // A current root receipt from a compatible caller may be normalized,
-      // but stale caller metadata cannot replace host-owned authority.
-      if(snapshot&&req.admissionSnapshot&&!sameSafetyAdmission(req.admissionSnapshot,snapshot)){
-        const root=bridge.admissionSafety?.read();
-        if(!root||!sameSafetyAdmission(req.admissionSnapshot,root))return Promise.resolve({behavior:"deny",message:STALE_SAFETY_ADMISSION});
+      if (!networkCard) {
+        let waited=false;
+        for(const pending of safety?.pendingRecording?.(before,ctx.signal)??[]){waited=true;await pending;}
+        snapshot=waited||before?.recordingAvailable===false?safety?.read():before;
+        if(snapshot&&!sameAuthority(snapshot,before))return {behavior:"deny",message:STALE_SAFETY_ADMISSION};
+        // A current root receipt from a compatible caller may be normalized,
+        // but stale caller metadata cannot replace host-owned authority.
+        if(snapshot&&req.admissionSnapshot&&!sameSafetyAdmission(req.admissionSnapshot,snapshot)){
+          const root=bridge.admissionSafety?.read();
+          if(!root||!sameSafetyAdmission(req.admissionSnapshot,root))return Promise.resolve({behavior:"deny",message:STALE_SAFETY_ADMISSION});
+        }
+      } else if (snapshot && (!sameAuthority(snapshot, before) || (!snapshot.recordingAvailable && !snapshot.recordingPending) || snapshot.operationRecordingAvailable === false)) {
+        return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
       }
 
     }
     catch { return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION }); }
     const revalidate = (): string | null => {
       if (ctx.signal.aborted || (safety || ctx.backendId === "claude" || ctx.backendId === "pi") && !ctx.current()) return STALE_SAFETY_ADMISSION;
+      if (networkCard) {
+        try { return networkCard.revalidate(); } catch { return STALE_SAFETY_ADMISSION; }
+      }
       try {
         if (safetyAdmissionRefusal(safety, snapshot) || safety && snapshot && !sameSafetyAdmission(snapshot, safety.read())) return STALE_SAFETY_ADMISSION;
       } catch { return STALE_SAFETY_ADMISSION; }
@@ -111,37 +124,66 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
     }
     return new Promise<PermissionDecision>((resolve) => {
       let unsubscribe: (() => void) | undefined;
+      let detachOrphan: (() => void) | undefined;
+      const cleanupWatchers = () => {
+        unsubscribe?.(); unsubscribe = undefined;
+        detachOrphan?.(); detachOrphan = undefined;
+      };
       // The decision stamps the wait/execution boundary on the tool span
       // (grant) or lands the denied outcome (deny) before the backend's
       // own error tool_result can mislabel it — write-once protects it.
+      let spanRecorded = false;
       const recorded = (
         decision: PermissionDecision,
-        response?: { principalId: string; always?: boolean; channel?: ApprovalChannel }
+        response?: { principalId: string; always?: boolean; channel?: ApprovalChannel },
+        expired?: { cause: ApprovalExpiryCause; reason: string; outcome: "timeout" | "cancelled" }
       ) => {
-        unsubscribe?.(); unsubscribe = undefined;
-        recorder?.onApprovalDecision(
-          req.toolUseId,
-          decision.behavior === "deny"
-            ? "deny"
-            : response?.always
-              ? "always_allow"
-              : "allow",
-          req.kind ?? "tool",
-          response?.principalId,
-          response?.channel
-        );
+        cleanupWatchers();
+        if (!spanRecorded) {
+          spanRecorded = true;
+          if (expired) {
+            recorder?.onApprovalDecision(req.toolUseId, "expire", req.kind ?? "tool", undefined, undefined, expired);
+          } else {
+            recorder?.onApprovalDecision(
+              req.toolUseId,
+              decision.behavior === "deny"
+                ? "deny"
+                : response?.always
+                  ? "always_allow"
+                  : "allow",
+              req.kind ?? "tool",
+              response?.principalId,
+              response?.channel
+            );
+          }
+        }
         resolve(decision);
       };
       // A request raised after the turn's drain is expired the way the
       // drain expires one, or it would never settle (#3553).
       const drained = coordinator.drainedReason(turn, turnId);
       if (drained !== undefined) {
-        coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId: turn.sessionId, reason: drained });
-        recorded({ behavior: "deny", message: drained });
+        coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId: turn.sessionId, expiryCause: "turn_ended", reason: drained });
+        recorded({ behavior: "deny", message: drained }, undefined, {
+          outcome: expirySpanOutcome(turn, turnId, "turn_ended", drained),
+          cause: "turn_ended",
+          reason: drained,
+        });
         return;
       }
-      const expire = (reason: string, cause: "safety_changed" | "turn_ended" | "grant_storage_failed") => {
-        unsubscribe?.(); unsubscribe = undefined;
+      const expire = (reason: string, cause: ApprovalExpiryCause) => {
+        cleanupWatchers();
+        // Record the write-once approval expiry on the Activity span immediately
+        // so a fast tool_result or turn finish cascadeClose("cancelled") after
+        // synchronous abort cannot claim the span before the durable write settles (#1763).
+        if (!spanRecorded) {
+          spanRecorded = true;
+          recorder?.onApprovalDecision(req.toolUseId, "expire", req.kind ?? "tool", undefined, undefined, {
+            outcome: expirySpanOutcome(turn, turnId, cause, reason),
+            cause,
+            reason,
+          });
+        }
         const writes = host.activity?.governanceWrites;
         const sessionId = turn.sessionId;
         // Coordinator ownership has already been removed from both waiting
@@ -154,13 +196,21 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
           : snapshot ? Promise.reject(new Error("Safety withdrawal storage is unavailable")) : Promise.resolve();
         void committed.then(() => {
           coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, expiryCause: cause, reason });
-          recorded({ behavior: "deny", message: reason });
+          recorded({ behavior: "deny", message: reason }, undefined, {
+            outcome: expirySpanOutcome(turn, turnId, cause, reason),
+            cause,
+            reason,
+          });
         }, error => {
           // No successful durable-withdrawal claim on storage failure, but
           // cleanup and the backend still receive one explicit terminal.
           const failed = "Safety withdrawal could not be retained; the turn was stopped.";
           coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, expiryCause: "grant_storage_failed", reason: failed });
-          recorded({ behavior: "deny", message: failed });
+          recorded({ behavior: "deny", message: failed }, undefined, {
+            outcome: "cancelled",
+            cause: "grant_storage_failed",
+            reason: failed,
+          });
           stopTurnForHost(host, turn, turnId, controller, "approval_record", error);
         });
       };
@@ -168,14 +218,64 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
         resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
         return;
       }
+      let delivered = false;
       const invalidate = () => {
+        if (networkCard) {
+          // A claimed card awaiting grant commit must never absorb a new taint class (#4966).
+          if (!coordinator.pendingApprovals.has(req.toolUseId)) {
+            const refusal = revalidate();
+            if (refusal) {
+              coordinator.expireApproval(req.toolUseId, refusal, "safety_changed", p => p.turn === turn && p.request.toolUseId === req.toolUseId);
+            }
+            return;
+          }
+          let action: ReturnType<typeof networkCard.evaluateChange>;
+          try { action = networkCard.evaluateChange(); }
+          catch { action = { action: "withdraw", reason: STALE_SAFETY_ADMISSION }; }
+          if (action === "noop") return;
+          if (action.action === "update") {
+            const updated = coordinator.updateApproval(req.toolUseId, {
+              revision: action.revision,
+              description: action.description,
+              ...(action.network ? { network: action.network } : {}),
+            });
+            if (updated && delivered) {
+              host.sendToClients(
+                withTurnScope(
+                  approvalRequestFrame(updated.request, host.toolPermissions !== null),
+                  turn,
+                  turnId
+                )
+              );
+            }
+            return;
+          }
+          if (action.action === "settle_allowed") {
+            coordinator.settleApprovalByGrant(req.toolUseId, undefined, action.reason);
+            return;
+          }
+          coordinator.expireApproval(req.toolUseId, action.reason, "safety_changed", p => p.turn === turn && p.request.toolUseId === req.toolUseId);
+          return;
+        }
         if (!revalidate()) return;
         coordinator.expireApproval(req.toolUseId, STALE_SAFETY_ADMISSION, "safety_changed", p => p.turn === turn && p.request === req);
       };
+      if (networkCard?.signal) {
+        const orphanSignal = networkCard.signal;
+        const onOrphanAbort = () => {
+          coordinator.expireApproval(req.toolUseId, "The network request stopped waiting.", "operation_cancelled", p => p.turn === turn && p.request.toolUseId === req.toolUseId);
+        };
+        if (orphanSignal.aborted) {
+          onOrphanAbort();
+          return;
+        }
+        orphanSignal.addEventListener("abort", onOrphanAbort, { once: true });
+        detachOrphan = () => orphanSignal.removeEventListener("abort", onOrphanAbort);
+      }
       if (safety && snapshot) {
         unsubscribe = safety.subscribe(invalidate);
         invalidate();
-        if (!coordinator.pendingApprovals.has(req.toolUseId)) { unsubscribe?.(); unsubscribe = undefined; return; }
+        if (!coordinator.pendingApprovals.has(req.toolUseId)) { cleanupWatchers(); return; }
       }
       if (!host.clients.hasClients()) {
         // Not a failure — the card is parked and re-delivered on reconnect
@@ -187,9 +287,11 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
           attributes: { "tool.name": req.toolName, "toolUse.id": req.toolUseId },
         });
       }
+      const liveRequest = coordinator.pendingApprovals.get(req.toolUseId)?.request ?? req;
+      delivered = true;
       host.sendToClients(
         withTurnScope(
-          approvalRequestFrame(req, host.toolPermissions !== null),
+          approvalRequestFrame(liveRequest, host.toolPermissions !== null),
           turn,
           turnId
         )

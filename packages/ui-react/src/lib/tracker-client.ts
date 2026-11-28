@@ -83,8 +83,13 @@ export function createTrackerClient(root: BrainUiServices) {
     for (const [sessionId, evidence] of Object.entries(store.evidence)) {
       const approvals = evidence.pending.filter((p) => p.kind === "approval");
       if (approvals.length === 0) continue;
-      const tools = state.buffers[sessionId]?.messages.flatMap((m) => m.toolCalls) ?? [];
-      const decided = approvals.filter((p) => tools.some((t) => t.id === p.requestId && (t.status === "approved" || t.status === "denied")));
+      const buf = state.buffers[sessionId];
+      const tools = buf?.messages.flatMap((m) => m.toolCalls) ?? [];
+      const receipts = buf?.networkReceipts ?? [];
+      const decided = approvals.filter((p) =>
+        tools.some((t) => t.id === p.requestId && (t.status === "approved" || t.status === "denied"))
+        || receipts.some((r) => r.toolUseId === p.requestId)
+      );
       if (decided.length > 0) store.live(sessionId, decided.map((p) => ({ kind: "settled" as const, requestId: p.requestId })));
     }
   }
@@ -130,7 +135,10 @@ export function createTrackerClient(root: BrainUiServices) {
   function revokeRestored(): void {
     const byBuffer = Object.entries(chat.getState().buffers).map(([sessionId, buffer]) => ({
       sessionId,
-      ids: buffer.messages.flatMap((m) => m.toolCalls.filter((t) => t.restored).map((t) => t.id)),
+      ids: [
+        ...buffer.messages.flatMap((m) => m.toolCalls.filter((t) => t.restored).map((t) => t.id)),
+        ...(buffer.networkApprovals?.filter((n) => n.restored).map((n) => n.toolUseId) ?? []),
+      ],
     }));
     chat.getState().revokeRestoredApprovals();
     for (const { sessionId, ids } of byBuffer) settleRequests(sessionId, ids);
@@ -299,8 +307,13 @@ export function createTrackerClient(root: BrainUiServices) {
       if (msg.type === "session_queue") store.accepted([...msg.followUps.map((f) => f.requestId), msg.started?.requestId]);
       // A late duplicate of a request whose restored card the host already
       // closed with a reason waits on nobody: it is not pending work.
-      const closedHere = (requestId: string) => chat.getState().buffers[sessionId]?.messages.some((m) =>
-        m.toolCalls.some((t) => t.id === requestId && t.restored && t.readOnly !== undefined && t.readOnly !== "unlisted")) ?? false;
+      const closedHere = (requestId: string) => {
+        const buf = chat.getState().buffers[sessionId];
+        if (!buf) return false;
+        return buf.messages.some((m) =>
+          m.toolCalls.some((t) => t.id === requestId && t.restored && t.readOnly !== undefined && t.readOnly !== "unlisted"))
+          || (buf.networkApprovals?.some((n) => n.toolUseId === requestId && n.restored && n.readOnly !== undefined && n.readOnly !== "unlisted") ?? false);
+      };
       const events = trackerEventsForFrame(msg).filter((e) => e.kind !== "pending" || e.entry.kind !== "approval" || !closedHere(e.entry.requestId));
       const tracked = store.records[sessionId] !== undefined;
       // In view, in a visible document: a hidden tab watches nothing.

@@ -1,7 +1,7 @@
 /** Connection-local ingestion state shared by every facade and host recovery. */
 import type { Database } from "bun:sqlite";
 import type { SessionTaint } from "./session-taint.js";
-type PendingSafety = {id:string;occurrenceId:string|null;turnId:string|null;sessionId:string|null;source:SessionTaint["source"];bytes:number};
+type PendingSafety = {id:string;occurrenceId:string|null;turnId:string|null;sessionId:string|null;source:SessionTaint["source"]|null;bytes:number};
 /** One turn's tool names per tool-use ID, as its collector observed them
  * (#4513). `names`: the first name, or null once a second differed.
  * `reused`: those IDs (at most 8). `all`: it could not track every ID.

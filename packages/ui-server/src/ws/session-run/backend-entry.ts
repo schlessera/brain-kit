@@ -194,6 +194,21 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
     stop: error => stopTurnForHost(host, turn, run.turnId, abortController, "egress_record", error),
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,
     networkRefusal: toolUseId => host.coordinator.networkRefusal(turn.turnId,toolUseId),
+    settleSiblings: (predicate, scope, reason, excludeToolUseId, grantedClasses) =>
+      host.coordinator.settleSiblingNetworkApprovals(turn.sessionId ?? null, turn.turnId, excludeToolUseId, predicate, scope, reason, grantedClasses),
+    onGrantsChanged: (sessionId) => host.broadcastNetworkGrants(sessionId),
+    emitStandingReceipt: ({ connectionId, scope, reason }) => {
+      host.sendToCapable("toolResolution", {
+        type: "tool_resolution",
+        toolUseId: `grant:${connectionId}`,
+        outcome: "granted",
+        ...(turn.sessionId ? { sessionId: turn.sessionId } : {}),
+        turnId: turn.turnId,
+        networkScope: scope,
+        grantedByGrant: true,
+        reason,
+      });
+    },
     trust: host.originTrust,
     profile: heldProfile(run), origin,policyHash:governedHold.policy.hash, brainPath: host.brainPath,
     // A record's commit failure stops the turn, as a synchronous one did (#2850).

@@ -385,6 +385,11 @@ A mid-turn human clear changes only later admissions; already
 denied, approved or in-flight operations are not replayed automatically. Stale
 pending approval cards are withdrawn/expired through the existing coordinator
 before a covered operation is retried, with a visible terminal receipt.
+Under the [#4966 ruling](../decisions/session-safety-reviews.md#stable-tainted-network-cards-and-session-scoped-grants-4966-3595),
+`toolName: "Network"` taint cards instead stay open across further occurrences
+of already-shown classes and update in place with a new `revision` and arming
+window when a new class arrives; outward, policy, actor and ordinary tool cards
+keep strict withdrawal unchanged.
 
 Keep all historical egress/approval decisions, journal taint attribution and
 policy hashes as facts at their original times. UI security annotations and

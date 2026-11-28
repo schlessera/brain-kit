@@ -2,7 +2,7 @@ import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import type { ServerMessageHandlerMap } from "./types.js";
 
 type ConnectionFrame = "safety_history" | "safety_update" | "safety_unavailable"
-  | "dialogue_history" | "scope_decision_receipt"
+  | "dialogue_history" | "scope_decision_receipt" | "network_grants"
   | "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta"
   | "tool_resolution" | "session_queue" | "conversation_opened" | "live_persona" | "conversation_closed"
   | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission" | "chat_retired"
@@ -11,6 +11,7 @@ type ConnectionFrame = "safety_history" | "safety_update" | "safety_unavailable"
 export const connectionFrameHandlers = {
   safety_history: () => {}, safety_update: () => {}, safety_unavailable: () => {},
   scope_decision_receipt: (msg, context) => context.state.setScopeDecisionReceipt(msg),
+  network_grants: (msg, context) => context.state.setNetworkGrants(msg.sessionId, msg.grants),
   server_hello: (msg, context) => {
     context.stores.connection.getState().setSessionProfiles(msg.capabilities?.sessionProfiles === true);
     context.stores.connection.getState().setChatRequestAck(msg.capabilities?.chatRequestAck === true);
@@ -56,7 +57,10 @@ export const connectionFrameHandlers = {
   // history, permission outcomes and the live conversation itself. The map is
   // their only router; nothing here touches a transcript.
   dialogue_history: (msg, context) => context.conversation(msg),
-  tool_resolution: (msg, context) => context.conversation(msg),
+  tool_resolution: (msg, context) => {
+    context.conversation(msg);
+    context.state?.applyToolResolution?.(msg);
+  },
   conversation_opened: (msg, context) => context.conversation(msg),
   conversation_closed: (msg, context) => context.conversation(msg),
   conversation_event: (msg, context) => context.conversation(msg),

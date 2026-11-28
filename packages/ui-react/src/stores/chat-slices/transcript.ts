@@ -356,21 +356,33 @@ export function createTranscriptSlice(ctx: ChatSliceContext): TranscriptSliceSli
       set((state) => {
         if (key === null) {
           if (state.draft) revokeAttachmentUrls(state.draft.messages);
+          const draftNetwork = state.draft
+            ? {
+                ...(state.draft.networkApprovals?.length ? { networkApprovals: state.draft.networkApprovals } : {}),
+                ...(state.draft.networkReceipts?.length ? { networkReceipts: state.draft.networkReceipts } : {}),
+              }
+            : {};
           return {
-            draft: { ...emptyChat(), messages },
+            draft: { ...emptyChat(), ...draftNetwork, messages },
           };
         }
         const existing = state.buffers[key];
         const base = existing ? { messages: existing.messages, isStreaming: existing.isStreaming } : null;
         const drawn = base ? keepDrawnMessages(withKnownTurns(messages, base.messages), base) : { messages, isStreaming: false };
         if (existing) revokeAttachmentUrls(existing.messages, drawn.messages);
+        const networkState = existing
+          ? {
+              ...(existing.networkApprovals?.length ? { networkApprovals: existing.networkApprovals } : {}),
+              ...(existing.networkReceipts?.length ? { networkReceipts: existing.networkReceipts } : {}),
+            }
+          : {};
         // The first chunk of the host's history: whatever it holds, even
         // nothing, the transcript is the host's now (#1328).
         const buffers = {
           ...state.buffers,
           [key]: base
-            ? { ...emptyChat(), ...drawn, replay: { base, received: messages }, historyConfirmed: true as const }
-            : { ...emptyChat(), messages, historyConfirmed: true as const },
+            ? { ...emptyChat(), ...networkState, ...drawn, replay: { base, received: messages }, historyConfirmed: true as const }
+            : { ...emptyChat(), ...networkState, messages, historyConfirmed: true as const },
         };
         const restoreFailures = { ...state.restoreFailures };
         delete restoreFailures[key];

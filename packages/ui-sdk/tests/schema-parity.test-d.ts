@@ -111,6 +111,12 @@ interface SchemaProtocol {
   serverToolUseCompleteSchema: P.ServerToolUseComplete;
   serverToolResultSchema: P.ServerToolResult;
   approvalDisplaySchema: P.ApprovalDisplay;
+  networkApprovalScopeSchema: P.NetworkApprovalScope;
+  toolResolutionExpiryCauseSchema: P.ToolResolutionExpiryCause;
+  networkApprovalOfferSchema: P.NetworkApprovalOffer;
+  networkGrantViewSchema: P.NetworkGrantView;
+  sessionNetworkGrantsResponseSchema: P.SessionNetworkGrantsResponse;
+  serverNetworkGrantsSchema: P.ServerNetworkGrants;
   serverToolApprovalRequestSchema: P.ServerToolApprovalRequest;
   stateRoomObservationSchema: P.StateRoomObservation;
   serverResultSchema: P.ServerResultMessage;

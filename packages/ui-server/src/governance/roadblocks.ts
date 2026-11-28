@@ -47,6 +47,8 @@ export interface TracedCall {
   isError: boolean;
   /** A denial by the user or by a permission hook, with its reason. */
   denied: { reason: string | null } | null;
+  /** Automatic expiry of a pending approval (timeout, cancellation, host stop, withdrawal). */
+  expired?: { cause: string; reason: string } | null;
 }
 
 /** Cumulative usage of the turn's completed responses at a point in time. */
@@ -355,6 +357,7 @@ function deniedArea(output: string): string | null {
 
 /** Why a finished call failed, or null when it did not. */
 function failureCause(call: TracedCall): Cause | null {
+  if (call.expired) return null;
   if (call.denied) return { category: "permission_denied", detail: "denied" };
   if (call.output === null) return null;
   const output = call.output;
@@ -552,7 +555,7 @@ export function classifyRoadblocks(trace: TurnTrace, events: readonly Governance
   type Step = { at: number; order: number; family: string; failure: Failure | null; call: TracedCall | null };
   const timeline: Step[] = [
     ...failures.map((f) => ({ at: f.known, order: f.order, family: f.family, failure: f, call: f.call })),
-    ...steps.filter(({ call }) => !failureByCall.has(call.toolCallId) && call.output !== null && !call.denied)
+    ...steps.filter(({ call }) => !failureByCall.has(call.toolCallId) && call.output !== null && !call.denied && !call.expired)
       .map(({ call, index, family }) => ({ at: call.startedAt, order: index, family, failure: null, call })),
   ].sort((a, b) => a.at - b.at || a.order - b.order);
 

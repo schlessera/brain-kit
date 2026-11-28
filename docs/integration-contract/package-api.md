@@ -3,6 +3,38 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Stable, scoped network approvals (additive, 0.45.0, #4966, #3595, #4967)
+
+- `@schlessera/brain-ui-sdk/protocol` (and `.` / `./client` re-exports) adds
+  `APPROVAL_UPDATES_CAPABILITY`, `NETWORK_APPROVAL_SCOPES_CAPABILITY`,
+  `NETWORK_GRANTS_CAPABILITY`, `NetworkApprovalScope`, `NetworkApprovalOffer`,
+  `NetworkGrantView`, `SessionNetworkGrantsResponse`,
+  `ToolResolutionExpiryCause`, `ServerNetworkGrants` (member of `ServerMessage`
+  and `ConsumerServerMessage`), and optional fields on `ClientCapabilities`,
+  `ServerCapabilities`, `ServerToolApprovalRequest`, `ClientToolApproval`,
+  `ClientToolDenial` and `ServerToolResolution`.
+- `@schlessera/brain-ui-sdk/schemas` exports `networkApprovalScopeSchema`,
+  `networkApprovalOfferSchema`, `networkGrantViewSchema`,
+  `sessionNetworkGrantsResponseSchema` and `serverNetworkGrantsSchema`, and
+  validates the additive fields on approval and capability frames.
+- `@schlessera/brain-ui-sdk/client` advertises `approvalUpdates`,
+  `networkApprovalScopes` and `networkGrants` in `client_hello` and accepts
+  the extended `ClientToolApproval` / `ClientToolDenial` frames via
+  `BrainUiClient.send`.
+- `@schlessera/brain-ui-sdk/server` exports `NetworkCardController` (whose
+  optional `signal` aborts orphaned waits), and adds optional `revision`,
+  `origin`, `network` and `networkCard` on `PermissionRequest` and
+  `networkScope` / `grantedByGrant` on `PermissionDecision`.
+- `@schlessera/brain-ui-kit` exports presentational `NetworkApprovalCard`
+  (`NetworkApprovalCardProps`, `NetworkApprovalState`,
+  `NetworkApprovalScopeChoice`, `defaultNetworkOutcomeLabel`) and
+  `ApprovalStack` (`ApprovalStackProps`).
+- `@schlessera/brain-ui-react` adds `BrainApi.listNetworkGrants(sessionId)` and
+  `BrainApi.revokeNetworkGrant(sessionId, grantId)`, extends approval state
+  with in-place revision updates, arming-window protection, sending state,
+  origin grouping and truthful expiry receipts. No existing export is removed
+  or narrowed.
+
 ## Event-loop-free worker checks (internal #2416)
 
 The SDK's `/internal` entry adds `probeWorkerHostAsync`,

@@ -3,7 +3,10 @@ import { DialogueJournal } from "./dialogue.js";
 import type { DialogueOwner } from "./dialogue-storage.js";
 import { type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/client";
-import { CHAT_DELETION_CAPABILITY, FOLLOW_UP_QUEUE_CAPABILITY, type ServerMessage, type ServerSessionQueue } from "@schlessera/brain-ui-sdk/protocol";
+import { CHAT_DELETION_CAPABILITY, FOLLOW_UP_QUEUE_CAPABILITY, NETWORK_GRANTS_CAPABILITY, type ServerMessage, type ServerSessionQueue } from "@schlessera/brain-ui-sdk/protocol";
+import { listActiveNetworkGrants, resolveSessionOwner } from "../governance/network-grants.js";
+import { sessionHistoryGeneration, unresolvedTaintClasses } from "../governance/safety-store.js";
+import { sameAccount } from "../middleware/account-partition.js";
 import { ChatRetiredError, type RetiredChatIdentities } from "./chat-lifecycle.js";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnClassifier } from "../classification/classify-turn.js";
@@ -463,6 +466,9 @@ export class WsHost {
           turnId: record.turnId,
           ...(record.channel ? { channel: record.channel } : {}),
           ...(record.reason ? { reason: record.reason } : {}),
+          ...(record.expiryCause ? { expiryCause: record.expiryCause } : {}),
+          ...(record.networkScope ? { networkScope: record.networkScope } : {}),
+          ...(record.grantedByGrant ? { grantedByGrant: true } : {}),
         });
       },
       // Every change to a session's pending follow-ups reaches the connections
@@ -537,6 +543,33 @@ export class WsHost {
       AUTHORIZATION_EXPIRY_SWEEP_MS
     );
     this.authorizationExpiryTimer.unref?.();
+  }
+
+  /** Broadcast active network grants for one session to capable clients of that session's account (#3595). */
+  broadcastNetworkGrants(sessionId: string): void {
+    const db = this.activity?.governanceDb;
+    if (!db) return;
+    try {
+      const owner = resolveSessionOwner(db, sessionId);
+      if (!owner) return;
+      const generation = sessionHistoryGeneration(db, null, sessionId);
+      const classes = unresolvedTaintClasses(db, null, sessionId);
+      const grants = listActiveNetworkGrants(db, sessionId, generation, classes);
+      const msg: ServerMessage = {
+        type: "network_grants",
+        sessionId,
+        grants,
+      };
+      this.observeHistoryProgress(msg);
+      this.clients.broadcast(
+        msg,
+        () => {
+          this.framesDropped.add(1, { reason: "broadcast_send_failed", direction: "outbound" });
+        },
+        NETWORK_GRANTS_CAPABILITY,
+        (principalId) => sameAccount(db, owner, principalId)
+      );
+    } catch { /* Retired or unreadable session broadcasts nothing. */ }
   }
 
   /**
