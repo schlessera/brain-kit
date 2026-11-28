@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.js";
 import { createLocalWork, type LocalWork } from "../src/lib/local-work.js";
-import type { LocalPartitions, PartitionWrite } from "../src/lib/local-partitions.js";
+import { PartitionRefusedError, type LocalPartitions, type PartitionWrite } from "../src/lib/local-partitions.js";
 
 // What one device snapshot costs (#4746): a draft object already written is
 // not serialized again, and a snapshot that moves only the work context is
@@ -23,6 +23,7 @@ function partitionsDouble(seed: Record<string, unknown> = {}) {
   const data = new Map<string, unknown>(Object.entries(seed).map(([k, v]) => [k, structuredClone(v)]));
   const calls = { write: 0, mutate: [] as Mutate[] };
   let gate: Promise<void> | null = null;
+  let writeGate: Promise<void> | null = null;
   let refuse: ((changes: readonly PartitionWrite[]) => boolean) | null = null;
   const apply = (changes: readonly PartitionWrite[]) => {
     for (const c of changes) {
@@ -36,7 +37,14 @@ function partitionsDouble(seed: Record<string, unknown> = {}) {
     async get(key: string) { return structuredClone(data.get(key)); },
     async list(prefix: string) { return rows(prefix); },
     async put(key: string, value: unknown) { calls.write++; apply([{ put: key, value }]); },
-    async write(changes: readonly PartitionWrite[]) { calls.write++; apply(changes); },
+    async write(changes: readonly PartitionWrite[], signal?: AbortSignal) {
+      calls.write++;
+      const open = writeGate;
+      if (open) { writeGate = null; await open; }
+      // As the partition does: an aborted signal aborts the native transaction before it commits.
+      if (signal?.aborted) throw new DOMException("IndexedDB write aborted", "AbortError");
+      apply(changes);
+    },
     async mutate<T>(prefix: string, update: (rows: Array<{ key: string; value: unknown }>) => { changes: readonly PartitionWrite[]; result: T }) {
       const { changes, result } = update(rows(prefix));
       if (refuse?.(changes)) { refuse = null; throw new DOMException("The device refused the write", "UnknownError"); }
@@ -54,6 +62,8 @@ function partitionsDouble(seed: Record<string, unknown> = {}) {
     /** Refuses the next mutate whose planned changes match, once. */
     refuseNextMutate(match: (changes: readonly PartitionWrite[]) => boolean) { refuse = match; },
     holdNextMutate() { let release!: () => void; gate = new Promise<void>((r) => { release = r; }); return release; },
+    /** Holds the next write before its transaction commits, until the returned function is called. */
+    holdNextWrite() { let release!: () => void; writeGate = new Promise<void>((r) => { release = r; }); return release; },
   };
 }
 
@@ -120,6 +130,30 @@ describe("a device snapshot", () => {
     }
     expect(calls.mutate.length - before.mutate).toBe(0);
     expect(calls.write - before.write).toBe(1);
+  });
+
+  // #4891: write has no callback inside the transaction, so the check that
+  // the draft path makes there is the abort that lock() and dispose() send.
+  for (const end of ["lock", "dispose"] as const) test(`${end}() during a held context-only write leaves the context unwritten and refuses the flush`, async () => {
+    const { r, work, data, calls, holdNextWrite } = await harness();
+    const drafts = r.stores.drafts.getState();
+    const a = drafts.idFor("odysseus-sirens");
+    drafts.edit(a, "odysseus-sirens", { text: "Wax for the crew" });
+    await work.snapshotNow();
+    const context = () => (data.get(`${SCOPE}/context`) as { reviewText?: string } | undefined)?.reviewText;
+    const before = { write: calls.write, mutate: calls.mutate.length, context: context() };
+    const release = holdNextWrite();
+    r.stores.voice.getState().setReviewText("Bind me to the mast");
+    const snapshot = work.snapshotNow();
+    snapshot.catch(() => {});
+    await Bun.sleep(0);
+    expect(calls.write - before.write).toBe(1);
+    work[end]();
+    release();
+    await expect(snapshot).rejects.toBeInstanceOf(PartitionRefusedError);
+    expect(context()).toBe(before.context);
+    expect(context()).not.toBe("Bind me to the mast");
+    expect(calls.mutate.length - before.mutate).toBe(0);
   });
 
   test("a draft read back from the device is compared by content on its first snapshot", async () => {
