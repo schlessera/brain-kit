@@ -60,7 +60,7 @@ const EXTERNAL_CITATION = /^\[+([^\]]*)\]+\s*\(?\s*(\S.*?(?::\s*\d|#L\d).*?)\)?$
 const EXTERNAL_PATH = /^([^:]+?):(\d+(?:\s*[-,]\s*\d+)*)$/;
 
 /** The repositories a `[repo] path:line` citation may name. */
-const CITABLE_REPOS = new Set(["brain-template", "brain-hosting-template"]);
+export const CITABLE_REPOS = new Set(["brain-template", "brain-hosting-template"]);
 
 /**
  * The repository a bracket names, or undefined when it names none of the
@@ -68,7 +68,7 @@ const CITABLE_REPOS = new Set(["brain-template", "brain-hosting-template"]);
  * `[https://github.com/schlessera/brain-ui.git/]` are one repository, while
  * `[data-x]` and `[server]` are CSS and log text, not a repository.
  */
-function repoIdentity(prefix: string): string | undefined {
+export function repoIdentity(prefix: string): string | undefined {
   const id = prefix
     .trim()
     .toLowerCase()
