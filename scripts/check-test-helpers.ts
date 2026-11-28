@@ -12,12 +12,15 @@
 // entry fails, so a new copy in a listed file is still refused; an entry whose
 // file now has fewer sites fails as stale, so the baseline only shrinks.
 //
-// The scan is textual (no TypeScript AST): it reads tracked-style `.ts` and
-// `.tsx` files under `packages/*/tests` and `tests` below the root it is given.
+// The scan is textual except for one structural match: a loop that sleeps
+// and compares a clock reading with a bound (#5045), which the polling-helper
+// rule reads on the parsed tree. It reads tracked-style `.ts` and `.tsx` files
+// under `packages/*/tests` and `tests` below the root it is given.
 
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
-import { treeFiles } from "./lib/source";
+import ts from "typescript";
+import { parse, treeFiles } from "./lib/source";
 
 export interface Site {
   rule: string;
@@ -34,7 +37,7 @@ export interface Rule {
   instead: string;
   /** Files that are the shared owner (or deliberately another one). */
   allowed: readonly string[];
-  sites(text: string): Array<{ line: number; name: string }>;
+  sites(text: string, file: string): Array<{ line: number; name: string }>;
 }
 
 export interface BaselineEntry {
@@ -81,6 +84,64 @@ const POLL_HEAD = new RegExp(
   "gm",
 );
 const SLEEPS = /\bsetTimeout\b|\bsetImmediate\b|\bsleep\s*\(/;
+const CLOCK_TEXT = /\b(?:Date|performance)\.now\s*\(/;
+const COMPARES = new Set([ts.SyntaxKind.LessThanToken, ts.SyntaxKind.LessThanEqualsToken, ts.SyntaxKind.GreaterThanToken, ts.SyntaxKind.GreaterThanEqualsToken]);
+
+const some = (node: ts.Node, test: (node: ts.Node) => boolean): boolean => test(node) || ts.forEachChild(node, (child) => some(child, test) || undefined) === true;
+/** `Date.now()` or `performance.now()`. */
+const isClock = (node: ts.Node) => ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "now" &&
+  ts.isIdentifier(node.expression.expression) && (node.expression.expression.text === "Date" || node.expression.expression.text === "performance");
+const isWatchdog = (node: ts.Node) => ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "watchdogMs";
+
+/** The name of the function a loop sits in, or the loop itself when it sits in no named function. */
+function enclosingName(node: ts.Node): string {
+  for (let scope = node.parent; scope; scope = scope.parent) {
+    if (!ts.isFunctionLike(scope)) continue;
+    if ("name" in scope && scope.name && ts.isIdentifier(scope.name)) return scope.name.text;
+    if (ts.isVariableDeclaration(scope.parent) && ts.isIdentifier(scope.parent.name)) return scope.parent.name.text;
+    return "deadline loop";
+  }
+  return "deadline loop";
+}
+
+/**
+ * Loops that sleep and compare `Date.now()` or `performance.now()` with a
+ * bound (#5045): a deadline loop, inline or in a helper of any name. A bound
+ * through `watchdogMs`, in the comparison or in the initializer of a name it
+ * reads, is a scaled watchdog and passes. A comparison inside a nested
+ * function or loop belongs to that one, so a site is the innermost such loop.
+ */
+function deadlineLoops(file: string, text: string): Array<{ index: number; line: number; name: string }> {
+  if (!SLEEPS.test(text) || !CLOCK_TEXT.test(text)) return [];
+  const source = parse(file, text);
+  const scaled = new Set<string>();
+  const found: Array<{ index: number; line: number; name: string }> = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && some(node.initializer, isWatchdog)) scaled.add(node.name.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  const unscaled = (comparison: ts.Node) => !some(comparison, (node) => isWatchdog(node) || (ts.isIdentifier(node) && scaled.has(node.text)));
+  const clockComparisons = (loop: ts.IterationStatement) => {
+    const out: ts.BinaryExpression[] = [];
+    const walk = (node: ts.Node): void => {
+      if (node !== loop && (ts.isFunctionLike(node) || ts.isIterationStatement(node, false))) return;
+      if (ts.isBinaryExpression(node) && COMPARES.has(node.operatorToken.kind) && some(node, isClock)) out.push(node);
+      ts.forEachChild(node, walk);
+    };
+    walk(loop);
+    return out;
+  };
+  const loops = (node: ts.Node): void => {
+    if (ts.isIterationStatement(node, false) && SLEEPS.test(node.getText(source)) && clockComparisons(node).some(unscaled)) {
+      const index = node.getStart(source);
+      found.push({ index, line: lineAt(text, index), name: enclosingName(node) });
+    }
+    ts.forEachChild(node, loops);
+  };
+  loops(source);
+  return found;
+}
 
 // `resolveServerConfig({ … })` with both keys a test app boots with.
 const BOOT_CONFIG = /\bresolveServerConfig\s*\(\s*\{/g;
@@ -99,12 +160,20 @@ export const RULES: readonly Rule[] = [
     refused: "a local polling helper that sleeps in its loop",
     instead: "wait with `until` from tests/helpers/until.ts, whose bound is a watchdog the load gate scales",
     allowed: ["tests/helpers/until.ts", "tests/helpers/planning-control.ts"],
-    sites(text) {
+    sites(text, file) {
       const found: Array<{ line: number; name: string }> = [];
+      const helpers: Array<[number, number]> = [];
       for (const match of text.matchAll(POLL_HEAD)) {
-        if (SLEEPS.test(declarationText(text, match.index!))) found.push({ line: lineAt(text, match.index!), name: match[1] ?? match[2]! });
+        const declaration = declarationText(text, match.index!);
+        if (!SLEEPS.test(declaration)) continue;
+        found.push({ line: lineAt(text, match.index!), name: match[1] ?? match[2]! });
+        helpers.push([match.index!, match.index! + declaration.length]);
       }
-      return found;
+      // A deadline loop under any name; one inside a helper found above is that helper's site.
+      for (const loop of deadlineLoops(file, text)) {
+        if (!helpers.some(([start, end]) => loop.index >= start && loop.index < end)) found.push({ line: loop.line, name: loop.name });
+      }
+      return found.sort((a, b) => a.line - b.line);
     },
   },
   {
@@ -150,7 +219,7 @@ export const RULES: readonly Rule[] = [
 ];
 
 export function scanSource(file: string, text: string, rules: readonly Rule[] = RULES): Site[] {
-  return rules.flatMap((rule) => rule.allowed.includes(file) ? [] : rule.sites(text).map((site) => ({ rule: rule.id, file, ...site })));
+  return rules.flatMap((rule) => rule.allowed.includes(file) ? [] : rule.sites(text, file).map((site) => ({ rule: rule.id, file, ...site })));
 }
 
 function testFiles(root: string): string[] {
