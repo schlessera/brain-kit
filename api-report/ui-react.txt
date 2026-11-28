@@ -1395,6 +1395,10 @@ signatures (every public export and the types it is made of)
         safetyCommit: (requestId: string, body: SafetyReviewBody, signal: AbortSignal) => Promise<{
             code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
             currentProjection: null | {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -1427,6 +1431,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {
@@ -1469,6 +1477,10 @@ signatures (every public export and the types it is made of)
             version: 1;
         } | {
             currentProjection: null | {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -1500,6 +1512,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {
@@ -1542,6 +1558,10 @@ signatures (every public export and the types it is made of)
         }>;
         safetyFutureCommit: (sessionId: string, body: SafetyFutureCommit, signal: AbortSignal) => Promise<{
             currentProjection: {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -1593,6 +1613,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {
@@ -1635,6 +1659,10 @@ signatures (every public export and the types it is made of)
         }>;
         safetyFuturePrepare: (body: SafetyFuturePrepare, signal: AbortSignal) => Promise<{
             currentProjection: null | {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -1699,6 +1727,10 @@ signatures (every public export and the types it is made of)
             version: 1;
         }, signal: AbortSignal) => Promise<null | {
             currentProjection: {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -1750,6 +1782,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {
@@ -1793,6 +1829,10 @@ signatures (every public export and the types it is made of)
         safetyPrepare: (body: SafetyReviewBody, signal: AbortSignal) => Promise<{
             code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
             currentProjection: null | {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -1825,6 +1865,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {
@@ -1867,6 +1911,10 @@ signatures (every public export and the types it is made of)
             version: 1;
         } | {
             currentProjection: null | {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -1898,6 +1946,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {
@@ -2511,6 +2563,10 @@ signatures (every public export and the types it is made of)
         safetyCommit: (requestId: string, body: import("@schlessera/brain-ui-sdk").SafetyReviewBody, signal: AbortSignal) => Promise<{
             code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
             currentProjection: null | {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -2543,6 +2599,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {
@@ -2585,6 +2645,10 @@ signatures (every public export and the types it is made of)
             version: 1;
         } | {
             currentProjection: null | {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -2616,6 +2680,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {
@@ -2658,6 +2726,10 @@ signatures (every public export and the types it is made of)
         }>;
         safetyFutureCommit: (sessionId: string, body: import("@schlessera/brain-ui-sdk").SafetyFutureCommit, signal: AbortSignal) => Promise<{
             currentProjection: {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -2709,6 +2781,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {
@@ -2751,6 +2827,10 @@ signatures (every public export and the types it is made of)
         }>;
         safetyFuturePrepare: (body: import("@schlessera/brain-ui-sdk").SafetyFuturePrepare, signal: AbortSignal) => Promise<{
             currentProjection: null | {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -2815,6 +2895,10 @@ signatures (every public export and the types it is made of)
             version: 1;
         }, signal: AbortSignal) => Promise<null | {
             currentProjection: {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -2866,6 +2950,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {
@@ -2909,6 +2997,10 @@ signatures (every public export and the types it is made of)
         safetyPrepare: (body: import("@schlessera/brain-ui-sdk").SafetyReviewBody, signal: AbortSignal) => Promise<{
             code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
             currentProjection: null | {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -2941,6 +3033,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {
@@ -2983,6 +3079,10 @@ signatures (every public export and the types it is made of)
             version: 1;
         } | {
             currentProjection: null | {
+                attributionUnknown?: undefined | {
+                    bindingId: string;
+                    toolUseIds: null | string[];
+                }[];
                 coverage: {
                     detectorVersion: 1;
                     epochs: {
@@ -3014,6 +3114,10 @@ signatures (every public export and the types it is made of)
                 occurrenceId: string;
                 operationId: null | string;
                 projection: null | {
+                    attributionUnknown?: undefined | {
+                        bindingId: string;
+                        toolUseIds: null | string[];
+                    }[];
                     coverage: {
                         detectorVersion: 1;
                         epochs: {

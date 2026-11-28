@@ -5,14 +5,14 @@ import type { BrainUiServices } from "../root.js";
 export function createSafetyClient(root:BrainUiServices,send:(message:ClientMessage)=>boolean){
   let target:SafetyTarget|null=null,requestId:string|null=null,disposed=false,awaitingPage=false,capacityRecoveryUsed=false;
   const store=root.stores.safety;
-  let connected=false,admissions=false,nonDelivery=false;
+  let connected=false,admissions=false,nonDelivery=false,attribution=false;
   function disconnected():void{connected=false;requestId=null;awaitingPage=true;store.getState().disconnected();}
   function sendRead(message:ClientMessage):void{if(!send(message))disconnected();}
   function read(next:SafetyTarget):void{
     if(disposed||!connected||!store.getState().supported)return;
     target=next;requestId=crypto.randomUUID();awaitingPage=true;store.getState().begin(requestId);
     send({type:"safety_unsubscribe",version:1});
-    sendRead({type:"safety_read",version:1,requestId,target,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{}),...(nonDelivery?{includeNonDelivery:true as const}:{})});
+    sendRead({type:"safety_read",version:1,requestId,target,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{}),...(nonDelivery?{includeNonDelivery:true as const}:{}),...(attribution?{includeAttribution:true as const}:{})});
   }
   function selected(): void {
     if (!connected) return;
@@ -41,6 +41,8 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
       if(msg.type==="server_hello"){
         connected=true;
         nonDelivery=msg.capabilities?.sessionSafetyNonDelivery===true;
+        // The host decides attribution (#4513); the client never infers it.
+        attribution=msg.capabilities?.sessionSafetyAttribution===true;
         admissions=msg.capabilities?.sessionSafetyAdmissionEvidence===true;
         const future=msg.capabilities?.sessionSafetyFutureRules===true&&msg.safetyCapabilities?.review===true;
         const capabilities=msg.safetyCapabilities?{...msg.safetyCapabilities,originRules:future,recipientRules:future}:null;
@@ -51,7 +53,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
         if(msg.requestId!==requestId||!target||!awaitingPage)return true;
         if(msg.page.cursor!==store.getState().nextCursor)return true;
         if(!store.getState().page(msg.requestId,msg.page)){read(target);return true;}
-        if(msg.page.nextCursor)sendRead({type:"safety_read",version:1,requestId:msg.requestId,target,cursor:msg.page.nextCursor,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{}),...(nonDelivery?{includeNonDelivery:true as const}:{})});
+        if(msg.page.nextCursor)sendRead({type:"safety_read",version:1,requestId:msg.requestId,target,cursor:msg.page.nextCursor,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{}),...(nonDelivery?{includeNonDelivery:true as const}:{}),...(attribution?{includeAttribution:true as const}:{})});
         else{awaitingPage=false;sendRead({type:"safety_subscribe",version:1,requestId:msg.requestId,identity:msg.page.identity,afterRevision:msg.page.highWater,snapshotId:msg.page.snapshotId});}return true;
       }
       if(msg.type==="safety_update"){
