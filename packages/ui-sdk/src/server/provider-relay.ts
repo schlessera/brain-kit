@@ -557,7 +557,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     let response: Response;
     try {
       // Never follow a redirect: the upstream must not choose another host.
-      for (const pending of waits()) await pending;
+      // Before the send, a lost recording wait keeps its upstream-failure answer.
+      for (const pending of operation?.pendingRecording?.() ?? []) await pending;
       const finalFailure=chargeFailure(0) ?? captureEgressFailure(signal).failure;
       if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       let pending!:Promise<Response>;
@@ -570,7 +571,6 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       response=await pending;
       upstreamStatus=response.status;
     } catch {
-      if (recordingLost) return recordingLoss();
       const cause=captureEgressFailure(signal,operation);
       operation?.finish(cause.outcome,"upstream_unreachable");
       // No upstream HTTP status or usage was observed for a transport failure.

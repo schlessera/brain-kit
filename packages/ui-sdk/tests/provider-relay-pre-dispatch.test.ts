@@ -33,18 +33,20 @@ const KEYS: Record<string, string> = { ANTHROPIC_API_KEY: "odysseus-host-anthrop
 /** A real turn proxy; `refuse` arms one pre-dispatch refusal for the next attempt. */
 async function harness(origin = upstream.url.origin, committed?: () => void) {
   const rows: EgressRecord[] = [], receipts: ProviderRelayReceipt[] = [], refusals: ProviderRelayRefusal[] = [];
-  let refuse: Refusal | null = null, authority = true, lose: { path: string; skip: number } | null = null;
+  let refuse: Refusal | null = null, authority = true, lose: { path: string; skip: number } | null = null, loseBeforeSend: "armed" | "now" | null = null;
   // The order of recording checks, the microtask after each, and charges, for the delivery-fence proofs.
   const events: string[] = [];
   const proxy = await startEgressProxy({ mode: "record", allow: [], deny: [], maxBytes: 1 << 20, outwardHosts: [], observe: row => rows.push(row), ...(committed ? { committed } : {}),
     // A host recording refusal at preparation: the proxy's own `preparing` boundary.
-    preparing: () => { if (refuse === "prepare") throw new Error("Odysseus recorder unavailable"); },
+    preparing: () => { if (loseBeforeSend === "armed") loseBeforeSend = "now"; if (refuse === "prepare") throw new Error("Odysseus recorder unavailable"); },
     admissionSafety: { read: () => ({ evidenceRevision: "1", trustRevision: "1", authorityEpoch: "1", scope: "ithaca", policyHash: null, restricted: false,
       recordingAvailable: true, authorityCurrent: authority }), subscribe: () => () => {},
       // Armed with a path, one host recording wait rejects once that request
       // reached the upstream, after `skip` checks that pass (a late cleanup
       // DELETE of an earlier test never counts).
       *pendingRecording() {
+        // Armed before the send, the relay's final-fence wait (the first after preparation) rejects.
+        if (loseBeforeSend === "now") { loseBeforeSend = null; yield Promise.reject(new Error("Odysseus recorder lost")); return; }
         if (lose && seen.some(entry => entry.path === lose!.path) && lose.skip-- <= 0) { lose = null; yield Promise.reject(new Error("Odysseus recorder lost")); return; }
         events.push("checked"); queueMicrotask(() => events.push("tick"));
       } } });
@@ -82,6 +84,7 @@ async function harness(origin = upstream.url.origin, committed?: () => void) {
     rows, receipts, refusals, relay, proxy, events,
     arm(next: Refusal | null) { refuse = next; authority = true; },
     loseRecordingAfterDispatch(path: string, skip = 0) { lose = { path, skip }; },
+    loseRecordingBeforeSend() { loseBeforeSend = "armed"; },
     ordinary: () => send("POST", "/v1/messages", { "x-brain-provider": "anthropic", "x-brain-provider-key": "ANTHROPIC_API_KEY", "x-brain-provider-origin": origin },
       JSON.stringify({ model: "claude-haiku-4-5-20251001", messages: [] })),
     filesStart,
@@ -203,5 +206,20 @@ for (const path of ["ordinary", "files", "cleanup"] as const) test(`#4370: a rec
     expect(h.receipts.map(r => r.outcome), "BODY_READ_RECORDING_LOSS_IS_CANCELLED").toEqual(["dispatched", "cancelled"]);
     if (path === "files") expect(status).toBe(503);
     expect(h.rows.at(-1)).toMatchObject({ outcome: "denied", reason: "egress_unavailable", dispatched: true });
+  } finally { await h.close(); }
+});
+
+// #4370, the other side of the send: a recording wait that rejects at the
+// final fence, before the request starts, keeps the base answer (502,
+// `upstream_unreachable`) and publishes no receipt.
+for (const path of ["ordinary", "files"] as const) test(`#4370: a ${path} recording loss before the send keeps its upstream-failure answer and leaves no receipt`, async () => {
+  const h = await harness();
+  try {
+    h.loseRecordingBeforeSend();
+    const status = await attempt(h, path);
+    expect(seen).toEqual([]);
+    expect(h.receipts, "PRE_SEND_RECORDING_LOSS_LEAVES_NO_RECEIPT").toEqual([]);
+    expect(status, "PRE_SEND_RECORDING_LOSS_KEEPS_ITS_502").toBe(502);
+    expect(h.refusals.map(r => r.reason)).toEqual(["upstream_unreachable"]);
   } finally { await h.close(); }
 });

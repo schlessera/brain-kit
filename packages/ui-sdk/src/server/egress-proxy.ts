@@ -127,8 +127,10 @@ export interface EgressProxyOptions {
    * Synchronous: an outward destination that needs no card, because a call
    * already in progress covers it (#4351). The proxy asks this first and
    * invokes `approveOutward` only when it answers false, so only a
-   * destination that needs a card meets `recordingGap()`. A throw counts as
-   * not covered.
+   * destination that needs a card meets `recordingGap()`. Covered traffic
+   * binds to no card marker; the proxy asks again before every send, and a
+   * connection that lost its cover is refused, as `recording_gap` on a gapped
+   * turn. A throw counts as not covered.
    */
   outwardCovered?(destination: { host: string; port: number; method: string }): boolean;
   observe(record: EgressRecord): void;
@@ -430,7 +432,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       return gapRefused() ? false : answer;
     };
     // An approval of this destination outside the taint allow-list (#3430).
-    let outwardApproved = false, outwardCarded = false, grantRevision: string | undefined, outwardRevision: string | undefined;
+    let outwardApproved = false, outwardByCoverage = false, grantRevision: string | undefined, outwardRevision: string | undefined;
     const readSafety = () => {
       try { return options.admissionSafety?.read(options.pendingReservations?.(connectionId)); }
       catch (error) {
@@ -461,6 +463,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       catch { finish("denied","egress_unavailable"); }
     };
     const recipient = { host, port, method, protocol: url.protocol, managedReference };
+    const outwardCovered = () => { try { return options.outwardCovered?.({host,port,method}) === true; } catch { return false; } };
     /** A permanent recording gap refuses a connection that needs, or holds, an unused card (#4351). */
     const gapRefused = () => {
       let gap: boolean;
@@ -543,18 +546,17 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!await narrowing() || !lifecycle.active()) return false;
       if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
         outwardRevision = approvalRevision(false,true);
-        // Covered by a call in progress: no card, so no gap refusal (#4351).
-        let covered = false;
-        try { covered = options.outwardCovered?.({host,port,method}) === true; } catch { covered = false; }
-        if (!covered) {
+        // Covered by a call in progress: no card, so no gap refusal and no
+        // card marker; its authority is the live coverage, rechecked at each send (#4351).
+        if (outwardCovered()) outwardByCoverage = true;
+        else {
           const approveOutward=options.approveOutward;
           if ((await approval(approveOutward ? ({host,port,method},signal)=>approveOutward({host,port,method},signal) : undefined)) !== true) {
             finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false;
           }
-          outwardCarded = true;
+          outwardApproved = true;
+          if (!grantCurrent()) { refuseStaleApproval(); return false; }
         }
-        outwardApproved = true;
-        if (!grantCurrent()) { refuseStaleApproval(); return false; }
       }
       if (!await narrowing() || !lifecycle.active()) return false;
       // A recorder failure aborts the turn through its own signal; it cannot admit.
@@ -587,7 +589,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       const stateRefusal=lifecycle.sendRefusal(count,options.maxBytes-usedBytes);
       if (stateRefusal) { finish(stateRefusal==="turn_cancelled"?"cancelled":"denied",stateRefusal);return null; }
       // Before any other recheck, so a gap is always named as one (#4351).
-      if ((granted || outwardCarded) && !lifecycle.dispatched() && gapRefused()) return null;
+      if ((granted || outwardApproved) && !lifecycle.dispatched() && gapRefused()) return null;
+      // Covered outward traffic that lost its cover would need a card: on a
+      // gapped turn that is a gap refusal, otherwise a fresh decision.
+      if (outwardByCoverage && !outwardCovered()) { if (!gapRefused()) refuseStaleApproval(); return null; }
       const current = readSafety();
       if (refuseSafety(current,snapshot)) return null;
       if (!grantCurrent(true)) { refuseStaleApproval(); return null; }

@@ -597,3 +597,35 @@ test("#4351: a gapped turn still connects an outward host a classified call cove
     expect(troy.hits()).toBe(1);
   } finally { troy.stop(); await f.close(); }
 });
+const classifiedRead = (f: Fixture, toolUseId = "toolu-odysseus-read") => f.proxy.bridge.activity?.({ kind: "outward_classification", toolUseId, decision: "allow",
+  classification: { kind: "read", opaque: false, actions: [] } } as never);
+test("#4351: covered outward traffic on a gapped turn is refused as recording_gap when its call ends before dispatch", async () => {
+  const f = await fixture(false, OUTWARD, undefined, true);
+  const troy = untrustedOrigin();
+  const original = f.writes.firstTaint;
+  try {
+    gappedTurn(f);
+    classifiedRead(f);
+    // The covering call returns its result while the connection's occurrence commits.
+    f.writes.firstTaint = async (...args) => { const result = await original(...args);
+      if (args[0].payload.source === "egress_connection") f.proxy.bridge.emit({ type: "tool_result", toolUseId: "toolu-odysseus-read", content: "", isError: false } as never);
+      return result; };
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0), "COVER_LOST_BEFORE_DISPATCH_NEVER_DISPATCHES").toBe(403);
+    await f.proxy.settled();
+    expect(f.asks()).toBe(0);
+    expect(troy.hits()).toBe(0);
+    expect(lastConnection(f), "COVER_LOST_ON_A_GAPPED_TURN_IS_A_GAP_REFUSAL").toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { troy.stop(); await f.close(); }
+});
+test("#4351: covered outward traffic keeps connecting when its own occurrence write is lost on a gapped turn", async () => {
+  const f = await fixture(false, OUTWARD, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    permanentGap(f.db, "source");
+    classifiedRead(f);
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0), "COVERED_OUTWARD_BINDS_TO_NO_CARD_MARKER").toBe(200);
+    expect(f.asks()).toBe(0);
+    expect(troy.hits()).toBe(1);
+    expect(f.controller.signal.aborted).toBe(false);
+  } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_permanent_gap"); troy.stop(); await f.close(); }
+});

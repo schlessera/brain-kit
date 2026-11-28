@@ -652,3 +652,19 @@ test("a recording gap leaves an outward destination that needs no card connected
     expect(hits).toBe(1);
   } finally { proxy.stop(); origin.stop(true); }
 });
+for (const gapped of [true, false]) test(`covered outward traffic that loses its cover before dispatch is refused (${gapped ? "gapped: recording_gap" : "not gapped: a fresh decision"})`, async () => {
+  const records: EgressRecord[] = [];
+  let covered = true, asks = 0, hits = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => gapped, outwardHosts: ["127.0.0.1"],
+    outwardCovered: () => covered, approveOutward: async () => { asks++; return true; },
+    // The covering call ends in the last step before dispatch.
+    admitted: () => { covered = false; } });
+  try {
+    expect((await get(proxy.socketPath, origin.url.href)).status, "COVER_LOST_BEFORE_DISPATCH_NEVER_DISPATCHES").toBe(403);
+    await recorded(records, 1);
+    expect(hits).toBe(0);
+    expect(asks).toBe(0);
+    expect(records.at(-1), "COVER_LOST_BEFORE_DISPATCH_IS_REFUSED").toMatchObject({ reason: gapped ? "recording_gap" : "safety_changed", dispatched: false });
+  } finally { proxy.stop(); origin.stop(true); }
+});

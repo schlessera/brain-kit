@@ -6368,7 +6368,9 @@ unchanged. A started attempt still reports `dispatched` and exactly one
 terminal outcome under its `attemptId`, including when the dispatch fails after
 its request started and when a host `pendingRecording()` wait rejects after its
 response headers or during a body read (503 where no response was sent yet,
-terminal `cancelled`, never `failed`). Each post-dispatch recording check and
+terminal `cancelled`, never `failed`). A recording wait that rejects at the final fence,
+before the request starts, keeps its earlier answer: 502 with
+`upstream_unreachable` to `refused`, and no receipt. Each post-dispatch recording check and
 the header, body or end charge after it run in one synchronous segment, with no
 await between them, on the headers, Files answer, empty body and stream
 fences. Observers that counted those pre-dispatch `cancelled`
@@ -6447,7 +6449,11 @@ fetch, or an outward card is refused without one as `egress_connection`
 would be raised, Network or outward, before invoking that approval callback,
 so no host callback can raise or answer a card there. It asks the new
 synchronous `outwardCovered()` option first: an outward host that a call in
-progress already covers needs no card and still connects. A card pending when the gap appeared,
+progress already covers needs no card and still connects. Covered traffic binds
+to no card's evidence marker; the proxy asks `outwardCovered()` again before
+every send, and a connection that lost its cover is refused, as
+`recording_gap` on a gapped turn and otherwise as `safety_changed` so a retry
+can ask. A card pending when the gap appeared,
 or answered before it, is never used: its connection, of either kind, is
 refused as `recording_gap` before dispatch. Allow-listed and already-contacted
 destinations need no card and still connect, and a new turn restores
