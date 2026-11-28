@@ -6382,6 +6382,23 @@ relay uploads/responses share the same saturating allowance accounting.
 Preparation and exposure notifications are separate: proxy `preparing` and
 provider relay `preparing` run before the last send fence; `committed` and
 provider `observe({outcome:"dispatched",...})` report an actual transport start.
+A provider attempt receipt of any outcome follows only such a start (#4370):
+an ordinary relay, Files or Files-cleanup attempt refused at preparation, at
+the final charge/egress fence, at `dispatch(send)` or by a synchronous request
+constructor throw publishes no `dispatched` and no terminal receipt, so the
+host books no usage for it. Its caller refusal and `refused` diagnostic are
+unchanged. A started attempt still reports `dispatched` and exactly one
+terminal outcome under its `attemptId`, including when the dispatch fails after
+its request started and when a host `pendingRecording()` wait rejects after its
+response headers or during a body read (503 where no response was sent yet,
+terminal `cancelled`, never `failed`). A recording wait that rejects at the final fence,
+before the request starts, keeps its earlier answer: 502 with
+`upstream_unreachable` to `refused`, and no receipt; the Files cleanup DELETE
+keeps its `failed`/`upstream_unreachable` proxy record there. Each post-dispatch recording check and
+the header, body or end charge after it run in one synchronous segment, with no
+await between them, on the headers, Files answer, empty body and stream
+fences. Observers that counted those pre-dispatch `cancelled`
+receipts now see none.
 Relayed operations expose `prepare()` and `dispatch(send)` in place of this
 change's provisional `commit()` method. A pending terminal decision during a
 synchronous transport handoff joins its final dispatched fact before audit only
@@ -6400,8 +6417,11 @@ A synchronous transport-handoff throw is classified by the same caller path
 as an asynchronous upstream rejection. A synchronous throw publishes no
 dispatched fact or contacted-host grant. Dispatch does not abort or store an
 admission refusal before the caller classifies
-that transport error. Both report failed upstream attempts (502 before response
-headers), with provider receipt status 0 when no upstream response was seen.
+that transport error. Both answer the caller as failed upstream attempts (502
+before response headers). Only the asynchronous rejection, whose request
+started, publishes provider receipts: `dispatched`, then `failed` with status 0
+when no upstream response was seen. A synchronous constructor throw publishes
+none (#4370, above).
 The final fence and transport invocation remain synchronous. Proxy HTTP and
 CONNECT use their ordinary upstream-failure handler for either failure order.
 
@@ -6434,6 +6454,58 @@ durable commit. A false result or failed write refuses that operation with
 available. No trusted source fact or terminal exposure is published for a
 missing occurrence. Legacy recorder adapters await their write result; an
 otherwise unacknowledged trusted write must be present in the safety ledger.
+
+On a turn whose collection began restricted, the occurrence writer tolerates
+a lost occurrence or terminal exposure with `{id:0, recorded:false}`: that
+permanent gap already records the loss, and it stays visible (#4351). There
+an ordinary untrusted proxy input proceeds under the restricted recipient
+policy it already passed, without source trust. A tolerated terminal-exposure
+loss stops neither its operation nor the turn. A source-trusted input still
+needs its durable occurrence, and any other lost write, including a refused
+write such as a full recording queue, a lost connection audit or any loss
+outside a permanent gap, keeps its containment. Such a turn raises no
+approval card and uses none it holds, because a card's marker cannot see the
+losses it tolerates (maintainer ruling on #4351, 2026-11-27). A connection
+that would need a Network card, an ordinary destination or a managed GitHub
+fetch, or an outward card is refused without one as `egress_connection`
+`reason: "recording_gap"`, with a 403 whose refusal `cause` is
+`recording_gap`. The proxy reads its `recordingGap()` option whenever a card
+would be raised, Network or outward, before invoking that approval callback,
+so no host callback can raise or answer a card there. It asks the new
+synchronous `outwardCovered()` option first: an outward host that a call in
+progress already covers needs no card and still connects. Covered traffic binds
+to no card's evidence marker; the proxy asks `outwardCovered()` again before
+every send, and a connection that lost its cover is refused, as
+`recording_gap` on a gapped turn and otherwise as `safety_changed` so a retry
+can ask. Both checks run before any card's evidence marker is read. A
+destination that comes to need a Network card before dispatch, such as one
+whose standing recipient rule was withdrawn, is refused as `recording_gap`.
+The extraction classifier (`taint.classifier: heuristics`) reads the same
+predicate: an `ask` verdict raises no card and refuses the call, an answer
+that arrives after the gap opened is not used, and an `allow` never counts a
+new host as contacted. A call such a card approved stays bound to it: the
+proxy's new `hostCard()` option names its hosts, compared in the proxy's
+canonical form, and the proxy binds a connection to that card when it is
+admitted, for the connection's whole life. Its connections, even to an
+already-contacted host and after the call ended, are refused as
+`recording_gap` before dispatch once a gap opens. A gap the host cannot read,
+or a stored `restricted_begin` other than exactly 0 or 1, is unknown, not a
+gap: card paths refuse as `egress_unavailable` (503) without new-turn advice.
+Only the writer's exact `{id:0, recorded:false}` acknowledges a tolerated
+loss. A positive id is a durable replay and keeps its evidence: never a
+tolerated loss, on the hosted writer as on a legacy recorder. One strict
+parser reads every reply, at the hosted writer, the legacy recorder adapter
+and the audit check: a non-negative integer `id` with a boolean `recorded`,
+`true`, or, from a legacy recorder only, no reply at all. Any other reply,
+bare `false`, `{id:0}` without `recorded`, a non-boolean `recorded` or an
+explicit `{error}` reply included, is malformed: a 503 for an occurrence, a
+stopped turn for a terminal exposure, with or without a gap. A card pending when the gap appeared,
+or answered before it, is never used: its connection, of either kind, is
+refused as `recording_gap` before dispatch. Allow-listed and already-contacted
+destinations need no card and still connect, and a new turn restores
+approvals. An unreadable gap raises no card. A managed GitHub acquisition
+refused this way tells its caller about the gap and that a new turn restores
+approvals.
 
 Network approval markers exclude only the approved operation’s own occurrence
 and, when it creates the turn’s first collection, that same collection-start

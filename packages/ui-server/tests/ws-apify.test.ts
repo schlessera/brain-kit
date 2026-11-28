@@ -110,7 +110,8 @@ test("a pi turn reaches the hosted operations with its own context, ledger and t
     const { id: _id, schemaVersion: _version, kind: _kind, payload, ...attribution } = events[0]!;
     const writes = app.wsHost.activity!.governanceWrites!;
     expect(await writes.firstTaint({ ...attribution, kind: "taint", payload: GOVERNANCE_EVENT_SCHEMAS.taint.payload.parse(payload) }),
-      "APIFY_EXACT_OCCURRENCE_REPLAY_DEDUPLICATES").toBe(false);
+      // A durable replay keeps its evidence (#4351); the row count below proves it stores nothing new.
+      "APIFY_EXACT_OCCURRENCE_REPLAY_IS_DURABLE").toBe(true);
     expect(queryGovernanceEvents(app.db, { kinds: ["taint"], limit: 10 })).toHaveLength(2);
     pruneSafetyDetail(app.db, Date.now() + 1);
     expect(safetyProjection(app.db, null, "sess-ithaca-apify"), "APIFY_PRUNING_PRESERVES_BOTH_RESTRICTIONS").toMatchObject({

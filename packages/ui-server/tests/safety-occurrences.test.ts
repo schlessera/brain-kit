@@ -69,7 +69,8 @@ test("host keys deduplicate exact occurrences and reject changed retries", async
     occurrence: occurrence("voyage-epoch", "tool_web_input", "host-operation") } };
   try {
     expect(await writes.firstTaint(event)).toBe(true);
-    expect(await writes.firstTaint(event), "SAFETY_EXACT_RETRY_DEDUPLICATES").toBe(false);
+    // An exact retry is a durable replay: it keeps its evidence (#4351) and stores nothing new.
+    expect(await writes.firstTaint(event), "SAFETY_EXACT_RETRY_IS_A_DURABLE_REPLAY").toBe(true);
     await expectRejection(writes.firstTaint({ ...event, payload: { ...event.payload, source: "web_search" } }),"Conflicting occurrence retry");
     expect(writes.taint("voyage", null), "SAFETY_FAILED_RETRY_CANNOT_LOOSEN_ADMISSION").not.toBeNull();
     expect(queryGovernanceEvents(db, { turnId: "voyage", kinds: ["taint"], limit: 100 })).toHaveLength(1);
