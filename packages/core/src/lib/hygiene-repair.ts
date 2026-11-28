@@ -76,8 +76,9 @@ async function openProjection(brain: BrainContext): Promise<Projection> {
   const db = openDatabase(":memory:");
   try {
     // Nothing on this path reads the graph tables: detection reads documents,
-    // links and tags, and module checks read the on-disk index.
-    await indexAll(db, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true, graph: false });
+    // links and tags, and module checks read the on-disk index. Nor does it
+    // prune the tracked caches against this private index.
+    await indexAll(db, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true, graph: false, pruneCaches: false });
     const projection = { db, baselines: acceptedBaselines(brain) };
     applyBaselines(projection);
     return projection;
@@ -109,7 +110,7 @@ function applyBaselines({ db, baselines }: Projection): void {
 
 /** Bring the projection up to date after the operation wrote `paths`. */
 async function refreshProjection(projection: Projection, brain: BrainContext, paths: string[]): Promise<void> {
-  await indexAll(projection.db, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true, graph: false, paths });
+  await indexAll(projection.db, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true, graph: false, pruneCaches: false, paths });
   // A rewritten row starts without its baseline, as a fresh build's would
   // before the baselines are applied.
   applyBaselines(projection);
