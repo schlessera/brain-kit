@@ -7,7 +7,7 @@ test("RunDetail work is flushed before its native render fixture unregisters the
   // Named execution counts require verbose child reporting in agent sessions.
   const child = Bun.spawn([
     process.execPath, "test", "--timeout", "30000",
-    join(import.meta.dir, "render/render-smoke.test.tsx"),
+    join(import.meta.dir, "render/smoke-approvals.test.tsx"),
     "--test-name-pattern", "live approval and terminal frames",
     "--rerun-each", "20",
   ], { env: { ...process.env, AGENT: "0" }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });

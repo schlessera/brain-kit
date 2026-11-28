@@ -1,6 +1,6 @@
 // happy-dom registration for the sixth-pass desktop-pane render tests, a sibling of
 // `dom.ts` on purpose: that module's body runs once per process, so a second
-// test file importing it after `render-smoke` has unregistered would get no
+// test file importing it after another render file has unregistered would get no
 // DOM. This module is imported by `desktop-panes-sixth.test.tsx` alone, so its body runs
 // exactly when that file loads, and the file's `afterAll` unregisters again
 // before the next test file — the same containment contract, kept per file.
@@ -8,10 +8,15 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act } from "react";
 
-if (!GlobalRegistrator.isRegistered) {
-  GlobalRegistrator.register();
+/** Registers happy-dom; runs on import, and again when a repeated evaluation of the test file calls it (./dom.ts, point 3). */
+export function registerDesktopPanesDom(): void {
+  if (!GlobalRegistrator.isRegistered) {
+    GlobalRegistrator.register();
+  }
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 }
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+registerDesktopPanesDom();
 
 export async function unregisterDesktopPanesDom(): Promise<void> {
   if (GlobalRegistrator.isRegistered) {

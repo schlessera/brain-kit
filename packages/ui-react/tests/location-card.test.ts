@@ -3,7 +3,7 @@ import { spanFor, viewBox } from "../src/components/chat/tool-cards/location-car
 import { geometryPaths } from "../src/lib/geometry-paths.js";
 
 // The card's pure half: the span a fix earns, the box the map will draw and
-// the geometry's weights. Rendering is covered in tests/render/render-smoke.test.tsx.
+// the geometry's weights. Rendering is covered in tests/render/smoke-chat-renderers.test.tsx.
 
 describe("spanFor", () => {
   test("a good fix gets the kit's town-scale default", () => {
