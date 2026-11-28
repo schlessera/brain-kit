@@ -182,8 +182,9 @@ interface SchemaProtocol {
   conversationLimitsSchema: P.ConversationLimits;
   /**
    * Kept as `as z.ZodType<…>`: `satisfies` would publish the inferred zod type
-   * in place of `ZodType<DialogueEvidence>`. The entry holds its export; its
-   * inner shape is not compared through the cast.
+   * in place of `ZodType<DialogueEvidence>`. The entry holds its export; the
+   * union inside the cast is compared where it is declared, in `schemas.ts`
+   * (`_DialogueEvidenceParity`, #4896).
    */
   dialogueEvidenceSchema: P.DialogueEvidence;
   dialogueRecordSchema: P.DialogueRecord;

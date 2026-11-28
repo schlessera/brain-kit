@@ -800,7 +800,13 @@ terminal is written on its own, once, and emits a lifecycle change. The current
 open phase names are:
 
 - `backend` (#4285/#4286): host `host_probe`, Claude's separate
-  `worker_host_probe`, `worker_launch` and `runtime_to_sdk_init`; Pi's
+  `worker_host_probe`, `worker_launch` and `runtime_to_sdk_init`; new hosted
+  Claude sessions also record `brain_tool_inventory` (#4325), the module
+  inventory helper until its verdict; its worker cleanup runs detached
+  afterwards and is not included. Every new session runs the sandboxed
+  helper alongside independent preparation before `query()`; resumed sessions
+  skip it. The span has no cache attribute and never enters provider-facing
+  history. Pi's
   `preparation` and `worker_spawn`; worker-reported Pi `bootstrap_imports`,
   `resources`, `session` and `initialize`; and host `first_backend_frame`
   and `first_relay_request`. The last two measure from backend invocation
@@ -1188,6 +1194,43 @@ Rules a consumer may rely on:
 
 No wire revision or required field changes.
 
+<a id="per-session-output-speed-additive-4310"></a>
+
+### Per-session output speed (additive, #4310)
+
+`chat_message.outputSpeed?: "standard" | "fast"` chooses the speed of a NEW
+conversation only. Like `providerId`, it is ignored on a message that resumes
+a session: the host stores the speed a session started with and runs every
+turn of it at that speed, so its provider request shape and cache never
+change mid-session. Absent on a new conversation means `standard`; a session
+that predates the field keeps the runtime's own default. An invalid value is
+rejected by frame validation. `fast` is the provider's faster output mode.
+Each fast run is priced at the fast rate as both its list and effective cost,
+on a subscription too, where it is usage beyond the plan: the host prices a
+fast session's Claude usage from the pinned runtime's fast-rate table, never
+from its standard catalog, and a Claude model without a fast rate is unpriced,
+never zero. Live budget accounting uses the same fast rates, so every dollar
+cap holds; an independent relayed provider completion keeps its own rate. A
+fast session that its backend, profile, account or upstream cannot serve is
+refused before any model request with `failure.errorClass:
+"fast_output_unavailable"`, whose message names the reason; it is never run at
+standard speed. The route is the one the runtime actually uses. On a relayed
+turn the relay qualifies it, and a settings conflict there refuses the turn at
+any speed with its existing class. On a direct turn the runtime itself runs
+under a first-party-only provider policy that the host pins, and the turn is
+admitted only on positive proof that the policy is in force; a runtime that
+reports no such policy, a pin that only project or user settings supply,
+settings errors, or a refused provider at startup refuses the session
+(`not_first_party`). A host whose admin managed tier
+replaces that policy therefore refuses direct fast sessions by name. The
+network path and TLS trust (for example `HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`)
+are not judged, on a direct turn as through the relay. A fast turn during which the runtime served any response at
+standard speed (a usage report of `standard`, or a final fast-mode state other
+than `on`, such as `cooldown` after a rate limit) ends with an error result
+carrying that class instead of a plain success; its output and usage are
+kept. A standard session whose native settings turn fast output on is refused
+with `settings_conflict`.
+
 <a id="per-message-reasoning-effort-additive-543"></a>
 
 ### Per-message reasoning effort (additive, #543)
@@ -1340,6 +1383,13 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   resume is refused before SDK startup, with the original roster and context
   unchanged. A compatible authority can resume it, or the owner can start a new
   conversation. It carries no authentication action.
+  `fast_output_unavailable` (additive, #4310) means a fast session could not
+  be served at fast speed: its backend has no fast mode, its upstream is not
+  the provider's first-party origin, or the runtime reported fast output off
+  (with its own reason, for example `model_not_allowed` or
+  `extra_usage_disabled`). The turn is refused before any model request and
+  never runs at standard speed. A fast turn the runtime dropped to standard
+  speed mid-turn also ends with this class. It carries no `authAction`.
   `settings_conflict` means the native runtime could not honor a retained host
   setting before prompt release, including an unreadable or rejected native
   settings-control request after successful initialization. It carries no `authAction`, emits no

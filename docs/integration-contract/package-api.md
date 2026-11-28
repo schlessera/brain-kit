@@ -361,6 +361,28 @@ session's row. A custom catalog that ignores the argument keeps today's
 behaviour, so typed-only chats stay undeletable. Semantics are in the
 [HTTP](../http-api.md#explicit-chat-deletion-additive-3230) component.
 
+<a id="per-session-output-speed-additive-4310"></a>
+
+## Per-session output speed (additive, #4310)
+
+`@schlessera/brain-ui-sdk/protocol` exports `OutputSpeed` (`"standard" |
+"fast"`), `OUTPUT_SPEEDS` and `isOutputSpeed`. `StartTurnRequest` adds optional
+`outputSpeed`: the session's fixed speed, which the host stores when the
+session starts and passes unchanged on every turn of it, resumes included;
+absent is a session that predates the choice. `BackendCapabilities` adds
+optional `fastOutput?: boolean`. A host refuses a fast session for a backend
+without it before the backend starts. `@schlessera/brain-ui-sdk/server`
+exports `FastOutputUnavailableError`, a `BackendRequestError` with
+`errorClass: "fast_output_unavailable"` and a named `reason`, which a backend
+throws instead of running a fast session at another speed. The Claude backend
+advertises the capability: it serves fast output only through a first-party
+upstream, pins the speed as a flag setting, and refuses before prompt release
+unless the runtime reports fast output on. A direct fast turn also runs under
+the runtime's own first-party provider policy (`managedSettings.allowedProviders`)
+and is admitted only when the runtime reports that policy in force; a relayed
+turn's route is qualified by the relay. The pi backend refuses fast
+sessions.
+
 ## Native history removal (additive, #3229)
 
 `BackendCapabilities` adds optional `historyRemoval?: boolean`, and
@@ -875,6 +897,7 @@ private member is.
 
 Entry points named `/internal` (`@schlessera/brain/internal`,
 `@schlessera/brain/internal/graph`, `@schlessera/brain/internal/apify` (additive, #3162),
+`@schlessera/brain/internal/read-definitions` (additive, #4325: the read tools' static definitions, loading no database),
 `@schlessera/brain-common/internal/apify` and `@schlessera/brain-common/internal/apify-operations` (additive, #3162),
 `@schlessera/brain-common/internal/module-settings-fields` (additive, #4716),
 `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`,
@@ -1739,6 +1762,15 @@ the helpers read the whole body as before, and `get` always returns its
 `Response` unread and unbounded, with its final `url`. The default
 robots.txt fetcher refuses a body over its `maxBytes` through the same
 reader. Additive; ships in a minor.
+
+Valid bounds (#4963): `maxBytes` is a whole number of bytes, `0` or more.
+`getJson`, `getPage` and `getText` refuse any other value (`NaN`, `Infinity`,
+a negative or a fractional number) with a `RangeError` that names
+`FetchOptions.maxBytes`, before any request is made, and `RobotsCache` refuses
+such a `RobotsCacheOptions.maxBytes` when it is built. Before, `NaN` and
+`Infinity` read the whole body and a negative bound refused every non-empty
+one. `0` reads only an empty body. Every valid value keeps its meaning; ships
+in a patch.
 
 <a id="browser-scraping-navigation-policy"></a>
 
@@ -5968,9 +6000,9 @@ The live trust projection retains last-valid rules on invalid policy, reports
 an error, and increments its decimal uint64 revision only for trust-list changes.
 Exhausted revisions refuse both new reviews and publication of retained reviews
 before any protected policy write; request revisions above uint64 also refuse.
-The composed host shares its live trust revision with proxy and backend admission. The protected policy proposal publisher refreshes the same projection under the shared brain lock before reporting updated; qualified turn preparation refreshes it too. A synchronous anchored trust-list check refuses stale disk/projection matches during that refresh gap. Invalid policy retains last-valid rules with an error. Ordinary turn budgets, commands and profiles retain their admitted snapshots.
+The composed host shares its live trust revision with proxy and backend admission. The protected policy proposal publisher refreshes the same projection while it holds the shared brain lock, before reporting updated; qualified turn preparation refreshes it too. A synchronous anchored trust-list check never serves stale disk/projection matches during that refresh gap. When stable verified `trusted_sources` differ from the durable projection, such as after a hand edit or sync during an active turn, a live read serves a restricted view rather than refusing (#4352). It keeps the durable revision and policy hash and only the rules the edit left byte-identical. It keeps a source instance only where that rule's selector and `incomingContent` are unchanged. So a removed, retargeted or disabled source fails its own fence with `source_trust_changed`, an added or edited rule authorizes nothing until projected, and unrelated sources, recipients and model relays continue. A read whose anchored verification itself changed still refuses (`stale_revision`). Either case schedules one background reconciliation per reader under the trust projection lock. It waits at most ten seconds and retries by timer one second after a failure, and no turn waits on it. Each reader notifies its own subscribers whenever the view it serves changes: on the restricted view, and when any reader's durable projection lands. While a turn subscribes, the reader also checks the policy's metadata generation every second. An edit is therefore fenced and reconciled without another admission, a Settings read, a new turn or a restart. An owner-policy snapshot is never taken from a restricted view. Invalid policy retains last-valid rules with an error. Ordinary turn budgets, commands and profiles retain their admitted snapshots.
 
-`OriginTrust.refresh` returns without the brain lock when the observed policy hash equals the durable projection's hash and the projection carries no error; otherwise it queues the lock as before, cancellable on turn abort.
+`OriginTrust.refresh` returns without taking a lock when the observed policy hash equals the durable projection's hash and the projection carries no error. Otherwise it queues the trust projection lock (`trust-projection`), never the brain lock (`BRAIN_LOCK_KEY`), cancellable on turn abort, so a changed policy is projected while an index holds the brain lock (#4404). Every durable trust projection write holds the trust projection lock. Lock order: a holder of the brain lock may take the trust projection lock; a holder of the trust projection lock never waits for the brain lock. Settings list, read, prepare, snapshot and repository-approval reads take it inside the brain lock for their refresh only. A Settings commit holds it from its base check through publication and its own post-publication projection, so no other refresh writes a revision between them and the publication proof's `expectedTrustRevision + 1` stays exact. The policy proposal publisher takes it only for its post-publication refresh; a turn refresh that projects the published bytes first leaves that refresh unchanged.
 
 The HTTP boundary admits at most 32 concurrent requests per principal and 256
 for the served brain, including lock waiters; excess requests return retryable
@@ -6321,7 +6353,7 @@ approval changes are `safety_changed`, denied recipient/destination policy is
 client cancellation is `cancelled`. Their statuses are 403, 403, 503 and 499
 respectively; disconnected transports may have no response status. Inference/provider uploads, headers, streams and managed GitHub
 wire metering consume this result. `OriginTrust.refresh(signal?)` cancels a
-queued brain-lock acquisition on turn abort; it never releases another holder. `OriginTrust.refresh` returns without the brain lock when the observed policy hash equals the durable projection's hash and the projection carries no error; otherwise it queues the lock as before, cancellable on turn abort.
+queued trust-projection-lock acquisition on turn abort; it never releases another holder and never waits for the brain lock.
 Turn startup rechecks abort before creating egress resources and normal turn
 teardown releases its own governed hold and concurrency slot.
 

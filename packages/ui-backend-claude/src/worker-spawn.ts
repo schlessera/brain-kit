@@ -1,17 +1,16 @@
 /** Unconditional isolated Claude child; project MCP, tools and descendants inherit it. */
-import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
+import { ordinaryWorkerLaunch } from "./worker-launch-command.js";
 import { rewriteWorkerRtk, workerCleanupUnconfirmed, reportStrandedWorkerCleanup } from "@schlessera/brain-ui-sdk/internal";
 import { EventEmitter } from "node:events";
 import { deferredWorkerSpawn } from "./deferred-worker-spawn.js";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { homedir } from "node:os";
 import { prepareRecoveredWorkerFiles, workerExecHelpers, createTurnTempPromoter, launchAgentWorkerAsync, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHostAsync, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
-  WORKER_SCRATCH, WORKER_STATE, WORKER_EMPTY_HOME, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
+  WORKER_SCRATCH, WORKER_STATE, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
   type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
-import { safeStartupTiming, wrapCommand, type ExecWrapperConfig, type TurnFailure, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, type ExecWrapperConfig, type TurnFailure, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { restoreArchivedSession } from "./transcript-archive.js";
 import { processCleanupReconciler, processStateLedger, type CleanupReconciler } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeWorkerState, validateSessionId, workerStateSaveFailure, workerStateSaveReason } from "./worker-state.js";
@@ -69,7 +68,9 @@ export function resumedSessionId(args: string[]): string | undefined {
 /** The restore and snapshot are one synchronous operation before native spawn. */
 export function prepareClaudeWorkerState(brainPath: string, env: Record<string, string | undefined>, args: string[],
   options: Parameters<typeof createClaudeWorkerState>[2] = {}) {
-  const resume = options.ephemeral ? undefined : resumedSessionId(args);
+  let resume: string | undefined;
+  try { resume = options.ephemeral ? undefined : resumedSessionId(args); }
+  catch (error) { options.reservation?.release(); throw error; }
   // Admitted before an archived session is restored, so a busy refusal
   // changes nothing on disk (#1625). Turn temp is admitted with it (#1703).
   const reservation = options.reservation ?? (options.ledger ?? processStateLedger())
@@ -94,7 +95,7 @@ export const CLAUDE_INFERENCE_ENV: readonly string[] = Object.freeze(["CLAUDE_CO
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
   restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
   stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits">
-    & { startupTiming?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["startupTiming"]; /** Owns a refused end-of-turn cleanup (#2871); defaults to the process's one. */ cleanup?: CleanupReconciler; reportCleanup?: (notice: import("@schlessera/brain-ui-sdk/internal").CleanupNotice) => void } = {},
+    & { reservation?: () => import("@schlessera/brain-ui-sdk/internal").Reservation; startupTiming?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["startupTiming"]; /** Owns a refused end-of-turn cleanup (#2871); defaults to the process's one. */ cleanup?: CleanupReconciler; reportCleanup?: (notice: import("@schlessera/brain-ui-sdk/internal").CleanupNotice) => void } = {},
   outputLock?: KeyedLock, workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"],
   startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView,
   persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"],
@@ -152,7 +153,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       preparation.throwIfAborted();
       let state: ReturnType<typeof createClaudeWorkerState>;
       try {
-        state = prepareClaudeWorkerState(brainPath, env, args, { ledger: stateOptions.ledger, limits: stateLimits, turnTempLimits,
+        state = prepareClaudeWorkerState(brainPath, env, args, { reservation: stateOptions.reservation?.(), ledger: stateOptions.ledger, limits: stateLimits, turnTempLimits,
           ephemeral: Boolean(restricted), hostInference: Boolean(egress),
           // The host's actual masks: any provider folder hidden makes the turn provider-denied (#2726).
           omitMemory: Boolean(sandbox?.providerMasks?.folders.length) });
@@ -161,21 +162,10 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       let worker: LaunchedWorker;
       const launched = startupTiming?.start("worker_launch");
       try {
-        const childEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
-        if (!restricted) childEnv.PATH = brainWorkerPath(brainPath, childEnv.PATH);
+        const ordinary = restricted ? undefined : ordinaryWorkerLaunch(brainPath, [command, ...args], env, config);
+        const childEnv = ordinary?.env ?? Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
         childEnv.CLAUDE_CONFIG_DIR = WORKER_STATE;
-        // Resolve host credentials and config above, before changing HOME.
-        // Non-envelope HOME is separately empty and read-only: shell startup
-        // cannot import operator rc/profile or consume runtime state (#2984).
-        childEnv.HOME = restricted ? WORKER_STATE : WORKER_EMPTY_HOME;
-        if (!restricted) {
-          // Withhold startup redirects, functions and shell options even when
-          // explicitly admitted, including in descendant shells.
-          for (const name of Object.keys(childEnv)) {
-            if (["BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS"].includes(name)
-              || (name.startsWith("BASH_FUNC_") && name.endsWith("%%"))) delete childEnv[name];
-          }
-        }
+        if (restricted) childEnv.HOME = WORKER_STATE;
         const populateState = (root: string) => { state.populate(root); observation = state.observation; };
         if (restricted) {
           // No host home exists in the envelope; runtime state is the fresh tmpfs.
@@ -190,7 +180,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         } else {
           worker = await launchAgentWorkerAsync({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
             ...(preparedOutput ? { preparedOutput } : startupView && sandbox?.profile !== "governed" ? { startupView: retainWorkerStartupView(startupView) } : {}),
-            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, hostHome: env.HOME || homedir(), credentialEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
+            ...ordinary!, env: childEnv, credentialEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
       } catch (error) {

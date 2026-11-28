@@ -301,6 +301,14 @@ export interface ClientChatMessage {
    * to the profile they started on.
    */
   providerId?: string;
+  /**
+   * Output speed for a NEW conversation (#4310). Like `providerId`, only
+   * honored when starting one: a resumed session keeps the speed it started
+   * with, and this field is ignored there. Absent means `standard`. A host
+   * whose backend, profile or upstream cannot serve `fast` refuses the turn
+   * with `fast_output_unavailable`; it never falls back to standard.
+   */
+  outputSpeed?: OutputSpeed;
   attachments?: ChatImageAttachment[];
   /** Server validates these staged file references and derives their measurements. */
   files?: ChatFileAttachment[];
@@ -1868,6 +1876,22 @@ export interface SetHiddenModelsRequest {
  */
 export interface SetBillingOverridesRequest {
   billing: Record<string, BillingMode>;
+}
+
+/**
+ * A session's output speed (#4310). Chosen once when a conversation starts
+ * and fixed for its whole life: a resumed session keeps the speed it started
+ * with, because a different speed is a different provider request shape and
+ * cache. `fast` is the provider's faster output mode, priced as real spend
+ * at its own rate on every billing mode.
+ */
+export type OutputSpeed = "standard" | "fast";
+
+export const OUTPUT_SPEEDS: readonly OutputSpeed[] = ["standard", "fast"];
+
+/** THE membership check for {@link OutputSpeed} at validation boundaries. */
+export function isOutputSpeed(v: unknown): v is OutputSpeed {
+  return typeof v === "string" && (OUTPUT_SPEEDS as readonly string[]).includes(v);
 }
 
 /** Reasoning-effort levels (mirror of the pi SDK's ThinkingLevel union). */

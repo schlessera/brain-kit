@@ -104,6 +104,23 @@ Both limit values, every output field and every reason are unchanged. See
 [the package API](integration-contract/package-api.md#shared-geo-library-additive-525).
 This ships in a minor.
 
+## Per-session fast output (additive, 0.45.0, #4310)
+
+`chat_message.outputSpeed?: "standard" | "fast"` chooses a NEW conversation's
+output speed. The host stores it with the session, and every turn of that
+session runs at it, resumes included. A resumed session ignores the field.
+`fast` is priced as real spend at the fast rate on every billing mode and is
+never priced from standard rates. A route, profile or backend that cannot
+serve it refuses the turn with failure class `fast_output_unavailable`; the
+route is the effective one the runtime uses: qualified by the relay on a
+relayed turn, and on a direct turn enforced by the runtime's own first-party
+provider policy, which must be proven in force. It never falls back to standard, and a turn the runtime dropped to standard
+speed mid-turn ends with that class instead of a plain success. The SDK gains `OutputSpeed`, `OUTPUT_SPEEDS`,
+`isOutputSpeed`, `StartTurnRequest.outputSpeed`,
+`BackendCapabilities.fastOutput` and `FastOutputUnavailableError`. See
+[the wire component](integration-contract/wire.md#per-session-output-speed-additive-4310)
+and [the package API](integration-contract/package-api.md#per-session-output-speed-additive-4310).
+
 ## Coverage excerpt line ranges (additive, 0.45.0, #3683)
 
 A scoped `brain_context` coverage excerpt may carry `lines: [start, end]`,

@@ -294,7 +294,7 @@ test("the whole cross-workspace source class retains every independently discove
     .map(record => `${record.importer.split("/")[1]} -> ${record.workspace}`));
   for (const pair of [
     "core -> module-images", "geo -> ui-sdk", "module-travel -> module-speaking",
-    "render-template -> ui-kit", "ui-backend-claude -> core", "ui-backend-claude -> module-jobs",
+    "render-template -> ui-kit", "ui-backend-claude -> module-jobs",
     "ui-backend-claude -> ui-server", "ui-backend-pi -> ui-backend-claude", "ui-kit -> ui-react",
     "ui-react -> common", "ui-react -> core", "ui-react -> geo", "ui-react -> module-diagrams",
     "ui-react -> render-template", "ui-react -> ui-backend-claude", "ui-react -> ui-server",

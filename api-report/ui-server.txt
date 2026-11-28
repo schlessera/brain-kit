@@ -2221,6 +2221,7 @@ signatures (every public export and the types it is made of)
             billingMode?: BillingMode;
             pricingRoute?: PricingRoute;
             principalId?: string;
+            outputSpeed?: "fast";
         }): number | undefined;
         recordStateRoom?(sessionId: string, observation: StateRoomObservation): void;
         readStateRoom?(sessionId: string): StateRoomObservation | undefined;
@@ -2235,6 +2236,7 @@ signatures (every public export and the types it is made of)
         recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): boolean | void | Promise<boolean | void>;
         attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredProviderId(sessionId: string): string | null;
+        getStoredOutputSpeed?(sessionId: string): OutputSpeed | null;
         saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
         clearRetryRequest?(sessionId: string): void;
         peekRetry?(sessionId: string): retries.RetainedRetry | null;
@@ -2247,7 +2249,7 @@ signatures (every public export and the types it is made of)
         retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
         attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredBackendId(sessionId: string): string | null;
-        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string, ownerPrincipalId?: string, creatorTurnId?: string): void;
+        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string, ownerPrincipalId?: string, creatorTurnId?: string, outputSpeed?: OutputSpeed): void;
         persistSession(msg: ServerResultMessage, promptText: string, providerId: string | null, backendId: string): void;
         recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: {
             thinkingLevel?: ThinkingLevel;

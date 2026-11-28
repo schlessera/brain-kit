@@ -26,10 +26,11 @@ export { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 
 import { z } from "zod";
 import { isMcpTimingServerName } from "./protocol-helpers.js";
-import { CONVERSATION_LIMITS, HOST_STOP_CAUSES, LIVE_PERSONA_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
-import type { ThinkingLevel, StateRoomObservation } from "./protocol.js";
+import { CONVERSATION_LIMITS, HOST_STOP_CAUSES, LIVE_PERSONA_LIMITS, isOutputSpeed, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
+import type { OutputSpeed, ThinkingLevel, StateRoomObservation } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
+const outputSpeedSchema = z.custom<OutputSpeed>(isOutputSpeed, "Invalid output speed");
 
 import { ASK_USER_FORM_INPUT_SCHEMA, ASK_USER_FORM_ANSWER_SCHEMA, type AskUserFormNode, type AskUserFormAnswers } from "./tool-contracts/form.js";
 import { BLOCK_SCHEMA } from "./tool-contracts/blocks.js";
@@ -430,6 +431,7 @@ export const clientChatMessageSchema = z
     text: z.string().max(MAX_PROMPT_CHARS),
     sessionId: id.optional(),
     providerId: id.optional(),
+    outputSpeed: outputSpeedSchema.optional(),
     draftId: id.optional(),
     requestId: id.optional(),
     thinkingLevel: thinkingLevelSchema.optional(),
@@ -2123,7 +2125,12 @@ export const conversationLimitsSchema = z.looseObject({
   maxConversationsPerConnection: limitValue,
 }) satisfies z.ZodType<ConversationLimits>;
 
-export const dialogueEvidenceSchema = z.discriminatedUnion("kind", [
+/**
+ * The union `dialogueEvidenceSchema` refines. It stays unexported so the
+ * published type remains `ZodType<DialogueEvidence>`; its parity with that
+ * type is asserted where it is declared (#4896).
+ */
+const dialogueEvidenceUnion = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("voice"), conversationId: id, epoch: conversationEpoch, providerId: id, model:z.string().max(256).optional(),api:z.string().max(256).optional(),
     event: z.discriminatedUnion("kind", [
       z.object({kind:z.literal("input_fragment"),utteranceId:id,sequence:conversationSequence,text:z.string().max(2000),interval:conversationIntervalSchema.transform(i=>({startMs:i.startMs,endMs:i.endMs})).optional(),finalization:z.enum(["interim","final","unknown"]),certainty:z.enum(["known","unknown"]),confidence:z.number().min(0).max(1).optional(),origin:z.enum(["user","assistant","unknown"])}),
@@ -2135,7 +2142,17 @@ export const dialogueEvidenceSchema = z.discriminatedUnion("kind", [
     .refine(e => e.endedAt >= e.startedAt, "A conversation cannot end before it started"),
   z.object({ kind: z.literal("request"), turnId: id, requestId: id.optional() }),
   z.object({ kind: z.literal("backend"), turnId: id, start: conversationSequence, end: conversationSequence, digest: z.string().regex(/^[a-f0-9]{64}$/), text: z.string().max(2000) }),
-]).refine(e => e.kind !== "voice" || (e.event.kind === "input_fragment" ? (e.event.certainty === "known") === (e.event.confidence !== undefined)
+]);
+/** `true` only when both types are the same, so a key one of them adds or drops makes it `false`. */
+type SameType<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2)
+  ? (<T>() => T extends B ? 1 : 2) extends (<T>() => T extends A ? 1 : 2) ? true : false : false;
+type Assert<T extends true> = T;
+/**
+ * Fails `tsc --noEmit` unless the union is exactly `DialogueEvidence`. The
+ * cast below hides it from the schema parity map (#4896).
+ */
+type _DialogueEvidenceParity = Assert<SameType<z.infer<typeof dialogueEvidenceUnion>, DialogueEvidence>>;
+export const dialogueEvidenceSchema = dialogueEvidenceUnion.refine(e => e.kind !== "voice" || (e.event.kind === "input_fragment" ? (e.event.certainty === "known") === (e.event.confidence !== undefined)
   : e.event.kind !== "unassigned_input_fragment" || !!e.event.sessionInterval !== !!e.event.timing), "Invalid dialogue evidence certainty or timing") as z.ZodType<DialogueEvidence>;
 export const dialogueRecordSchema = z.object({ sequence: conversationEpoch, identity: z.string().min(1).max(2048), evidence: dialogueEvidenceSchema }) satisfies z.ZodType<DialogueRecord>;
 export const dialoguePageSchema = z.object({ cursor:z.string().max(2048).optional(), ownerId: id, sessionId: id.optional(), generation: conversationEpoch,

@@ -54,7 +54,7 @@ The run also covers duplicate and missing roots, both directions, depths 0, 1,
 **Independent calls.** For each scenario the harness calls, in parallel:
 
 - the real core MCP server (`brain mcp` over stdio), whose `brain_graph`
-  registration is (`"brain_graph"`, `packages/core/src/mcp-server.ts:381-406`);
+  registration is (`"brain_graph"`, `packages/core/src/mcp-server.ts:280-289`);
 - the registered Pi tool (`brainGraphTool`, `packages/ui-backend-pi/src/brain-tools.ts:259-294`);
 - in process, (`walkLinks`, `packages/core/src/lib/link-walk.ts:42-48`), under a
   counting proxy that records executed statements and returned rows without

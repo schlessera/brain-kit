@@ -32,6 +32,7 @@ export type {
 export {
   BackendBusyError,
   BackendRequestError,
+  FastOutputUnavailableError,
   admitToolDispatch,
   assertTurnPosture,
   isCompletedAutonomousToolCall,

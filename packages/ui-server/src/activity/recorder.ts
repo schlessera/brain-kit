@@ -159,6 +159,8 @@ export function createTurnRecorder(
     billingMode?: BillingMode;
     /** Which pricing catalog that profile bills through, resolved with it. */
     pricingRoute?: PricingRoute;
+    /** A fast session's run (#4310): the host's catalog has no fast rates, so it never prices one. */
+    outputSpeed?: "fast";
     /** Principal that initiated this turn; absent means unattributed. */
     principalId?: string;
     /** Server-selected; autonomous attempts never acquire an interactive session. */
@@ -302,6 +304,7 @@ export function createTurnRecorder(
         ...(turn.profileId ? { "brain.profile_id": turn.profileId } : {}),
         ...(turn.billingMode ? { "brain.billing_mode": turn.billingMode } : {}),
         ...(turn.pricingRoute ? { "brain.pricing_route": turn.pricingRoute } : {}),
+        ...(turn.outputSpeed ? { "brain.output_speed": turn.outputSpeed } : {}),
       },
     });
     turn.lifecycle?.linkBackend(runId);

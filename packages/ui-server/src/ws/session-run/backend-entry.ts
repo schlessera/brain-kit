@@ -315,6 +315,8 @@ export function turnRequest(run: TurnRun, prompt: string, bridge: BackendBridge)
     attachments,
     sessionId: resumeId,
     profileId,
+    // The session's stored speed, the same on every turn of it (#4310).
+    ...(turn.outputSpeed ? { outputSpeed: turn.outputSpeed } : {}),
     signal: abortController.signal,
     // The budget this very timer enforces, so the backend can put the
     // real number in front of the model instead of it finding the cap
