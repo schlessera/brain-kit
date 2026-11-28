@@ -1,3 +1,6 @@
+import { spyOn } from "bun:test";
+import { spawn } from "node:child_process";
+import * as workerApi from "@schlessera/brain-ui-sdk/internal";
 /**
  * Production SDK assembly and hooks through the pinned runtime and Unix relay.
  * captureOffline isolates networking. This probe launches the runtime directly:
@@ -31,7 +34,11 @@ const model = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   if (path !== "/v1/messages") return Response.json({});
   const raw = await request.text(), body = JSON.parse(raw);
   const main = body.tools?.some((tool: any) => tool.name === "Read");
-  if (main && mcpReady) writeFileSync(mcpReady, "Odysseus permits MCP startup.");
+  if (main && mcpReady) {
+    capture.qualification ??= {};
+    capture.qualification.firstRequestBeforeMcpRelease ??= !existsSync(mcpReady);
+    writeFileSync(mcpReady, "Odysseus permits MCP startup.");
+  }
   const step = main ? queue.shift() : undefined;
   if (step?.name === "CronDelete") {
     const match = /Scheduled one-shot task ([a-z0-9]+)/.exec(JSON.stringify(body.messages));
@@ -56,18 +63,18 @@ const proxy = Bun.serve({ unix: join(relay.dir, "proxy.sock"), fetch() { return 
 chmodSync(join(relay.dir, "proxy.sock"), 0o600);
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
- for (scenario of (process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? ["managed-gateway"] : ["discovery", "legacy", "legacy-no-snapshot", "legacy-inherited", "gateway", "project-on", "authority-upgrade", "removed", "builtins", "fast-api", "fast-subscription", "fast-disabled", "fast-thirdparty"])) {
+ for (scenario of (process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? ["managed-gateway"] : ["discovery", "legacy", "legacy-no-snapshot", "legacy-inherited", "gateway", "project-off", "project-off-unpinned", "authority-upgrade", "removed", "builtins", "fast-api", "fast-subscription", "fast-disabled", "fast-thirdparty"])) {
   const brain = fixtureBrain(scratch, scenario), home = join(scratch, `home-${scenario}`);
   mkdirSync(join(home, ".claude"), { recursive: true });
   writeFileSync(join(brain, "ithaca.ipynb"), JSON.stringify({ nbformat: 4, nbformat_minor: 5, metadata: {},
     cells: [{ id: "raft", cell_type: "markdown", metadata: {}, source: ["Odysseus checks Ithaca."] }] }));
-  const marker = join(brain, "legacy-metadata");
+  const marker = join(brain, "legacy-metadata"), counter = join(brain, "mcp-start-count");
   mcpReady = scenario === "discovery" ? join(brain, "mcp-ready") : undefined;
   if (scenario.startsWith("legacy")) writeFileSync(marker, "Odysseus keeps the old roster.");
   mkdirSync(join(brain, ".claude"), { recursive: true });
-  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ enableAllProjectMcpServers: true, env: scenario === "legacy-inherited" ? {} : { ENABLE_TOOL_SEARCH: scenario === "project-on" ? "true" : "false" } }));
+  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ enableAllProjectMcpServers: true, env: scenario === "legacy-inherited" ? {} : { ENABLE_TOOL_SEARCH: "false" } }));
   if (!scenario.startsWith("legacy") && scenario !== "builtins") writeFileSync(join(brain, ".mcp.json"), JSON.stringify({ mcpServers: {
-    brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker, ...(mcpReady ? [mcpReady] : [])] },
+    brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker, ...(mcpReady ? [mcpReady, counter] : [])] },
   } }));
   capture = captures[scenario] = { sessions: [], exchanges: [], appends: [], budgets: [], calls: [] };
   let sessionId: string | undefined;
@@ -78,12 +85,12 @@ try {
     // selection or marker. The first query uses independently frozen inputs.
     if (scenario !== "legacy-no-snapshot") claudePromptContext(brain, sessionId).retainAppend(baseline.append);
   }
-  for (turnIndex = 0; turnIndex < (scenario === "builtins" ? 2 : scenario === "fast-thirdparty" || scenario === "managed-gateway" ? 1 : 3); turnIndex++) {
+  for (turnIndex = 0; turnIndex < (scenario === "builtins" ? 2 : scenario === "fast-thirdparty" || scenario === "managed-gateway" || scenario === "project-off-unpinned" ? 1 : 3); turnIndex++) {
     if (turnIndex) rmSync(marker, { force: true });
     // Each diagnostic process starts before its project MCP server is ready.
     // Reset the event latch on resume too, so qualification is not a CPU race.
-    if (mcpReady) rmSync(mcpReady, { force: true });
-    queue = scenario === "discovery" && turnIndex === 0 ? [{ name: "ToolSearch", input: { query: "select:mcp__brain__brain_graph", max_results: 1 } }]
+    if (mcpReady) { rmSync(mcpReady, { force: true }); rmSync(counter, { force: true }); }
+    queue = scenario === "discovery" && turnIndex === 0 ? [{ name: "ToolSearch", input: { query: "select:mcp__brain__brain_graph", max_results: 1 } }, { name: "mcp__brain__brain_read", input: { path: "notes/raft.md" } }]
       : scenario === "removed" && turnIndex === 0 ? [{ name: "SendMessage", input: { to: "athena", message: "Odysseus checks Ithaca." } }]
       : scenario === "builtins" && turnIndex === 1 ? [
         { name: "EnterPlanMode", input: {} }, { name: "ExitPlanMode", input: {} },
@@ -106,8 +113,10 @@ try {
       ...(scenario.endsWith("gateway") ? { ANTHROPIC_BASE_URL: "https://gateway.example.com" } : {}) };
     const requestsBeforeAssembly = capture.exchanges.length;
     let turn: ReturnType<typeof createClaudeSdkTurn> | ReturnType<typeof legacySdkTurn>;
-    try { turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
+    try { turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ brainBridgeInventory: "core-only", backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
       applicationAuthority: scenario === "authority-upgrade" && turnIndex !== 1 ? undefined : "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
+      // #4310: a fast session's speed through production assembly, the same on every turn.
+      ...(scenario === "fast-api" || scenario === "fast-subscription" ? { outputSpeed: "fast" as const } : {}),
       workerSandbox: prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] }),
       bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" }; } },
     }, profile: { id: "fixture", label: "Fixture", model: "claude-opus-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
@@ -139,14 +148,27 @@ try {
     if (legacy && turnIndex === 0) capture.qualification.baseline = { source: baseline.source, initialized };
     if (legacy) turn.options.mcpServers = { ...turn.options.mcpServers, brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker] } };
     if (scenario === "discovery") {
-      // Qualification only: production holds search off. Exercise the failing
-      // production project-MCP startup with an explicitly diagnostic opt-in.
-      turn.options.env!.ENABLE_TOOL_SEARCH = "true";
-      (turn.options.settings as any).env.ENABLE_TOOL_SEARCH = "true";
+      // This probe owns only runtime/relay qualification. Replace the lowest
+      // worker launch with a real stdio process in the probe's offline namespace;
+      // brain-tool-forwarder-runtime.test.ts owns the real worker boundary.
+      const launch = spyOn(workerApi, "launchAgentWorkerAsync").mockImplementation(async input => {
+        const child = spawn(process.execPath, [resolve(import.meta.dir, "request-shape-mcp.ts"), marker, mcpReady!, counter], {
+          cwd: brain, env: environment, stdio: ["pipe", "pipe", "pipe"],
+        });
+        const exited = new Promise<number>((resolve, reject) => { child.once("error", reject); child.once("exit", code => resolve(code ?? 1)); });
+        return { stdin: child.stdin, stdout: child.stdout, stderr: child.stderr, exited,
+          kill: () => { child.kill("SIGKILL"); }, async released() { await input.startupView?.cleanup(); } } as never;
+      });
+      (turn as ReturnType<typeof createClaudeSdkTurn>).startBrainTools!();
+      // start() enters its asynchronous launch after this synchronous probe setup.
+      await Promise.resolve(); await Promise.resolve();
+      launch.mockRestore();
     }
     capture.qualification.mcpStartup = legacy ? "frozen blocking baseline" : "project .mcp.json, production non-blocking";
     if (scenario.startsWith("fast-")) {
-      turn.options.settings = { ...turn.options.settings as object, fastMode: true };
+      // Runtime-condition qualification only: production assembly set the
+      // product scenarios' speed above; these emulate refusals it cannot reach.
+      if (scenario === "fast-disabled" || scenario === "fast-thirdparty") turn.options.settings = { ...turn.options.settings as object, fastMode: true };
       if (scenario === "fast-disabled") {
         turn.options.env!.CLAUDE_CODE_DISABLE_FAST_MODE = "1";
         (turn.options.settings as any).env.CLAUDE_CODE_DISABLE_FAST_MODE = "1";
@@ -163,6 +185,9 @@ try {
         (turn.options.settings as any).env.CLAUDE_CODE_OAUTH_TOKEN = INFERENCE_PLACEHOLDER;
       }
     }
+    // #4894 round 5 F4 control: without the host pin the runtime resolves the
+    // project's own "false", so the pin is what wins in "project-off".
+    if (scenario === "project-off-unpinned") { delete turn.options.env!.ENABLE_TOOL_SEARCH; delete (turn.options.settings as any).env.ENABLE_TOOL_SEARCH; }
     turn.options.stderr = text => console.error(text);
     capture.appends.push(turn.options.systemPrompt);
     capture.budgets!.push({ disallowed: turn.options.disallowedTools, allowed: turn.options.allowedTools,
@@ -174,7 +199,7 @@ try {
       let runtime: ReturnType<typeof query>;
       let gateTerminal: TurnTerminal | undefined;
       let prompt = turn.prompt;
-      if (scenario === "managed-gateway") {
+      if (scenario === "managed-gateway" || scenario === "discovery" || scenario.startsWith("project-off")) {
         gateTerminal = new TurnTerminal({ frames: new TurnFrames({ emit() {}, async requestPermission() { return { behavior: "deny", message: "Qualification cannot approve permission prompts." }; } }, null), hostSignal: new AbortController().signal,
           abortController: controller, startedAt: Date.now(), pendingFailure: () => null });
         const terminal = gateTerminal;
@@ -185,6 +210,7 @@ try {
             profileId: "fixture", log() {}, reportActivity() {}, reportRuntime() {} });
           const settings = await (cli as any).getSettings();
           capture.qualification!.effectiveToolSearch = settings.effective?.env?.ENABLE_TOOL_SEARCH;
+          capture.qualification!.effectiveDisabledMcpjsonServers = settings.effective?.disabledMcpjsonServers;
           const allowed = await check();
           capture.qualification!.promptReleased = allowed;
           capture.qualification!.refusal = terminal.refused;
@@ -199,14 +225,100 @@ try {
         }
         if (message.type === "result") { if (message.subtype !== "success") throw new Error(JSON.stringify(message)); sessionId = message.session_id; success = true; }
       }
-      if (scenario === "managed-gateway" && gateTerminal?.withheld) continue;
+      // The project-off pair records a withheld prompt for the test to judge.
+      if ((scenario === "managed-gateway" || scenario.startsWith("project-off")) && gateTerminal?.withheld) continue;
       if (!success || !sessionId) throw new Error("Missing successful SDK result");
       capture.sessions.push(sessionId);
     } catch (error) {
-      if (scenario === "managed-gateway" && controller.signal.aborted && capture.qualification?.promptReleased === false) { /* Expected gate refusal, before any model request. */ }
+      if ((scenario === "managed-gateway" || scenario.startsWith("project-off")) && controller.signal.aborted && capture.qualification?.promptReleased === false) { /* Expected gate refusal, before any model request. */ }
       else if (scenario !== "fast-thirdparty" || !controller.signal.aborted || !capture.rosters?.length) throw error;
-    } finally { clearTimeout(timer); await turn.finishWorker(); view.cleanup(); turnLock.close(); }
+    } finally { clearTimeout(timer); await turn.finishWorker();
+      if (scenario === "discovery") ((capture.qualification!.brainProcessStarts ??= []) as number[]).push(readFileSync(counter, "utf8").trim().split("\n").length);
+      view.cleanup(); turnLock.close(); }
   }
+ }
+ // #4310 (ruling 2026-11-27): a direct fast turn runs under the runtime's own
+ // first-party provider policy, pinned by assembly in managedSettings. These
+ // need a runner without an admin managed tier (a private /etc here). Pinned
+ // route scenarios release the prompt whatever the gate says, so they prove
+ // the RUNTIME refuses the route; the unpinned controls show the same route
+ // reaches the fake upstream without the pin.
+ //
+ // The CLI takes its transport socket from its process environment, not from
+ // a settings `env` block, so the socket pair injects it after assembly (which
+ // names an inherited socket itself): pinned, the runtime refuses it; unpinned,
+ // the same socket reaches the fake upstream.
+ for (scenario of process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? [] : ["fast-direct-policy", "fast-direct-socket-env", "fast-direct-socket-project",
+   "fast-direct-gateway", "fast-direct-socket-injected", "fast-direct-socket-unpinned", "fast-direct-gateway-unpinned"]) {
+  const brain = fixtureBrain(scratch, scenario), home = join(scratch, `home-${scenario}`);
+  mkdirSync(join(home, ".claude"), { recursive: true });
+  mkdirSync(join(brain, ".claude"), { recursive: true });
+  // The relay serves plain HTTP on its socket, as production's relayed turns use it.
+  const socketRoute = { ANTHROPIC_UNIX_SOCKET: relay.socketPath, ANTHROPIC_BASE_URL: "http://localhost" };
+  const projectEnv = scenario.startsWith("fast-direct-gateway") ? { ANTHROPIC_BASE_URL: model.url.origin }
+    : scenario === "fast-direct-socket-project" ? socketRoute : {};
+  // The unpinned gateway control carries the pin in project settings only:
+  // the gate must refuse it, and the runtime still serves the route.
+  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ env: projectEnv,
+    ...(scenario === "fast-direct-gateway-unpinned" ? { allowedProviders: ["anthropic"] } : {}) }));
+  const qualification: Record<string, unknown> = { watchdogMs: watchdogMs(45_000) };
+  capture = captures[scenario] = { sessions: [], exchanges: [], appends: [], budgets: [], calls: [], qualification };
+  turnIndex = 0; queue = [];
+  const controller = new AbortController();
+  const view = createFixtureWorkerStartupView(brain);
+  const turnLock = createTurnLockBinding({ turn: { pendingReleases: new Map(), ended: false }, writeLock: createKeyedLock(), lockWaitMs: 1000, log() {} });
+  const environment: Record<string, string> = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"),
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", ANTHROPIC_API_KEY: "offline-odysseus", ...(scenario === "fast-direct-socket-env" ? socketRoute : {}) };
+  let turn: ReturnType<typeof createClaudeSdkTurn>;
+  try {
+    turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: "Odysseus checks Ithaca fast.", applicationAuthority: "server", signal: controller.signal,
+      turnId: `${scenario}-0`, workerStartupView: view, outputSpeed: "fast", workerSandbox: prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] }),
+      bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" }; } } },
+      profile: { id: "fixture", label: "Fixture", model: "claude-opus-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
+      turnEnvironment: environment, abortController: controller, allowedTools: ["Read"], confirmPatterns: [], turnLock, log() {} });
+  } catch (error) {
+    qualification.assemblyRefusal = { errorClass: (error as { errorClass?: unknown }).errorClass, message: error instanceof Error ? error.message : String(error) };
+    view.cleanup(); turnLock.close();
+    continue;
+  }
+  delete turn.options.spawnClaudeCodeProcess;
+  if (scenario.endsWith("-unpinned")) delete turn.options.managedSettings;
+  if (scenario === "fast-direct-socket-injected" || scenario === "fast-direct-socket-unpinned") Object.assign(turn.options.env!, socketRoute);
+  qualification.managedSettings = turn.options.managedSettings ?? null;
+  turn.options.stderr = text => console.error(text);
+  const release = scenario !== "fast-direct-policy";
+  // A released scenario records the gate's verdict without letting it stop
+  // the runtime: a withheld prompt aborts the terminal's controller, so the
+  // terminal gets its own there, and only the runtime's policy can refuse.
+  const terminal = new TurnTerminal({ frames: new TurnFrames({ emit() {}, async requestPermission() { return { behavior: "deny", message: "Qualification cannot approve permission prompts." }; } }, null),
+    hostSignal: new AbortController().signal, abortController: release ? new AbortController() : controller, startedAt: Date.now(), pendingFailure: () => null });
+  let runtime!: ReturnType<typeof query>;
+  const prompt = gatedPrompt(turn.prompt, async () => {
+    const check = promptGateCheck({ queryHandle: Promise.resolve(runtime), initialize: value => value.initializationResult(), sdkTurn: turn, relay: undefined,
+      terminal, runtimeRequirements: [], phase: "qualification", abortController: new AbortController(), profileId: "fixture", log() {}, reportActivity() {}, reportRuntime() {} });
+    try {
+      const settings = await (runtime as unknown as { getSettings(): Promise<{ effective?: { allowedProviders?: unknown }; sources?: Array<{ source?: unknown; settings?: Record<string, unknown> }> }> }).getSettings();
+      qualification.effectiveAllowedProviders = settings?.effective?.allowedProviders ?? null;
+      qualification.settingsSources = (settings?.sources ?? []).map(entry => ({ source: entry.source, keys: Object.keys(entry.settings ?? {}).sort(),
+        allowedProviders: entry.settings?.allowedProviders ?? null }));
+    } catch (error) { qualification.settingsError = String(error); }
+    try { qualification.gateAllowed = await check(); } catch (error) { qualification.gateError = String(error); }
+    qualification.gateRefusal = terminal.refused;
+    // The policy scenario has no upstream to reach; route scenarios release
+    // regardless, so only the runtime's own policy can stop the request.
+    if (!release) controller.abort();
+    return release;
+  });
+  const timer = setTimeout(() => controller.abort(), watchdogMs(45_000));
+  const results: unknown[] = [];
+  try {
+    runtime = query({ prompt, options: turn.options });
+    for await (const message of runtime) {
+      if (message.type === "system" && message.subtype === "init") qualification.init = { state: message.fast_mode_state, reason: message.fast_mode_disabled_reason };
+      if (message.type === "result") results.push({ subtype: message.subtype, startup_failure_reason: (message as { startup_failure_reason?: unknown }).startup_failure_reason ?? null });
+    }
+  } catch (error) { qualification.streamError = error instanceof Error ? error.message.slice(0, 500) : String(error); }
+  finally { clearTimeout(timer); qualification.results = results; await turn.finishWorker().catch(() => {}); view.cleanup(); turnLock.close(); }
  }
  writeFileSync(join(scratch, "requests.json"), JSON.stringify(captures));
 } finally { restore(); proxy.stop(true); relay.stop(); model.stop(true); }

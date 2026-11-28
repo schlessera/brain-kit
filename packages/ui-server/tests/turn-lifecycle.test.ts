@@ -369,3 +369,17 @@ test("terminal hold accounting counts shared stops once and partitions overlappi
       inferenceMs: 0, noInferenceMs: 0, unknownMs: 0 });
   } finally { db.close(); }
 });
+
+test("inventory duration persists as an internal startup span", async () => {
+  const db = createUiDb(":memory:");
+  try {
+    const store = createActivityStore(db); let now = 1000;
+    const lifecycle = createTurnLifecycle(store, "turn-ithaca-inventory", null, now, () => {}, () => now);
+    lifecycle.mark("backendInvokedAt");
+    const finish = lifecycle.startupTiming.start("brain_tool_inventory");
+    now = 1001; finish();
+    lifecycle.startupTiming.received(); lifecycle.finish("success"); await lifecycle.settled();
+    expect(store.lifecycle("turn-ithaca-inventory")!.openSubPhases!.find(span => span.name === "brain_tool_inventory"))
+      .toEqual({ phase: "backend", name: "brain_tool_inventory", startedAt: 1000, endedAt: 1001, elapsedMs: 1 });
+  } finally { db.close(); }
+});

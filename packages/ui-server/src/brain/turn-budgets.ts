@@ -1,6 +1,7 @@
 /** Completed-inference accounting. Activity terminal rows and live receipts never add twice. */
+import { pricingForSpeed } from "../pricing/fast-output.js";
 import type { Database } from "bun:sqlite";
-import type { TurnUsage, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
+import type { OutputSpeed, TurnUsage, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { priceUsage, type RollupPricing } from "../activity/store.js";
 import { priceProviderAttempt } from "../pricing/provider-pricing.js";
@@ -322,7 +323,10 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
     /** The turn's session once known, for its Apify session scope. */
     sessionId: string | null;
     route?: PricingRoute;
+    /** The turn's own usage: a fast session's at its fast rate (#4310). */
     pricing: RollupPricing;
+    /** Independent relayed provider completions, always at their standard rate. */
+    providerPricing: RollupPricing;
     /** A write this turn depends on failed: its accounting is unavailable. */
     failed?: unknown;
   }>();
@@ -358,14 +362,21 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
   };
   return {
     /** Settles once the turn's admission row and receipt have committed; rejects with `BudgetExceeded` when a session or day scope is blocked. */
-    async begin(id: string, sessionId: string | undefined, policy: EffectiveGovernancePolicy, route?: PricingRoute): Promise<TurnBudgetReceipt> {
-      const rates = new Map<string, ReturnType<RollupPricing["resolve"]>>();
-      active.set(id, { policy, sessionId: sessionId ?? null, route, pricing: { resolve(model, route) {
-            const key = JSON.stringify([model, route]);
-            if (!rates.has(key))
-              rates.set(key, structuredClone(pricing.resolve(model, route)));
-            return rates.get(key)!;
-          } } });
+    async begin(id: string, sessionId: string | undefined, policy: EffectiveGovernancePolicy, route?: PricingRoute, speed?: OutputSpeed): Promise<TurnBudgetReceipt> {
+      // Rates are frozen per turn. A fast session's own usage is priced at its
+      // fast rate, never a standard one; an independent relayed completion
+      // runs at standard speed and keeps its standard rate (#4310).
+      const frozen = (source: { resolve: RollupPricing["resolve"] }): RollupPricing => {
+        const rates = new Map<string, ReturnType<RollupPricing["resolve"]>>();
+        return { resolve(model, route) {
+          const key = JSON.stringify([model, route]);
+          if (!rates.has(key)) rates.set(key, structuredClone(source.resolve(model, route)));
+          return rates.get(key)!;
+        } };
+      };
+      const providerPricing = frozen(pricing);
+      active.set(id, { policy, sessionId: sessionId ?? null, route, providerPricing,
+        pricing: speed === "fast" ? frozen(pricingForSpeed(pricing, speed)) : providerPricing });
       const now = clock();
       const result = await call<TurnBudgetReceipt>("begin", id, sessionId ?? null, policy, now, apifyReading(id, now));
       const blocked = result.scopes.find(item => item.blocked && item.scope !== "turn");
@@ -457,7 +468,7 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
      */
     observeProvider(turnId: string | null, attempt: ProviderRelayReceipt): Promise<BudgetObservationResult | undefined> {
       const turn = turnId !== null ? active.get(turnId) : undefined;
-      const priced = priceProviderAttempt(attempt, turn?.pricing ?? pricing);
+      const priced = priceProviderAttempt(attempt, turn?.providerPricing ?? pricing);
       const now = clock();
       return call<BudgetObservationResult | undefined>("observeProvider", turnId, turn?.policy ?? null, attempt,
         { costUsd: priced.costUsd, estimate: priced.estimate, tokens: priced.tokens }, now, turn ? apifyReading(turnId, now) : null);
