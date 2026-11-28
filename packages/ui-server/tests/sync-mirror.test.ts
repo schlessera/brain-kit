@@ -15,6 +15,7 @@ import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 import { privateMaintenanceTest } from "./helpers/private-maintenance-test.js";
 import { installFakeBrain } from "./helpers/fake-brain-cli";
+import { vanishedProcess } from "./helpers/vanished-process";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const TOKEN = "fixture-sync-token-never-for-the-brain";
@@ -329,7 +330,7 @@ Bun.spawn(["/bin/sh", "-c", ${JSON.stringify('printf ready > "$3"; while kill -0
     type Identity = { pid: number; start: string };
     const status = (pid: number) => {
       try { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" "); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+      catch (error) { if (vanishedProcess(error)) return undefined; throw error; }
     };
     const running = (identity: Identity) => {
       const fields = status(identity.pid);
@@ -338,7 +339,7 @@ Bun.spawn(["/bin/sh", "-c", ${JSON.stringify('printf ready > "$3"; while kill -0
     const descendants = (pid: number): number[] => {
       let children: number[];
       try { children = readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+      catch (error) { if (vanishedProcess(error)) return []; throw error; }
       return children.flatMap(child => [child, ...descendants(child)]);
     };
     let writer: Identity | undefined;
@@ -367,7 +368,7 @@ Bun.spawn(["/bin/sh", "-c", ${JSON.stringify('printf ready > "$3"; while kill -0
               const command = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
               const fields = status(pid);
               if (command[0] === "/bin/sh" && command.includes(alternate) && fields) writer = { pid, start: fields[19]! };
-            } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+            } catch (error) { if (!vanishedProcess(error)) throw error; }
           }
           if (holdMonitor && writer && !held && !wroteBeforeExit && existsSync(ready)) {
             process.kill(child.pid, "SIGSTOP"); held = true;
