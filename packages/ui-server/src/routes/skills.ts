@@ -86,7 +86,7 @@ export function createSkillRoutes(deps: SkillRoutesDeps): Hono {
       try {
         // Count the body before the multipart parser sees it: formData() first
         // would buffer whatever the server-wide request cap allows.
-        const raw = await readBodyBytes(c.req.raw, MAX_ARCHIVE_BYTES + MULTIPART_HEADROOM_BYTES);
+        const raw = await readBodyBytes(c.req.raw, MAX_ARCHIVE_BYTES + MULTIPART_HEADROOM_BYTES, { copyChunks: true });
         if (!raw) return tooLarge();
         const contentType = c.req.header("content-type");
         const form = await new Response(new Blob(raw.chunks as BlobPart[]), {

@@ -113,7 +113,7 @@ export function createMarkupRoutes(coordinator: Pick<TurnCoordinator, "peekMarku
       if (media.split(";", 1)[0]!.trim().toLowerCase() !== "multipart/form-data") {
         throw new UploadError(415, "unsupported_media_type", "Send the layer as multipart/form-data.");
       }
-      const read = await readBodyBytes(c.req.raw, MARKUP_UPLOAD_MAX_BODY_BYTES);
+      const read = await readBodyBytes(c.req.raw, MARKUP_UPLOAD_MAX_BODY_BYTES, { copyChunks: true });
       if (!read) throw tooLarge();
       const body = new Uint8Array(Buffer.concat(read.chunks, read.bytes));
       let form: FormData;

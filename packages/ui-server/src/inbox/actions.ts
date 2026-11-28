@@ -178,7 +178,9 @@ const LIVE_WORK = "deleted_at IS NULL AND queue = 'queue' AND type != 'cleanup_p
 /**
  * The live items a sweep can act on (#4804), in id order, each through
  * `inbox_items_ready`: open Actions past their expiry or snooze, work past
- * its retention or schedule, failed work out of attempts, and finished work
+ * its retention (through `inbox_items_work_expiry`, whose range ends at the
+ * sweep time and holds no staging cleanup, #4993) or schedule, failed work
+ * out of attempts, and finished work
  * in a thread with a triage item that has no cleanup item yet. A cleanup is
  * matched by staging id in its own thread; one held elsewhere only makes the
  * thread a candidate, and `enqueueInboxCleanup` still skips it. Those threads
@@ -189,7 +191,7 @@ const LIVE_WORK = "deleted_at IS NULL AND queue = 'queue' AND type != 'cleanup_p
  */
 const SWEEP_CANDIDATES = `SELECT id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'actions' AND status IN ('pending', 'snoozed') AND expires_at <= ?1
   UNION SELECT id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'actions' AND status = 'snoozed' AND wait_until <= ?1
-  UNION SELECT id FROM inbox_items WHERE ${LIVE_WORK} AND status IN ('blocked', 'ready', 'scheduled', 'failed') AND expires_at <= ?1
+  UNION SELECT id FROM inbox_items INDEXED BY inbox_items_work_expiry WHERE ${LIVE_WORK} AND status IN ('blocked', 'ready', 'scheduled', 'failed') AND expires_at <= ?1
   UNION SELECT id FROM inbox_items WHERE ${LIVE_WORK} AND status = 'scheduled' AND (wait_until IS NULL OR wait_until <= ?1)
   UNION SELECT id FROM inbox_items WHERE ${LIVE_WORK} AND status = 'failed' AND attempts >= max_attempts
   UNION SELECT i.id FROM inbox_cleanup_due d CROSS JOIN inbox_items i INDEXED BY inbox_items_thread ON i.thread_id = d.thread_id
