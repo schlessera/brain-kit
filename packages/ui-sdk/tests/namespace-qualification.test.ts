@@ -108,6 +108,26 @@ describe("evaluateNamespace", () => {
       expect(evaluateNamespace(live, [STATE], [1000, 1000, 1000, 1000], serverOwned).result, "SERVER_UID_JUDGED_AS_SERVER").toBe("exposed");
       expect(evaluateNamespace(live, [STATE], [21003, 1000], serverOwned).result, "ANY_SANDBOX_UID_MATCHES").toBe("exposed");
     });
+    test("state below an owner-only directory of another UID is reported and released, whatever its own mode (#5051)", () => {
+      // A separate worker identity sees the host's root, where the server's
+      // 0700 state directory holds a database the default umask left 0644.
+      const root = table(line(709, 680, "0:46", "/", "/", "overlay", "ro"), seal(3, 709));
+      const DB: StateRootObservation = { setting: "DB_PATH", path: "/identity-server-private/server-ws/ui.db", sb: "0:46", fspath: "/identity-server-private/server-ws/ui.db" };
+      const modes: Record<string, { uid: number; mode: number }> = {
+        "/identity-server-private/server-ws/ui.db": { uid: 21001, mode: 0o100644 }, "/identity-server-private/server-ws": { uid: 21001, mode: 0o40755 },
+        "/identity-server-private": { uid: 21001, mode: 0o40700 }, "/": { uid: 0, mode: 0o40755 } };
+      const host: NamespaceInspector = { owner: path => modes[path], layer: () => undefined };
+      expect(evaluateNamespace(root, [DB], [21002, 21002, 21002, 21002], host), "OWNER_ONLY_ANCESTOR_RELEASES").toMatchObject({ result: "ownership_only",
+        entries: [{ setting: "DB_PATH", name: DB.path }] });
+      // The server's own UID traverses its directory: exposed.
+      expect(evaluateNamespace(root, [DB], [21001, 21001, 21001, 21001], host).result, "OWNER_ANCESTOR_TRAVERSED_BY_ITS_OWNER").toBe("exposed");
+      // A directory others may enter protects nothing.
+      modes["/identity-server-private"] = { uid: 21001, mode: 0o40711 };
+      expect(evaluateNamespace(root, [DB], [21002, 21002, 21002, 21002], host).result, "TRAVERSABLE_ANCESTOR_EXPOSED").toBe("exposed");
+      // An ancestor the host cannot read is unknown, never released.
+      delete modes["/identity-server-private"];
+      expect(evaluateNamespace(root, [DB], [21002, 21002, 21002, 21002], host).result, "UNREADABLE_ANCESTOR_UNKNOWN").toBe("unknown");
+    });
     test("an owner the host cannot read is unknown, never released", () => {
       expect(evaluateNamespace(live, [STATE], [21003], { owner: () => undefined, layer: () => undefined }).result).toBe("unknown");
     });

@@ -7,6 +7,7 @@
  * (`evaluateNamespace`). Nothing here reads the filesystem.
  * Design and rules: docs/decisions/worker-writable-areas.md.
  */
+import { dirname } from "node:path";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 
 /**
@@ -175,6 +176,9 @@ export function overlayLayers(superOptions: string): string[] {
  * part. A live candidate (one `resolveMount` reaches) is an exposure, unless
  * the object it shows is owned by none of the sandbox's UIDs and has no group
  * or other permission bit (the 2026-11-27 ruling): then it is reported only.
+ * The same holds for any host directory between the mount's root and the
+ * object, which the sandbox must traverse to open it: state below an
+ * owner-only directory of another UID is reported only (#5051).
  * A live overlay whose layer is prefix-related to a root is an exposure; a
  * layer path the server cannot resolve is not judged and is named in
  * `nonCoverage`. An ambiguous table, or a live object the host cannot stat,
@@ -186,19 +190,33 @@ export function evaluateNamespace(rows: readonly MountRow[], roots: readonly Sta
   for (const root of roots) {
     for (const row of rows) {
       if (row.sb !== root.sb) continue;
-      let name: string, object: string;
-      if (holdsPath(row.root, root.fspath)) { name = under(row.point, below(row.root, root.fspath)); object = root.path; }
+      let name: string, object: string, traversed = 0;
+      if (holdsPath(row.root, root.fspath)) {
+        const rest = below(row.root, root.fspath);
+        name = under(row.point, rest); object = root.path;
+        // The host directories from the mount's root down to the object's parent.
+        traversed = rest.split("/").filter(Boolean).length;
+      }
       else if (holdsPath(root.fspath, row.root)) { name = row.point; object = under(root.path, below(root.fspath, row.root)); }
       else continue;
       const reached = resolveMount(rows, name);
       if ("ambiguous" in reached) return { result: "unknown", cause: reached.ambiguous };
       if (reached.row.id !== row.id) continue;
       const exposure = { setting: root.setting, path: root.path, name, row: describe(row) };
-      const owner = inspect.owner(object);
-      if (!owner) return { result: "unknown", cause: `the owner of ${root.setting} could not be read` };
+      const ownerOnly = (path: string): boolean | undefined => {
+        const owner = inspect.owner(path);
+        return owner && !workerUids.includes(owner.uid) && (owner.mode & 0o077) === 0;
+      };
+      let closed = ownerOnly(object);
+      if (closed === undefined) return { result: "unknown", cause: `the owner of ${root.setting} could not be read` };
+      for (let at = 0, dir = object; !closed && at < traversed; at++) {
+        dir = dirname(dir);
+        closed = ownerOnly(dir);
+        if (closed === undefined) return { result: "unknown", cause: `the owner of a directory above ${root.setting} could not be read` };
+      }
       // An idmapped mount shows another owner at the worker's name than the host
       // reads at its own: the host's owner decides nothing there (F31).
-      if (!row.options.includes("idmapped") && !root.hostIdmapped && !workerUids.includes(owner.uid) && (owner.mode & 0o077) === 0) ownershipOnly.push(exposure);
+      if (!row.options.includes("idmapped") && !root.hostIdmapped && closed) ownershipOnly.push(exposure);
       else return { result: "exposed", ...exposure };
     }
   }
