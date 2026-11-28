@@ -23,8 +23,11 @@
 // template literal, a conditional or `+` concatenation with one, a name that
 // says `sql` (a constant such as `UPSERT_SESSION_SQL`, a `sql.replace(…)`
 // call), or a name whose `const` in its own scope is SQL text (#4997, #5008):
-// the nearest enclosing block, function or file that declares the name, so a
-// short name such as `stmt` reused across functions resolves in each. Other
+// the nearest enclosing block, function or file that declares the name (a
+// `var` declares it for its whole function or file, from any nested block or
+// `for` header, #5048), so a short name such as `stmt` reused across
+// functions resolves in each. Any other declaration of the name there
+// resolves to nothing. Other
 // objects' `prepare` methods (`boundary.prepare()`, `operation.prepare()`,
 // `privateIndexes.prepare({…})`) take no SQL and are not flagged. Detection is
 // AST-based (the TypeScript compiler API), so comments and strings that mention
@@ -100,10 +103,26 @@ function binds(binding: ts.BindingName, name: string): boolean {
 }
 
 /**
+ * Whether a `var` anywhere in a function's or file's own body declares `name`,
+ * in a nested block or a `for` header too, but not inside a nested function:
+ * a `var` is function-scoped wherever it sits (#5048).
+ */
+function declaresVar(scope: ts.Node, name: string): boolean {
+  const walk = (node: ts.Node): boolean => {
+    if (node !== scope && ts.isFunctionLike(node)) return false;
+    if (ts.isVariableDeclarationList(node) && !(node.flags & ts.NodeFlags.BlockScoped) &&
+      node.declarations.some((declaration) => binds(declaration.name, name))) return true;
+    return ts.forEachChild(node, walk) === true;
+  };
+  return walk(scope);
+}
+
+/**
  * What `name` is in one scope node: the initializer of a plain `const` that
  * declares it there, `null` when something else declares it there (a `let`,
  * a `var`, a parameter, a destructuring, a function or class), or `undefined`
- * when this scope does not declare it.
+ * when this scope does not declare it. A function or the file also declares
+ * every `var` in its body, however deeply nested.
  */
 function declaredIn(scope: ts.Node, name: string): ts.Expression | null | undefined {
   if (ts.isFunctionLike(scope) && scope.parameters.some((parameter) => binds(parameter.name, name))) return null;
@@ -127,6 +146,7 @@ function declaredIn(scope: ts.Node, name: string): ts.Expression | null | undefi
       return plainConst ? declaration.initializer! : null;
     }
   }
+  if ((ts.isFunctionLike(scope) || ts.isSourceFile(scope)) && declaresVar(scope, name)) return null;
   return undefined;
 }
 

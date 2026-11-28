@@ -108,6 +108,22 @@ describe("what passes", () => {
     }
   });
 
+  // A var is function-scoped: one the use follows, in a nested block or a for header, shadows for the rest of the function.
+  test("a var in a nested block shadows a file-level SQL const (#5048)", () => {
+    const text = 'const stmt = "DELETE FROM session_drafts";\nexport function go(b: Boundary, x: boolean) {\n  if (x) { var stmt = plan(); }\n  return b.prepare(stmt);\n}\n';
+    expect(run(text).findings).toEqual([]);
+  });
+
+  test("a var in a for header shadows a file-level SQL const (#5048)", () => {
+    const text = 'const stmt = "DELETE FROM session_drafts";\nexport function go(b: Boundary) {\n  for (var stmt = plan(); !stmt.ready; stmt = plan()) {}\n  return b.prepare(stmt);\n}\n';
+    expect(run(text).findings).toEqual([]);
+  });
+
+  test("a var inside a nested function does not shadow a file-level SQL const for the outer function (#5048)", () => {
+    const text = 'const stmt = "DELETE FROM session_drafts";\nexport function go(db: Database) {\n  const later = () => { var stmt = plan(); return stmt; };\n  return db.prepare(stmt);\n}\n';
+    expect(run(text).findings.map((finding) => finding.line)).toEqual([4]);
+  });
+
   test("an allow-listed site passes and is listed with its reason", () => {
     const allow = [{ file: FILE, match: /^"SELECT 1 FROM t WHERE id = \?"$/, reason: "kept for the store's lifetime" }];
     const text = 'const once = db.prepare("SELECT 1 FROM t WHERE id = ?");\n';
