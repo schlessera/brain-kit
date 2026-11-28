@@ -6458,8 +6458,16 @@ can ask. Both checks run before any card's evidence marker is read. A
 destination that comes to need a Network card before dispatch, such as one
 whose standing recipient rule was withdrawn, is refused as `recording_gap`.
 The extraction classifier (`taint.classifier: heuristics`) reads the same
-predicate: an `ask` verdict raises no card and refuses the call, and an
-`allow` never counts a new host as contacted. A card pending when the gap appeared,
+predicate: an `ask` verdict raises no card and refuses the call, an answer
+that arrives after the gap opened is not used, and an `allow` never counts a
+new host as contacted. A call such a card approved stays bound to it: the
+proxy's new `hostCard()` option names its hosts, so its connections, even to
+an already-contacted host, are refused as `recording_gap` before dispatch
+once a gap opens. A gap the host cannot read is unknown, not a gap: card
+paths refuse as `egress_unavailable` (503) without new-turn advice. Only the
+writer's exact `{id:0, recorded:false}` acknowledges a tolerated loss; any
+other negative reply keeps its earlier handling (a 503 for an occurrence, a
+stopped turn for a terminal exposure). A card pending when the gap appeared,
 or answered before it, is never used: its connection, of either kind, is
 refused as `recording_gap` before dispatch. Allow-listed and already-contacted
 destinations need no card and still connect, and a new turn restores

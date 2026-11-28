@@ -701,3 +701,21 @@ test("a gapped turn names the refusal when a standing rule is withdrawn before d
     expect(records.at(-1), "WITHDRAWN_RULE_ON_A_GAPPED_TURN_IS_A_GAP_REFUSAL").toMatchObject({ reason: "recording_gap", dispatched: false });
   } finally { proxy.stop(); origin.stop(true); }
 });
+test("a gapped turn names its refusal before a replacement card's snapshot is read", async () => {
+  const records: EgressRecord[] = [];
+  let narrowing = false, hits = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => true,
+    // Admission reads pass; once narrowing starts, the snapshot read throws.
+    admissionSafety: { read: () => { if (narrowing) throw new Error("Odysseus snapshot unreadable");
+      return { scope: "voyage", evidenceRevision: "1", trustRevision: "0", authorityEpoch: "0", policyHash: null, authorityCurrent: true, restricted: false, recordingAvailable: true }; },
+      subscribe: () => () => {} },
+    taint: { allow: [], tainted: () => { narrowing = true; return true; }, contacted: () => false, approve: async () => true } });
+  try {
+    const response = await get(proxy.socketPath, origin.url.href);
+    await recorded(records, 1);
+    expect(response.status, "GAPPED_TURN_STAYS_403_WHEN_THE_SNAPSHOT_THROWS").toBe(403);
+    expect(hits).toBe(0);
+    expect(records.at(-1)).toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { proxy.stop(); origin.stop(true); }
+});

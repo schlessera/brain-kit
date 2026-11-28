@@ -629,3 +629,50 @@ test("#4351: covered outward traffic keeps connecting when its own occurrence wr
     expect(f.controller.signal.aborted).toBe(false);
   } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_permanent_gap"); troy.stop(); await f.close(); }
 });
+// #4351: only the writer's exact {id:0, recorded:false} acknowledges a
+// tolerated loss on a gapped turn; any other negative reply is no acknowledgment.
+for (const reply of ["exact", "no id", "negative id", "text id"] as const) for (const lost of ["taint", "taint_exposure"] as const)
+  test(`#4351: a gapped turn's ${lost} reply (${reply}) is tolerated only when it is the exact acknowledgment`, async () => {
+    const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, false, "127.0.0.1", true);
+    const troy = untrustedOrigin();
+    const original = f.writes.record;
+    const answer = reply === "exact" ? { id: 0, recorded: false } : reply === "no id" ? { recorded: false } : reply === "negative id" ? { id: -1, recorded: false } : { id: "0", recorded: false };
+    try {
+      gappedTurn(f);
+      f.writes.record = async (...args) => args[0].kind === lost && (lost === "taint_exposure" || (args[0].payload as { source?: string }).source === "egress_connection") ? answer as never : original(...args);
+      const status = await get(f.proxy.socketPath, troy.url).catch(() => 0);
+      await f.proxy.settled();
+      if (reply === "exact") {
+        expect(status, "EXACT_ACKNOWLEDGMENT_IS_TOLERATED").toBe(200);
+        expect(f.controller.signal.aborted).toBe(false);
+      } else if (lost === "taint") {
+        // No occurrence acknowledgment: the connection refuses as before.
+        expect(status, "MALFORMED_OCCURRENCE_REPLY_REFUSES").toBe(503);
+        expect(troy.hits()).toBe(0);
+      } else expect(f.controller.signal.aborted, "MALFORMED_TERMINAL_REPLY_STOPS_THE_TURN").toBe(true);
+    } finally { troy.stop(); await f.close(); }
+  });
+
+// #4351: an unreadable gap is unknown, not a gap: a card path fails closed as
+// unavailable, with no new-turn advice.
+test("#4351: an unreadable gap refuses a card-needing destination as egress_unavailable, not recording_gap", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    await f.taint();
+    f.decide(async () => ({ behavior: "allow" }));
+    const query = f.db.query.bind(f.db);
+    const unreadable = spyOn(f.db, "query").mockImplementation(((sql: string) => {
+      // Only turn egress reads the gap with this statement.
+      if (sql === "SELECT restricted_begin FROM safety_collections WHERE turn_id=?") throw new Error("Odysseus ledger unreadable");
+      return query(sql);
+    }) as never);
+    let status: number;
+    try { status = await get(f.proxy.socketPath, troy.url).catch(() => 0); } finally { unreadable.mockRestore(); }
+    await f.proxy.settled();
+    expect(status, "UNKNOWN_GAP_IS_UNAVAILABLE").toBe(503);
+    expect(f.asks(), "UNKNOWN_GAP_RAISES_NO_CARD").toBe(0);
+    expect(troy.hits()).toBe(0);
+    expect(lastConnection(f), "UNKNOWN_GAP_IS_NOT_A_GAP_REFUSAL").toMatchObject({ reason: "egress_unavailable", dispatched: false });
+  } finally { troy.stop(); await f.close(); }
+});

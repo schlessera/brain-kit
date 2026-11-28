@@ -12,6 +12,7 @@ import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
 import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
 import { STORAGE_SETTLEMENT_MS } from "../db/settlement.js";
 import { settleTurnSessionBinding, type SessionBindingRefusal } from "../ws/bridge-session-binding.js";
+import type { CardState } from "./turn-extraction.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { createTurnExtraction } from "./turn-extraction.js";
 import type { ExtractionJudge } from "../governance/extraction-judge.js";
@@ -135,7 +136,13 @@ export async function prepareTurnEgress(options: {
       recordFirstTaint(db,event,input=>{pending=record(input);});
       const result=await pending;
       if(typeof result === "boolean")return result;
-      if(result&&typeof result === "object"&&"recorded" in result)return result.recorded === true;
+      if(result&&typeof result === "object"&&"recorded" in result){
+        if(result.recorded === true)return true;
+        // A tolerated loss is exactly {id:0, recorded:false}; a positive id is a replay. Anything else is no acknowledgment.
+        const id=(result as {id?:unknown}).id;
+        if(id===0||typeof id === "number"&&id>0)return false;
+        throw new Error("Malformed recording acknowledgment");
+      }
       const input=event.payload.occurrence;
       return !input?.admission?.trusted || db.query("SELECT id FROM safety_records WHERE id=? AND kind='occurrence'").get(input.id) !== null;
     },
@@ -188,18 +195,25 @@ export async function prepareTurnEgress(options: {
   // raises no approval card and uses none it holds: a card's marker cannot
   // see the losses it tolerates. Only a known gap tolerates a loss; an
   // unreadable one (undefined) still raises no card.
-  const gapRead = (): boolean | undefined => { try { return !!db?.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND restricted_begin=1").get(options.turnId); } catch { return undefined; } };
+  const gapRead = (): boolean | undefined => {
+    try { return (db?.query("SELECT restricted_begin FROM safety_collections WHERE turn_id=?").get(options.turnId) as {restricted_begin:number}|null)?.restricted_begin === 1; }
+    catch { return undefined; }
+  };
   // `cardsAllowed` is the one predicate every card path reads (#4351): the
   // proxy's Network and outward cards (and so managed fetches), and the
   // extraction classifier's card and relaxation. No card is raised or
   // honoured on a gapped turn.
-  const gapped = () => gapRead() === true, cardsAllowed = () => gapRead() === false;
+  // An unreadable gap is unknown, not a gap: card paths fail closed as
+  // unavailable there, with no new-turn advice.
+  const gapped = () => gapRead() === true;
+  const cardsAllowed = (): CardState => { const gap = gapRead(); return gap === undefined ? "unknown" : gap ? "gapped" : "allowed"; };
   /** `tolerable`: a taint record, whose tolerated loss on a gapped turn is not an audit failure. */
   const track = (committed: unknown, tolerable = false) => {
     const confirm=(result:unknown)=>{
       // A positive existing id is a durable replay, not a lost write.
       if(result===false||result&&typeof result === "object"&&"recorded" in result&&result.recorded===false&&(!("id" in result)||typeof result.id !== "number"||result.id<=0)){
-        if(tolerable&&typeof result === "object"&&gapped())return;
+        // Only the writer's exact acknowledgment of a tolerated loss; any other reply still stops the turn.
+        if(tolerable&&typeof result === "object"&&(result as {id?:unknown}).id===0&&gapped())return;
         throw new Error("Egress audit was not durably recorded");
       }
     };
@@ -435,7 +449,8 @@ export async function prepareTurnEgress(options: {
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
     outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted,
-    inputCurrent, recordingGap: () => !cardsAllowed(),
+    inputCurrent, recordingGap: () => { const state = cardsAllowed(); if (state === "unknown") throw new Error("Recording gap state unreadable"); return state === "gapped"; },
+    ...(extraction ? { hostCard: (host: string) => extraction.carded(host) } : {}),
     committed:destination=>{
       if(destination.inference||destination.provider)return;
       if(destination.recipientAuthority.kind === "rule")standingRecipients.set(destination.connectionId,destination.recipientAuthority.admission);
