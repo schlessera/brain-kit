@@ -37,6 +37,23 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // under one tool name, and never allowed.
  const ambiguous=(call:{tools:Map<string,number>}|undefined)=>!!call&&(call.tools.size>1||[...call.tools.values()].some(n=>n>1));
  const once=(call:{tools:Map<string,number>;allowed:boolean}|undefined)=>!!call&&!call.allowed&&call.tools.size===1&&[...call.tools.values()][0]===1;
+ // Every tool name observed under each id, from any hook, result or loss
+ // report, nested calls included (#4513). Synchronous and memory-only: no
+ // database access, no promise. History serves it live; the collection's
+ // end writes it once. A fallback name (an empty or "unknown" tool name for
+ // a report that lost its own) is no name; an id that can carry no entry
+ // join is not tracked. Past 2000 ids or 8 reused ones, the whole turn is
+ // unknown.
+ const tracker={names:new Map<string,string|null>(),reused:new Set<string>(),all:false,closed:false};
+ safetyQueue(db).attribution.set(options.turnId,tracker);
+ const observeName=(toolUseId:string,tool:string|undefined)=>{
+  if(tracker.closed||tracker.all||!tool||tool==="unknown"||!/^[A-Za-z0-9_-]{1,128}$/.test(toolUseId))return;
+  const first=tracker.names.get(toolUseId);
+  if(first===undefined){if(tracker.names.size<2000)tracker.names.set(toolUseId,tool);else tracker.all=true;return;}
+  if(first===null||first===tool)return;
+  tracker.names.set(toolUseId,null);
+  if(tracker.reused.size<8)tracker.reused.add(toolUseId);else tracker.all=true;
+ };
  const operation=(tool:string):Operation=>({generation:Symbol(),tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],inputOccurrences:[],resultStarted:false,done:false,admitted:false,signals:[],owed:false,refused:false,uncertain:false});
  const base=()=>({turnId:options.turnId,sessionId:options.sessionId(),actor:options.actor??"interactive" as const,model:null,profile:null});
  const marked=(path:string)=>isMarkedUntrusted(db,path);
@@ -102,6 +119,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  };
  const collector:NonNullable<BackendBridge["inputSafety"]>={
   forAdmission(toolUseId,tool,root){
+   observeName(toolUseId,tool);
    const cached=views.get(toolUseId);
    if(cached){if(cached.tool!==tool||cached.root!==root)throw new Error("Causal admission identity changed");return cached.view;}
    if(views.size>=2000)throw new Error("Causal admission capacity exceeded");
@@ -124,7 +142,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // nothing on rejection. The obligation is the host's own record, so it
   // holds whatever the runtime delivers: cancellation, abort, a result hook
   // the runtime skips, or process death all leave the gap.
-  begin(toolUseId,tool,input){const current=operations.get(toolUseId);if(current)current.generation=Symbol();return serial(toolUseId,async()=>{
+  begin(toolUseId,tool,input){observeName(toolUseId,tool);const current=operations.get(toolUseId);if(current)current.generation=Symbol();return serial(toolUseId,async()=>{
    assertLive();
    // Refused: the runtime never runs it, and refusing again is no failure.
    if(operations.get(toolUseId)?.refused)throw new Error("Safety operation was refused; the call does not run");
@@ -163,6 +181,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // tools, never a record; the turn's end waits for a record under way),
   // and any failure leaves its chat a permanent gap.
   result(toolUseId,tool,output,finalized,segments,outputStatus){
+   observeName(toolUseId,tool);
    const started=operations.get(toolUseId);if(started)started.resultStarted=true;
    const reject=(error:unknown)=>rejectReadResult(toolUseId,tool,error);
    return recording(serial(toolUseId,async()=>{
@@ -220,6 +239,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // new admission and proves nothing. An id the collector cannot track keeps
   // no count, so no refusal discharges it.
   admitting(toolUseId,toolName=""){
+   observeName(toolUseId,toolName);
    let call=calls.get(toolUseId);
    if(!call){if(calls.size>=2000)return;calls.set(toolUseId,call={tools:new Map(),allowed:false});}
    if(call.tools.has(toolName)||call.tools.size<2)call.tools.set(toolName,(call.tools.get(toolName)??0)+1);
@@ -290,7 +310,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   },true);},
   // A result the backend could not hand over (a refused or malformed report):
   // its chat keeps a permanent gap. Resolves once that gap is durable.
-  lost(toolUseId,tool,cause){return recording((async()=>{
+  lost(toolUseId,tool,cause){observeName(toolUseId,tool);return recording((async()=>{
    const loss=new Error(`Safety result for ${tool} (${toolUseId}) was not recorded: ${cause instanceof Error?cause.message:String(cause)}`);
    try{await rejectReadResult(toolUseId,tool,loss);}catch(error){if(error!==loss)throw error;}
   })());},
