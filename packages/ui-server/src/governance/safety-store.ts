@@ -68,6 +68,9 @@ export class SafetyRecordingUnavailable extends Error {
   }
 }
 const one = <T>(db: Database, sql: string, ...args: (string | number | null)[]) => db.query(sql).get(...args) as T;
+/** Every safety_collections column enforcement reads; never tool_reuse (#4513). */
+const COLLECTION_COLUMNS = ["id","turn_id","session_id","principal_id","history_owner_id","generation","backend_id","started_at","ended","acknowledged",
+  "gap","failure","policy_hash","start_revision","end_revision","restricted_begin","failure_cause","principal_account"].map(column=>`c.${column}`).join(",");
 const collection = (db: Database, turn: string) => one<Collection | null>(db,"SELECT * FROM safety_collections WHERE turn_id=?",turn);
 const meta = (db: Database) => one<{revision:string;failed:number;reason:string|null;used_rows:number;used_bytes:number;scope_rows:number;scope_bytes:number}>(db,"SELECT * FROM safety_meta WHERE singleton=1");
 export function advance(db: Database): string {
@@ -503,7 +506,8 @@ export function safetyEvidenceSequence(db:Database,turnId:string|null,sessionId:
 }
 function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|null,excludedPending:readonly string[]):SafetyProjection {
  const {s,scope,args}=safetyScope(db,turnId,sessionId);
- const cs=db.query(`SELECT c.* FROM safety_collections c WHERE ${scope} ORDER BY c.rowid`).all(...args) as Collection[];
+ // Explicit columns: enforcement never reads the display-only tool_reuse (#4513).
+ const cs=db.query(`SELECT ${COLLECTION_COLUMNS} FROM safety_collections c WHERE ${scope} ORDER BY c.rowid`).all(...args) as Collection[];
  const epochs=cs.slice(0,128).map(c=>{
    const acknowledged=JSON.parse(c.acknowledged) as string[];
    const complete=!c.gap&&!c.failure&&SAFETY_DETECTORS.every(d=>acknowledged.includes(d));

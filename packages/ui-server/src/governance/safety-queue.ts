@@ -5,8 +5,9 @@ type PendingSafety = {id:string;occurrenceId:string|null;turnId:string|null;sess
 /** One turn's tool names per tool-use ID, as its collector observed them
  * (#4513). `names`: the first name, or null once a second differed.
  * `reused`: those IDs (at most 8). `all`: it could not track every ID.
- * `closed`: its end is committing. Display-only, memory-only. */
-type ToolAttributionTracker = {names:Map<string,string|null>;reused:Set<string>;all:boolean;closed:boolean};
+ * `closed`: its end began, so it observes nothing more. `ending`: that end
+ * is committing. Display-only, memory-only. */
+type ToolAttributionTracker = {names:Map<string,string|null>;reused:Set<string>;all:boolean;closed:boolean;ending?:boolean};
 const queues=new WeakMap<Database,{generation:bigint;pending:Set<PendingSafety>;bytes:number;failed:boolean;inflight:number;
 
  /** The safety revision when this process latched in memory; null when unreadable. */

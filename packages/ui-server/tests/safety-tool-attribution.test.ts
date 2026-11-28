@@ -12,6 +12,7 @@ import { safetyQueue } from "../src/governance/safety-queue";
 import { retireChat } from "../src/ws/chat-lifecycle";
 import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
 import { safetyHistoryFixture } from "./helpers/safety-history-fixture";
+import { until } from "../../../tests/helpers/until";
 
 type Fixture = Awaited<ReturnType<typeof safetyHistoryFixture>>;
 const harbour = { url: "https://ithaca.example/harbour" };
@@ -22,6 +23,14 @@ function collect(f: Fixture, turnId = "voyage") {
 async function page(history: SafetyHistory, f: Fixture, optIn = true, limit = 50) {
   return history.read(f.principal, { sessionId: "ithaca" }, null, limit, true, true, true, optIn);
 }
+/** Every page of one snapshot, following its real continuation cursors. */
+async function pages(history: SafetyHistory, f: Fixture, limit: number) {
+  const all = [await history.read(f.principal, { sessionId: "ithaca" }, null, limit, true, true, true, true)];
+  while (all.at(-1)!.nextCursor) all.push(await history.read(f.principal, { sessionId: "ithaca" }, all.at(-1)!.nextCursor, limit, true, true, true, true));
+  return all;
+}
+/** The subscription poll in flight has settled. */
+const settled = (history: SafetyHistory) => until(() => [...(history as unknown as { subscriptions: Map<object, { busy: boolean }> }).subscriptions.values()].every(s => !s.busy), "the subscription poll");
 async function flags(history: SafetyHistory, f: Fixture) {
   return (await page(history, f)).projection.attributionUnknown;
 }
@@ -48,7 +57,9 @@ test("T1 reuse is reported live, after the end and after a reopen, on every page
     await f.writes.safetyEnd("voyage");
     expect(await flags(f.history, f), "ENDED_REUSE_IS_REPORTED").toEqual(expected);
     expect(await restarted(f, history => flags(history, f)), "REOPENED_REUSE_IS_REPORTED").toEqual(expected);
-    expect((await page(f.history, f, true, 2)).projection.attributionUnknown, "EVERY_PAGE_CARRIES_IT").toEqual(expected);
+    const paged = await pages(f.history, f, 1);
+    expect(paged.length, "THE_SNAPSHOT_SPANS_PAGES").toBeGreaterThan(2);
+    expect(paged.map(read => read.projection.attributionUnknown), "EVERY_PAGE_CARRIES_IT").toEqual(paged.map(() => expected));
     expect("attributionUnknown" in (await page(f.history, f, false)).projection, "LEGACY_READERS_KEEP_THEIR_SHAPE").toBe(false);
   } finally { await f.close(); }
 });
@@ -143,7 +154,7 @@ test("T8 reuse at an equal revision reaches every subscriber as an update, never
     const snapshots = () => (f.history as unknown as { snapshots: Map<string, unknown> }).snapshots.size, before = snapshots();
     const sent: { reason?: string; projection?: { attributionUnknown?: unknown } }[][] = reads.map(() => []);
     reads.forEach((read, i) => f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent[i]!.push(value as never)));
-    for (let i = 0; i < 100 && sent.some(list => !list.length); i++) await new Promise(resolve => setTimeout(resolve, 5));
+    await until(() => sent.every(list => list.length > 0), () => sent);
     expect(sent.map(list => list.map(value => value.reason ?? value.projection?.attributionUnknown)), "ATTRIBUTION_CHANGE_IS_AN_UPDATE")
       .toEqual(reads.map(() => [[{ bindingId: f.bindingId, toolUseIds: ["fetch"] }]]));
     expect(snapshots(), "NO_SNAPSHOT_IS_ALLOCATED").toBe(before);
@@ -159,13 +170,13 @@ test("T9 reuse followed by another record arrives in the update's projection", a
     const sent: { projection?: { attributionUnknown?: unknown } }[] = [];
     f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent.push(value as never));
     // Let the subscription's first poll settle at the snapshot's revision.
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await settled(f.history);
     expect(sent).toEqual([]);
     const recorded = f.add("calypso");
     collector.admitting?.("fetch", "Bash");
     await recorded;
     f.history.poll();
-    for (let i = 0; i < 100 && !sent.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
+    await until(() => sent.length > 0, () => sent);
     expect(sent.at(-1)?.projection?.attributionUnknown, "UPDATE_CARRIES_THE_FINDING").toEqual([{ bindingId: f.bindingId, toolUseIds: ["fetch"] }]);
   } finally { await f.close(); }
 });
@@ -192,7 +203,7 @@ test("T10 another chat's reuse, live or stored, never reaches this chat", async 
     const elsewhere = collect(f, "aeaea");
     elsewhere.admitting?.("circe", "WebFetch"); elsewhere.admitting?.("circe", "Bash");
     f.history.poll();
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await settled(f.history);
     expect(sent, "OTHER_CHATS_STAY_QUIET").toEqual([]);
     await f.writes.safetyEnd("aeaea");
     expect(f.db.query("SELECT tool_reuse FROM safety_collections WHERE id=?").get(other)).toEqual({ tool_reuse: '["circe"]' });
@@ -294,4 +305,35 @@ test("T16 a stored verdict that cannot be read keeps that binding's uncertainty"
       expect(await flags(f.history, f), `${damaged}: DAMAGED_VERDICT_IS_TURN_WIDE`).toEqual([{ bindingId: f.bindingId, toolUseIds: null }]);
     } finally { await f.close(); }
   }
+});
+
+test("T17 32 opted-in snapshots at the largest attribution still fit the snapshot budget", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    for (let turn = 1; turn < 128; turn++) {
+      await f.writes.safetyBegin({ turnId: `voyage_${turn}`, bindingId: crypto.randomUUID(), sessionId: "ithaca", principalId: f.principal.id, backendId: "claude", at: turn });
+    }
+    const widest = JSON.stringify(Array.from({ length: 8 }, (_, i) => `${"o".repeat(127)}${i}`));
+    f.db.query("UPDATE safety_collections SET tool_reuse=?, ended=1").run(widest);
+    safetyQueue(f.db).attribution.clear();
+    const reads = [];let refused: unknown = null;
+    try { for (let i = 0; i < 32; i++) reads.push(await page(f.history, f)); } catch (error) { refused = error; }
+    expect({ reads: reads.length, refused: refused === null ? null : String(refused) }, "ATTRIBUTION_SPENDS_NO_SNAPSHOT_BUDGET").toEqual({ reads: 32, refused: null });
+    expect(reads.at(-1)!.projection.attributionUnknown?.length, "WIDEST_ATTRIBUTION_IS_SERVED").toBe(128);
+  } finally { await f.close(); }
+});
+
+test("T18 a failed end followed by retiring the chat drops the tracker", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    await reused(f);
+    f.db.run("CREATE TRIGGER sirens_hold_the_end BEFORE UPDATE OF ended ON safety_collections BEGIN SELECT RAISE(ABORT,'disk I/O error'); END");
+    await f.writes.safetyEnd("voyage").catch(() => {});
+    f.db.run("DROP TRIGGER sirens_hold_the_end");
+    expect(safetyQueue(f.db).attribution.size, "FAILED_END_KEEPS_THE_TRACKER").toBe(1);
+    const result = retireChat(f.db, { operationId: "odysseus-retire", principalId: f.principal.id, target: { sessionId: "ithaca" }, expected: { backendId: "claude", generation: 1 }, removableBackends: ["claude"], at: Date.now() });
+    expect(result.status).toBe("retired");
+    f.history.poll();
+    expect(safetyQueue(f.db).attribution.size, "RETIRED_CHAT_DROPS_THE_TRACKER").toBe(0);
+  } finally { await f.close(); }
 });

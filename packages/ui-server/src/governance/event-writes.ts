@@ -296,8 +296,9 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       // UPDATE (#4513). It stays served from memory until that commits; a
       // failed end leaves it, and the collection open, for the restart.
       const tracker=shared.attribution.get(turnId);
-      if(tracker)tracker.closed=true;
-      await call<void>("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId),tracker?(tracker.all?'["*"]':JSON.stringify([...tracker.reused])):null);
+      if(tracker){tracker.closed=true;tracker.ending=true;}
+      try{await call<void>("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId),tracker?(tracker.all?'["*"]':JSON.stringify([...tracker.reused])):null);}
+      finally{if(tracker)tracker.ending=false;}
       shared.attribution.delete(turnId);
     },
     safetyFail,

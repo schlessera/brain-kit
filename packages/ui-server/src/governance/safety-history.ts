@@ -195,7 +195,9 @@ export class SafetyHistory {
         if(this.pruned(identity)!==s.pruned)throw new SafetyReadUnavailable("expired");
       }else{
         if(this.snapshots.size>=256||[...this.snapshots.values()].filter(s=>s.principalId===principal.id).length>=32)throw new SafetyReadUnavailable("capacity");
-        const projection=this.projection(identity,attribution),size=bytes(projection)+2048;
+        // The display-only attribution has its own bound (128 bindings, 8 IDs
+        // each); it never spends the snapshot budget evidence needs (#4513).
+        const projection=this.projection(identity,attribution),size=bytes(enforcement(projection))+2048;
         if(this.retainedBytes+size>4194304)throw new SafetyReadUnavailable("capacity");
         snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,membership:this.membership(identity,projection.evidenceRevision),expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size,entries,admissions,nonDelivery,attribution};
         this.snapshots.set(snapshot.id,snapshot);this.retainedBytes+=size;
@@ -275,7 +277,7 @@ export class SafetyHistory {
   }
   /** Shares the host's existing authorization sweep; no per-read timer. */
   poll():void {
-    this.prune();
+    this.prune();this.pruneAttribution();
     for(const [key,s] of this.subscriptions){
       if(!s.valid()||!this.valid(s.principal)){this.subscriptions.delete(key);continue;}
       if(s.busy)continue;s.busy=true;
@@ -300,6 +302,17 @@ export class SafetyHistory {
         if(this.subscriptions.get(key)!==s||!s.valid()||!this.valid(s.principal))return;
         this.subscriptions.delete(key);s.send({version:1,reason:error instanceof SafetyReadUnavailable?error.reason:"unavailable"});
       }).finally(()=>{s.busy=false;});
+    }
+  }
+  /** Drops trackers whose turn can no longer end through its collector
+   * (#4513): its chat was retired or scrubbed, or its collection is gone or
+   * ended another way. A tracker whose end is committing stays. */
+  private pruneAttribution():void {
+    const live=safetyQueue(this.db).attribution;if(!live.size)return;
+    for(const [turnId,tracker] of live){
+      if(tracker.ending)continue;
+      const row=this.db.query("SELECT ended,EXISTS(SELECT 1 FROM safety_retired_turns WHERE turn_id=?1) retired FROM safety_collections WHERE turn_id=?1").get(turnId) as {ended:number;retired:number}|null;
+      if(!row||row.ended||row.retired)live.delete(turnId);
     }
   }
   close():void {this.closed=true;this.subscriptions.clear();this.snapshots.clear();this.cursors.clear();this.retainedBytes=0;}
