@@ -176,9 +176,12 @@ export function overlayLayers(superOptions: string): string[] {
  * part. A live candidate (one `resolveMount` reaches) is an exposure, unless
  * the object it shows is owned by none of the sandbox's UIDs and has no group
  * or other permission bit (the 2026-11-27 ruling): then it is reported only.
- * The same holds for any host directory between the mount's root and the
- * object, which the sandbox must traverse to open it: state below an
- * owner-only directory of another UID is reported only (#5051).
+ * The same holds for a directory the sandbox must traverse to open it through
+ * that row: one between the row's root (mountinfo field 4) and the object, in
+ * the same filesystem. Each is judged at a host path only when the host's own
+ * backing coordinates prove it is that directory; an alias, a symlink or
+ * another mount on the way stops the search, and the object is judged alone,
+ * as before (#5051).
  * A live overlay whose layer is prefix-related to a root is an exposure; a
  * layer path the server cannot resolve is not judged and is named in
  * `nonCoverage`. An ambiguous table, or a live object the host cannot stat,
@@ -194,7 +197,7 @@ export function evaluateNamespace(rows: readonly MountRow[], roots: readonly Sta
       if (holdsPath(row.root, root.fspath)) {
         const rest = below(row.root, root.fspath);
         name = under(row.point, rest); object = root.path;
-        // The host directories from the mount's root down to the object's parent.
+        // The directories the worker crosses: from the object's parent up to the row's root.
         traversed = rest.split("/").filter(Boolean).length;
       }
       else if (holdsPath(root.fspath, row.root)) { name = row.point; object = under(root.path, below(root.fspath, row.root)); }
@@ -209,10 +212,16 @@ export function evaluateNamespace(rows: readonly MountRow[], roots: readonly Sta
       };
       let closed = ownerOnly(object);
       if (closed === undefined) return { result: "unknown", cause: `the owner of ${root.setting} could not be read` };
-      for (let at = 0, dir = object; !closed && at < traversed; at++) {
-        dir = dirname(dir);
-        closed = ownerOnly(dir);
-        if (closed === undefined) return { result: "unknown", cause: `the owner of a directory above ${root.setting} could not be read` };
+      for (let at = 0, dir = object, fsdir = root.fspath; !closed && at < traversed; at++) {
+        dir = dirname(dir); fsdir = dirname(fsdir);
+        // Only the very directory the worker crosses may release it: its host
+        // name must back onto the same filesystem path (#5053 r1 F1).
+        const backing = inspect.layer(dir);
+        if (!backing || backing.sb !== root.sb || backing.fspath !== fsdir) break;
+        // An owner the host cannot read releases nothing.
+        const owned = ownerOnly(dir);
+        if (owned === undefined) break;
+        closed = owned;
       }
       // An idmapped mount shows another owner at the worker's name than the host
       // reads at its own: the host's owner decides nothing there (F31).
