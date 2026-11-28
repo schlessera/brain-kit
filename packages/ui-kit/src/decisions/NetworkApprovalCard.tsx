@@ -146,12 +146,12 @@ export function NetworkApprovalCard(p: NetworkApprovalCardProps) {
     display: "flex",
     alignItems: "flex-start",
     gap: 7,
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     font: `600 12px/1.35 ${font.mono}`,
     color: color.ink,
   };
   const titleStyle: CSSProperties = {
-    flex: "1 1 140px",
+    flex: "1 1 0",
     minWidth: 0,
     whiteSpace: "normal",
     overflowWrap: "anywhere",
@@ -247,7 +247,7 @@ export function NetworkApprovalCard(p: NetworkApprovalCardProps) {
       <div style={head}>
         <Icon icon="approval" size={14} color={accent.amber.ink} />
         <span style={titleStyle}>{heading}</span>
-        <span style={{ flex: "none", display: "flex" }}>
+        <span style={{ flex: "none", width: 116, display: "flex", justifyContent: "flex-end", whiteSpace: "nowrap" }}>
           <Chip label={badgeText} tone="amber" variant="soft" mono={false} />
         </span>
       </div>
