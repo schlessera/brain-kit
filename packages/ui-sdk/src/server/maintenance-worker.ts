@@ -24,7 +24,7 @@ import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
 import { reserveMaintenanceTemp, type MaintenanceTempDomain, type MaintenanceTempKind } from "./maintenance-temp-budget.js";
 import { OUTPUT_STAGING_BYTES_ENV, resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
-import { kernelRealpath, privateStateRefusalOf, walkUnqualifiedLaunch } from "./worker-private-state.js";
+import { kernelRealpath, privateStateRefusalOf, takeAdmissionWalk, walkUnqualifiedLaunch } from "./worker-private-state.js";
 import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
 
@@ -88,12 +88,6 @@ export interface MaintenanceHost {
   maskPaths?: readonly string[];
   /** @internal How long an awaited scratch check waits for a busy budget; default `SCRATCH_ADMISSION_WAIT_MS` (#4079). */
   admissionWaitMs?: number;
-  /**
-   * @internal The turn admission that hands out this host has already run the
-   * brain's registered walk and passed it: a synchronous launch inside that
-   * admission does not walk again, and is still counted (#4301 path O5).
-   */
-  admissionWalked?: boolean;
 }
 
 export interface MaintenanceResult {
@@ -525,6 +519,8 @@ export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs
 }
 
 function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: number }): WorkerSteps<MaintenanceResult> {
+  // The turn admission's one-shot receipt, spent before anything can wait or retry (#4973 r7).
+  const receipt = takeAdmissionWalk(input.startupView);
   const limits = input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits();
   const reservation = reserveMaintenanceTemp(limits, tempDomain(input), input.tempKind);
   let startupView: WorkerStartupView | undefined;
@@ -535,11 +531,10 @@ function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: num
     // Synchronous callers cannot prepare an unreadable protected stage.
     // workerCommand refuses that stage before any payload or helper starts.
     preparedMaintenanceCommands.delete(input);
-    // Synchronous maintenance is not qualified; it walks here, whatever its
-    // caller checked, and is counted (#4301 path O5, #4973 r4 F42, F50; qualification in #5026).
-    walkUnqualifiedLaunch("synchronous-maintenance", kernelRealpath(input.brainPath), Boolean(launch.maintenance?.maskPaths?.length),
-      // Inside a turn admission that has just walked, one walk per admission (#4301 PR B is the walk's removal).
-      (input as MaintenanceHost).admissionWalked === true);
+    // Synchronous maintenance is not qualified; it walks here unless it is its
+    // admission's first launch with an unchanged receipt, and is always
+    // counted (#4301 path O5, #4973 r4 F42, F50, r7; qualification in #5026).
+    walkUnqualifiedLaunch("synchronous-maintenance", kernelRealpath(input.brainPath), Boolean(launch.maintenance?.maskPaths?.length), receipt);
     const boot = workerBootstrap(launch);
     pipes = yield* createWorkerPipesSteps();
     const child = yield* workerStepSpawn(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],

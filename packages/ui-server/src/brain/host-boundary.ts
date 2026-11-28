@@ -35,7 +35,7 @@ import {
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
   startProviderRelay, relayedProviderKeys, hostProviderCredential, FIRST_PARTY_PROVIDER_RECIPIENTS, type ProviderRelay, type ProviderRelayReceipt,
-  kernelRealpath, privateStateRefusalOf, registerWorkerPrivateState, type WorkerPrivateStateEvent,
+  kernelRealpath, privateStateRefusalOf, registerWorkerPrivateState, walkForAdmission, type WorkerPrivateStateEvent, type WorkerPrivateStateProvider,
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { markUnpinnedHostWriter, refuseHostFallback, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
@@ -494,7 +494,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   // A boundary with no layout and no masks (a temporary CLI-version or planner
   // boundary) declares nothing to qualify; equal layouts are one registry entry (F13).
   const declaresState = Boolean(options.dbPath || options.privateStatePaths?.length || maskPaths.length);
-  const disposePrivateState = !declaresState ? () => {} : registerWorkerPrivateState(brain, {
+  // Kept: an admission's receipt skips this boundary's own layout, which its prepare walks itself (#4973 r7).
+  const ownPrivateState: WorkerPrivateStateProvider = {
     roots: () => operationalStatePaths(stateLayout),
     walk: () => {
       const refusal = operationalStateRefusal(stateLayout);
@@ -505,7 +506,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       if (event.kind === "ownership_only") stateBoundary.ownershipOnly = [...new Set(event.entries.map(entry => entry.name))];
       options.privateStateEvents?.(event);
     },
-  }, JSON.stringify([stateLayout.dbPath ?? null, stateLayout.privateStatePaths ?? []]));
+  };
+  const disposePrivateState = !declaresState ? () => {} : registerWorkerPrivateState(brain, ownPrivateState,
+    JSON.stringify([stateLayout.dbPath ?? null, stateLayout.privateStatePaths ?? []]));
   // In memory only: what status reports. A launch's result changes nothing for any other turn (#4301).
   const stateBoundary: { checkedAt: number | null; lastRefusal?: { at: number; reason: string; path?: string }; ownershipOnly?: string[] } = { checkedAt: null };
   const boundaryStatus = () => ({ stateBoundary: { mode: "walk" as const, ...stateBoundary } });
@@ -690,16 +693,31 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         observeDiagnostic(() => end?.());
         return { refusal };
       };
+      /**
+       * The walk that decides this return passed: every other layout of the
+       * brain is walked too, and the admission's view gets a one-shot receipt
+       * its first synchronous launch redeems instead of walking (#4973 r7).
+       */
+      const admitted = (decision: GovernedAvailability): GovernedAvailability => {
+        if (!preparedView) return decision;
+        try { walkForAdmission(preparedView, brain, ownPrivateState); }
+        catch (error) {
+          const refusal = privateStateRefusalOf(error);
+          if (refusal) return { available: false as const, reason: refusal.reason, detail: refusal.message };
+          throw error;
+        }
+        return decision;
+      };
       const checkedState = checkState("boundary_private_state");
       // Private-state refusal precedes the cwd shortcut. Only the synchronous
       // warm return may reuse this verdict; cold returns must recheck.
       if (checkedState.refusal) return checkedState.refusal;
       // Capability proof is already complete. A maintenance output operation
       // has its own lease and must not delay this cached admission fact.
-      if (passedMaintenanceProbes.has(maintenanceKey)) return governed(undefined, checkedState);
+      if (passedMaintenanceProbes.has(maintenanceKey)) return admitted(governed(undefined, checkedState));
       const recheck = () => {
         const fresh = checkState("boundary_recheck");
-        return fresh.refusal ?? governed(undefined, fresh);
+        return fresh.refusal ?? admitted(governed(undefined, fresh));
       };
       const acquired = diagnosticInterval(() => timing?.("boundary_output_lock"));
       return outputLock.withLock(brain, async () => {

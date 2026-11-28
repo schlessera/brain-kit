@@ -1698,6 +1698,7 @@ export "./internal" (./src/internal.ts)
   unqualifiedLaunches
   validatedEgressProvenance
   verifiedWorkerIdentity
+  walkForAdmission
   webSearchBrief
   webSearchKeySource
   webSearchProvider

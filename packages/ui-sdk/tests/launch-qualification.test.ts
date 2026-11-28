@@ -16,10 +16,12 @@ import { text as streamText } from "node:stream/consumers";
 import { runMaintenanceWorker, runMaintenanceWorkerSync } from "../src/server/maintenance-worker";
 import { launchAgentWorker, launchAgentWorkerAsync, prepareWorkerSandbox, probeWorkerHost, workerBootstrap } from "../src/server/worker-launcher";
 import { parseMountinfo, resolveMount, WORKER_NAMESPACE_SEAL } from "../src/server/namespace-qualification";
-import { kernelRealpath, onUnqualifiedLaunch, privateStateRefusalOf, qualifyWorkerNamespaceSteps, WorkerQualificationInterrupted, registerWorkerPrivateState, unqualifiedLaunches, type UnqualifiedLaunch, workerPrivateStateProviders, WorkerPrivateStateError, type WorkerPrivateStateEvent, type WorkerPrivateStateProvider } from "../src/server/worker-private-state";
+import { kernelRealpath, onUnqualifiedLaunch, privateStateRefusalOf, qualifyWorkerNamespaceSteps, takeAdmissionWalk, walkForAdmission, walkUnqualifiedLaunch, WorkerQualificationInterrupted, registerWorkerPrivateState, unqualifiedLaunches, type UnqualifiedLaunch, workerPrivateStateProviders, WorkerPrivateStateError, type WorkerPrivateStateEvent, type WorkerPrivateStateProvider } from "../src/server/worker-private-state";
 import * as workerStatus from "../src/server/worker-status";
 import { assertScratchMaskAsync } from "../src/server/bridge-tools/mask";
 import { runWorkerStepsSync } from "../src/server/worker-steps";
+import { MaintenanceTempBusyError, reserveMaintenanceTemp } from "../src/server/maintenance-temp-budget";
+import { resolveMaintenanceTempLimits } from "../src/server/worker-state-limits";
 import { createFixtureWorkerStartupView } from "./helpers/worker-startup-view-fixture";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 
@@ -148,19 +150,89 @@ describe("synchronous maintenance is not qualified; it walks (#4301 path O5, #50
     expect(f.ran(), "F42_PAYLOAD_NEVER_RAN").toBe(0);
   }, watchdogMs(60_000));
 
-  test("a synchronous launch inside an admission that already walked does not walk again, and is still counted", async () => {
-    const f = await fixture();
-    let walks = 0;
-    f.duringWalk(() => { walks++; });
-    const before = unqualifiedLaunches().count;
-    // The admission's maintenance host carries the mark into the launch it starts.
-    const inAdmission = { ...maintenance(f, [f.markers]), admissionWalked: true };
-    expect(runMaintenanceWorkerSync(inAdmission).exitCode).toBe(0);
-    expect(walks, "ADMISSION_WALKED_NOT_WALKED_AGAIN").toBe(0);
-    expect(unqualifiedLaunches().count, "ADMISSION_WALKED_STILL_COUNTED").toBe(before + 1);
-    expect(runMaintenanceWorkerSync(maintenance(f, [f.markers])).exitCode).toBe(0);
-    expect(walks, "UNADMITTED_SYNC_WALKS").toBe(1);
-  }, watchdogMs(60_000));
+  describe("an admission's one-shot walk receipt (#4973 r7)", () => {
+    const counted = (f: Fixture) => { let walks = 0; f.duringWalk(() => { walks++; }); return () => walks; };
+    const launch = (f: Fixture, view: ReturnType<Fixture["view"]>) => runMaintenanceWorkerSync({ ...maintenance(f, [f.markers]), startupView: view }).exitCode;
+
+    test("an unminted (forged) view walks; a minted one is redeemed once, and the second launch walks", async () => {
+      const f = await fixture(), walks = counted(f);
+      const forged = f.view();
+      expect(launch(f, forged)).toBe(0);
+      expect(walks(), "UNMINTED_VIEW_WALKS").toBe(1);
+      const view = f.view();
+      walkForAdmission(view, f.brain);
+      expect(walks(), "MINTING_WALKS").toBe(2);
+      const before = unqualifiedLaunches().count;
+      expect(launch(f, view)).toBe(0);
+      expect(walks(), "RECEIPT_REDEEMED").toBe(2);
+      expect(unqualifiedLaunches().count, "REDEEMED_LAUNCH_STILL_COUNTED").toBe(before + 1);
+      expect(launch(f, view)).toBe(0);
+      expect(walks(), "SECOND_REDEMPTION_WALKS").toBe(3);
+    }, watchdogMs(60_000));
+
+    test("a refusing walk mints nothing and throws its typed refusal", async () => {
+      const f = await fixture();
+      f.setWalk({ reason: "private_state_in_brain", detail: "the turn journal is inside the brain at .brain/ithaca" });
+      const view = f.view();
+      expect(() => walkForAdmission(view, f.brain), "MINT_REFUSES_TYPED").toThrow(WorkerPrivateStateError);
+      let refused: unknown;
+      try { launch(f, view); } catch (error) { refused = error; }
+      expect(privateStateRefusalOf(refused)?.reason, "NO_RECEIPT_AFTER_A_REFUSAL").toBe("private_state_in_brain");
+    }, watchdogMs(60_000));
+
+    test("minting skips only the caller's own layout: another layout's refusal is thrown and mints nothing", async () => {
+      const f = await fixture();
+      f.setWalk({ reason: "private_state_in_brain", detail: "the turn journal is inside the brain at .brain/ithaca" });
+      const own = { roots: () => [], walk: () => undefined };
+      cleanups.push(registerWorkerPrivateState(f.brain, own));
+      const view = f.view();
+      expect(() => walkForAdmission(view, f.brain, own), "OTHER_LAYOUT_WALKED_AT_MINT").toThrow(WorkerPrivateStateError);
+    }, watchdogMs(60_000));
+
+    test("a receipt for another brain, or for changed registrations, walks", async () => {
+      const f = await fixture(), walks = counted(f);
+      const other = await fixture();
+      const view = f.view();
+      walkForAdmission(view, other.brain);
+      const minted = walks();
+      expect(launch(f, view)).toBe(0);
+      expect(walks(), "OTHER_BRAIN_RECEIPT_WALKS").toBe(minted + 1);
+      const changed = f.view();
+      walkForAdmission(changed, f.brain);
+      let extra = 0;
+      cleanups.push(registerWorkerPrivateState(f.brain, { roots: () => [], walk: () => { extra++; return undefined; } }));
+      const afterMint = walks();
+      expect(launch(f, changed)).toBe(0);
+      expect({ walks: walks() - afterMint, extra }, "CHANGED_REGISTRATION_WALKS").toEqual({ walks: 1, extra: 1 });
+    }, watchdogMs(60_000));
+
+    test("a receipt names its brain: the same layouts registered for another brain still walk there", () => {
+      const root = mkdtempSync(join(tmpdir(), "odysseus-receipt-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+      const ithaca = join(root, "ithaca"), ogygia = join(root, "ogygia"); mkdirSync(ithaca); mkdirSync(ogygia);
+      let walks = 0;
+      const shared = { roots: () => [], walk: () => { walks++; return undefined; } };
+      cleanups.push(registerWorkerPrivateState(ithaca, shared), registerWorkerPrivateState(ogygia, shared));
+      const view = {};
+      walkForAdmission(view, ithaca);
+      expect(walks).toBe(1);
+      walkUnqualifiedLaunch("synchronous-maintenance", ogygia, false, takeAdmissionWalk(view));
+      expect(walks, "OTHER_BRAIN_SAME_LAYOUTS_WALKS").toBe(2);
+    });
+
+    test("a launch that waited for a busy budget and retried walks again", async () => {
+      const f = await fixture(), walks = counted(f);
+      const view = f.view();
+      walkForAdmission(view, f.brain);
+      const minted = walks();
+      const tempLimits = { allowanceBytes: 4 * 1024 * 1024, budgetBytes: 4 * 1024 * 1024 };
+      const held = reserveMaintenanceTemp(resolveMaintenanceTempLimits(tempLimits), { statePath: join(f.root, "ui.db") });
+      const busy = (() => { try { runMaintenanceWorkerSync({ ...maintenance(f, [f.markers]), startupView: view, tempLimits, tempDomain: { statePath: join(f.root, "ui.db") } }); return undefined; } catch (error) { return error; } })();
+      expect(busy instanceof MaintenanceTempBusyError, `BUDGET_BUSY: ${busy}`).toBe(true);
+      held.release();
+      expect(runMaintenanceWorkerSync({ ...maintenance(f, [f.markers]), startupView: view, tempLimits, tempDomain: { statePath: join(f.root, "ui.db") } }).exitCode).toBe(0);
+      expect(walks(), "RETRY_AFTER_WAIT_WALKS").toBe(minted + 1);
+    }, watchdogMs(60_000));
+  });
 
   test("F50: every synchronous launch for a brain with a layout is counted, masked or not", async () => {
     const f = await fixture();

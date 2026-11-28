@@ -255,9 +255,7 @@ export function createGovernedTurns(options: {
       const selected = requested === "governed" && !availability.available ? "strict" : requested;
       const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { timing, profile: selected, codeChanges: route?.codeChanges === true,
         protectedPaths: protectedPaths(policy.policy), folderPaths,
-        // This admission's prepare has walked private state and passed: its
-        // synchronous scratch query does not walk again (#4301 path O5).
-        maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView, admissionWalked: true } });
+        maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
       let resolved = await step("sandbox_resolve", resolveSandbox);
       const missingWritableRoot = () => resolved.areas.find(area => (area.mount.writable || area.mount.readOnlyPath)
         && !lstatSync(join(startupView!.root, area.rel), { throwIfNoEntry: false })?.isDirectory());

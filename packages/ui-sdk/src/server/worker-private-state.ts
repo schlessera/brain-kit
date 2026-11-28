@@ -248,17 +248,61 @@ const reportedWithoutListener = new Set<string>();
  */
 export function recordUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: string): void { recordUnqualified(site, brain); }
 /**
+ * One-shot walk receipts, keyed on a turn admission's startup view (#4973 r7):
+ * minted only by a walk that passed, redeemed at most once, and only for the
+ * same brain and the same registered layouts.
+ */
+const admissionWalks = new WeakMap<object, { brain: string; providers: readonly WorkerPrivateStateProvider[] }>();
+
+/**
+ * A turn admission's walk of the brain's registered layouts (#4973 r7). It
+ * walks every registered layout except the caller's `own` one, which the
+ * caller has just walked itself, and throws the walk's typed refusal. Only
+ * once every layout passed does it leave a receipt on `view`: the first
+ * synchronous launch that presents that view, for the same brain and layouts,
+ * does not walk again. Minting always walks, so any caller may mint.
+ */
+export function walkForAdmission(view: object, brain: string, own?: WorkerPrivateStateProvider): void {
+  const key = brainKey(brain);
+  const layouts = [...providers.get(key)?.values() ?? []];
+  for (const set of layouts) {
+    if (own && set.has(own)) continue;
+    const refusal = [...set][0]!.walk();
+    if (refusal) {
+      for (const each of workerPrivateStateReporters(key)) report(each, { kind: "refused", ...refusal });
+      throw new WorkerPrivateStateError(refusal.reason, refusal.detail);
+    }
+  }
+  admissionWalks.set(view, { brain: key, providers: workerPrivateStateProviders(key) });
+}
+
+/**
  * Synchronous maintenance's own check (#4301 path O5, #4973 r4 F42, F50): it
  * is not qualified, so it runs every registered walk for its brain before it
- * spawns, refusing with the walk's typed error, and it is counted as an
- * unqualified launch whenever the brain has a layout or the launch masks.
+ * spawns, refusing with the walk's typed error, and it is always counted as
+ * an unqualified launch when the brain has a layout or the launch masks. A
+ * launch presenting its admission's view redeems that admission's receipt
+ * instead of walking, once, if the brain and its layouts are unchanged; a
+ * retried, repeated or refreshed launch walks again (#4973 r7).
  */
-export function walkUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: string, masked: boolean,
-  /** The caller's own admission already ran and passed this walk: count, and do not walk twice. */
-  walked = false): void {
+/** An admission's receipt, spent as it is taken: it never serves a second launch. */
+export type AdmissionWalk = { readonly brain: string; readonly providers: readonly WorkerPrivateStateProvider[] };
+/**
+ * Take, and so spend, the receipt on `view`. A launch takes it first, before
+ * any wait (a busy budget's retry included), so a launch that waited walks
+ * again (#4973 r7).
+ */
+export function takeAdmissionWalk(view: object | undefined): AdmissionWalk | undefined {
+  if (!view) return undefined;
+  const receipt = admissionWalks.get(view);
+  admissionWalks.delete(view);
+  return receipt;
+}
+export function walkUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: string, masked: boolean, receipt?: AdmissionWalk): void {
   const registered = workerPrivateStateProviders(brain);
   if (registered.length || masked) recordUnqualified(site, brain);
-  if (walked) return;
+  if (receipt && receipt.brain === brainKey(brain) && receipt.providers.length === registered.length
+    && receipt.providers.every((provider, at) => provider === registered[at])) return;
   for (const provider of registered) {
     const refusal = provider.walk();
     if (refusal) {
