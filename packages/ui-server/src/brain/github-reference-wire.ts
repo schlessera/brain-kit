@@ -93,13 +93,18 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
       for (const pending of settledAuthority(recipient, capability.credentialed)) await pending;
       const target = new URL(recipient === "git" ? repository!.canonical : resource.metadataUrl);
       const operation = options.egress.managedReference(target, controller.signal); operations.add(operation);
+      // A turn with a permanent recording gap can raise no approval card; the
+      // caller learns that and what restores approvals, not a policy refusal (#4351).
+      const operationError = (failure: EgressChargeFailure) => operation.reason() === "recording_gap"
+        ? new ReferenceTransportError("denied", "Reference fetch refused: this turn's safety recording has a permanent gap, so it cannot ask to approve the GitHub connection. Start a new turn to fetch this reference.")
+        : chargeError(failure);
       let upstream: Socket | undefined, piping = false;
       const operationStopped = () => {
         if (operation.outcome() === "completed") return;
         upstream?.destroy(); client.destroy();
         if (operation.outcome() === "cancelled" && !controller.signal.aborted) {
           const decision = operation.failure();
-          if (decision) fail(chargeError(decision));
+          if (decision) fail(operationError(decision));
         }
       };
       operation.signal.addEventListener("abort", operationStopped, { once: true });
@@ -112,19 +117,19 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
         else closed();
       });
       try {
-        if (!await operation.admit()) throw chargeError(operation.failure() ?? {ok:false,reason:"unavailable"});
+        if (!await operation.admit()) throw operationError(operation.failure() ?? {ok:false,reason:"unavailable"});
         const addresses = options.lookup ? await options.lookup(target.hostname, { all: true, verbatim: true })
           : await lookupHost(target.hostname, { all: true, verbatim: true });
         if (!addresses.length || addresses.some(value => egressAddressRefusal(value.address)))
           throw new ReferenceTransportError("denied", "reference recipient did not resolve to public addresses");
         for (const pending of operation.pendingRecording?.() ?? []) await pending;
         check(recipient, capability.credentialed);
-        const beforeConnection = operation.prepare(); if (!beforeConnection.ok) throw chargeError(beforeConnection);
+        const beforeConnection = operation.prepare(); if (!beforeConnection.ok) throw operationError(beforeConnection);
         for (const pending of operation.pendingRecording?.() ?? []) await pending;
         check(recipient, capability.credentialed);
         if (client.destroyed) throw new ReferenceTransportError("unavailable", "reference client closed before connection");
         const dispatched=operation.dispatch(()=>{upstream=track((options.connect??connect)({host:addresses[0]!.address,port:443,signal:AbortSignal.any([controller.signal,operation.signal])}));});
-        if(!dispatched.ok)throw chargeError(dispatched);
+        if(!dispatched.ok)throw operationError(dispatched);
         const heldUpstream = upstream!; upstreams.add(heldUpstream);
         heldUpstream.once("close", () => {
           upstreams.delete(heldUpstream); outgoingWireBytes += heldUpstream.bytesWritten; incomingWireBytes += heldUpstream.bytesRead;
@@ -144,7 +149,7 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
         });
         for (const pending of operation.pendingRecording?.() ?? []) await pending;
         check(recipient, capability.credentialed);
-        const afterConnection = operation.charge(0); if (!afterConnection.ok) throw chargeError(afterConnection);
+        const afterConnection = operation.charge(0); if (!afterConnection.ok) throw operationError(afterConnection);
         if (client.destroyed) throw new ReferenceTransportError("unavailable", "reference client closed after connection");
         const meter = (incoming: boolean) => new Transform({ async transform(chunk: Buffer, _encoding, done) {
           if (incoming) observedIncomingBytes += chunk.length;
@@ -155,11 +160,11 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
             if (chunk.length > remaining) {
               // Charge received wire up to the ceiling, then close every channel.
               // A rejected outbound chunk never reaches the upstream.
-              if (incoming && remaining > 0) { const charged = operation.charge(remaining); if (!charged.ok) throw chargeError(charged); chargedBytes += remaining; }
+              if (incoming && remaining > 0) { const charged = operation.charge(remaining); if (!charged.ok) throw operationError(charged); chargedBytes += remaining; }
               operation.finish("denied", "max_reference_wire_bytes");
               throw new ReferenceTransportError("capacity", "reference acquisition exhausted its network byte allowance");
             }
-            const charged = operation.charge(chunk.length); if (!charged.ok) throw chargeError(charged);
+            const charged = operation.charge(chunk.length); if (!charged.ok) throw operationError(charged);
             chargedBytes += chunk.length; done(null, chunk);
           } catch (error) { fail(error as Error); done(error as Error); }
         } });

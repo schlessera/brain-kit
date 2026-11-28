@@ -530,27 +530,41 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const dispatchDecision = operation?.prepare();
     if (dispatchDecision && !dispatchDecision.ok) return chargeDenied(dispatchDecision);
     const attemptId = crypto.randomUUID();
-    let reported = false;
+    let reported = false, started = false, dispatched = false;
     let upstreamStatus=0;
     const observe = (outcome: ProviderRelayReceipt["outcome"], usage: ProviderUsage | null): void => {
+      if (outcome === "dispatched") { if (dispatched) return; dispatched = true; }
       try { options.observe?.({ attemptId, family, operation: route.operation, origin, key, model, outcome, status:upstreamStatus, usage, inlineMedia }); }
       catch { /* The host's own accounting reports its failure; the worker's answer is unaffected. */ }
     };
+    // Receipts belong to attempts that left the host (#4370): one refused
+    // before its upstream request started has only the caller's refusal.
     const report = (outcome: Exclude<ProviderRelayReceipt["outcome"], "dispatched">, usage: ProviderUsage | null): void => {
       if (reported) return;
       reported = true;
-      observe(outcome, usage);
+      if (started) { observe("dispatched", null); observe(outcome, usage); }
       done();
+    };
+    let recordingLost = false;
+    const waits = recordingWaits(operation?.pendingRecording, () => { recordingLost = true; });
+    /** A lost recording wait settles the attempt with one terminal receipt, if it started, and a 503 (#4370). */
+    const recordingLoss = (): Response => {
+      operation?.finish("denied", "egress_unavailable");
+      report("cancelled", null);
+      return chargeDenied(operation?.failure() ?? { ok: false, reason: "unavailable" });
     };
     try{options.preparing?.({attemptId,family,operation:route.operation,origin,key,model,status:0,usage:null,inlineMedia});}catch{/* Diagnostics do not authorize a send. */}
     let response: Response;
     try {
       // Never follow a redirect: the upstream must not choose another host.
+      // Before the send, a lost recording wait keeps its upstream-failure answer.
       for (const pending of operation?.pendingRecording?.() ?? []) await pending;
       const finalFailure=chargeFailure(0) ?? captureEgressFailure(signal).failure;
       if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       let pending!:Promise<Response>;
-      const send=()=>{pending=fetch(target,{method:request.method,headers,...(request.method==="POST"?{body}:{}),redirect:"manual",signal});};
+      // A dispatch that fails after the send aborts this request unawaited;
+      // its rejection is the attempt's failure, reported below, not a crash.
+      const send=()=>{pending=fetch(target,{method:request.method,headers,...(request.method==="POST"?{body}:{}),redirect:"manual",signal});pending.catch(()=>{});started=true;};
       const decision=operation?operation.dispatch(send):(send(),{ok:true as const});
       if(!decision.ok){report("cancelled",null);return chargeDenied(decision);}
       observe("dispatched",null);
@@ -564,8 +578,9 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider upstream unreachable");
     }
     free();
-    for (const pending of operation?.pendingRecording?.() ?? []) await pending;
-    const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:allowance.remaining,pendingRecording:operation?.pendingRecording,maxBytes:files?MAX_FILES_RESPONSE_BYTES:undefined});
+    try { for (const pending of waits()) await pending; }
+    catch { const refused = recordingLoss(); await response.body?.cancel().catch(() => {}); return refused; }
+    const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:allowance.remaining,pendingRecording:waits,maxBytes:files?MAX_FILES_RESPONSE_BYTES:undefined});
     if(incoming.headerFailure){await incoming.cancel().catch(()=>{});report("cancelled",null);return chargeDenied(incoming.headerFailure);}
     if (response.status >= 300 && response.status < 400) {
       operation?.finish("failed", "upstream_redirected");
@@ -588,7 +603,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       let readCause:ReturnType<typeof captureEgressFailure>|undefined;
       try {
         for(;;){const next=await incoming.read();if(next.done)break;chunks.push(next.value);}
-      } catch { readCause=captureEgressFailure(signal,operation);failure=readCause.failure??"read"; }finally{incoming.release();}
+      } catch { if (!recordingLost) { readCause=captureEgressFailure(signal,operation);failure=readCause.failure??"read"; } }finally{incoming.release();}
+      if (recordingLost) { const refused = recordingLoss(); await response.body?.cancel().catch(() => {}); return refused; }
       if (failure) {
         const cause=readCause??captureEgressFailure(signal,operation);
         await response.body?.cancel().catch(() => {});
@@ -600,7 +616,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
         report(cause.outcome,null);
         return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider response interrupted");
       }
-      for (const pending of operation?.pendingRecording?.() ?? []) await pending;
+      try { for (const pending of waits()) await pending; } catch { return recordingLoss(); }
       const finalFailure=incoming.fence();
       if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       const answer = Buffer.concat(chunks);
@@ -642,7 +658,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       report(response.ok ? "completed" : "failed", usage);
     };
     if (!response.body) {
-      for (const pending of operation?.pendingRecording?.() ?? []) await pending;
+      try { for (const pending of waits()) await pending; } catch { return recordingLoss(); }
       const finalFailure=incoming.fence();
       if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       operation?.finish("completed");
@@ -652,6 +668,10 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const upstreamReader = incoming;
     let released = false;
     const release = () => { if (!released) { released = true; upstreamReader.release(); } };
+    const streamRecordingLoss = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+      operation?.finish("denied", "egress_unavailable"); report("cancelled", null);
+      release(); controller.error(new Error("Provider response recording unavailable"));
+    };
     const output = new ReadableStream<Uint8Array>({
       async pull(controller) {
         // Read until something is enqueued, the upstream ends or fails: a chunk
@@ -660,12 +680,13 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
           let next:Awaited<ReturnType<typeof upstreamReader.read>>;
           try { next=await upstreamReader.read(); }
           catch {
+            if (recordingLost) { streamRecordingLoss(controller); return; }
             const cause=captureEgressFailure(signal,operation);
             operation?.finish(cause.outcome,"upstream_response_failed");
             report(cause.outcome,null);
             release();controller.error(new Error(cause.failure?egressChargeRefusal(cause.failure,"Provider").message:"Provider response interrupted"));return;
           }
-          for (const pending of operation?.pendingRecording?.() ?? []) await pending;
+          try { for (const pending of waits()) await pending; } catch { streamRecordingLoss(controller); return; }
           let delivered=false;
           const failure=next.deliver(()=>{
             if(next.done){
@@ -704,8 +725,14 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const operation = options.egress?.relayed("DELETE", target, timeout);
     const signal=operation?AbortSignal.any([timeout,operation.signal]):timeout;
     const attemptId = crypto.randomUUID();
-    let upstreamStatus=0;
+    let upstreamStatus=0, started=false, dispatched=false, recordingLost=false;
+    const waits = recordingWaits(operation?.pendingRecording, () => { recordingLost = true; });
+    // As for a worker's attempt (#4370): a DELETE refused before its request
+    // started leaves no receipt; one that started reports once it settles.
     const observe = (outcome: ProviderRelayReceipt["outcome"]): void => {
+      if (!started) return;
+      if (outcome === "dispatched") { if (dispatched) return; dispatched = true; }
+      else if (!dispatched) observe("dispatched");
       try { options.observe?.({ attemptId, family: "gemini", operation: "files", origin: entry.origin, key: entry.key, model: null, outcome, status:upstreamStatus, usage: null, inlineMedia: false }); }
       catch { /* The host's own accounting reports its failure. */ }
     };
@@ -714,6 +741,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     }
     const headers = new Headers(PLACEMENT.gemini(secret));
     const allowance=relayAllowance(operation,options.egress?.remainingBytes?.bind(options.egress),MAX_PROVIDER_REQUEST_BYTES);
+    // Before the send, a lost recording wait keeps its earlier classification.
     for (const pending of operation?.pendingRecording?.() ?? []) await pending;
     const cleanupCharge = allowance.charge(relayHeaderBytes(`DELETE ${target.pathname} HTTP/1.1`, headers));
     if (cleanupCharge) { observe("cancelled"); return; }
@@ -725,26 +753,28 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       const finalFailure=allowance.charge(0)??captureEgressFailure(signal).failure;
       if(finalFailure){observe("cancelled");return;}
       let pending!:Promise<Response>;
-      const send=()=>{pending=fetch(target,{method:"DELETE",headers,redirect:"manual",signal});};
+      const send=()=>{pending=fetch(target,{method:"DELETE",headers,redirect:"manual",signal});pending.catch(()=>{});started=true;};
       const decision=operation?operation.dispatch(send):(send(),{ok:true as const});
       if(!decision.ok){observe("cancelled");return;}
       observe("dispatched");
       const response=await pending;
       upstreamStatus=response.status;
-      for (const pending of operation?.pendingRecording?.() ?? []) await pending;
-      const incoming=readRelayResponse(response,{charge:allowance.charge,remaining:allowance.remaining,pendingRecording:operation?.pendingRecording});
+      for (const pending of waits()) await pending;
+      const incoming=readRelayResponse(response,{charge:allowance.charge,remaining:allowance.remaining,pendingRecording:waits});
       if(incoming.headerFailure){await incoming.cancel().catch(()=>{});observe("cancelled");return;}
       try {
         for (;;) {
           const next = await incoming.read();
           if (!next.done) continue;
-          for (const pending of operation?.pendingRecording?.() ?? []) await pending;
+          for (const pending of waits()) await pending;
           const failure = next.deliver(() => { operation?.finish("completed"); observe(response.ok ? "completed" : "failed"); });
           if (failure) observe("cancelled");
           break;
         }
       } finally { incoming.release(); }
     } catch {
+      // A lost recording wait is not an upstream failure (#4370).
+      if (recordingLost) { operation?.finish("denied", "egress_unavailable"); observe("cancelled"); return; }
       const cause=captureEgressFailure(signal,operation);
       operation?.finish(cause.outcome,"upstream_unreachable");
       observe(cause.outcome);
@@ -781,6 +811,15 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
  * Replace every occurrence of `secret` in a byte stream, including one split
  * across chunks: the tail that could start a match is held for the next chunk.
  */
+/**
+ * The host's recording waits for one attempt, each rejection marked as a
+ * recording loss (#4370). Callers wait on them inline, never through another
+ * async call: the last check and the charge after it then run in one
+ * synchronous segment, so no sibling reservation can slip between them.
+ */
+function recordingWaits(source: (() => Iterable<Promise<void>>) | undefined, lost: () => void): () => Generator<Promise<void>> {
+  return function* () { for (const pending of source?.() ?? []) yield pending.catch((error: unknown) => { lost(); throw error; }); };
+}
 function keyScrubber(secret: string): (chunk: Uint8Array, final: boolean) => Uint8Array {
   const needle = Buffer.from(secret), redacted = Buffer.from("[redacted]");
   let carry = Buffer.alloc(0);

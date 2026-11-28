@@ -145,6 +145,24 @@ export interface GovernanceWrites {
 const SAFETY_END_RECORD_WAIT_MS = 10_000;
 
 /** The app side: every write commits on `writer` when there is one, else on `db` at once. */
+/**
+ * The one strict parser for a record reply (#4351), used by every caller
+ * that reads one: the hosted writer's `firstTaint`, the legacy recorder
+ * adapter and turn egress's audit check. `durable`: true, a commit, or a
+ * replay with a positive id that keeps its evidence. `loss`: exactly
+ * {id:0, recorded:false}, which only a gapped turn tolerates. `none`: no
+ * reply at all (undefined), a legacy recorder's void. Anything else, bare
+ * false, a partial or mistyped shape, or an error reply, throws.
+ */
+export function parseRecordReply(result: unknown): "durable" | "loss" | "none" {
+  if (result === undefined) return "none";
+  if (result === true) return "durable";
+  if (result !== null && typeof result === "object" && !("error" in result)) {
+    const { id, recorded } = result as { id?: unknown; recorded?: unknown };
+    if (typeof recorded === "boolean" && typeof id === "number" && Number.isSafeInteger(id) && id >= 0) return recorded || id > 0 ? "durable" : "loss";
+  }
+  throw new Error("Malformed recording acknowledgment");
+}
 export function createGovernanceWrites(db: Database, writer?: SqliteWriter): GovernanceWrites {
   const invoke = procedureCaller(db, { url, setup }, undefined, writer);
   const shared=safetyQueue(db),pendingTaints=shared.pending;
@@ -319,7 +337,12 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
 
       });
     },
-    firstTaint: (input, options) => record(input, options).then(result => result.recorded),
+    // A replay keeps its durable evidence end to end (#4351).
+    firstTaint: (input, options) => record(input, options).then(result => {
+      const reply = parseRecordReply(result);
+      if (reply === "none") throw new Error("Malformed recording acknowledgment");
+      return reply === "durable";
+    }),
     taint(turnId, sessionId) {
       return snapshot(()=>{
         if (shared.failed||lostInScope(turnId,sessionId)) return { eventId: 0, source: "legacy_unknown" };
