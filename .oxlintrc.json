@@ -45,5 +45,8 @@
       }
     }
   ],
+  // `bun run lint` hands oxlint its files from the shared tree listing and names
+  // its exclusions, with their reasons, in scripts/check-oxlint.ts;
+  // tests/oxlint-gate.test.ts fails when a pattern here drops a file it lints.
   "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/fixtures/**"]
 }
