@@ -63,7 +63,6 @@ function snapshot(root: Root, pid: number) {
     coverage: { processesSeen: names.length, processesTruncated: names.length > LIMITS.processes, descriptorsTruncated, referencesTruncated, mountsTruncated, namespaceReferencesTruncated, errorsTruncated: errors.length > 16 }, errors: errors.slice(0, 16).map(error => error.slice(0, 512)) };
 }
 
-/** Called only by the real native fixture's existing spawn observer, never production. */
 /**
  * The two equal deadlines that end a held sync: the client's request timeout
  * closes the connection, and the manager's per-operation timer aborts the
@@ -73,10 +72,31 @@ export const DEADLINE_ABORT_REASONS = [
   "AbortError: The connection was closed.",
   "Error: Native manager transport operation timeout exceeded; configure operationTimeoutMs for this host workload.",
 ] as const;
+/**
+ * What the client reports for those deadlines: a lost request when its own
+ * timeout wins or the manager's response arrives too late, and the manager's
+ * interruption when the manager's timeout response arrives first.
+ */
+export const DEADLINE_CLIENT_ERRORS = [
+  "Native manager outcome is unknown; reconcile the same checkpoint identity.",
+  `Native manager command was interrupted; reconcile recorded intent. ${DEADLINE_ABORT_REASONS[1]}`,
+] as const;
+export function deadlineClientError(message: unknown): boolean {
+  return typeof message === "string" && DEADLINE_CLIENT_ERRORS.some(wording => message.includes(`NativeBrainManagerError: ${wording}`));
+}
 export function deadlineSigkill(signal: any): boolean {
   return signal?.signal === "SIGKILL" && (DEADLINE_ABORT_REASONS as readonly string[]).includes(signal.abort?.reason);
 }
+/**
+ * SIGKILL cannot be caught, so the first one recorded ended the process; any
+ * later attempt (the observer records kills while termination is pending) was
+ * redundant. That first SIGKILL must be a deadline kill.
+ */
+export function deadlineKillEnded(signals: unknown): boolean {
+  return Array.isArray(signals) && deadlineSigkill(signals.find(signal => signal?.signal === "SIGKILL"));
+}
 
+/** Called only by the real native fixture's existing spawn observer, never production. */
 export function nativeReleaseObservations(directory: string) {
   const roots = new Map<string, Root>(), active = new Set<Promise<void>>(), failures: unknown[] = [];
   const abortDescriptor = Object.getOwnPropertyDescriptor(AbortController.prototype, "abort")!;
