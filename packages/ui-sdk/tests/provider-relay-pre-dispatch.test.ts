@@ -223,3 +223,15 @@ for (const path of ["ordinary", "files"] as const) test(`#4370: a ${path} record
     expect(h.refusals.map(r => r.reason)).toEqual(["upstream_unreachable"]);
   } finally { await h.close(); }
 });
+test("#4370: a cleanup recording loss before the send keeps its upstream-failure classification and leaves no receipt", async () => {
+  const h = await harness();
+  try {
+    expect((await h.owned()).status).toBe(200);
+    h.receipts.length = 0; seen.length = 0;
+    h.loseRecordingBeforeSend();
+    await h.relay.stop();
+    expect(seen.filter(entry => entry.method === "DELETE")).toEqual([]);
+    expect(h.receipts, "PRE_SEND_CLEANUP_LOSS_LEAVES_NO_RECEIPT").toEqual([]);
+    expect(h.rows.at(-1), "PRE_SEND_CLEANUP_LOSS_KEEPS_ITS_CLASSIFICATION").toMatchObject({ outcome: "failed", reason: "upstream_unreachable", dispatched: false });
+  } finally { await h.close(); }
+});

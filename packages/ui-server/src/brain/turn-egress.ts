@@ -189,9 +189,11 @@ export async function prepareTurnEgress(options: {
   // see the losses it tolerates. Only a known gap tolerates a loss; an
   // unreadable one (undefined) still raises no card.
   const gapRead = (): boolean | undefined => { try { return !!db?.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND restricted_begin=1").get(options.turnId); } catch { return undefined; } };
-  // The proxy reads `noCards` before every approval callback and again at
-  // dispatch, so no card of any kind is raised or used on a gapped turn.
-  const gapped = () => gapRead() === true, noCards = () => gapRead() !== false;
+  // `cardsAllowed` is the one predicate every card path reads (#4351): the
+  // proxy's Network and outward cards (and so managed fetches), and the
+  // extraction classifier's card and relaxation. No card is raised or
+  // honoured on a gapped turn.
+  const gapped = () => gapRead() === true, cardsAllowed = () => gapRead() === false;
   /** `tolerable`: a taint record, whose tolerated loss on a gapped turn is not an audit failure. */
   const track = (committed: unknown, tolerable = false) => {
     const confirm=(result:unknown)=>{
@@ -335,7 +337,7 @@ export async function prepareTurnEgress(options: {
   // The extraction classifier (#4088), off unless the policy turns it on. It
   // needs the session's taint record, so a host that keeps none never runs it.
   const extraction = db && options.policy.taint.classifier === "heuristics" ? createTurnExtraction({ bridge: options.bridge, origin: options.origin,
-    sessionId: options.sessionId, tainted: () => firstTaint() !== null, contacted, brainPath: options.brainPath,
+    sessionId: options.sessionId, tainted: () => firstTaint() !== null, contacted, brainPath: options.brainPath, cardsAllowed,
     cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
     marked: path => isMarkedUntrusted(db, path),
     ...(options.policy.taint.judge.mode === "jev" && options.extractionJudge ? { judge: options.extractionJudge } : {}) }) : null;
@@ -433,7 +435,7 @@ export async function prepareTurnEgress(options: {
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
     outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted,
-    inputCurrent, recordingGap: noCards,
+    inputCurrent, recordingGap: () => !cardsAllowed(),
     committed:destination=>{
       if(destination.inference||destination.provider)return;
       if(destination.recipientAuthority.kind === "rule")standingRecipients.set(destination.connectionId,destination.recipientAuthority.admission);

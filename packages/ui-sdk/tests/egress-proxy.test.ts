@@ -668,3 +668,36 @@ for (const gapped of [true, false]) test(`covered outward traffic that loses its
     expect(records.at(-1), "COVER_LOST_BEFORE_DISPATCH_IS_REFUSED").toMatchObject({ reason: gapped ? "recording_gap" : "safety_changed", dispatched: false });
   } finally { proxy.stop(); origin.stop(true); }
 });
+// #4351: the gap and cover checks come before any card's evidence marker is read.
+for (const kind of ["covered outward", "gapped Network card"] as const) test(`a throwing card marker reader leaves a ${kind} connection to its own rule`, async () => {
+  const records: EgressRecord[] = [];
+  let hits = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+  const marker = () => { throw new Error("Odysseus marker unreadable"); };
+  const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => kind === "gapped Network card",
+    ...(kind === "covered outward" ? { outwardHosts: ["127.0.0.1"], outwardCovered: () => true, approveOutward: async () => true,
+      taint: { allow: ["127.0.0.1"], tainted: () => true, contacted: () => false, approvalRevision: marker } }
+      : { taint: { allow: [], tainted: () => true, contacted: () => false, approvalRevision: marker, approve: async () => true } }) });
+  try {
+    const status = (await get(proxy.socketPath, origin.url.href)).status;
+    await recorded(records, 1);
+    if (kind === "covered outward") { expect(status, "COVERED_OUTWARD_NEVER_READS_A_CARD_MARKER").toBe(200); expect(hits).toBe(1); }
+    else { expect(records.at(-1), "GAP_REFUSAL_PRECEDES_THE_MARKER_READ").toMatchObject({ reason: "recording_gap", dispatched: false }); expect(hits).toBe(0); }
+  } finally { proxy.stop(); origin.stop(true); }
+});
+test("a gapped turn names the refusal when a standing rule is withdrawn before dispatch", async () => {
+  const records: EgressRecord[] = [];
+  let rule = true, hits = 0, asks = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => true,
+    taint: { allow: [], tainted: () => true, contacted: () => false, approve: async () => { asks++; return true; },
+      recipient: () => rule ? { ruleId: "ithaca", policyHash: "a".repeat(64), trustRevision: "1", collectionRevision: "1", instance: "1" } : false },
+    // The rule is withdrawn in the last step before dispatch: the destination now needs a card.
+    admitted: () => { rule = false; } });
+  try {
+    expect((await get(proxy.socketPath, origin.url.href)).status).toBe(403);
+    await recorded(records, 1);
+    expect(hits).toBe(0); expect(asks).toBe(0);
+    expect(records.at(-1), "WITHDRAWN_RULE_ON_A_GAPPED_TURN_IS_A_GAP_REFUSAL").toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { proxy.stop(); origin.stop(true); }
+});

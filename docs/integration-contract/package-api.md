@@ -6370,7 +6370,8 @@ its request started and when a host `pendingRecording()` wait rejects after its
 response headers or during a body read (503 where no response was sent yet,
 terminal `cancelled`, never `failed`). A recording wait that rejects at the final fence,
 before the request starts, keeps its earlier answer: 502 with
-`upstream_unreachable` to `refused`, and no receipt. Each post-dispatch recording check and
+`upstream_unreachable` to `refused`, and no receipt; the Files cleanup DELETE
+keeps its `failed`/`upstream_unreachable` proxy record there. Each post-dispatch recording check and
 the header, body or end charge after it run in one synchronous segment, with no
 await between them, on the headers, Files answer, empty body and stream
 fences. Observers that counted those pre-dispatch `cancelled`
@@ -6453,7 +6454,12 @@ progress already covers needs no card and still connects. Covered traffic binds
 to no card's evidence marker; the proxy asks `outwardCovered()` again before
 every send, and a connection that lost its cover is refused, as
 `recording_gap` on a gapped turn and otherwise as `safety_changed` so a retry
-can ask. A card pending when the gap appeared,
+can ask. Both checks run before any card's evidence marker is read. A
+destination that comes to need a Network card before dispatch, such as one
+whose standing recipient rule was withdrawn, is refused as `recording_gap`.
+The extraction classifier (`taint.classifier: heuristics`) reads the same
+predicate: an `ask` verdict raises no card and refuses the call, and an
+`allow` never counts a new host as contacted. A card pending when the gap appeared,
 or answered before it, is never used: its connection, of either kind, is
 refused as `recording_gap` before dispatch. Allow-listed and already-contacted
 destinations need no card and still connect, and a new turn restores

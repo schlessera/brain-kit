@@ -412,10 +412,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const receive=(count:number):EgressChargeResult=>chargeReceivedBytes(count,{remaining:()=>Math.max(0,options.maxBytes-usedBytes),charge:bytes=>{const result=charge(bytes);return result.ok?undefined:result;}})??{ok:true};
     const receiveHead=(first:string,rawHeaders:readonly string[]):EgressChargeResult=>readReceivedHead(first,rawHeaders,{remaining:()=>Math.max(0,options.maxBytes-usedBytes),charge:bytes=>{const result=charge(bytes);return result.ok?undefined:result;}})??{ok:true};
     /** One approval wait; cancelling this connection or the turn resolves it as refused. */
-    const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean | "superseded" | "expired" | "unconfirmed">) | undefined) => {
+    /** `mark` reads the card's evidence marker, only once the gap check let the card through. */
+    const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean | "superseded" | "expired" | "unconfirmed">) | undefined, mark?: () => void) => {
       if (!ask || !lifecycle.active()) return false;
       // A gapped turn raises no card of any kind, whatever the host's callback would answer (#4351).
       if (gapRefused()) return false;
+      mark?.();
       let answer: boolean | "superseded" | "expired" | "unconfirmed" = "unconfirmed";
       let cancelled: (() => void) | undefined;
       try {
@@ -491,10 +493,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!narrowed()) return true;
       const ask = options.taint?.approve;
       if (!ask) { finish("denied","taint_not_allowed"); return false; }
-      const askNetwork = (replacement:boolean) => {
-        grantRevision = approvalRevision();
-        return approval((destination, signal) => ask(destination, signal, connectionId, replacement));
-      };
+      const askNetwork = (replacement:boolean) =>
+        approval((destination, signal) => ask(destination, signal, connectionId, replacement), () => { grantRevision = approvalRevision(); });
       let beforeCard = readSafety();
       let answer = await askNetwork(false);
       while (answer === "superseded") {
@@ -545,13 +545,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       if (!await narrowing() || !lifecycle.active()) return false;
       if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
-        outwardRevision = approvalRevision(false,true);
         // Covered by a call in progress: no card, so no gap refusal and no
         // card marker; its authority is the live coverage, rechecked at each send (#4351).
         if (outwardCovered()) outwardByCoverage = true;
         else {
           const approveOutward=options.approveOutward;
-          if ((await approval(approveOutward ? ({host,port,method},signal)=>approveOutward({host,port,method},signal) : undefined)) !== true) {
+          if ((await approval(approveOutward ? ({host,port,method},signal)=>approveOutward({host,port,method},signal) : undefined, () => { outwardRevision = approvalRevision(false,true); })) !== true) {
             finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false;
           }
           outwardApproved = true;
@@ -598,7 +597,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!grantCurrent(true)) { refuseStaleApproval(); return null; }
       if (!inputCurrent(connectionId)) { revokeInput(); return null; }
       const authority=recipientDecision(true);
-      if (!authority) { finish("denied", "taint_not_allowed"); return null; }
+      // It now needs a Network card: on a gapped turn that is a gap refusal (#4351).
+      if (!authority) { if (!(options.taint?.approve && gapRefused())) finish("denied", "taint_not_allowed"); return null; }
       usedBytes += count; bytes += count;
       return authority;
       } catch { finish("denied", "egress_unavailable"); return null; }

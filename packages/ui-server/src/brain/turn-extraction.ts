@@ -87,6 +87,11 @@ export function createTurnExtraction(options: {
   contacted: ReadonlySet<string>;
   /** What tainted the session, as "This session …" completes it. */
   cause: () => string | null;
+  /**
+   * False on a turn with a permanent recording gap (#4351): an `ask` verdict
+   * raises no card there, and no relaxation counts a host as contacted.
+   */
+  cardsAllowed?: () => boolean;
   brainPath?: string;
   marked?: (path: string) => boolean;
   /**
@@ -136,6 +141,7 @@ export function createTurnExtraction(options: {
       const reason = verdict.reason ?? "looks like it carries data out of this session";
       // Voice has no grant surface: it refuses wherever an interactive turn would ask.
       if (options.origin !== "interactive") throw new Error(extractionRefusal(tool, reason, options.cause()));
+      if (options.cardsAllowed?.() === false) throw new Error(`Refused: this ${tool} call ${reason}, and this turn's safety recording has a permanent gap, so it cannot ask you about it. Nothing was sent. Start a new turn to ask again.`);
       const fresh = hosts.filter(host => !options.contacted.has(host));
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: tool, kind: "command",
         input: { ...(verdict.request.surface === "web_fetch" ? { url: input.url } : verdict.request.surface === "bash" || verdict.request.surface === "brain_cli" ? { command: input.command } : {}), hosts },
@@ -213,6 +219,8 @@ export function createTurnExtraction(options: {
      * attributable, and no call in progress names it without relaxing it.
      */
     relaxes(host: string): boolean {
+      // A relaxation stands in for a card; a gapped turn honours none (#4351).
+      if (options.cardsAllowed?.() === false) return false;
       const active = [...calls.values()];
       if (active.some(call => call.withholds)) return false;
       return active.some(call => call.relax.includes(host)) && active.every(call => !call.hosts.includes(host) || call.relax.includes(host));

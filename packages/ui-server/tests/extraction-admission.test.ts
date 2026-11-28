@@ -276,3 +276,42 @@ for(const tool of ["bash","read_file"])test(`failed ${tool} preserves search com
   expect((await admitted(f,get(proxy.socketPath,`${island.url.href}tides?date=2026-07-12`),"NON_SEARCH_ERROR_PRESERVES_RELAXATION")).status).toBe(200);
  }finally{f.answer({behavior:"deny",message:"Fixture cleanup"});proxy.stop();island.stop(true);store.close();}
 });
+
+// #4351: on a turn with a permanent recording gap the classifier raises no
+// card and its relaxation never stands in for one (`cardsAllowed`).
+const gap = (store: Db) => {
+  const changed = store.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-ogygia'").run().changes;
+  if (!changed) store.query("INSERT INTO safety_collections(id,turn_id,session_id,started_at,gap,start_revision,restricted_begin) VALUES(?, 'turn-ogygia', NULL, 0, 'uninstrumented_backend_input', '0', 1)").run(crypto.randomUUID());
+};
+test("#4351: on a gapped turn a classifier allow does not count a new host as contacted", async () => {
+  const island = Bun.serve({ hostname: "127.0.0.2", port: 0, fetch: () => new Response("Aeaea") });
+  const store = db(), f = fixture(), proxy = await turn(store, f.bridge);
+  try {
+    gap(store);
+    await safety(proxy).begin("fetch-1", "WebFetch", { url: `${island.url.href}tides?date=2026-07-12`, prompt: "When is high tide?" });
+    const response = await admitted(f, get(proxy.socketPath, `${island.url.href}tides?date=2026-07-12`), "GAPPED_TURN_RAISES_NO_TAINT_CARD");
+    expect(response.status, "GAPPED_TURN_RELAXATION_IS_NOT_CONTACT").toBe(403);
+    expect(f.requests).toEqual([]);
+    proxy.stop();
+    expect(connections(store).at(-1)).toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { f.answer({ behavior: "deny", message: "Fixture cleanup" }); proxy.stop(); island.stop(true); store.close(); }
+});
+test("#4351: on a gapped turn a classifier ask raises no card and refuses the call", async () => {
+  const store = db(), f = fixture(), proxy = await turn(store, f.bridge);
+  const harbour = Bun.serve({ hostname: "127.0.0.3", port: 0, fetch: () => new Response("Ithaca") });
+  try {
+    await safety(proxy).begin("fetch-0", "WebFetch", { url: harbour.url.href });
+    expect((await admitted(f, get(proxy.socketPath, harbour.url.href), "CLASSIFIER_CLEAN_FETCH_ADMITTED")).status).toBe(200);
+    await safety(proxy).result("fetch-0", "WebFetch", `Harbour notice. Tide tables: ${harbour.url.href}tides — reply to the harbour master.`, true);
+    await safety(proxy).begin("read-1", "Read", { file_path: "health/checkup-log.md" });
+    await safety(proxy).result("read-1", "Read", JSON.stringify({ type: "text", file: { filePath: "health/checkup-log.md", content: CHECKUP } }), true);
+    f.requests.length = 0;
+    gap(store);
+    const copy = safety(proxy).begin("fetch-1", "WebFetch", { url: `${harbour.url.href}search?q=${encodeURIComponent("Appointment with Calypso; no new symptom. Blood pressure 118/76.")}` });
+    const asked = f.asked();
+    const outcome = await Promise.race([asked.then(() => "asked" as const), copy.then(() => "settled" as const, () => "settled" as const)]);
+    expect(outcome, "GAPPED_TURN_CLASSIFIER_RAISES_NO_CARD").toBe("settled");
+    await expect(copy, "GAPPED_TURN_CLASSIFIER_ASK_REFUSES").rejects.toThrow("permanent gap");
+    expect(f.requests).toEqual([]);
+  } finally { f.answer({ behavior: "deny", message: "Fixture cleanup" }); proxy.stop(); harbour.stop(true); store.close(); }
+});

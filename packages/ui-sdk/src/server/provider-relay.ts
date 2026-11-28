@@ -741,14 +741,15 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     }
     const headers = new Headers(PLACEMENT.gemini(secret));
     const allowance=relayAllowance(operation,options.egress?.remainingBytes?.bind(options.egress),MAX_PROVIDER_REQUEST_BYTES);
-    for (const pending of waits()) await pending;
+    // Before the send, a lost recording wait keeps its earlier classification.
+    for (const pending of operation?.pendingRecording?.() ?? []) await pending;
     const cleanupCharge = allowance.charge(relayHeaderBytes(`DELETE ${target.pathname} HTTP/1.1`, headers));
     if (cleanupCharge) { observe("cancelled"); return; }
     const cleanupDecision = operation?.prepare();
     if (cleanupDecision && !cleanupDecision.ok) { observe("cancelled"); return; }
     try{options.preparing?.({attemptId,family:"gemini",operation:"files",origin:entry.origin,key:entry.key,model:null,status:0,usage:null,inlineMedia:false});}catch{/* Diagnostics only. */}
     try {
-      for (const pending of waits()) await pending;
+      for (const pending of operation?.pendingRecording?.() ?? []) await pending;
       const finalFailure=allowance.charge(0)??captureEgressFailure(signal).failure;
       if(finalFailure){observe("cancelled");return;}
       let pending!:Promise<Response>;
