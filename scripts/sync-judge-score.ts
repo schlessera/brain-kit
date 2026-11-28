@@ -32,7 +32,7 @@ export interface JudgeSample<L extends string = string> {
   orderAgreed?: boolean | null;
 }
 
-export interface ScoreOptions<L extends string> {
+interface ScoreOptions<L extends string> {
   /** Every label, in the order tables should list them. */
   labels: readonly L[];
   /** Whether acting on `accepted` when the truth is `label` loses content. Wrong but harmless otherwise. */
@@ -41,7 +41,7 @@ export interface ScoreOptions<L extends string> {
   latenciesMs?: readonly number[];
 }
 
-export interface LabelScore {
+interface LabelScore {
   /** Items with this label. */
   support: number;
   /** Answered items predicted as this label. */
@@ -52,7 +52,7 @@ export interface LabelScore {
   recall: number | null;
 }
 
-export interface ThresholdScore {
+interface ThresholdScore {
   /** Decisions returned. */
   accepted: number;
   /** Of those, equal to the label. */
@@ -66,7 +66,7 @@ export interface ThresholdScore {
   perLabel: Record<string, { accepted: number; correct: number; precision: number | null }>;
 }
 
-export interface CalibrationBucket {
+interface CalibrationBucket {
   /** Confidence in [lo, hi); the last bucket includes 1. */
   lo: number;
   hi: number;
@@ -219,7 +219,7 @@ export function fileHarm(accepted: FileDecision, label: FileDecision): boolean {
  * ours-supersedes keep OURS, theirs-supersedes keeps THEIRS, distinct keeps
  * both.
  */
-export function pairKeeps(decision: PairDecision): "ours" | "theirs" | "both" {
+function pairKeeps(decision: PairDecision): "ours" | "theirs" | "both" {
   switch (decision) {
     case "same-fact":
     case "ours-supersedes":

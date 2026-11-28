@@ -63,7 +63,7 @@ export const BROWSER_BUDGET_SECONDS: number = BROWSER_DETERMINISM_PARTITIONS.cap
 export const UNWEIGHTED_PAIR_SECONDS: number = BROWSER_DETERMINISM_PARTITIONS.unweightedSeconds;
 const SUBJECT: PartitionSubject = { proof: "Repeated browser proof", units: "changed project/file pair(s)", unit: "pair", owner: "BROWSER_DETERMINISM_PARTITIONS" };
 
-export interface PairRepetitions extends SpecPair { weightSeconds: number; weighted: boolean; repetitions: number; observed?: number; }
+interface PairRepetitions extends SpecPair { weightSeconds: number; weighted: boolean; repetitions: number; observed?: number; }
 export interface BrowserRepetitionPlan {
   requested: number; floor: number; repetitions: number; reduced: boolean;
   budgetSeconds: number; weightSeconds: number; estimatedSeconds: number; overBudget: boolean;

@@ -116,9 +116,9 @@ export function loadPairSet(path = resolve(FIXTURE_DIR, "pairs.jsonl")): PairCas
   });
 }
 
-export type SetName = "files" | "pairs";
+type SetName = "files" | "pairs";
 
-export interface SetResult {
+interface SetResult {
   set: SetName;
   repeats: number;
   score: JudgeScore;
@@ -139,7 +139,7 @@ function tallyCalls(calls: { outcome: string; durationMs: number; model?: string
   }
 }
 
-export async function measureFiles(client: JevLike, cases: readonly FileCase[], repeats: number): Promise<SetResult> {
+async function measureFiles(client: JevLike, cases: readonly FileCase[], repeats: number): Promise<SetResult> {
   const files: UnknownFile[] = cases.map((c) => ({ id: c.id, path: c.path, head: c.head, bytes: Buffer.byteLength(c.head) }));
   const labels = new Map(cases.map((c) => [c.id, c.label]));
   const samples: JudgeSample<FileDecision>[] = [];
@@ -166,7 +166,7 @@ export async function measureFiles(client: JevLike, cases: readonly FileCase[], 
   return { set: "files", repeats, score, outcomes, skipped: skipped / Math.max(1, repeats), models: [...models].sort(), thresholds: SYNC_JUDGE_THRESHOLDS };
 }
 
-export async function measurePairs(client: JevLike, cases: readonly PairCase[], repeats: number): Promise<SetResult> {
+async function measurePairs(client: JevLike, cases: readonly PairCase[], repeats: number): Promise<SetResult> {
   const pairs: JudgmentPair[] = cases.map((c) => ({ id: c.id, path: c.path, context: c.context, ours: c.ours, theirs: c.theirs }));
   const labels = new Map(cases.map((c) => [c.id, c.label]));
   const samples: JudgeSample<PairDecision>[] = [];
@@ -202,7 +202,7 @@ export async function measurePairs(client: JevLike, cases: readonly PairCase[], 
 const pct = (value: number | null): string => (value === null ? "   -" : `${(value * 100).toFixed(1).padStart(5)}%`);
 const ms = (value: number | null): string => (value === null ? "-" : `${Math.round(value)} ms`);
 
-export function renderSet(result: SetResult): string {
+function renderSet(result: SetResult): string {
   const { score } = result;
   const labels = Object.keys(score.perLabel);
   const width = Math.max(...labels.map((l) => l.length), 10);
@@ -248,7 +248,7 @@ export function renderSet(result: SetResult): string {
 // Entry point
 // ---------------------------------------------------------------------------
 
-export interface MainDeps {
+interface MainDeps {
   env?: Record<string, string | undefined>;
   /** Injected transport; the real client for `TYPESAFE_API_KEY` otherwise. */
   client?: JevLike;

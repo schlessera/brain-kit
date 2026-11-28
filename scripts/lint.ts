@@ -11,7 +11,7 @@ import { join, resolve } from "path";
 
 const ROOT = resolve(import.meta.dir, "..");
 
-export const LINTS = [
+const LINTS = [
   "check-invisibles.ts", // raw control/invisible characters in tracked source
   "check-env-access.ts", // ambient process.env outside per-package chokepoints
   "check-frontmatter-parse.ts", // gray-matter parsing outside the cache-free parseFrontmatter helper (#142)

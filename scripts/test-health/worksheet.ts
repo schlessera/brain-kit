@@ -9,8 +9,8 @@
 import { ACTIONS, DEFERRED_REASONS, LENS_IDS, LENS_VERDICTS, REDUCING_ACTIONS, STATUSES, requiredEvidence, smellById,
   type ActionId, type DeferredReason, type LensId, type LensVerdict, type StatusId } from "./catalog";
 
-export interface MutationEvidence { verdict: string; test: string; patchSha256: string; expect: string }
-export interface RunsEvidence { runs: number; failures: number; medianMs: number | null }
+interface MutationEvidence { verdict: string; test: string; patchSha256: string; expect: string }
+interface RunsEvidence { runs: number; failures: number; medianMs: number | null }
 /** One original assertion and the test that still makes it after the change. */
 export interface Obligation { claim: string; owner: string }
 
@@ -44,7 +44,7 @@ export interface Finding<Ref = false> {
   evidence?: Evidence<Ref>;
 }
 
-export interface FileAudit { file: string; lenses: Record<LensId, LensVerdict> }
+interface FileAudit { file: string; lenses: Record<LensId, LensVerdict> }
 
 export interface Worksheet<Ref = false> {
   schemaVersion: 1;
@@ -106,7 +106,7 @@ export function resolveWorksheet(draft: DraftWorksheet, readJson: (path: string)
   return { ...draft, findings };
 }
 
-export interface ValidateOptions { stableRuns: number }
+interface ValidateOptions { stableRuns: number }
 
 /** Every problem found; an empty list means the worksheet may be recorded. */
 export function validateWorksheet(sheet: Worksheet, options: ValidateOptions): string[] {

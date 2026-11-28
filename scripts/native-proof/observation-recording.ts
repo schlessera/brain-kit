@@ -1,7 +1,7 @@
 /** Harness-only attribution from committed sequence deltas on each real record step. */
 import type { Database } from "bun:sqlite";
 import type { ObservationTrace, TraceStep } from "./observation-phases.js";
-export interface RecordedWindow { turnId: string; before: number; after: number; changedPaths: number; startedAt: number; endedAt: number }
+interface RecordedWindow { turnId: string; before: number; after: number; changedPaths: number; startedAt: number; endedAt: number }
 export function recordingCursors(db: Database): { turnId: string; sequence: number }[] {
   return db.query(`SELECT turn_id AS turnId,coalesce((SELECT max(sequence) FROM turn_journal_changes c WHERE c.turn_id=t.turn_id),0) AS sequence
     FROM turn_journal_turns t WHERE ended_at IS NULL`).all() as { turnId: string; sequence: number }[];

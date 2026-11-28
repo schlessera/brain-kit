@@ -49,7 +49,7 @@ export function relevance(decision: SurfaceDecision): string {
     + `<skill_relevance>${decision.skills.join(", ") || "none"}. Ignore this hint if it does not fit the request.</skill_relevance>`;
 }
 
-export interface OverlappedTurn { query: Query; spare: SpareProcess; decision: SurfaceDecision }
+interface OverlappedTurn { query: Query; spare: SpareProcess; decision: SurfaceDecision }
 
 /** The caller starts its bounded decision before calling this function.
  * No claim/prompt is sent until both initialization and fixture preparation

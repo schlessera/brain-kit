@@ -49,7 +49,7 @@ export interface Candidate {
   bun: string;
 }
 
-export interface TierResult {
+interface TierResult {
   exitCode: number;
   files: string[];
   tests: number;
@@ -144,7 +144,7 @@ export function runProblems(expected: Candidate, result: TierResult, after: Cand
 }
 
 /** Field-by-field differences between a recorded candidate and the current one. */
-export function candidateProblems(recorded: Candidate, current: Candidate): string[] {
+function candidateProblems(recorded: Candidate, current: Candidate): string[] {
   const problems: string[] = [];
   if (recorded.tree !== current.tree) problems.push(`source tree ${recorded.tree} is not the current ${current.tree}`);
   if (recorded.lock.sha256 !== current.lock.sha256) problems.push("bun.lock changed since the run");

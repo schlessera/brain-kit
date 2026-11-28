@@ -88,7 +88,7 @@ function changedFiles(gh: Gh, repo: string, pr: number): string[][] {
     .split("\n").filter(Boolean).map(line => (JSON.parse(line) as unknown[]).map(String));
 }
 
-export interface StatusIo { gh?: Gh; out: (text: string) => void }
+interface StatusIo { gh?: Gh; out: (text: string) => void }
 
 export async function main(argv: readonly string[], io: StatusIo): Promise<number> {
   const gh = io.gh ?? realGh;

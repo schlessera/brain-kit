@@ -6,7 +6,7 @@
  * launch resolves.
  */
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, createWriteStream, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as worker from "@schlessera/brain-ui-sdk/internal";
@@ -38,7 +38,7 @@ function fixture() {
  * only the worker program substituted, after `before` resolves; the blocking
  * one is counted and passes through.
  */
-function observe(options: { script: string; before?: (input: Launch) => Promise<void>; killFailsOnce?: boolean }) {
+function observe(options: { script: string; before?: (input: Launch) => Promise<void>; killFailsOnce?: boolean; brokenStdin?: boolean }) {
   const ticks = { count: 0, timer: setInterval(() => { ticks.count++; }, 1) };
   const seen = { awaitable: 0, blocking: 0, ticksWhilePending: 0, children: [] as Launched[], signals: [] as string[], retained: 0, cleaned: 0 };
   const realAsync = worker.launchAgentWorkerAsync, realSync = worker.launchAgentWorker, realRetain = worker.retainWorkerStartupView;
@@ -59,7 +59,10 @@ function observe(options: { script: string; before?: (input: Launch) => Promise<
         if (failing) { failing = false; throw new Error("Odysseus: the signal request failed"); }
         kill(signal);
       };
-      cleanup.push(async () => { child.kill("SIGKILL"); child.stdin.end(); await child.exited; await child.released(); });
+      const stdin = child.stdin;
+      cleanup.push(async () => { child.kill("SIGKILL"); stdin.end(); await child.exited; await child.released(); });
+      // As a worker's pipe is once the worker is gone: every write fails with EPIPE.
+      if (options.brokenStdin) child.stdin = brokenPipe();
       return child;
     } finally { seen.ticksWhilePending += ticks.count - before; }
   });
@@ -72,6 +75,17 @@ function observe(options: { script: string; before?: (input: Launch) => Promise<
   });
   cleanup.push(() => { clearInterval(ticks.timer); awaitable.mockRestore(); blocking.mockRestore(); retain.mockRestore(); });
   return seen;
+}
+
+/** A write stream on a FIFO whose only reader is closed, as a killed worker's stdin is. */
+function brokenPipe() {
+  const dir = mkdtempSync(join(tmpdir(), "odysseus-broken-pipe-")), path = join(dir, "stdin");
+  try {
+    expect(Bun.spawnSync([Bun.which("mkfifo")!, "-m", "600", path]).exitCode).toBe(0);
+    const hold = openSync(path, constants.O_RDWR), reader = openSync(path, constants.O_RDONLY), writer = openSync(path, constants.O_WRONLY);
+    closeSync(hold); closeSync(reader);
+    return createWriteStream("", { fd: writer, autoClose: true });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
 async function treeFor(f: ReturnType<typeof fixture>) {
@@ -148,3 +162,26 @@ for (const path of ["masked CLI", "turn tree"] as const) {
     expect({ retained: seen.retained, cleaned: seen.cleaned }).toEqual({ retained: 1, cleaned: 1 });
   });
 }
+
+// The request goes to a worker whose pipe may already be closed. Its write
+// error must reach no one but the run: unheard, it is an uncaught exception
+// that ends the host process, and the test runner fails the test on it (#5050).
+test("turn tree: an abort during launch with the worker's pipe already closed reports the abort, not EPIPE", async () => {
+  const f = fixture(), controller = new AbortController();
+  const tree = await treeFor(f);
+  observe({ script: "IFS= read -r request; exec sleep 3", before: async () => { controller.abort(); }, brokenStdin: true });
+  const result = await outcome(tree.planAdd({ title: "Ithaca" }, controller.signal));
+  // The stream reports its error on a later tick; give it one inside this test.
+  await new Promise(resolve => setImmediate(resolve));
+  expect(result.error, "the run reports the abort").toBeInstanceOf(DOMException);
+});
+
+test("turn tree: a worker that is gone before its request is written fails the run, not the process", async () => {
+  const f = fixture();
+  const tree = await treeFor(f);
+  observe({ script: "exit 3", brokenStdin: true });
+  const result = await outcome(tree.planAdd({ title: "Ithaca" }, new AbortController().signal));
+  // The stream reports its error on a later tick; give it one inside this test.
+  await new Promise(resolve => setImmediate(resolve));
+  expect(result.error instanceof Error && result.error.message).toMatch(/gave no answer \(exit 3\)/);
+});

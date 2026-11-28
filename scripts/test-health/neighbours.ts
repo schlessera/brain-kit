@@ -17,7 +17,7 @@ import ts from "typescript";
 import { TIER_LEVEL, type Row } from "./inventory";
 
 /** Bump when resolution would change for unchanged source. */
-export const IMPORT_VERSION = 1;
+const IMPORT_VERSION = 1;
 
 const STOP = new Set(["test", "spec", "tests", "runtime", "layout", "offline", "pointer", "visual", "stories", "endurance",
   "native", "tsx", "the", "and", "for", "with"]);
@@ -38,7 +38,7 @@ export function importSpecifiers(file: string, source: string): string[] {
 
 /** Repository-relative targets: relative imports that resolve to a file, and
  * `pkg:<dir>` for an import of a workspace package by name. */
-export function localTargets(root: string, file: string, specifiers: readonly string[], packageDirs: ReadonlyMap<string, string>): string[] {
+function localTargets(root: string, file: string, specifiers: readonly string[], packageDirs: ReadonlyMap<string, string>): string[] {
   const targets = new Set<string>();
   for (const specifier of specifiers) {
     if (specifier.startsWith(".")) {

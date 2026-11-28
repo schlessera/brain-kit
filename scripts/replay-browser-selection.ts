@@ -8,8 +8,8 @@ import { resolve } from "node:path";
 import { changedFiles, planChecks, selectBrowserClosures, workspaces } from "./ci-plan";
 import { discoverBrowserClosures } from "./browser-input-closure";
 const CATEGORIES = ["browser", "layout", "endurance", "captures"] as const;
-export interface ReplayBaseline { plans: { number: number; changedSha256: string; after: Record<string, boolean> }[]; }
-export function replayBrowserSelection(root: string, snapshot: { prs: { number: number; mergeCommit: string; changed: string[] }[] }, baseline?: ReplayBaseline) {
+interface ReplayBaseline { plans: { number: number; changedSha256: string; after: Record<string, boolean> }[]; }
+function replayBrowserSelection(root: string, snapshot: { prs: { number: number; mergeCommit: string; changed: string[] }[] }, baseline?: ReplayBaseline) {
   if (snapshot.prs.length !== 100 || new Set(snapshot.prs.map(pr => pr.number)).size !== 100) throw new Error("Replay requires exactly 100 distinct PRs");
   const packages = workspaces(root), closures = discoverBrowserClosures(root);
   const plans = snapshot.prs.map(pr => {

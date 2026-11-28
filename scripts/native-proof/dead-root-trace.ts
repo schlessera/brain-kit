@@ -3,8 +3,8 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
 type Event = { kind: string; pid: number; task: string; at: number; fields: Record<string, string>; stack: string[] };
-export type DeadRootQueue = "with-delete" | "other-before-commit" | "after-commit" | "not-queued";
-export type DeadRootDelete = { name: string; at: number; pid: number; comm: string; root?: string; queue: DeadRootQueue;
+type DeadRootQueue = "with-delete" | "other-before-commit" | "after-commit" | "not-queued";
+type DeadRootDelete = { name: string; at: number; pid: number; comm: string; root?: string; queue: DeadRootQueue;
   queuedBy?: { pid: number; comm: string; afterDeleteMs: number; stack: string[] }; commitAfterDeleteMs?: number; droppedAfterDeleteMs?: number };
 
 export function parseDeadRootTrace(text: string): Event[] {

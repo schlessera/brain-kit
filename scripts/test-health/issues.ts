@@ -15,7 +15,7 @@ export interface Issue { number: number; title: string; body: string; labels: st
 const FAILURE_WORDS = /flak|intermittent|timed? out|times out|red main|fails? under|race/i;
 
 /** Issues worth mapping: every `type: test` issue, and any other whose title reads like a test failure. */
-export function failureIssues(issues: readonly Issue[]): Issue[] {
+function failureIssues(issues: readonly Issue[]): Issue[] {
   return issues.filter(issue => issue.labels.includes("type: test") || FAILURE_WORDS.test(issue.title)).sort((a, b) => a.number - b.number);
 }
 

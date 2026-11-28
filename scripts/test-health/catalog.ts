@@ -146,5 +146,4 @@ export function requiredEvidence(lens: LensId, action: ActionId): EvidenceKind[]
 
 const smellIndex = new Map(SMELLS.map(entry => [entry.id, entry]));
 export const smellById = (id: string): Smell | undefined => smellIndex.get(id);
-export const isLens = (value: unknown): value is LensId => LENSES.some(lens => lens.id === value);
 export const LENS_IDS: readonly LensId[] = LENSES.map(lens => lens.id);

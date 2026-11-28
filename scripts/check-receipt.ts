@@ -108,7 +108,7 @@ export function coveredCategories(selected: { selections: Record<string, string>
   return covered;
 }
 
-export interface Uncovered { name: string; outcome: Outcome; categories: Category[]; }
+interface Uncovered { name: string; outcome: Outcome; categories: Category[]; }
 /**
  * Local checks the receipt leaves unproven whose hosted categories did not run
  * successfully. A check mapped only to post-merge categories is proved by the

@@ -90,7 +90,7 @@ const BARE_CITATION = new RegExp(
  */
 const LINE_LINK = /([^\s"'<>()[\]`]+)#L\d+/gi;
 
-export interface Citation {
+interface Citation {
   /** The record, repo-relative. */
   doc: string;
   /** 1-based line in the record where the citation span starts. */
@@ -281,7 +281,7 @@ export interface Tree {
 let workingTree: Tree | undefined;
 
 /** This checkout, read once. */
-export function repoTree(): Tree {
+function repoTree(): Tree {
   if (workingTree) return workingTree;
   const cache = new Map<string, string[]>();
   workingTree = {
@@ -318,7 +318,7 @@ function walkRepo(): string[] {
  * when the record has already cited exactly one such file in full. Anything
  * else is unresolved — never a guess.
  */
-export function resolveCitedPath(
+function resolveCitedPath(
   path: string,
   citedInDoc: string[],
   tree: Tree = repoTree(),
@@ -335,12 +335,12 @@ export function resolveCitedPath(
 }
 
 /** An anchor has to be able to tell one line from another. */
-export function anchorTooWeak(anchor: string): boolean {
+function anchorTooWeak(anchor: string): boolean {
   return anchor.trim().length < 4 || !/[A-Za-z0-9]/.test(anchor);
 }
 
 /** Whether a citation still points at its anchor. */
-export function checkCitation(
+function checkCitation(
   citation: Citation,
   citedInDoc: string[],
   tree: Tree = repoTree(),
@@ -403,7 +403,7 @@ export function checkCitation(
  * A bare reason covers exactly one: a second identical citation in the same
  * record is a new pointer, and it must not inherit the first one's excuse.
  */
-export type CitationException = string | { reason: string; occurrences: number };
+type CitationException = string | { reason: string; occurrences: number };
 
 export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
   // Exact historical links verified against their pinned source commits.
@@ -603,7 +603,7 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
 };
 
 /** Every markdown file under `docs/`, including plans and investigations. */
-export function documentationRecords(): string[] {
+function documentationRecords(): string[] {
   const found: string[] = [];
   const walk = (dir: string) => {
     for (const name of readdirSync(join(ROOT, dir))) {

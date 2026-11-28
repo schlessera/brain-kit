@@ -75,7 +75,7 @@ function unwrap(node: ts.Expression): ts.Expression {
 }
 
 /** Whether a `startsWith` argument is a root followed by a separator. */
-export function isRootPlusSeparator(arg: ts.Expression): boolean {
+function isRootPlusSeparator(arg: ts.Expression): boolean {
   arg = unwrap(arg);
   if (ts.isTemplateExpression(arg)) {
     if (arg.head.text !== "") return false;

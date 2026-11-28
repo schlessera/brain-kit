@@ -15,7 +15,7 @@ export const realGh = (args: string[], cwd?: string): GhResult => {
   return { code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 };
 
-export interface GhOptions {
+interface GhOptions {
   /** Text for stdin (default: no stdin). */
   input?: string;
   /** Trim stdout. */

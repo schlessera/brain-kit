@@ -23,7 +23,7 @@ type Workflow = {
  * own additions, so a new diagnostic path missed in one copy fails here. Order
  * matters: a `!` negation only excludes what a glob before it matched.
  */
-export const DIAGNOSTIC_UPLOAD = {
+const DIAGNOSTIC_UPLOAD = {
   step: "Proof receipts and failure diagnostics",
   settings: { if: "always()", "include-hidden-files": true, "if-no-files-found": "warn", "retention-days": 7 },
   shared: [
@@ -53,7 +53,7 @@ export const DIAGNOSTIC_UPLOAD = {
  * checkout (#4675). RED_MAIN_OID makes every job of one run read the same
  * coordination snapshot; a copy without it resolves the ref again by itself.
  */
-export const PLAN_RECOMPUTE = {
+const PLAN_RECOMPUTE = {
   jobs: ["verify", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"],
   env: {
     BASE_SHA: "${{ github.event.pull_request.base.sha }}",

@@ -19,9 +19,9 @@ import { gitResult } from "./lib/git";
 
 export interface OpenPr { number: number; head: string; base: string; draft: boolean; baseRef?: string }
 
-export interface PrRef { number: number; head: string }
+interface PrRef { number: number; head: string }
 
-export type CollisionKind = "textual" | "path" | "closure" | "unknown";
+type CollisionKind = "textual" | "path" | "closure" | "unknown";
 
 export interface Collision {
   kind: CollisionKind;
@@ -45,7 +45,7 @@ export interface CollisionReport {
   collisions: Collision[];
 }
 
-export interface CollisionOptions {
+interface CollisionOptions {
   root: string;
   /** Injectable PR listing; the CLI uses `gh pr list`. Tests never reach the network. */
   listPrs: () => Promise<OpenPr[]> | OpenPr[];
@@ -77,7 +77,7 @@ function fetchMissing(root: string, remote: string, prs: readonly OpenPr[]) {
 }
 
 /** Pure set comparison; `undefined` on either side means the closure is unknown. */
-export function compareClosures(a: Closure | undefined, b: Closure | undefined):
+function compareClosures(a: Closure | undefined, b: Closure | undefined):
     { status: "overlap" | "disjoint" | "unknown"; paths: string[]; workspaces: string[]; categories: string[] } {
   if (!a || !b) return { status: "unknown", paths: [], workspaces: [], categories: [] };
   const inputs = (c: Closure) => new Set([...c.changed, ...c.owners]);
@@ -191,7 +191,7 @@ export async function collisions(options: CollisionOptions): Promise<CollisionRe
 }
 
 /** Open ready and draft PRs from `gh`; heads from forks are compared like any other head. */
-export function githubPrs(root: string, repo?: string): OpenPr[] {
+function githubPrs(root: string, repo?: string): OpenPr[] {
   const result = spawnSync("gh", ["pr", "list", "--state", "open", "--limit", "1000", ...(repo ? ["--repo", repo] : []),
     "--json", "number,headRefOid,baseRefOid,baseRefName,isDraft"], { cwd: root, encoding: "utf8" });
   if (result.error || result.status !== 0) throw new Error(`gh pr list failed: ${(result.stderr || String(result.error)).trim()}`);
@@ -200,7 +200,7 @@ export function githubPrs(root: string, repo?: string): OpenPr[] {
     .sort((a, b) => a.number - b.number);
 }
 
-export function formatReport(report: CollisionReport): string {
+function formatReport(report: CollisionReport): string {
   const name = (pr: PrRef) => `#${pr.number}@${pr.head.slice(0, 9)}`;
   const list = (values: string[]) => values.length > 8 ? `${values.slice(0, 8).join(", ")} (+${values.length - 8} more; see --json)` : values.join(", ");
   const lines = [`graph ${report.graph.status} at ${report.graph.commit.slice(0, 9)}${report.graph.reason ? ` (${report.graph.reason})` : ""}; ${report.prs.length} open PRs`];

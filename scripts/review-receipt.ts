@@ -24,10 +24,10 @@ import { DEFAULT_REPO, type Gh } from "./issue-queue";
 import { gitResult } from "./lib/git";
 import { realGh } from "./lib/gh";
 
-export const REVIEW_KIND = "brain-review-receipt";
+const REVIEW_KIND = "brain-review-receipt";
 export const REVIEW_START = "<!-- brain-review-receipt:start -->";
 export const REVIEW_END = "<!-- brain-review-receipt:end -->";
-export const REVIEWERS = ["agent", "human"] as const;
+const REVIEWERS = ["agent", "human"] as const;
 export type Reviewer = typeof REVIEWERS[number];
 
 export type ReviewFinding =
@@ -40,7 +40,7 @@ export interface ReviewRecord {
   outcome: "no-findings" | "findings"; findings: ReviewFinding[];
 }
 /** The exact candidate the merge path is deciding: its PR, head and live base. */
-export interface ReviewCandidate { pr: number; head: string; base: string }
+interface ReviewCandidate { pr: number; head: string; base: string }
 
 const SHA = /^[a-f0-9]{40}$/;
 const ISSUE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[1-9]\d*$/;
@@ -158,7 +158,7 @@ export function unreviewedCommits(root: string, candidate: ReviewCandidate, revi
   return must(root, ["rev-list", "--no-merges", candidate.head, `^${candidate.base}`, `^${reviewedHead}`]).split("\n").filter(Boolean);
 }
 
-export interface AlteredMerge { commit: string; reason: string }
+interface AlteredMerge { commit: string; reason: string }
 
 /**
  * Merge commits in the candidate head, in neither the base nor the reviewed
@@ -218,7 +218,7 @@ export async function reviewGate(root: string, candidate: ReviewCandidate, comme
   return reviewRefusal(root, candidate, await comments());
 }
 
-export interface ReviewIo { gh?: Gh; out: (text: string) => void; root?: string }
+interface ReviewIo { gh?: Gh; out: (text: string) => void; root?: string }
 
 function ghMust(gh: Gh, args: string[]): string {
   const result = gh(args);

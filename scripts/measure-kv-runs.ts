@@ -56,7 +56,7 @@ interface Node {
   position?: { start: { offset?: number }; end: { offset?: number } };
 }
 
-export interface KvRunCounts {
+interface KvRunCounts {
   /** Top-level paragraphs and bullet lists shaped as two or more key-colon-value lines. */
   written: number;
   /** Of those, the runs with at least one line whose value carries an address. */

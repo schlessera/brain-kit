@@ -62,13 +62,58 @@ describe("the polling-helper rule", () => {
 
   test("a deadline value, a helper that never sleeps, a method and a comment are not helpers", () => {
     for (const text of [
-      "const until = Date.now() + 45_000;\nwhile (!done) { if (Date.now() > until) throw new Error(); await Bun.sleep(10); }\n",
+      "const until = Date.now() + 45_000;\n",
       "const until = performance.now() + 500;\nawait new Promise(r => setTimeout(r, 1));\n",
       "async function until(page: Page, predicate: string) {\n  await page.waitForFunction(predicate);\n}\nawait new Promise(r => setTimeout(r, 1));\n",
       "const harness = { until: async (check: () => boolean) => { while (!check()) await Bun.sleep(5); } };\n",
       "// async function waitFor(cond) { await Bun.sleep(5); }\n",
       'const note = "function until() { setTimeout(); }";\n',
     ]) expect({ text, sites: names(text) }).toEqual({ text, sites: [] });
+  });
+
+  // A deadline loop under any name, or none (#5045): it sleeps and compares a clock with a bound.
+  const sites = (text: string, file = "packages/ui-server/tests/a.test.ts") => scanSource(file, text).map(({ line, name }) => ({ line, name }));
+
+  test("a sleeping helper under another name fails with its file and line", () => {
+    const wait = [
+      "const ships: string[] = [];",
+      "const wait = async (check: () => boolean) => {",
+      "  const end = Date.now() + 5000;",
+      "  while (!check()) {",
+      '    if (Date.now() > end) throw new Error("no ship");',
+      "    await Bun.sleep(5);",
+      "  }",
+      "};",
+      "",
+    ].join("\n");
+    expect(sites(wait)).toEqual([{ line: 4, name: "wait" }]);
+    expect(sites("async function untilAsync(check: () => boolean) {\n  const start = performance.now();\n  while (!check() && performance.now() - start < 2000) await new Promise(r => setTimeout(r, 5));\n}\n"))
+      .toEqual([{ line: 3, name: "untilAsync" }]);
+    const root = tree({ "packages/ui-server/tests/harbor.test.ts": wait });
+    const gate = runGate(root);
+    expect(gate.code).toBe(1);
+    expect(gate.stderr).toContain("packages/ui-server/tests/harbor.test.ts:4: wait");
+  });
+
+  test("an inline deadline loop fails with its file and line, and the deadline value is not a helper", () => {
+    const inline = 'test("the ship docks", async () => {\n  const until = Date.now() + 45_000;\n  while (!docked) { if (Date.now() > until) throw new Error(); await Bun.sleep(10); }\n});\n';
+    expect(sites(inline)).toEqual([{ line: 3, name: "deadline loop" }]);
+    const root = tree({ "packages/ui-sdk/tests/harbor.test.ts": inline });
+    expect(scanTree(root).findings).toEqual([{ rule: "polling-helper", file: "packages/ui-sdk/tests/harbor.test.ts", line: 3, name: "deadline loop" }]);
+  });
+
+  test("a bound through watchdogMs, a loop that counts attempts and a clock with no sleep pass", () => {
+    for (const text of [
+      "const deadline = Date.now() + watchdogMs(5000);\nwhile (!docked) { if (Date.now() > deadline) throw new Error(); await Bun.sleep(5); }\n",
+      "const start = Date.now();\nwhile (!docked && Date.now() - start < watchdogMs(5000)) await Bun.sleep(5);\n",
+      "for (let i = 0; i < 200 && !docked; i++) await Bun.sleep(5);\n",
+      "const end = Date.now() + 100;\nwhile (Date.now() < end) spin();\nawait Bun.sleep(5);\n",
+    ]) expect({ text, sites: sites(text) }).toEqual({ text, sites: [] });
+  });
+
+  test("a named helper whose loop is a deadline loop is one site, at the helper", () => {
+    expect(sites("async function waitFor(check: () => boolean) {\n  const end = Date.now() + 2000;\n  while (Date.now() < end) { if (check()) return; await Bun.sleep(5); }\n}\n"))
+      .toEqual([{ line: 1, name: "waitFor" }]);
   });
 
   test("the shared owners are not refused", () => {

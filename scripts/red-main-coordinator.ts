@@ -8,11 +8,11 @@ import { scanText } from "./check-leakage";
 import { addSuspect, attachIncident, CATEGORIES, classifyFailure, clearRed, coversRedSet, failureKey, gateDecision, junitFailures, openRed, postMergeOnly, refineFirstBad,
   reportLanded, settleSuspect, type Category, type FailureEvidence, type IncludedRedSet, type RedFailure, type RedMainRecord, type Signature } from "./red-main";
 
-export const PROBE_WORKFLOW = "red-main-probe.yml";
+const PROBE_WORKFLOW = "red-main-probe.yml";
 /** The shard's merged JUnit report, or one per unit worker (`scripts/unit-workers.ts`). */
-export const UNIT_REPORT = /^unit-(?:worker-\d+-)?report\.xml$/;
+const UNIT_REPORT = /^unit-(?:worker-\d+-)?report\.xml$/;
 /** Bisect only bounded ranges; a wider range keeps the conservative first red. */
-export const MAX_BISECT = 10;
+const MAX_BISECT = 10;
 const SETUP_STEP = /prerequisites|environment setup/i;
 
 export interface WorkflowRun {
@@ -49,7 +49,7 @@ const issueUrl = (io: CoordinatorIO, number: number) => `https://github.com/${io
 const runUrl = (io: CoordinatorIO, run: number) => `https://github.com/${io.repository}/actions/runs/${run}`;
 /** Keyed by the record's opening run: bisect may later move its first bad SHA. */
 export const incidentMarker = (run: number) => `<!-- brain-red-main: run ${run} -->`;
-export const flakeMarker = (key: string) => `<!-- brain-flake: ${key} -->`;
+const flakeMarker = (key: string) => `<!-- brain-flake: ${key} -->`;
 
 /** Retries a compare-and-swap update of the shared record; an unchanged result writes nothing. */
 export async function updateRecord(io: Pick<CoordinatorIO, "read" | "publish" | "now">, update: (record: RedMainRecord, now: number) => RedMainRecord): Promise<{ before: RedMainRecord; after: RedMainRecord }> {
@@ -63,13 +63,13 @@ export async function updateRecord(io: Pick<CoordinatorIO, "read" | "publish" | 
   throw new Error("Concurrent red-main update; bounded retries exhausted");
 }
 
-export function jobCategory(name: string): Category | null {
+function jobCategory(name: string): Category | null {
   const base = name.split(" ")[0]!;
   return CATEGORIES.includes(base as Category) ? base as Category : null;
 }
 
 /** Failures of one completed main run, with their deterministic estimator evidence. */
-export async function runFailures(io: CoordinatorIO, run: WorkflowRun, jobs: Job[]): Promise<FailureEvidence[]> {
+async function runFailures(io: CoordinatorIO, run: WorkflowRun, jobs: Job[]): Promise<FailureEvidence[]> {
   const out: FailureEvidence[] = [];
   for (const job of jobs.filter(job => job.conclusion === "failure" || job.conclusion === "timed_out")) {
     const category = jobCategory(job.name);
@@ -106,7 +106,7 @@ async function search(io: CoordinatorIO, query: string): Promise<{ number: numbe
 }
 
 /** Exactly one incident issue per record: the record and a body marker both deduplicate. */
-export async function ensureIncident(io: CoordinatorIO, record: RedMainRecord): Promise<RedMainRecord> {
+async function ensureIncident(io: CoordinatorIO, record: RedMainRecord): Promise<RedMainRecord> {
   const open = record.open;
   if (!open || open.incident !== null) return record;
   const marker = incidentMarker(open.run);
@@ -139,7 +139,7 @@ export async function ensureIncident(io: CoordinatorIO, record: RedMainRecord): 
 }
 
 /** Files or updates the issue of a suspected flake, whatever the probe result. */
-export async function noteFlake(io: CoordinatorIO, key: string, text: string, existing: number | null): Promise<number> {
+async function noteFlake(io: CoordinatorIO, key: string, text: string, existing: number | null): Promise<number> {
   const marker = flakeMarker(key);
   const number = existing ?? (await search(io, `"brain-flake: ${key}" in:body`)).find(issue => issue.body?.includes(marker))?.number;
   if (number) { await io.write("POST", `repos/${io.repository}/issues/${number}/comments`, { body: text }); return number; }
@@ -198,7 +198,7 @@ export async function detectLanded(io: CoordinatorIO, record: RedMainRecord, run
   return true;
 }
 
-export async function dispatchProbe(io: CoordinatorIO, purpose: "flake" | "bisect", source: number, sha: string, tests: string[]) {
+async function dispatchProbe(io: CoordinatorIO, purpose: "flake" | "bisect", source: number, sha: string, tests: string[]) {
   await io.write("POST", `repos/${io.repository}/actions/workflows/${PROBE_WORKFLOW}/dispatches`, {
     ref: "main", inputs: { purpose, source_run: String(source), sha, tests: JSON.stringify(tests) } });
 }
@@ -271,7 +271,7 @@ async function handleMainRun(io: CoordinatorIO, run: WorkflowRun) {
  * Probe run names carry their purpose, source run and SHA; tests come from the record.
  * `fix` probes are expedited fix evidence for integrate.ts (#2940) and are ignored here.
  */
-export function probeIdentity(title: string): { purpose: "flake" | "bisect"; source: number; sha: string } | null {
+function probeIdentity(title: string): { purpose: "flake" | "bisect"; source: number; sha: string } | null {
   const match = /^red-main probe (flake|bisect) ([1-9]\d*) ([a-f0-9]{40})$/.exec(title);
   return match ? { purpose: match[1] as "flake" | "bisect", source: Number(match[2]), sha: match[3]! } : null;
 }

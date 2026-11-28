@@ -58,7 +58,7 @@ export interface IntegrateIO {
   verifyIntegrationProof: typeof provedIntegration;
 }
 
-export function processIntegrateIo(): IntegrateIO {
+function processIntegrateIo(): IntegrateIO {
   return {
     gh: (...args) => gh(args, { trim: true, error: (_args, _code, stderr) => stderr.trim() }), store: () => new GitReservationStore(process.cwd()),
     now: () => performance.now(), sleep: ms => Bun.sleep(ms),

@@ -37,7 +37,7 @@ import { isPublished } from "./publish.js";
 const ROOT = resolve(import.meta.dir, "..");
 const TEMPLATE_DIR = join(ROOT, "template");
 
-export const TEMPLATE_REPO = "schlessera/brain-template";
+const TEMPLATE_REPO = "schlessera/brain-template";
 
 /**
  * Files under `template/` that are about maintaining the template rather than
@@ -75,7 +75,7 @@ async function mustRun(cmd: string[], cwd: string): Promise<string> {
   return stdout;
 }
 
-export interface PublishTemplateOptions {
+interface PublishTemplateOptions {
   repo?: string;
   /** Resolve and report what would happen, touching no remote. */
   dryRun?: boolean;

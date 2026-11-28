@@ -9,7 +9,6 @@ import { ownedCleanupComplete } from "./native-proof/verify-owned-remove.js";
 import { repoArtifactMask } from "./native-proof/repo-artifact-mask.js";
 
 export const NATIVE_PROOF_IMAGE = "brain-kit-native-runtime:1";
-export const NATIVE_PROOF_NAME = "native managed hosted admission";
 
 export function nativeHostDockerArgs(root: string, artifact: string, uid: string, backend: string, apparmor: boolean, retainIndexNamespace: boolean, bun: string, applyTiming = false, observationTiming = false, tree?: ObservationTree, runner: NativeRunnerOptions = {}): string[] {
   const lease = join(root, "tmp", "workspace-operation");

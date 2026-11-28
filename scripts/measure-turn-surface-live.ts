@@ -25,7 +25,7 @@ const MAX_JEV_ATTEMPT_USD = 64_000 * JEV_INPUT_USD_PER_MILLION / 1_000_000;
 const repository = resolve(import.meta.dir, "..");
 function sha(text: string | Buffer) { return createHash("sha256").update(text).digest("hex"); }
 function validTokens(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
-export interface OfflineSurfaceControl {
+interface OfflineSurfaceControl {
   nativeBaseUrl: string;
   jevEndpoint: string;
   caseIds: string[];

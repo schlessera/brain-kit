@@ -80,7 +80,7 @@ export function checkLayerDirection(source: string, file: string): string[] {
 }
 
 /** Findings for every lower-layer file under `root`, and how many files each rule checked, in rule order. */
-export function scanLayerDirection(root: string): { checked: { rule: LayerRule; files: number }[]; findings: string[] } {
+function scanLayerDirection(root: string): { checked: { rule: LayerRule; files: number }[]; findings: string[] } {
   const findings: string[] = [];
   const checked: { rule: LayerRule; files: number }[] = [];
   for (const rule of RULES) {

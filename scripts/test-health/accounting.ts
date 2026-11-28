@@ -34,7 +34,7 @@ export function declaredFor(file: string, findings: readonly Finding[]): Declare
   return declared;
 }
 
-export interface StaticAccounting {
+interface StaticAccounting {
   before: number;
   after: number;
   /** Titles present before and absent after, once per missing occurrence. */
@@ -73,7 +73,7 @@ export function staticAccounting(before: readonly string[], after: readonly stri
 
 export interface CaseSummary { name: string; state: "passed" | "failed" | "skipped"; assertions: number | null }
 
-export interface RuntimeAccounting {
+interface RuntimeAccounting {
   casesBefore: number;
   casesAfter: number;
   assertionsBefore: number;

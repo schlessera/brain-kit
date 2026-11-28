@@ -25,7 +25,7 @@ export interface DoctorProbes {
 const MIN_FREE_BYTES = 5 * 1024 ** 3;
 const MIN_FREE_SHARE = 0.03;
 
-export function defaultProbes(root: string): DoctorProbes {
+function defaultProbes(root: string): DoctorProbes {
   return {
     bunVersion: Bun.version,
     run: command => {

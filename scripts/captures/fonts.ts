@@ -15,7 +15,7 @@ const schema = z.object({
   assets: z.array(asset).min(1), licenses: z.array(asset).min(1),
 }).strict();
 
-export type FontLock = z.infer<typeof schema>;
+type FontLock = z.infer<typeof schema>;
 
 export async function readFontLock(root: string): Promise<{ lock: FontLock; hash: string; css: Uint8Array }> {
   const bytes = await readFile(resolve(root, "scripts/captures/font-lock.json"));

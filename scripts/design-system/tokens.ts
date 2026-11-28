@@ -14,8 +14,8 @@
  * kit's components; the kit itself states only their ranges.
  */
 
-export type ThemeValues = { dark: string; light: string; print: string };
-export interface ParsedToken {
+type ThemeValues = { dark: string; light: string; print: string };
+interface ParsedToken {
   name: string;
   section: string;
   value: ThemeValues;
@@ -145,7 +145,7 @@ const FOUNDATION: Record<string, string> = {
 };
 
 /** A usage note for every token: written for the foundations, derived from the name for component tokens. */
-export function usageFor(token: ParsedToken): string {
+function usageFor(token: ParsedToken): string {
   if (FOUNDATION[token.name]) return FOUNDATION[token.name];
   const n = token.name.replace(/^bk-/, "");
   const accent = /^(amber|gold|teal|purple|blue|red|neutral)-(ink|fill|mark)$/.exec(n);

@@ -10,7 +10,7 @@ import type { RedMainRecord } from "./red-main";
 export const PROBE_RECEIPT = "BRAIN_RED_MAIN_PROBE";
 export const fixProbeTitle = (source: number, sha: string) => `red-main probe fix ${source} ${sha}`;
 
-export interface ProbeReceipt { purpose: string; sha: string; tests: string[]; absent: string[]; exitCode: number; }
+interface ProbeReceipt { purpose: string; sha: string; tests: string[]; absent: string[]; exitCode: number; }
 export interface ProbeEvidence { run: number; status: string; conclusion: string | null; receipt: ProbeReceipt | null; }
 export interface FeedbackEvidence { run: number; cadence: string | null; changeset: string | null; verify: string | null; }
 

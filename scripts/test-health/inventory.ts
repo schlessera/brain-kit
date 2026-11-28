@@ -48,7 +48,7 @@ export function packageOf(file: string): string {
   return parts[0] === "experiments" ? "experiments" : "root";
 }
 
-export function tierOf(file: string, domains: readonly string[]): Tier {
+function tierOf(file: string, domains: readonly string[]): Tier {
   if (file.startsWith("experiments/")) return "experiment";
   if (domains.includes("endurance")) return "endurance";
   if (domains.includes("layout")) return "layout";
@@ -88,7 +88,7 @@ async function productInstances(root: string): Promise<Instance[]> {
   })];
 }
 
-export async function buildInventory(root: string, discover: Discover = productInstances): Promise<Inventory> {
+async function buildInventory(root: string, discover: Discover = productInstances): Promise<Inventory> {
   const instances = await discover(root);
   const byFile = new Map<string, Instance[]>();
   for (const instance of instances) byFile.set(instance.file, [...(byFile.get(instance.file) ?? []), instance]);

@@ -32,7 +32,7 @@ const PACKAGES_DIR = join(ROOT, "packages");
 export const BEGIN = "<!-- env:begin -->";
 export const END = "<!-- env:end -->";
 
-export interface PackageEnv {
+interface PackageEnv {
   dir: string;
   envModule: string;
   readmePath: string;

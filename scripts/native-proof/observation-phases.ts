@@ -16,7 +16,7 @@ const CONTAINERS = new Set(["hold", "observe"]);
 /** The manager operation an app step calls, for its finer breakdown. */
 const NATIVE_STEPS: Record<string, string> = { observe_checkpoint: "checkpoint", observe_delta: "delta" };
 
-export interface ObservationPhases {
+interface ObservationPhases {
   /** The traced hold, `hold` itself. */
   holdMs: number;
   /** Leaf steps, a repeated name summed. */

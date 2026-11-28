@@ -6,11 +6,11 @@ import type { JevClient } from "../packages/ui-server/src/classification/jev-cli
 import type { SkillEntry, SurfaceTool } from "./turn-surface-routing";
 
 export const ROUTING_MODEL = "jev-1.13.0";
-export const ROUTING_THRESHOLD = 0.6;
+const ROUTING_THRESHOLD = 0.6;
 /** Tool plus skill entries one wide choice question may carry. The 2026-10-07
  * #587 run completed under it, and nothing measured a wider question, so a
  * larger catalogue is refused rather than truncated. */
-export const ROUTING_CATALOGUE_BOUND = 64;
+const ROUTING_CATALOGUE_BOUND = 64;
 /** The `brain-ui` bridge tools `createBrainUiMcpServer` registered at the
  * measured #587 source (380ad6eaf), the same eight the archived native
  * catalogue lists as loaded. The retained live collector routes over these and
@@ -31,7 +31,7 @@ export function measuredRoutingTools(tools: readonly SurfaceTool[]): SurfaceTool
   return tools.filter(tool => tool.serverName !== "brain-ui" || measured.includes(tool.name));
 }
 export interface RoutingCatalogue { tools: readonly SurfaceTool[]; skills: readonly SkillEntry[] }
-export interface LiveSelection { outcome: string; tools: string[]; skills: string[]; durationMs: number; passes: number }
+interface LiveSelection { outcome: string; tools: string[]; skills: string[]; durationMs: number; passes: number }
 type Kind = "tool" | "skill";
 function entries(catalogue: RoutingCatalogue, kind: Kind): SkillEntry[] {
   return kind === "skill" ? [...catalogue.skills] : catalogue.tools.map(tool => ({ name: tool.id, description: tool.description ?? "" }));
