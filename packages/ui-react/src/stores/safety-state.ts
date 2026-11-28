@@ -33,6 +33,12 @@ export function createSafetyStore(){
       const s=get();if(!s.supported||!same(s.identity,update.identity))return false;
       if(BigInt(update.toRevision)<BigInt(s.revision))return true;
       if(update.toRevision===s.revision){
+        // The host's display-only attribution can change at an equal revision
+        // (#4513): adopt it when nothing that governs enforcement moved.
+        if(s.projection&&update.fromRevision===s.revision&&update.records.length===0){
+          const {attributionUnknown:next,...rest}=update.projection,{attributionUnknown:_old,...current}=s.projection;
+          if(same(rest,current)){if(!same(next,_old))set({projection:{...s.projection,attributionUnknown:next}});return true;}
+        }
         // A host-local outage or pending input need not advance the durable
         // ledger. Keep the more restrictive view until a fresh snapshot.
         if(s.projection&&update.fromRevision===s.revision&&update.projection.evidenceRevision===s.revision&&update.records.length===0&&

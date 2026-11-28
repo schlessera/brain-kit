@@ -106,6 +106,7 @@ export const ALLOWLIST: AllowlistEntry[] = [
   // Deliberate test seams and requalification inputs: no owner.
   { file: "packages/ui-server/src/middleware/auth.ts", name: "resetVerificationReservations", kind: "test-only", reason: "test seam: resets the module-level verification reservations between tests" },
   { file: "packages/ui-react/src/lib/client-environment.ts", name: "resetClientEnvironmentCache", kind: "test-only", reason: "test seam: clears the cached client environment between tests" },
+  { file: "packages/ui-react/src/components/chat/turn-tool-index.ts", name: "turnToolIndexBuilds", kind: "test-only", reason: "test seam: counts turn index builds so a test can prove one build per messages array" },
   { file: "packages/ui-server/src/governance/extraction-classifier.ts", name: "policyFor", kind: "test-only", reason: "read by the extraction-classifier requalification eval under evals/" },
   { file: "packages/ui-server/src/governance/extraction-classifier.ts", name: "decide", kind: "test-only", reason: "read by the extraction-classifier requalification eval under evals/" },
 

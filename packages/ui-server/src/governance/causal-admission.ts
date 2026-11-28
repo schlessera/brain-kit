@@ -11,7 +11,7 @@ export function createCausalAdmissionSafety(db:Database,root:AdmissionSafety,opt
  let observed:string|undefined,revision=0n,localGeneration=0n;const localIds=new WeakMap<object,string>();
  const settledByBaseline=new Map<string,Set<string>>();
  const baselines=new Map<string,{sequence:string;coverage:string;turns:string;externalRevision:string|null}>();
- const sequenceWithout=(turns:readonly string[],ids:readonly string[]) => (db.query(`WITH scope AS (SELECT * FROM safety_collections WHERE turn_id IN (SELECT value FROM json_each(?))), evidence(sequence) AS (
+ const sequenceWithout=(turns:readonly string[],ids:readonly string[]) => (db.query(`WITH scope AS (SELECT id,start_revision,end_revision FROM safety_collections WHERE turn_id IN (SELECT value FROM json_each(?))), evidence(sequence) AS (
  SELECT r.sequence FROM safety_records r JOIN scope c ON c.id=r.collection_id WHERE NOT(r.kind='occurrence' AND r.id IN (SELECT value FROM json_each(?)))
  UNION ALL SELECT d.sequence FROM safety_decisions d JOIN safety_records r ON r.id=d.occurrence_id JOIN scope c ON c.id=r.collection_id
  UNION ALL SELECT b.sequence FROM safety_bindings b JOIN scope c ON c.id=b.binding_id
