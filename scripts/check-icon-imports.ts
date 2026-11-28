@@ -2,8 +2,8 @@
 // `primitives/Icon.tsx`: `components/icons.ts` re-exports the lucide glyphs
 // the app uses, so an icon-set swap or a lucide major is a change to that file.
 // Three rules under packages/ui-react/src:
-//   1. only `components/icons.ts` may name the module `lucide-react`, in any
-//      import form;
+//   1. only `components/icons.ts` may name the module `lucide-react` or any
+//      subpath of it, in any import form;
 //   2. every statement in it is a named re-export from `lucide-react` (no key
 //      map, no component: a bundler can still place each glyph in the chunk
 //      that uses it);
@@ -38,6 +38,9 @@ function specifiers(tree: ts.SourceFile): ts.StringLiteralLike[] {
   return found;
 }
 
+/** True for `lucide-react` and any subpath of it, such as `lucide-react/dist/esm/icons/x`. */
+const namesLucide = (specifier: string) => specifier === MODULE || specifier.startsWith(`${MODULE}/`);
+
 /** True when `specifier`, written in `file`, names `components/icons.ts`. */
 function namesIcons(file: string, specifier: string): boolean {
   if (!specifier.startsWith(".")) return false;
@@ -66,7 +69,7 @@ export function checkIconImports(sources: Sources): string[] {
       continue;
     }
     for (const literal of specifiers(tree)) {
-      if (literal.text === MODULE) findings.push(`${file}:${lineOf(tree, literal)}: imports "${MODULE}" directly — import the glyph from components/icons.ts`);
+      if (namesLucide(literal.text)) findings.push(`${file}:${lineOf(tree, literal)}: imports "${literal.text}" directly — import the glyph from components/icons.ts`);
       else if (namesIcons(file, literal.text)) {
         const clause = literal.parent;
         if ((ts.isImportDeclaration(clause) && clause.importClause?.namedBindings && ts.isNamedImports(clause.importClause.namedBindings))) {

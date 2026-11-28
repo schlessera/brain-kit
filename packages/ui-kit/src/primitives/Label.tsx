@@ -33,7 +33,9 @@ export function Label(p: LabelProps) {
     font: `${caps ? 600 : 500} ${Number(p.size) || 9.5}px/1 ${font.mono}`,
     letterSpacing: caps ? ".09em" : "normal",
     textTransform: caps ? "uppercase" : "none",
-    color: valueInk(p.tone || "neutral", "neutral"),
+    // `dim` is a value tone but not a label tone: like any tone outside the
+    // union, it reads as the fallback (#4947).
+    color: valueInk((p.tone as string) === "dim" ? "neutral" : p.tone || "neutral", "neutral"),
   };
   const metaStyle: CSSProperties = {
     marginLeft: p.metaRight === false ? 0 : "auto",

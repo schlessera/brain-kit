@@ -429,7 +429,17 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     // Only the context moved: it is written without reading any stored
     // draft (#4746). A draft change, deletion or receipt goes through mutate.
     const contextOnly = !acceptance && changes.every(c => "put" in c && (c.put === contextKey || c.put === sharedContextKey));
-    const writeContext = async () => { checkGeneration(); await writingPartition.write(changes); return { forks: [] as Fork[], written: [] as string[] }; };
+    // write has no callback inside the transaction, so lock() and dispose()
+    // abort it instead: a context put they precede commits nothing (#4891).
+    const writeContext = async () => {
+      checkGeneration();
+      const controller = new AbortController();
+      finalizing.add(controller);
+      try { await writingPartition.write(changes, controller.signal); }
+      catch (error) { if (controller.signal.aborted) checkGeneration(); throw error; }
+      finally { finalizing.delete(controller); }
+      return { forks: [] as Fork[], written: [] as string[] };
+    };
     try {
       const outcome = contextOnly ? await writeContext() : await writingPartition.mutate(`${scope}/draft/`, stored => {
         checkGeneration();
