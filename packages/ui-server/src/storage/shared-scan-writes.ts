@@ -15,7 +15,12 @@ export interface SharedScan {
 export function alive(worker: Worker) {
   if (!processAlive(worker.pid, worker.start)) return false;
   try { const text = readFileSync(`/proc/${worker.pid}/stat`, "utf8"); return text.slice(text.lastIndexOf(")") + 2).split(" ")[0] !== "Z"; }
-  catch { return true; }
+  catch {
+    // The stat read also fails when the process was reaped after the probe above (#5027):
+    // probe again so a vanished worker is dead, and only a missing procfs keeps the live pid.
+    try { process.kill(worker.pid, 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") return false; }
+    return true;
+  }
 }
 function workers(row: Row): Worker[] {
   const value = JSON.parse(row.workers_json) as Worker[];

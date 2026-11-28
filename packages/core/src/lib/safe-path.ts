@@ -90,6 +90,15 @@ export function brainRelativeArgument(root: string, arg: string): string {
 }
 
 /**
+ * A repo-relative path as index keys and the scans spell it: `/`-separated,
+ * whatever `path.sep` is. `separator` is the platform's unless a test passes
+ * another.
+ */
+export function slashPath(path: string, separator: string = sep): string {
+  return path.split(separator).join("/");
+}
+
+/**
  * Resolve a path the caller may read or write: inside the brain root only.
  *
  * Containment exists so a tool argument cannot wander into `~/.ssh`. It once

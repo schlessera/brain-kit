@@ -20,6 +20,8 @@ const HELP = `brain module <list|lint|enable|disable|settings>
   disable <name> Park workflows while retaining validated config and content
   settings <name> [--set key=value] [--revision REV] --json
                 Read or save validated per-module settings
+    --stdin                Save the settings object read from stdin as JSON
+    --action <id>          Run one of the module's declared settings actions
     --migrate [--preview]  Preview/apply a declared lossless content migration
 
 Legacy mixed generated instruction sections require explicit migration first.
