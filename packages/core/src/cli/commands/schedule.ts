@@ -288,6 +288,7 @@ export const scheduleCommand: CoreCommand = {
     "  brain schedule cancel ID --server ORIGIN [--credential-file FILE] --key KEY [--json]",
     "  brain schedule reconcile ID --server ORIGIN [--credential-file FILE] --key KEY [--json]",
     "  brain schedule due --server ORIGIN [--credential-file FILE] [--limit N] [--cursor CURSOR] [--json]",
+    "  --root is accepted by every verb and ignored.",
   ].join("\n"),
   async run(rest, cli) {
     const fail = (code: string, message: string) => {

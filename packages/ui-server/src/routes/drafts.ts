@@ -35,7 +35,7 @@ function invalid(message: string): DraftError {
 
 /** Read at most `limit` bytes, whatever Content-Length claims. */
 async function readCapped(c: Context, limit: number): Promise<Uint8Array> {
-  const body = await readBodyBytes(c.req.raw, limit);
+  const body = await readBodyBytes(c.req.raw, limit, { copyChunks: true });
   if (!body) throw new BodyTooLarge();
   return new Uint8Array(Buffer.concat(body.chunks, body.bytes));
 }

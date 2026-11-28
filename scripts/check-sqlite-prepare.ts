@@ -19,9 +19,10 @@
 //
 // The rule: under packages/ui-server/src, a call `<anything>.prepare(<first>)`
 // whose first argument is SQL text is refused unless an ALLOWED entry names the
-// file and matches that argument. SQL text is a string or template literal, a
-// conditional or `+` concatenation with one, or a name that says `sql` (a
-// constant such as `UPSERT_SESSION_SQL`, a `sql.replace(…)` call). Other
+// file and matches that argument. SQL text is a string, template or tagged
+// template literal, a conditional or `+` concatenation with one, a name that
+// says `sql` (a constant such as `UPSERT_SESSION_SQL`, a `sql.replace(…)`
+// call), or a name a `const` in the same file sets to SQL text (#4997). Other
 // objects' `prepare` methods (`boundary.prepare()`, `operation.prepare()`,
 // `privateIndexes.prepare({…})`) take no SQL and are not flagged. Detection is
 // AST-based (the TypeScript compiler API), so comments and strings that mention
@@ -89,18 +90,42 @@ function unwrap(node: ts.Expression): ts.Expression {
 
 const SQL_NAME = /sql/i;
 
-/** Whether an expression is SQL text: a literal, a combination of one, or a name that says so. */
-export function isSqlText(node: ts.Expression): boolean {
+/** The initializer of every `const <name> = …` in a file, by name; a name declared twice is left out. */
+function constInitializers(source: ts.SourceFile): Map<string, ts.Expression | null> {
+  const consts = new Map<string, ts.Expression | null>();
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
+      ts.isVariableDeclarationList(node.parent) && node.parent.flags & ts.NodeFlags.Const) {
+      consts.set(node.name.text, consts.has(node.name.text) ? null : node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return consts;
+}
+
+/**
+ * Whether an expression is SQL text: a literal, a combination of one, a name
+ * that says so, or a name whose same-file `const` initializer is SQL text.
+ */
+export function isSqlText(node: ts.Expression, consts: ReadonlyMap<string, ts.Expression | null> = new Map(), seen = new Set<string>()): boolean {
+  const sql = (next: ts.Expression) => isSqlText(next, consts, seen);
   node = unwrap(node);
-  if (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)) return true;
-  if (ts.isConditionalExpression(node)) return isSqlText(node.whenTrue) || isSqlText(node.whenFalse);
+  if (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node) || ts.isTaggedTemplateExpression(node)) return true;
+  if (ts.isConditionalExpression(node)) return sql(node.whenTrue) || sql(node.whenFalse);
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-    return isSqlText(node.left) || isSqlText(node.right);
+    return sql(node.left) || sql(node.right);
   }
-  if (ts.isIdentifier(node)) return SQL_NAME.test(node.text);
+  if (ts.isIdentifier(node)) {
+    if (SQL_NAME.test(node.text)) return true;
+    const initializer = consts.get(node.text);
+    if (!initializer || seen.has(node.text)) return false;
+    seen.add(node.text);
+    return sql(initializer);
+  }
   if (ts.isPropertyAccessExpression(node)) return SQL_NAME.test(node.name.text);
   // `sql.replace(…)`, `SQL.trim()`: a string method called on SQL text.
-  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) return isSqlText(node.expression.expression);
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) return sql(node.expression.expression);
   return false;
 }
 
@@ -108,10 +133,10 @@ export function isSqlText(node: ts.Expression): boolean {
 export function sqlPrepareSites(file: string, text: string): Site[] {
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true,
     file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-  const sites: Site[] = [];
+  const sites: Site[] = [], consts = constInitializers(source);
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === "prepare" && node.arguments.length > 0 && isSqlText(node.arguments[0]!)) {
+      node.expression.name.text === "prepare" && node.arguments.length > 0 && isSqlText(node.arguments[0]!, consts)) {
       const { line, character } = source.getLineAndCharacterOfPosition(node.expression.name.getStart(source));
       sites.push({ file, line: line + 1, column: character + 1, sql: node.arguments[0]!.getText(source) });
     }

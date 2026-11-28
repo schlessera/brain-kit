@@ -12,6 +12,7 @@ const HELP = `brain list — list/browse documents
   --type <type>           Filter by document type
   --tag <tag>             Filter by tag
   --status <status>       Filter by status (active|archived|draft)
+  --include-archived      Include archived documents (implied by --status archived)
   --relevance <level>     Filter by relevance
   --limit <n>             Max results, 1-100 (default: 20)
   --path-prefix <path>    Only documents at or below this folder or file (whole segments)
