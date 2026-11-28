@@ -22,6 +22,9 @@ import { scanText } from "./check-leakage";
 import { GitReservationStore, reservationServerTime } from "./integration-reservation";
 import { claimFix, liveClaim, parseRedMain, releaseFixClaim, renewFixClaim, type Claimant, type FixClaim, type RedIncident, type RedMainRecord } from "./red-main";
 import { updateRecord, type Snapshot } from "./red-main-coordinator";
+import { gh as ghCommand } from "./lib/gh";
+
+const INCIDENT_GH = { trim: true, error: (args: readonly string[], _code: number, stderr: string) => `gh ${args.slice(0, 2).join(" ")} failed: ${stderr.trim()}` };
 
 export interface IncidentIO {
   repository: string;
@@ -157,26 +160,19 @@ export function parseArgs(argv: string[]): { command: string; flags: Map<string,
   return { command, flags, dryRun };
 }
 
-async function gh(args: string[], input?: string): Promise<string> {
-  const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe", stdin: input === undefined ? "ignore" : new TextEncoder().encode(input) });
-  const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-  if (code !== 0) throw new Error(`gh ${args.slice(0, 2).join(" ")} failed: ${err.trim()}`);
-  return out.trim();
-}
-
 async function liveIO(): Promise<IncidentIO> {
-  const repository = await gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
+  const repository = await ghCommand(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], INCIDENT_GH);
   const store = new GitReservationStore(process.cwd());
   const remote = store.git(["remote", "get-url", "origin"]).replace(/^git@github.com:/, "https://github.com/").replace(/\.git$/, "");
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || remote !== `https://github.com/${repository}`) throw new Error("Authenticated repository and origin differ");
   return {
-    repository, login: await gh(["api", "user", "--jq", ".login"]),
+    repository, login: await ghCommand(["api", "user", "--jq", ".login"], INCIDENT_GH),
     read: () => store.read(),
     publish: (snapshot, record) => store.publishRedMain(snapshot as Parameters<GitReservationStore["publishRedMain"]>[0], record),
-    async now() { return reservationServerTime(await gh(["api", "--include", "-H", "Cache-Control: no-cache", `repos/${repository}/git/ref/heads/main?red_main_clock=${randomUUID()}`])); },
-    async json(path) { return JSON.parse(await gh(["api", path])); },
+    async now() { return reservationServerTime(await ghCommand(["api", "--include", "-H", "Cache-Control: no-cache", `repos/${repository}/git/ref/heads/main?red_main_clock=${randomUUID()}`], INCIDENT_GH)); },
+    async json(path) { return JSON.parse(await ghCommand(["api", path], INCIDENT_GH)); },
     async write(method, path, body) {
-      const out = await gh(["api", "-X", method, path, ...(body === undefined ? [] : ["--input", "-"])], body === undefined ? undefined : JSON.stringify(body));
+      const out = await ghCommand(["api", "-X", method, path, ...(body === undefined ? [] : ["--input", "-"])], { ...INCIDENT_GH, input: body === undefined ? undefined : JSON.stringify(body) });
       return out ? JSON.parse(out) : {};
     },
   };

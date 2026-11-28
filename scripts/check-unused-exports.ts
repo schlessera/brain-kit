@@ -52,6 +52,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import ts from "typescript";
+import { listTree, parse } from "./lib/source";
 
 /** The packages (directory names under packages/) whose `src/` is scanned. */
 export const SCANNED_PACKAGES = ["ui-server", "ui-kit", "ui-react"] as const;
@@ -163,12 +164,6 @@ interface Graph {
   uses: Map<string, Map<string, Set<string>>>;
 }
 
-/** Every tracked or untracked-but-not-ignored file, repository-relative. */
-function listFiles(root: string): string[] {
-  const run = Bun.spawnSync(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root });
-  if (run.exitCode !== 0) throw new Error(`git ls-files failed: ${run.stderr.toString()}`);
-  return run.stdout.toString().split("\0").filter(file => file && existsSync(join(root, file)));
-}
 
 /** `@schlessera/brain-<name>[/sub]` -> repository-relative source file. */
 function packageEntries(root: string, files: string[]): Map<string, string> {
@@ -246,8 +241,7 @@ function buildGraph(root: string, files: string[], entries: Map<string, string>)
       set.add(name);
     };
     const text = readFileSync(join(root, file), "utf8");
-    const kind = /\.[cm]?tsx$|\.jsx$/.test(file) ? ts.ScriptKind.TSX : /\.[cm]?jsx?$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
-    const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true, kind);
+    const source = parse(file, text);
     const info: ModuleInfo = { local: new Map(), values: new Set(), references: new Set(), forwards: new Map(), stars: [] };
     // Top-level value declarations by name, so `export { a }` can be classified.
     const declaredValues = new Set<string>();
@@ -425,7 +419,7 @@ export interface CheckOptions {
 export function check(root: string, options: CheckOptions = {}): Report {
   const packages = options.packages ?? SCANNED_PACKAGES;
   const allowlist = options.allowlist ?? ALLOWLIST;
-  const listed = options.files ?? listFiles(root);
+  const listed = options.files ?? listTree(root);
   const files = listed.filter(file => SOURCE.test(file) && !file.endsWith(".d.ts"));
   const entries = packageEntries(root, listed);
   const graph = buildGraph(root, files, entries);
@@ -473,28 +467,35 @@ export function check(root: string, options: CheckOptions = {}): Report {
   return { schemaVersion: 1, packages: [...packages], scannedFiles, findings, allowlisted, staleAllowlist };
 }
 
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
+  const report = check(root);
+  const failed = report.findings.length > 0 || report.staleAllowlist.length > 0;
+  for (const f of report.findings) {
+    if (f.kind === "test-only") {
+      console.error(`${f.file}:${f.line}: \`${f.name}\` is imported only by tests and its own file never uses it, so no production path runs it — delete it with its tests, wire it, or allowlist it with \`kind: "test-only"\` and a reason in scripts/check-unused-exports.ts`);
+    } else {
+      console.error(`${f.file}:${f.line}: \`${f.name}\` is exported but no other file imports it — drop the export, delete it, or allowlist it with a reason in scripts/check-unused-exports.ts`);
+    }
+  }
+  for (const entry of report.staleAllowlist) {
+    const what = entry.kind === "test-only" ? "a production file uses it, its last test importer is gone, or it is gone" : "it is imported, recorded, or gone";
+    console.error(`scripts/check-unused-exports.ts: stale ${entry.kind ?? ""}${entry.kind ? " " : ""}allowlist entry ${entry.file} \`${entry.name}\` — ${what}; remove the entry`);
+  }
+  if (!failed) {
+    console.log(`unused exports: ${report.scannedFiles} files in ${report.packages.join(", ")} clean (${report.allowlisted.length} allowlisted)`);
+  }
+  return failed ? 1 : 0;
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const json = args.includes("--json");
   const root = resolve(args.find(arg => !arg.startsWith("--")) ?? join(import.meta.dir, ".."));
-  const report = check(root);
-  const failed = report.findings.length > 0 || report.staleAllowlist.length > 0;
-  if (json) console.log(JSON.stringify(report, null, 2));
-  else {
-    for (const f of report.findings) {
-      if (f.kind === "test-only") {
-        console.error(`${f.file}:${f.line}: \`${f.name}\` is imported only by tests and its own file never uses it, so no production path runs it — delete it with its tests, wire it, or allowlist it with \`kind: "test-only"\` and a reason in scripts/check-unused-exports.ts`);
-      } else {
-        console.error(`${f.file}:${f.line}: \`${f.name}\` is exported but no other file imports it — drop the export, delete it, or allowlist it with a reason in scripts/check-unused-exports.ts`);
-      }
-    }
-    for (const entry of report.staleAllowlist) {
-      const what = entry.kind === "test-only" ? "a production file uses it, its last test importer is gone, or it is gone" : "it is imported, recorded, or gone";
-      console.error(`scripts/check-unused-exports.ts: stale ${entry.kind ?? ""}${entry.kind ? " " : ""}allowlist entry ${entry.file} \`${entry.name}\` — ${what}; remove the entry`);
-    }
-    if (!failed) {
-      console.log(`unused exports: ${report.scannedFiles} files in ${report.packages.join(", ")} clean (${report.allowlisted.length} allowlisted)`);
-    }
+  if (json) {
+    const report = check(root);
+    console.log(JSON.stringify(report, null, 2));
+    process.exit(report.findings.length > 0 || report.staleAllowlist.length > 0 ? 1 : 0);
   }
-  process.exit(failed ? 1 : 0);
+  process.exit(lintGate(root));
 }

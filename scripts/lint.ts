@@ -11,7 +11,7 @@ import { join, resolve } from "path";
 
 const ROOT = resolve(import.meta.dir, "..");
 
-const LINTS = [
+export const LINTS = [
   "check-invisibles.ts", // raw control/invisible characters in tracked source
   "check-env-access.ts", // ambient process.env outside per-package chokepoints
   "check-frontmatter-parse.ts", // gray-matter parsing outside the cache-free parseFrontmatter helper (#142)
@@ -31,25 +31,57 @@ const LINTS = [
   "check-ci-workflows.ts", // Single GitHub provider, safe fork execution and no active Depot definitions (#1320)
 ];
 
-let failed = false;
-for (const lint of LINTS) {
-  const path = join(ROOT, "scripts", lint);
-  console.log(`\n== ${lint}`);
-  if (!existsSync(path)) {
-    // A missing lint that "passes" is a silently disabled gate. Fail loudly.
-    console.error(`scripts/${lint} does not exist — a lint listed in scripts/lint.ts is missing.`);
-    failed = true;
-    continue;
+/**
+ * The AST gates run in this process: one TypeScript load and one parser entry
+ * (`scripts/lib/source.ts`) instead of one process each (#4673). Each exports
+ * `lintGate(root)`, which prints what its standalone run prints and returns its
+ * exit code. Every other gate keeps its own process.
+ */
+export const IN_PROCESS = new Set([
+  "check-env-access.ts", "check-frontmatter-parse.ts", "check-inline-containment.ts", "check-module-casts.ts",
+  "check-kit-purity.ts", "check-raw-buttons.ts", "check-root-stores.ts", "check-layer-direction.ts",
+  "check-unused-exports.ts", "check-import-cycles.ts", "check-icon-imports.ts", "check-sqlite-prepare.ts",
+]);
+
+type Gate = { lintGate(root: string): number };
+
+/** Runs `lints` against `root` in order and returns whether any failed; a gate that throws fails without stopping the run. */
+export async function runLints(root: string, lints: readonly string[] = LINTS,
+  load: (path: string) => Promise<Gate> = path => import(path)): Promise<boolean> {
+  let failed = false;
+  for (const lint of lints) {
+    const path = join(ROOT, "scripts", lint);
+    console.log(`\n== ${lint}`);
+    if (!existsSync(path)) {
+      // A missing lint that "passes" is a silently disabled gate. Fail loudly.
+      console.error(`scripts/${lint} does not exist — a lint listed in scripts/lint.ts is missing.`);
+      failed = true;
+      continue;
+    }
+    if (IN_PROCESS.has(lint)) {
+      try {
+        if ((await load(path)).lintGate(root) !== 0) failed = true;
+      } catch (error) {
+        console.error(`scripts/${lint} threw: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+        failed = true;
+      }
+      // One gate's trees are garbage once it returns; collect them before the next parses.
+      Bun.gc(true);
+      continue;
+    }
+    const run = Bun.spawnSync(["bun", path, root], {
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    if (run.exitCode !== 0) failed = true;
   }
-  const run = Bun.spawnSync(["bun", path, ROOT], {
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  if (run.exitCode !== 0) failed = true;
+  return failed;
 }
 
-if (failed) {
-  console.error("\nlint: FAILED (see the gates above)");
-  process.exit(1);
+if (import.meta.main) {
+  if (await runLints(ROOT)) {
+    console.error("\nlint: FAILED (see the gates above)");
+    process.exit(1);
+  }
+  console.log("\nlint: all gates clean");
 }
-console.log("\nlint: all gates clean");

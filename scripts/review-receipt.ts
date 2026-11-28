@@ -21,6 +21,8 @@ import { join } from "node:path";
 import { scanText } from "./check-leakage";
 import { CORE_PACKAGES, touchesCorePackages } from "./fast-lane";
 import { DEFAULT_REPO, type Gh } from "./issue-queue";
+import { gitResult } from "./lib/git";
+import { realGh } from "./lib/gh";
 
 export const REVIEW_KIND = "brain-review-receipt";
 export const REVIEW_START = "<!-- brain-review-receipt:start -->";
@@ -127,19 +129,15 @@ export function newestReview(comments: readonly (string | null | undefined)[]): 
   return null;
 }
 
-function git(root: string, args: string[]): { code: number; out: string; err: string } {
-  const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  return { code: result.exitCode ?? 1, out: new TextDecoder().decode(result.stdout), err: new TextDecoder().decode(result.stderr).trim() };
-}
 function must(root: string, args: string[]): string {
-  const result = git(root, args);
-  if (result.code !== 0) throw new Error(`git ${args.slice(0, 2).join(" ")} failed: ${result.err}`);
-  return result.out;
+  const result = gitResult(root, args);
+  if (result.code !== 0) throw new Error(`git ${args.slice(0, 2).join(" ")} failed: ${result.stderr.trim()}`);
+  return result.stdout;
 }
 /** A commit this repository has, fetching it on demand; false when it can be neither read nor fetched. */
 function available(root: string, commit: string): boolean {
-  const present = () => git(root, ["cat-file", "-e", `${commit}^{commit}`]).code === 0;
-  return present() || (git(root, ["fetch", "--no-tags", "origin", commit]).code === 0 && present());
+  const present = () => gitResult(root, ["cat-file", "-e", `${commit}^{commit}`]).code === 0;
+  return present() || (gitResult(root, ["fetch", "--no-tags", "origin", commit]).code === 0 && present());
 }
 
 /** Paths the candidate changes against its merge base, with a rename counted at both ends. */
@@ -175,10 +173,10 @@ export function alteredMerges(root: string, candidate: ReviewCandidate, reviewed
   return merges.flatMap(commit => {
     const [tree, ...parents] = must(root, ["show", "-s", "--format=%T %P", commit]).trim().split(" ");
     if (parents.length !== 2) return [{ commit, reason: `has ${parents.length} parents` }];
-    const automatic = git(root, ["merge-tree", "--write-tree", "--no-messages", parents[0]!, parents[1]!]);
+    const automatic = gitResult(root, ["merge-tree", "--write-tree", "--no-messages", parents[0]!, parents[1]!]);
     if (automatic.code === 1) return [{ commit, reason: "resolves a conflict" }];
-    if (automatic.code !== 0) return [{ commit, reason: `cannot be recomputed (git merge-tree: ${automatic.err.slice(0, 120)})` }];
-    return automatic.out.split("\n")[0] === tree ? [] : [{ commit, reason: "differs from the automatic merge of its parents" }];
+    if (automatic.code !== 0) return [{ commit, reason: `cannot be recomputed (git merge-tree: ${automatic.stderr.trim().slice(0, 120)})` }];
+    return automatic.stdout.split("\n")[0] === tree ? [] : [{ commit, reason: "differs from the automatic merge of its parents" }];
   });
 }
 
@@ -197,7 +195,7 @@ export function reviewRefusal(root: string, candidate: ReviewCandidate, comments
   const open = undisposed(record);
   if (open.length) return `The newest review record (head ${record.head}) leaves ${open.length} finding${open.length === 1 ? "" : "s"} without a disposition: ${open.map(finding => JSON.stringify(finding.summary)).join("; ")}. Answer each as fixed (naming the commit), filed (naming the issue) or rejected (with the reason), and post the record again with ${post}`;
   for (const finding of record.findings) {
-    if ("disposition" in finding && finding.disposition === "fixed" && !(available(root, finding.commit) && git(root, ["merge-base", "--is-ancestor", finding.commit, candidate.head]).code === 0)) {
+    if ("disposition" in finding && finding.disposition === "fixed" && !(available(root, finding.commit) && gitResult(root, ["merge-base", "--is-ancestor", finding.commit, candidate.head]).code === 0)) {
       return `The newest review record answers a finding as fixed in ${finding.commit}, which the candidate head ${candidate.head} does not contain. Name the commit that fixes it and post the record again with ${post}`;
     }
   }
@@ -222,10 +220,6 @@ export async function reviewGate(root: string, candidate: ReviewCandidate, comme
 
 export interface ReviewIo { gh?: Gh; out: (text: string) => void; root?: string }
 
-const realGh: Gh = args => {
-  const result = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
-  return { code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
-};
 function ghMust(gh: Gh, args: string[]): string {
   const result = gh(args);
   if (result.code !== 0) throw new Error(`gh ${args.slice(0, 3).join(" ")}: ${result.stderr.trim() || `exit ${result.code}`}`);

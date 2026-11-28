@@ -12,6 +12,7 @@ import { mergeRedMainArchives, summarizeRedMain, type CoordinatorObservation, ty
 import { gitEpochSource, type EpochSource } from "./ci-epochs";
 import { failureKey } from "./red-main";
 import { archiveInputs, deduplicate, lifecycleCoverage, reservationCoverage, summarize, type ReportInputs, type TimingSnapshot } from "./ci-timings";
+import { resolveRepository } from "./lib/gh";
 
 export const EVIDENCE_REPORT_VERSION = 1;
 export type Cadence = "daily" | "weekly";
@@ -379,7 +380,7 @@ if (import.meta.main) {
     }
     const cadence = options.get("--cadence") as Cadence;
     if (!(cadence in REPORT_NAMES) || !options.has("--from-archive")) throw new Error("usage: bun scripts/ci-evidence-report.ts --cadence daily|weekly --from-archive REMOTE [--until ISO] [--history REF] [--repo owner/repo] [--out DIR]");
-    const repository = options.get("--repo") ?? "schlessera/brain-kit";
+    const repository = resolveRepository({ flag: options.get("--repo") });
     if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid repository");
     const now = new Date().toISOString(), until = options.get("--until") ?? iso(Math.floor(Date.parse(now) / DAY) * DAY);
     reportWindow(cadence, until);

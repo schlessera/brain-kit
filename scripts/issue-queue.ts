@@ -21,24 +21,17 @@ import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_REPO, realGh, type Gh } from "./lib/gh";
 
-export interface GhResult { code: number; stdout: string; stderr: string }
-/** Runs `gh` with these arguments. Tests replace it; nothing else reaches the network. */
-export type Gh = (args: string[]) => GhResult;
+export { DEFAULT_REPO, type Gh, type GhResult } from "./lib/gh";
 
 export interface Issue {
   number: number; title: string; state: string; stateReason: string | null; createdAt: string; updatedAt: string;
   labels: string[]; assignees: string[]; milestone: string | null; isPullRequest: boolean; comments: number; body: string;
 }
 
-export const DEFAULT_REPO = "schlessera/brain-kit";
 const REDUCE = "{number,title,state,state_reason,created_at,updated_at,labels:[.labels[].name],assignees:[.assignees[].login],"
   + "milestone:(.milestone.title // null),pr:(.pull_request != null),comments,body:(.body // \"\")}";
-
-const realGh: Gh = args => {
-  const result = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
-  return { code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
-};
 
 function must(gh: Gh, args: string[]): string {
   const result = gh(args);

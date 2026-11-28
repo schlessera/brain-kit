@@ -38,6 +38,7 @@
 // adds the new ones and leaves the rest alone.
 
 import { labelsFor } from "./labels.ts";
+import { gh as ghCommand } from "./lib/gh";
 
 const OWNER = "schlessera";
 const TITLE = "brain-kit roadmap";
@@ -105,25 +106,12 @@ interface ProjectField {
  * and run the real orchestration end to end without a network.
  */
 export const runtime = {
-  gh: spawnGh,
+  gh: (args: string[]) => ghCommand(args),
   log: (line: string) => console.log(line),
   error: (line: string) => console.error(line),
 };
 
-function gh(args: string[]): Promise<string> {
-  return runtime.gh(args);
-}
-
-async function spawnGh(args: string[]): Promise<string> {
-  const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  if (code !== 0) throw new Error(`gh ${args.join(" ")} failed (${code}):\n${stderr.trim()}`);
-  return stdout;
-}
+const gh = (args: string[]): Promise<string> => runtime.gh(args);
 
 interface Project {
   number: number;

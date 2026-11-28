@@ -26,11 +26,8 @@ import { DEFAULT_REPO, type Gh } from "./issue-queue";
 import { RECEIPT_START } from "./check-receipt";
 import { commentBodies, newestReview, undisposed } from "./review-receipt";
 import { EXPECTED_FAILURE_PREFIX } from "./expected-failure-log";
+import { realGh } from "./lib/gh";
 
-const realGh: Gh = args => {
-  const result = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
-  return { code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
-};
 
 function must(gh: Gh, args: string[]): string {
   const result = gh(args);

@@ -26,9 +26,10 @@
 //
 //   bun scripts/check-import-cycles.ts [root] [--json]
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import ts from "typescript";
+import { listTree, parse } from "./lib/source";
 import { isTestFile, makeResolver } from "./check-unused-exports.ts";
 
 export interface CycleAllowlistEntry { files: string[]; reason: string }
@@ -69,16 +70,10 @@ export interface CycleCheckOptions {
 const SOURCE = /\.(?:[cm]?tsx?|[cm]?jsx?)$/;
 const PACKAGE_SRC = /^packages\/([^/]+)\/src\//;
 
-function listFiles(root: string): string[] {
-  const run = Bun.spawnSync(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root });
-  if (run.exitCode !== 0) throw new Error(`git ls-files failed: ${run.stderr.toString()}`);
-  return run.stdout.toString().split("\0").filter(file => file && existsSync(join(root, file)));
-}
 
 /** The specifiers of `file`'s static value imports and re-exports. */
 export function valueImports(text: string, file: string): string[] {
-  const kind = /\.[cm]?tsx$|\.jsx$/.test(file) ? ts.ScriptKind.TSX : /\.[cm]?jsx?$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, false, kind);
+  const source = parse(file, text);
   const out: string[] = [];
   for (const statement of source.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
@@ -144,7 +139,7 @@ export function stronglyConnected(graph: Map<string, string[]>): string[][] {
 
 export function checkImportCycles(root: string, options: CycleCheckOptions = {}): CycleReport {
   const allowlist = options.allowlist ?? ALLOWLIST;
-  const listed = options.files ?? listFiles(root);
+  const listed = options.files ?? listTree(root);
   const files = listed.filter(file => PACKAGE_SRC.test(file) && SOURCE.test(file) && !file.endsWith(".d.ts") && !isTestFile(file));
   // Relative specifiers only: a workspace specifier crosses a package.
   const resolveSpecifier = makeResolver(new Set(files), new Map());
@@ -173,26 +168,33 @@ export function checkImportCycles(root: string, options: CycleCheckOptions = {})
   };
 }
 
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
+  const report = checkImportCycles(root);
+  const empty = report.scannedFiles === 0;
+  const failed = empty || report.findings.length > 0 || report.staleAllowlist.length > 0;
+  // A scan that matches nothing would pass forever.
+  if (empty) console.error("import-cycles: no source files under packages/*/src; the gate checked nothing");
+  for (const component of report.findings) {
+    console.error(`import-cycles: these files import each other at runtime — cut the cycle (move the shared code into a leaf module, or make one edge \`import type\`):\n  ${component.join("\n  ")}`);
+  }
+  for (const entry of report.staleAllowlist) {
+    console.error(`scripts/check-import-cycles.ts: stale allowlist entry — no cycle has exactly these files; remove or correct the entry:\n  ${entry.files.join("\n  ")}`);
+  }
+  if (!failed) {
+    console.log(`import-cycles: ${report.scannedFiles} files in packages/*/src, ${report.components.length} cycles, all allowlisted`);
+  }
+  return failed ? 1 : 0;
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const json = args.includes("--json");
   const root = resolve(args.find(arg => !arg.startsWith("--")) ?? join(import.meta.dir, ".."));
-  const report = checkImportCycles(root);
-  const empty = report.scannedFiles === 0;
-  const failed = empty || report.findings.length > 0 || report.staleAllowlist.length > 0;
-  if (json) console.log(JSON.stringify(report, null, 2));
-  else {
-    // A scan that matches nothing would pass forever.
-    if (empty) console.error("import-cycles: no source files under packages/*/src; the gate checked nothing");
-    for (const component of report.findings) {
-      console.error(`import-cycles: these files import each other at runtime — cut the cycle (move the shared code into a leaf module, or make one edge \`import type\`):\n  ${component.join("\n  ")}`);
-    }
-    for (const entry of report.staleAllowlist) {
-      console.error(`scripts/check-import-cycles.ts: stale allowlist entry — no cycle has exactly these files; remove or correct the entry:\n  ${entry.files.join("\n  ")}`);
-    }
-    if (!failed) {
-      console.log(`import-cycles: ${report.scannedFiles} files in packages/*/src, ${report.components.length} cycles, all allowlisted`);
-    }
+  if (json) {
+    const report = checkImportCycles(root);
+    console.log(JSON.stringify(report, null, 2));
+    process.exit(report.scannedFiles === 0 || report.findings.length > 0 || report.staleAllowlist.length > 0 ? 1 : 0);
   }
-  process.exit(failed ? 1 : 0);
+  process.exit(lintGate(root));
 }

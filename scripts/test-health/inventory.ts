@@ -10,6 +10,9 @@
  */
 import { join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { git } from "../lib/git";
+
+const INVENTORY_GIT = { error: (args: readonly string[], _code: number | null, stderr: string) => `git ${args[0]}: ${stderr.trim()}` } as const;
 
 export type Tier = "fast" | "unit" | "runtime" | "browser" | "layout" | "endurance" | "experiment";
 export type Runner = "bun" | "visual";
@@ -54,23 +57,17 @@ export function tierOf(file: string, domains: readonly string[]): Tier {
   return domains.includes("fast") ? "fast" : "unit";
 }
 
-function git(root: string, args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) throw new Error(`git ${args[0]}: ${result.stderr.toString().trim()}`);
-  return result.stdout.toString();
-}
-
 /** Blob ids of the working tree's files as git would store them. */
 export function blobsOf(root: string, files: readonly string[]): Map<string, string> {
   const blobs = new Map<string, string>();
-  for (const entry of git(root, ["ls-files", "-s", "-z"]).split("\0").filter(Boolean)) {
+  for (const entry of git(root, ["ls-files", "-s", "-z"], INVENTORY_GIT).split("\0").filter(Boolean)) {
     const [meta, path] = entry.split("\t");
     if (path) blobs.set(path, meta!.split(" ")[1]!);
   }
-  const dirty = new Set(git(root, ["status", "--porcelain", "-z", "--untracked-files=all"]).split("\0").filter(Boolean).map(line => line.slice(3)));
+  const dirty = new Set(git(root, ["status", "--porcelain", "-z", "--untracked-files=all"], INVENTORY_GIT).split("\0").filter(Boolean).map(line => line.slice(3)));
   const rehash = files.filter(file => dirty.has(file) || !blobs.has(file)).filter(file => existsSync(join(root, file)));
   if (rehash.length) {
-    const ids = git(root, ["hash-object", "--", ...rehash]).split("\n").filter(Boolean);
+    const ids = git(root, ["hash-object", "--", ...rehash], INVENTORY_GIT).split("\n").filter(Boolean);
     rehash.forEach((file, index) => blobs.set(file, ids[index]!));
   }
   return blobs;
@@ -109,16 +106,16 @@ export async function buildInventory(root: string, discover: Discover = productI
       blob, costSeconds: costs.length ? Math.round(costs.reduce((sum, value) => sum + value, 0) * 1000) / 1000 : null };
   });
   const known = new Set(files);
-  const tracked = git(root, ["ls-files", "-z", "--", "packages", "tests", "experiments", "scripts"]).split("\0").filter(Boolean);
+  const tracked = git(root, ["ls-files", "-z", "--", "packages", "tests", "experiments", "scripts"], INVENTORY_GIT).split("\0").filter(Boolean);
   // `scripts/skill-tests/` is the skill tooling's own tier (`bun run test:skills`): deliberately outside product discovery.
   const undiscovered = tracked.filter(file => TEST_LIKE.test(file) && !known.has(file) && !file.includes("/fixtures/") && !file.startsWith("scripts/skill-tests/")).sort();
-  return { sha: git(root, ["rev-parse", "HEAD"]).trim(), rows, undiscovered };
+  return { sha: git(root, ["rev-parse", "HEAD"], INVENTORY_GIT).trim(), rows, undiscovered };
 }
 
 /** Rebuilding takes several seconds, so a clean checkout reuses the inventory of its commit. */
 export async function cachedInventory(root: string, cacheDir: string, discover?: Discover): Promise<Inventory> {
-  const clean = git(root, ["status", "--porcelain", "--untracked-files=all"]).trim() === "";
-  const path = join(cacheDir, `inventory-${git(root, ["rev-parse", "HEAD"]).trim()}.json`);
+  const clean = git(root, ["status", "--porcelain", "--untracked-files=all"], INVENTORY_GIT).trim() === "";
+  const path = join(cacheDir, `inventory-${git(root, ["rev-parse", "HEAD"], INVENTORY_GIT).trim()}.json`);
   if (clean && existsSync(path)) return JSON.parse(readFileSync(path, "utf8")) as Inventory;
   const inventory = await buildInventory(root, discover);
   if (clean) { mkdirSync(cacheDir, { recursive: true }); writeFileSync(path, JSON.stringify(inventory) + "\n"); }

@@ -2,21 +2,18 @@
 import { createHash } from "node:crypto";
 import { cpSync, lstatSync, mkdirSync, readFileSync, readlinkSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
+import { git } from "./lib/git";
 
-function git(root: string, args: string[], stdin?: Uint8Array): Buffer {
-  const child = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe", ...(stdin ? { stdin } : {}) });
-  if (child.exitCode !== 0) throw new Error(`Unit input Git failed: ${new TextDecoder().decode(child.stderr)}`);
-  return Buffer.from(child.stdout);
-}
+const INPUT_GIT = { chdir: "flag", encoding: "buffer", error: (_args: readonly string[], _code: number | null, stderr: string) => `Unit input Git failed: ${stderr}` } as const;
 
 function inputs(root: string) {
   const patches = [
-    git(root, ["diff", "--cached", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "HEAD"]),
-    git(root, ["diff", "--binary", "--full-index", "--no-ext-diff", "--no-textconv"]),
+    git(root, ["diff", "--cached", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "HEAD"], { ...INPUT_GIT }),
+    git(root, ["diff", "--binary", "--full-index", "--no-ext-diff", "--no-textconv"], { ...INPUT_GIT }),
   ];
-  const untracked = git(root, ["ls-files", "--others", "--exclude-standard", "-z"]).toString().split("\0").filter(Boolean);
+  const untracked = git(root, ["ls-files", "--others", "--exclude-standard", "-z"], { ...INPUT_GIT }).toString().split("\0").filter(Boolean);
   const hash = createHash("sha256");
-  hash.update(git(root, ["rev-parse", "HEAD"]));
+  hash.update(git(root, ["rev-parse", "HEAD"], { ...INPUT_GIT }));
   for (const patch of patches) hash.update(String(patch.length)).update("\0").update(patch);
   for (const file of untracked) {
     if (isAbsolute(file) || file.split("/").includes("..")) throw new Error("Escaped unit input path");
@@ -44,12 +41,12 @@ export function captureUnitInputs(root: string, destination: string) {
     restoreIndex(workspace: string) {
       // A prepared lower tree already contains the complete working bytes.
       // Give this view its own staged state without applying those bytes twice.
-      if (source.patches[0]!.length) git(workspace, ["apply", "--cached", "--binary", "-"], source.patches[0]);
+      if (source.patches[0]!.length) git(workspace, ["apply", "--cached", "--binary", "-"], { ...INPUT_GIT, input: source.patches[0] });
       if (unitInputKey(workspace) !== source.key) throw new Error("Prepared unit view does not match captured working inputs");
     },
     restore(workspace: string) {
-      if (source.patches[0]!.length) git(workspace, ["apply", "--index", "--binary", "-"], source.patches[0]);
-      if (source.patches[1]!.length) git(workspace, ["apply", "--binary", "-"], source.patches[1]);
+      if (source.patches[0]!.length) git(workspace, ["apply", "--index", "--binary", "-"], { ...INPUT_GIT, input: source.patches[0] });
+      if (source.patches[1]!.length) git(workspace, ["apply", "--binary", "-"], { ...INPUT_GIT, input: source.patches[1] });
       for (const file of source.untracked) {
         mkdirSync(dirname(join(workspace, file)), { recursive: true });
         cpSync(join(destination, file), join(workspace, file), { dereference: false, verbatimSymlinks: true, preserveTimestamps: true });
@@ -61,13 +58,13 @@ export function captureUnitInputs(root: string, destination: string) {
       // Undo only this invocation's verified inputs, then let ordinary Git
       // removal refuse any remaining unexpected source or untracked output.
       for (const file of source.untracked) unlinkSync(join(workspace, file));
-      if (source.patches[1]!.length) git(workspace, ["apply", "--reverse", "--binary", "-"], source.patches[1]);
+      if (source.patches[1]!.length) git(workspace, ["apply", "--reverse", "--binary", "-"], { ...INPUT_GIT, input: source.patches[1] });
       if (source.patches[0]!.length) {
         // The same file may have staged and unstaged edits. Reversing the
         // working patch changes its stat cache, so undo bytes and index
         // independently after the complete snapshot check above.
-        git(workspace, ["apply", "--reverse", "--binary", "-"], source.patches[0]);
-        git(workspace, ["apply", "--reverse", "--cached", "--binary", "-"], source.patches[0]);
+        git(workspace, ["apply", "--reverse", "--binary", "-"], { ...INPUT_GIT, input: source.patches[0] });
+        git(workspace, ["apply", "--reverse", "--cached", "--binary", "-"], { ...INPUT_GIT, input: source.patches[0] });
       }
     },
   };

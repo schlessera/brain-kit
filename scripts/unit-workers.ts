@@ -11,6 +11,9 @@ import { captureUnitInputs } from "./unit-worker-inputs";
 import { timingSeed } from "./changed-unit-worker";
 import { invocationBuild, preparedWorkerEnvironment } from "./test-invocation";
 import { selectBuildPackages } from "./publishable-packages";
+import { git } from "./lib/git";
+
+const WORKSPACE_GIT = { chdir: "flag", trim: true, error: (_args: readonly string[], _code: number | null, stderr: string) => `Unit workspace git failed: ${stderr}` } as const;
 
 /** Reserve 30% of memory; the measured local setting budgets two GiB and four CPUs per worker. */
 export function localUnitWorkerCount(cores = availableParallelism(), memory = totalmem()): number {
@@ -18,12 +21,6 @@ export function localUnitWorkerCount(cores = availableParallelism(), memory = to
 }
 
 export interface UnitWorkerOptions { changed?: string; workers?: number; preparedTree?: boolean; }
-
-function git(root: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) throw new Error(`Unit workspace git failed: ${new TextDecoder().decode(result.stderr)}`);
-  return new TextDecoder().decode(result.stdout).trim();
-}
 
 function command(argv: string[]) {
   const result = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" });
@@ -58,7 +55,7 @@ const automaticScreenshot = (path: string) => path.includes("/__screenshots__/")
 function diagnosticReferences(root: string, head: string, objectFormat: string, inputs?: { untracked: string[] }, snapshotDirectory?: string) {
   if (!["sha1", "sha256"].includes(objectFormat)) throw new Error("Unsupported unit workspace object format");
   const references = new Map<string, string>();
-  for (const entry of git(root, "ls-tree", "-r", "-z", head, "--", ...diagnosticRoots, ...screenshotTrees).split("\0")) {
+  for (const entry of git(root, ["ls-tree", "-r", "-z", head, "--", ...diagnosticRoots, ...screenshotTrees], WORKSPACE_GIT).split("\0")) {
     const match = /^[0-7]+ blob ([a-f0-9]+)\t([\s\S]+)$/.exec(entry);
     if (match) references.set(match[2]!, match[1]!);
   }
@@ -188,7 +185,7 @@ async function runWorkers(root: string, files: readonly string[], chrome: string
   // Keep cloned test trees outside parent discovery and the native worker's
   // private /tmp. mkdtemp keeps this owned sibling container mode 0700.
   const container = mkdtempSync(join(dirname(root), ".brain-unit-workers-"));
-  const head = git(root, "rev-parse", "HEAD");
+  const head = git(root, ["rev-parse", "HEAD"], WORKSPACE_GIT);
   const partitions = options.changed ? Array.from({ length: count }, () => [] as string[]) : balanceTests([...files], Math.min(count, files.length));
   const workers: { root: string; files: string[]; checkout: string; device: number; inode: number; copiedInputs?: boolean;
     checkoutMs: number; dependencyCopyMs: number; overlay?: { upper: string; work: string; mounted: boolean } }[] = [];
@@ -244,7 +241,7 @@ async function runWorkers(root: string, files: readonly string[], chrome: string
       try {
         if (worker.copiedInputs) inputs!.remove(worker.root);
         if (worker.overlay?.mounted) { command(["umount", "--", worker.root]); worker.overlay.mounted = false; }
-        git(root, "worktree", "remove", worker.root);
+        git(root, ["worktree", "remove", worker.root], WORKSPACE_GIT);
         if (worker.overlay) { removeOverlayScratch(worker.overlay.upper); removeOverlayScratch(worker.overlay.work); }
       } catch (error) { cleanupFailures.push(error); }
     }
@@ -272,9 +269,9 @@ async function runWorkers(root: string, files: readonly string[], chrome: string
   }
 
   try {
-    const base = options.changed ? git(root, "rev-parse", "--verify", "--end-of-options", `${options.changed}^{commit}`) : undefined;
+    const base = options.changed ? git(root, ["rev-parse", "--verify", "--end-of-options", `${options.changed}^{commit}`], WORKSPACE_GIT) : undefined;
     if (base) inputs = captureUnitInputs(root, join(container, "inputs"));
-    objectFormat = git(root, "rev-parse", "--show-object-format");
+    objectFormat = git(root, ["rev-parse", "--show-object-format"], WORKSPACE_GIT);
     // One immutable, bounded tree lookup per invocation; no Git process or
     // whole-repository walk per image. Unchanged tracked bytes are not evidence.
     // Pending source screenshots belong to the captured input just like tracked
@@ -283,9 +280,9 @@ async function runWorkers(root: string, files: readonly string[], chrome: string
     for (const [index, selected] of partitions.entries()) {
       const beforeCheckout = performance.now();
       const workspace = join(container, String(index + 1));
-      git(root, "worktree", "add", "--quiet", "--detach", workspace, head);
+      git(root, ["worktree", "add", "--quiet", "--detach", workspace, head], WORKSPACE_GIT);
       const identity = lstatSync(workspace);
-      workers.push({ root: workspace, files: selected, checkout: git(workspace, "show", "-s", "--format=%H %T %P", "HEAD"), device: identity.dev, inode: identity.ino,
+      workers.push({ root: workspace, files: selected, checkout: git(workspace, ["show", "-s", "--format=%H %T %P", "HEAD"], WORKSPACE_GIT), device: identity.dev, inode: identity.ino,
         checkoutMs: 0, dependencyCopyMs: 0 });
       const worker = workers[index]!;
       if (preparedCaller) {
@@ -334,7 +331,7 @@ async function runWorkers(root: string, files: readonly string[], chrome: string
     const reports = workers.map(worker => {
       // Dirty-input workers verify the complete snapshot during cleanup, after
       // the unchanged collector has handed off and removed automatic images.
-      if (!inputs && git(worker.root, "status", "--porcelain", "--untracked-files=no")) throw new Error("Unit worker changed tracked source");
+      if (!inputs && git(worker.root, ["status", "--porcelain", "--untracked-files=no"], WORKSPACE_GIT)) throw new Error("Unit worker changed tracked source");
       const xml = readFileSync(join(worker.root, "tmp/unit-report.xml"), "utf8");
       const timings = JSON.parse(readFileSync(join(worker.root, "tmp/unit-timings.json"), "utf8"));
       let selection: { selected: number; assigned: number; preparationMs: number } | undefined;
@@ -373,9 +370,9 @@ async function bootstrapPreparedTree(root: string, files: readonly string[], chr
   if (!options.changed || files.length) throw new Error("Prepared unit trees require Bun changed selection");
   const count = options.workers ?? localUnitWorkerCount();
   if (!Number.isSafeInteger(count) || count < 1) throw new Error("Unit worker count must be a positive integer");
-  const started = performance.now(), head = git(root, "rev-parse", "HEAD"), invocation = randomUUID();
-  git(root, "rev-parse", "--verify", "--end-of-options", `${options.changed}^{commit}`);
-  const objectFormat = git(root, "rev-parse", "--show-object-format");
+  const started = performance.now(), head = git(root, ["rev-parse", "HEAD"], WORKSPACE_GIT), invocation = randomUUID();
+  git(root, ["rev-parse", "--verify", "--end-of-options", `${options.changed}^{commit}`], WORKSPACE_GIT);
+  const objectFormat = git(root, ["rev-parse", "--show-object-format"], WORKSPACE_GIT);
   const reportDir = outputDirectory ?? mkdtempSync(join(tmpdir(), "brain-import-graph-"));
   mkdirSync(reportDir, { recursive: true });
   const container = mkdtempSync(join(dirname(root), ".brain-unit-prepared-")), template = join(container, "tree");
@@ -400,7 +397,7 @@ async function bootstrapPreparedTree(root: string, files: readonly string[], chr
         let destination: string | undefined;
         preserveDiagnostics({ root: template, ...identity }, () => destination ??= mkdtempSync(join(realpathSync(reportDir), "unit-prepared-diagnostics-")), references, objectFormat);
         if (helperStarted && setup.cleanupPassed !== true) throw new Error(`Prepared unit tree retained after incomplete cleanup: ${template}`);
-        inputs!.remove(template); git(root, "worktree", "remove", template); created = false;
+        inputs!.remove(template); git(root, ["worktree", "remove", template], WORKSPACE_GIT); created = false;
       }
       rmSync(join(container, "inputs"), { recursive: true, force: true }); rmdirSync(container);
     } catch (error) { cleanupFailures.push(error); }
@@ -414,7 +411,7 @@ async function bootstrapPreparedTree(root: string, files: readonly string[], chr
   try {
     inputs = captureUnitInputs(root, join(container, "inputs"));
     references = diagnosticReferences(root, head, objectFormat, inputs, join(container, "inputs"));
-    git(root, "worktree", "add", "--quiet", "--detach", template, head); created = true;
+    git(root, ["worktree", "add", "--quiet", "--detach", template, head], WORKSPACE_GIT); created = true;
     const info = lstatSync(template); identity = { device: info.dev, inode: info.ino };
     inputs.restore(template); checkoutMs = performance.now() - started;
     const copying = performance.now();
