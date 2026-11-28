@@ -603,4 +603,52 @@ describe("network approval stability (#4966)", () => {
       await h.close();
     }
   });
+
+  test("clearing session taint settles pending Network card as granted instead of expiring with safety_changed (#4966)", async () => {
+    const h = await openHarness({ taintSources: ["web_fetch"] });
+    const island = Bun.serve({ hostname: "127.0.0.2", port: 0, fetch: () => new Response("cleared-harbor") });
+    try {
+      const pending = fetchViaProxy(h.egress.socketPath, island.url);
+      await waitFor(() => h.cards().length === 1, "initial card raised");
+      const card = h.cards()[0]!;
+
+      // Finalize the sole open occurrence and mark it safe so session taint clears cleanly.
+      const occ = h.db.query("SELECT id FROM safety_records WHERE kind = 'occurrence' ORDER BY id DESC LIMIT 1").get() as { id: string };
+      await h.writes.record({
+        turnId: "turn-voyage",
+        sessionId: "ithaca",
+        actor: "interactive",
+        model: null,
+        profile: "governed",
+        kind: "taint_exposure",
+        dedupeKey: occ.id,
+        payload: { occurrenceId: occ.id, state: "finalized" },
+      });
+      await h.writer.idle();
+      const projection = h.writes.safety("turn-voyage", "ithaca");
+      const reviewBody = {
+        version: 1 as const,
+        session: projection.session!,
+        occurrenceId: occ.id,
+        expectedEvidenceRevision: projection.evidenceRevision,
+        verdict: "safe" as const,
+      };
+      const actor = { principalId: h.principal.id, channel: "owner_history" as const };
+      const prepared = await h.writes.safetyPrepareReview(reviewBody, actor);
+      expect(prepared.stage, "SAFE_REVIEW_PREPARED").toBe("prepared");
+      await h.writes.safetyCommitReview(prepared.requestId!, reviewBody, actor);
+      expect(h.writes.safety("turn-voyage", "ithaca").restriction, "SESSION_TAINT_CLEARED").toBe("normal");
+
+      const res = await pending;
+      expect(res.status, "TAINT_CLEAR_SETTLES_PENDING_CARD_ALLOWED").toBe(200);
+      expect(res.body).toBe("cleared-harbor");
+      expect(h.resolutions().find((r) => r.toolUseId === card.toolUseId), "TAINT_CLEAR_RECORDED_AS_GRANTED").toMatchObject({
+        outcome: "granted",
+        grantedByGrant: true,
+      });
+    } finally {
+      island.stop(true);
+      await h.close();
+    }
+  });
 });

@@ -394,11 +394,21 @@ export async function prepareTurnEgress(options: {
         if (refusal) return { action: "withdraw", reason: refusal };
         const now = options.bridge.admissionSafety?.read();
         if (now && !now.restricted && !now.recordingPending) {
+          const nextProj = currentProjection();
+          const nextClasses = readClasses();
+          currentProj = nextProj;
+          currentClasses = nextClasses;
+          currentRev = computeCardRevision(destination, nextProj, nextClasses);
           settledByRuleOrClear = true;
           return { action: "settle_allowed", reason: "Taint cleared" };
         }
         if (now && initialSafety && now.trustRevision !== initialSafety.trustRevision) {
           if (taint?.recipient?.(destination)) {
+            const nextProj = currentProjection();
+            const nextClasses = readClasses();
+            currentProj = nextProj;
+            currentClasses = nextClasses;
+            currentRev = computeCardRevision(destination, nextProj, nextClasses);
             settledByRuleOrClear = true;
             return { action: "settle_allowed", reason: "Allowed by rule" };
           }

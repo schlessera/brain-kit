@@ -631,4 +631,103 @@ describe("network approval stack (#4967, #3595)", () => {
       root.dispose();
     }
   });
+
+  test("reconnect history replay preserves network state, live re-delivery clears readOnly:unlisted, and grant revoke uses live store state and catches failures", async () => {
+    const root = createBrainUiRoot({ storage: null });
+    const chat = root.stores.chat.getState();
+    chat.setActiveSession("ithaca");
+    chat.requestToolApproval(
+      "ithaca",
+      "net-reconnect-1",
+      "Network",
+      { host: "ithaca.example", port: 443 },
+      "Allow ithaca.example?",
+      "command",
+      false,
+      "turn-1",
+      undefined,
+      { origin: "https://ithaca.example:443", revision: "rev-1", network: offer("ithaca.example") }
+    );
+    chat.applyToolResolution({
+      type: "tool_resolution",
+      toolUseId: "net-done-1",
+      outcome: "granted",
+      networkScope: "origin",
+      grantedByGrant: true,
+      sessionId: "ithaca",
+      turnId: "turn-1",
+      reason: "Allowed for ithaca.example",
+    });
+
+    // 1. setMessages during reconnect preserves networkApprovals and networkReceipts.
+    chat.setMessages("ithaca", [{ id: "m1", role: "user", content: "Sail", parts: [], isStreaming: false, timestamp: 1, toolCalls: [] }]);
+    expect(root.stores.chat.getState().buffers["ithaca"]!.networkApprovals, "REPLAY_PRESERVES_NETWORK_APPROVALS").toHaveLength(1);
+    expect(root.stores.chat.getState().buffers["ithaca"]!.networkReceipts, "REPLAY_PRESERVES_NETWORK_RECEIPTS").toHaveLength(1);
+
+    // 2. Live re-delivery clears readOnly: "unlisted" so the card is interactive again.
+    chat.closeRestoredApprovals("ithaca", [{ toolUseId: "net-reconnect-1", closure: "unlisted" }]);
+    expect(root.stores.chat.getState().buffers["ithaca"]!.networkApprovals![0]!.readOnly).toBe("unlisted");
+    chat.requestToolApproval(
+      "ithaca",
+      "net-reconnect-1",
+      "Network",
+      { host: "ithaca.example", port: 443 },
+      "Allow ithaca.example?",
+      "command",
+      false,
+      "turn-1",
+      undefined,
+      { origin: "https://ithaca.example:443", revision: "rev-1", network: offer("ithaca.example") }
+    );
+    expect(root.stores.chat.getState().buffers["ithaca"]!.networkApprovals![0]!.readOnly, "REDELIVERY_CLEARS_UNLISTED_READONLY").toBeUndefined();
+    expect(pendingApprovals(root.stores.chat.getState()), "REDELIVERED_CARD_VISIBLE_IN_PENDING").toHaveLength(1);
+
+    // 3. NetworkGrantsBar revoke merges against latest store state and handles failures cleanly.
+    const grant1 = { grantId: "g-1", scope: "origin" as const, origin: "https://ithaca.example:443", host: "ithaca.example", port: 443, scheme: "https" as const, transport: "http" as const, grantedClasses: ["web_fetch"], createdAt: 1, suspended: false };
+    const grant2 = { grantId: "g-2", scope: "origin" as const, origin: "https://pylos.example:443", host: "pylos.example", port: 443, scheme: "https" as const, transport: "http" as const, grantedClasses: ["web_fetch"], createdAt: 2, suspended: false };
+    chat.setNetworkGrants("ithaca", [grant1]);
+    let resolveDelete!: () => void;
+    let shouldFail = false;
+    root.api.listNetworkGrants = async (sid) => ({ sessionId: sid, grants: root.stores.chat.getState().networkGrants["ithaca"] ?? [] });
+    root.api.revokeNetworkGrant = async (_sid, grantId) => {
+      if (shouldFail) throw new Error("network down");
+      await new Promise<void>((r) => { resolveDelete = r; });
+      return { revoked: true, grantId };
+    };
+    const barView = render(
+      <BrainUiProvider root={root}>
+        <NetworkGrantsBar />
+      </BrainUiProvider>
+    );
+    try {
+      // Let initial mount listNetworkGrants settle before simulating revoke + concurrent WS update.
+      await act(async () => { await Promise.resolve(); });
+      fireEvent.click(barView.getByRole("button", { name: "Revoke network grant for ithaca.example" }));
+      // Concurrent WS update adds g-2 while DELETE g-1 is in flight.
+      act(() => {
+        root.stores.chat.getState().setNetworkGrants("ithaca", [grant1, grant2]);
+      });
+      await act(async () => {
+        resolveDelete();
+        await Promise.resolve();
+      });
+      expect(
+        root.stores.chat.getState().networkGrants["ithaca"]?.map((g) => g.grantId),
+        "CONCURRENT_GRANT_SURVIVES_STALE_REVOKE_CLOSURE"
+      ).toEqual(["g-2"]);
+
+      // Failed revoke is caught cleanly and leaves g-2 intact.
+      shouldFail = true;
+      await act(async () => {
+        fireEvent.click(barView.getByRole("button", { name: "Revoke network grant for pylos.example" }));
+        await Promise.resolve();
+      });
+      expect(
+        root.stores.chat.getState().networkGrants["ithaca"]?.map((g) => g.grantId),
+        "FAILED_REVOKE_LEAVES_GRANT_INTACT"
+      ).toEqual(["g-2"]);
+    } finally {
+      root.dispose();
+    }
+  });
 });

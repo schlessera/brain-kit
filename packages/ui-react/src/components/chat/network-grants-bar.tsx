@@ -41,10 +41,14 @@ export function NetworkGrantsBar() {
 
   async function revoke(grantId: string) {
     if (!sessionId || revoking) return;
+    const activeSid = sessionId;
     setRevoking(grantId);
     try {
-      await root.api.revokeNetworkGrant(sessionId, grantId);
-      setNetworkGrants(sessionId, grants!.filter((g) => g.grantId !== grantId));
+      await root.api.revokeNetworkGrant(activeSid, grantId);
+      const latest = root.stores.chat.getState().networkGrants[activeSid] ?? [];
+      setNetworkGrants(activeSid, latest.filter((g) => g.grantId !== grantId));
+    } catch {
+      // Leave the store untouched on network/host failure so the bar stays truthful.
     } finally {
       setRevoking(null);
     }

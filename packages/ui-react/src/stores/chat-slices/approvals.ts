@@ -236,7 +236,7 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
             const prev = list[idx]!;
             if (prev.readOnly && prev.readOnly !== "unlisted") return {};
             const revisionChanged = meta?.revision !== undefined && meta.revision !== prev.revision;
-            const { sending: _s, sendingScope: _sc, ...basePrev } = prev;
+            const { sending: _s, sendingScope: _sc, readOnly: _ro, ...basePrev } = prev;
             list[idx] = {
               ...basePrev,
               input,
