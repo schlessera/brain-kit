@@ -1,4 +1,4 @@
-import { transcriptMessage, transcriptTimelineFor, transcriptRange } from "../../lib/transcript-timeline.js";
+import { transcriptMessage, transcriptTimelineFor, transcriptRange, type TranscriptEntry } from "../../lib/transcript-timeline.js";
 import { useStore } from "zustand";
 import { ConversationCoverageNotice, ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext, conversationEndLabel } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
@@ -75,6 +75,7 @@ import {
 const WINDOW_SIZE = 40;
 
 const NO_LINKS: HandoffLink[] = [];
+const NO_ENTRIES: TranscriptEntry[] = [];
 
 /**
  * After how many messages a forward marker sits: after the turn where the
@@ -117,8 +118,8 @@ export function ChatPage() {
   const messages = useChatStore((s) => activeChat(s).messages);
   const sessionId = useChatStore((s) => s.activeSessionId);
   const hasVoicePermission = useStore(root.connection.conversation.permissions.state, s => s.records.some(r => r.sessionId === sessionId && !!r.word));
-  const timeline = useStore(transcriptTimelineFor(root.stores.chat).state, s => s.entries);
-  const entries = useMemo(() => timeline.filter(entry => entry.sessionId === sessionId), [timeline, sessionId]);
+  // The session in view only: a write to another session leaves its array, and this page, alone (#4741).
+  const entries = useStore(transcriptTimelineFor(root.stores.chat).state, s => s.sessions.get(sessionId) ?? NO_ENTRIES);
   const dialoguePage = useStore(root.connection.conversation.state, s => s.dialogue?.[sessionId ?? `dialogue:${s.profile?.historyOwnerId ?? ""}`]);
   const dialogueNotice = useStore(root.connection.conversation.state, s => s.dialogueNotice);
   const hasVoiceOutput = entries.some(entry => entry.kind !== "message");
