@@ -53,3 +53,25 @@ test("a re-exported name no other file imports is a finding", () => {
 test("an aliased import counts for the name it imports", () => {
   expect(checkIconImports({ [ICONS]: 'export { Activity } from "lucide-react";\n', [page]: 'import { Activity as ActivityIcon } from "../icons.js";\n' })).toEqual([]);
 });
+
+test("a lucide-react subpath outside icons.ts is one finding naming the file and line", () => {
+  for (const [line, specifier] of [
+    ['import X from "lucide-react/dist/esm/icons/x";', "lucide-react/dist/esm/icons/x"],
+    ['export { X } from "lucide-react/dist/esm/lucide-react";', "lucide-react/dist/esm/lucide-react"],
+  ]) {
+    for (const file of [page, lib]) {
+      expect(checkIconImports({ [ICONS]: icons, ...users, [file]: `${users[page] ?? ""}\n${line}\n` }), `${file}: ${line}`)
+        .toEqual([`${file}:4: imports "${specifier}" directly — import the glyph from components/icons.ts`]);
+    }
+  }
+});
+
+test("a subpath re-export inside icons.ts is a rule-2 finding", () => {
+  const extra = 'export { Check } from "lucide-react/dist/esm/lucide-react";';
+  expect(checkIconImports({ [ICONS]: `${icons}${extra}\n`, ...users }))
+    .toEqual([`${ICONS}:3: only named re-exports from "lucide-react" belong here — no map, component or other statement`]);
+});
+
+test("a look-alike package, or a string or comment naming a subpath, is not a finding", () => {
+  expect(checkIconImports({ [ICONS]: icons, [page]: `${users[page]}import { View } from "lucide-react-native";\n// import X from "lucide-react/dist/esm/icons/x";\nconst path = "lucide-react/dist/esm/icons/x";\n` })).toEqual([]);
+});

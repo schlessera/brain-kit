@@ -10,20 +10,12 @@ import type { VoiceProvidersResponse } from "@schlessera/brain-ui-sdk/protocol";
 import { freshDiscovery, invalidateDiscovery, loadDiscovery, providerLabel, type DictationProvider } from "../../voice/dictation-providers.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
 import { formatBytes } from "../../lib/format-bytes.js";
-import { clockTime } from "../../lib/format-time.js";
+import { recordingClock, recordingDuration } from "./recording-labels.js";
 
 export const SAVED_AUDIO_UNAVAILABLE = "Transcribing saved recordings isn\u0027t available on this server yet. Your recording is kept. Play it back and type, or keep it for later.";
 const RETRY_PROVIDER_UNAVAILABLE = "The service that made the failed attempt isn\u0027t available on this host, so it can\u0027t be retried. Your recording is kept.";
 export const ACCEPT_FAILED = "Couldn\u0027t save your draft on this device. The recording is kept.";
 const EMPTY_ROWS: Recording[] = [];
-export function recordingClock(row: Recording): string {
-  if (row.createdAt === undefined) return "unknown time";
-  return clockTime(row.createdAt);
-}
-export function recordingDuration(row: Recording): string {
-  const seconds = Math.floor(row.durationMs / 1000);
-  return `${Math.floor(seconds / 60)} minutes ${seconds % 60} seconds`;
-}
 
 /**
  * Which service a saved recording would go to (#3709, plan §5). The

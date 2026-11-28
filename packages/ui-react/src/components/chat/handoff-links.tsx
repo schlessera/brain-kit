@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Label, TextButton } from "@schlessera/brain-ui-kit";
 import { parseHandoffText } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore } from "../../stores/chat-store.js";
@@ -14,12 +14,13 @@ import { linkifyPaths } from "./brain-markdown-links.js";
 export function useBackendName(): (backendId: string | undefined) => string {
   const available = useProviderStore((s) => s.available);
   const unavailable = useProviderStore((s) => s.unavailable);
-  return (backendId) => {
+  // A new function only when the lists change: the Sessions list memoizes its rows on it (#4892).
+  return useCallback((backendId: string | undefined) => {
     if (!backendId) return "another backend";
     return available.find((profile) => profile.backendId === backendId)?.label
       ?? unavailable.find((profile) => profile.backendId === backendId)?.label
       ?? backendId;
-  };
+  }, [available, unavailable]);
 }
 
 /**

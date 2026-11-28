@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { valueInk } from "../src/internal/tone-ink.js";
+import { DataTable } from "../src/evidence/DataTable.js";
 import { Label } from "../src/primitives/Label.js";
 import { Meter } from "../src/primitives/Meter.js";
 import { PathRef } from "../src/primitives/PathRef.js";
@@ -32,6 +33,19 @@ describe("tone lookups keep each site's fallback for an unknown tone (#4728)", (
   test("valueInk: Label falls back to neutral", () => {
     const html = renderToStaticMarkup(<Label text="Crew" tone={unknown} />);
     expect(html).toContain(`color:${accent.neutral.ink}`);
+  });
+
+  // #4947: `dim` is a value tone, but neither a label tone nor a cell tone.
+  test("valueInk: Label reads an out-of-union dim as neutral, not dim ink", () => {
+    const html = renderToStaticMarkup(<Label text="Crew" tone={"dim" as never} />);
+    expect(html).toContain(`color:${accent.neutral.ink}`);
+    expect(html).not.toContain(`color:${color.inkDim}`);
+  });
+
+  test("valueInk: a DataTable cell reads an out-of-union dim as ink, not dim ink", () => {
+    const html = renderToStaticMarkup(<DataTable columns={[{ label: "Crew" }]} rows={[{ cells: [{ v: "Elpenor", tone: "dim" as never }] }]} />);
+    expect(html).toMatch(/data-tone="dim"[^>]*color:([^;"]+)/);
+    expect(html.match(/data-tone="dim"[^>]*color:([^;"]+)/)?.[1]).toBe(color.ink);
   });
 });
 

@@ -1,6 +1,7 @@
 // The Sessions list against typing (#4751): it selects the words it prints
 // from the drafts, so a keystroke that changes none of them commits nothing,
-// and a closed drawer computes no rows at all. Mounted on a real root with
+// and a closed drawer computes no rows at all. An open drawer rebuilds no
+// row on a parent re-render (#4892). Mounted on a real root with
 // no host, 200 of Odysseus's sessions and the pinned clock; a Profiler
 // counts the commits. Queries come from `render()`, never `screen`
 // (tests/render/dom.ts says why).
@@ -98,28 +99,75 @@ describe("the Sessions pane while the reader types", () => {
   });
 });
 
+/** Odysseus's sessions with counted row fields: every read of one adds to `reads()`. */
+function countedVoyage(fields: ReadonlyArray<keyof ListedSession> = ["title", "lastActiveAt", "totalCostUsd", "numTurns"]) {
+  let reads = 0;
+  const sessions = voyage().map((session) => {
+    const counted = { ...session };
+    for (const field of fields) {
+      const value = session[field];
+      Object.defineProperty(counted, field, { enumerable: true, get: () => { reads++; return value; } });
+    }
+    return counted;
+  });
+  return { sessions, reads: () => reads, reset: () => { reads = 0; } };
+}
+
+/** A parent that re-renders the drawer on demand. */
+function drawerParent(open: boolean) {
+  const parent = { rerender: () => {} };
+  function Parent() {
+    const [, bump] = useReducer((n: number) => n + 1, 0);
+    useEffect(() => { parent.rerender = bump; }, []);
+    return <SessionDrawer open={open} onClose={noop} onResume={noop} />;
+  }
+  return { parent, Parent };
+}
+
 describe("the Sessions drawer while it is closed", () => {
   test("re-renders of its parent read no session's row data", async () => {
-    let reads = 0;
-    const sessions = voyage().map((session) => {
-      const counted = { ...session };
-      for (const field of ["title", "lastActiveAt", "totalCostUsd", "numTurns"] as const) {
-        const value = session[field];
-        Object.defineProperty(counted, field, { enumerable: true, get: () => { reads++; return value; } });
-      }
-      return counted;
-    });
-    const r = fixture(sessions);
-    const parent = { rerender: () => {} };
-    function Parent() {
-      const [, bump] = useReducer((n: number) => n + 1, 0);
-      useEffect(() => { parent.rerender = bump; }, []);
-      return <SessionDrawer open={false} onClose={noop} onResume={noop} />;
-    }
+    const counted = countedVoyage();
+    const r = fixture(counted.sessions);
+    const { parent, Parent } = drawerParent(false);
     render(<BrainUiProvider root={r}><Parent /></BrainUiProvider>);
     await tick();
-    reads = 0;
+    counted.reset();
     for (let i = 0; i < 10; i++) act(() => parent.rerender());
-    expect(reads).toBe(0);
+    expect(counted.reads()).toBe(0);
+  });
+
+  // #4892: the Working rows are built from the trackers and labelled from
+  // the session list; a drawer that draws none builds none.
+  test("a tracker write and a session-list write read no session's row data", async () => {
+    const counted = countedVoyage(["id", "label", "title", "lastActiveAt", "totalCostUsd", "numTurns"]);
+    const r = fixture(counted.sessions);
+    const { Parent } = drawerParent(false);
+    render(<BrainUiProvider root={r}><Parent /></BrainUiProvider>);
+    await tick();
+    counted.reset();
+    act(() => r.stores.trackers.getState().track("odysseus-leg-3"));
+    expect(Object.keys(r.stores.trackers.getState().records)).toContain("odysseus-leg-3");
+    // The list a refresh writes: a new array of the same sessions.
+    act(() => r.stores.sessions.setState({ sessions: [...counted.sessions] }));
+    expect(counted.reads()).toBe(0);
+  });
+});
+
+describe("the Sessions drawer while it is open", () => {
+  // #4892: the rows are memoized on the backend name lookup, which keeps its
+  // identity while the provider lists do.
+  test("ten re-renders of its parent read no session's row data", async () => {
+    const counted = countedVoyage();
+    const r = fixture(voyage());
+    const { parent, Parent } = drawerParent(true);
+    const view = render(<BrainUiProvider root={r}><Parent /></BrainUiProvider>);
+    await tick(); await tick();
+    // The open drawer's own refresh has settled; count from these sessions on.
+    act(() => r.stores.sessions.setState({ sessions: counted.sessions }));
+    await tick();
+    expect(view.container.textContent).toContain("Leg 199 of the voyage home");
+    counted.reset();
+    for (let i = 0; i < 10; i++) act(() => parent.rerender());
+    expect(counted.reads()).toBe(0);
   });
 });
