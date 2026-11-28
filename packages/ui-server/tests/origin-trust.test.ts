@@ -631,13 +631,13 @@ test("#4351: covered outward traffic keeps connecting when its own occurrence wr
 });
 // #4351: only the writer's exact {id:0, recorded:false} acknowledges a
 // tolerated loss on a gapped turn; any other negative reply is no acknowledgment.
-for (const reply of ["exact", "no id", "negative id", "text id", "recorded null", "bare false"] as const) for (const lost of ["taint", "taint_exposure"] as const)
+for (const reply of ["exact", "no id", "negative id", "text id", "recorded null", "bare false", "no recorded"] as const) for (const lost of ["taint", "taint_exposure"] as const)
   test(`#4351: a gapped turn's ${lost} reply (${reply}) is tolerated only when it is the exact acknowledgment`, async () => {
     const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, false, "127.0.0.1", true);
     const troy = untrustedOrigin();
     const original = f.writes.record;
     const answer = reply === "exact" ? { id: 0, recorded: false } : reply === "no id" ? { recorded: false } : reply === "negative id" ? { id: -1, recorded: false }
-      : reply === "text id" ? { id: "0", recorded: false } : reply === "recorded null" ? { id: 0, recorded: null } : false;
+      : reply === "text id" ? { id: "0", recorded: false } : reply === "recorded null" ? { id: 0, recorded: null } : reply === "no recorded" ? { id: 0 } : false;
     try {
       gappedTurn(f);
       f.writes.record = async (...args) => args[0].kind === lost && (lost === "taint_exposure" || (args[0].payload as { source?: string }).source === "egress_connection") ? answer as never : original(...args);
@@ -709,5 +709,29 @@ test("#4351: a malformed restricted_begin is unknown and refuses a card-needing 
     expect(f.asks()).toBe(0);
     expect(troy.hits()).toBe(0);
     expect(lastConnection(f)).toMatchObject({ reason: "egress_unavailable", dispatched: false });
+  } finally { troy.stop(); await f.close(); }
+});
+// #4351: the hosted writer keeps a replay's id end to end. The connection's
+// occurrence is written twice: the second write is a real duplicate.
+for (const source of ["untrusted", "trusted"] as const) test(`#4351: a ${source} occurrence replayed through the hosted writer on a gapped turn keeps its durable evidence`, async () => {
+  const f = await fixture(true, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, true);
+  const troy = untrustedOrigin();
+  const original = f.writes.firstTaint;
+  const replies: boolean[] = [];
+  try {
+    gappedTurn(f);
+    f.writes.firstTaint = async (...args) => {
+      if (args[0].payload.source !== "egress_connection") return original(...args);
+      await original(...args);
+      const replay = await original(...args);
+      replies.push(replay);
+      return replay;
+    };
+    const status = await get(f.proxy.socketPath, source === "trusted" ? f.origin.url.href : troy.url).catch(() => 0);
+    await f.proxy.settled();
+    expect(replies, "HOSTED_REPLAY_IS_DURABLE").toEqual([true]);
+    expect(status, "HOSTED_REPLAY_KEEPS_ITS_DURABLE_EVIDENCE").toBe(200);
+    expect(queryGovernanceEvents(f.db, { kinds: ["taint_exposure"], limit: 10 }), "HOSTED_REPLAY_RECORDS_ITS_TERMINAL_STATE").toHaveLength(1);
+    expect(f.controller.signal.aborted).toBe(false);
   } finally { troy.stop(); await f.close(); }
 });

@@ -6470,9 +6470,11 @@ or a stored `restricted_begin` other than exactly 0 or 1, is unknown, not a
 gap: card paths refuse as `egress_unavailable` (503) without new-turn advice.
 Only the writer's exact `{id:0, recorded:false}` acknowledges a tolerated
 loss. A positive id is a durable replay and keeps its evidence: never a
-tolerated loss. Any other reply, bare `false` or a non-boolean `recorded`
-included, keeps its earlier handling (a 503 for an occurrence, a stopped turn
-for a terminal exposure). A card pending when the gap appeared,
+tolerated loss, on the hosted writer as on a legacy recorder. One validator
+checks every acknowledgment's shape: a non-negative integer `id` with a
+boolean `recorded`. Any other reply, bare `false`, `{id:0}` without
+`recorded` or a non-boolean `recorded` included, keeps its earlier handling
+(a 503 for an occurrence, a stopped turn for a terminal exposure). A card pending when the gap appeared,
 or answered before it, is never used: its connection, of either kind, is
 refused as `recording_gap` before dispatch. Allow-listed and already-contacted
 destinations need no card and still connect, and a new turn restores

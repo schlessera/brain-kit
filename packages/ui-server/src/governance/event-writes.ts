@@ -145,6 +145,22 @@ export interface GovernanceWrites {
 const SAFETY_END_RECORD_WAIT_MS = 10_000;
 
 /** The app side: every write commits on `writer` when there is one, else on `db` at once. */
+/**
+ * One record's acknowledgment, validated by shape (#4351): `durable` (true,
+ * committed, or a replay with a positive id that keeps its evidence), `loss`
+ * (exactly {id:0, recorded:false}, which only a gapped turn tolerates),
+ * `malformed` (bare false, or any id/recorded reply that is not a
+ * non-negative integer id with a boolean recorded), or `none` (no
+ * acknowledgment at all, such as a legacy recorder's void).
+ */
+export function recordAcknowledgment(result: unknown): "durable" | "loss" | "malformed" | "none" {
+  if (result === true) return "durable";
+  if (result === false) return "malformed";
+  if (!result || typeof result !== "object" || !("id" in result || "recorded" in result)) return "none";
+  const { id, recorded } = result as { id?: unknown; recorded?: unknown };
+  if (typeof recorded !== "boolean" || typeof id !== "number" || !Number.isSafeInteger(id) || id < 0) return "malformed";
+  return recorded || id > 0 ? "durable" : "loss";
+}
 export function createGovernanceWrites(db: Database, writer?: SqliteWriter): GovernanceWrites {
   const invoke = procedureCaller(db, { url, setup }, undefined, writer);
   const shared=safetyQueue(db),pendingTaints=shared.pending;
@@ -312,7 +328,8 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
 
       });
     },
-    firstTaint: (input, options) => record(input, options).then(result => result.recorded),
+    // A replay keeps its durable evidence end to end (#4351).
+    firstTaint: (input, options) => record(input, options).then(result => recordAcknowledgment(result) === "durable"),
     taint(turnId, sessionId) {
       return snapshot(()=>{
         if (shared.failed||lostInScope(turnId,sessionId)) return { eventId: 0, source: "legacy_unknown" };

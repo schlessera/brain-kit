@@ -7,7 +7,7 @@ import type { Database } from "bun:sqlite";
 import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
-import type { GovernanceWrites } from "../governance/event-writes.js";
+import { recordAcknowledgment, type GovernanceWrites } from "../governance/event-writes.js";
 import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
 import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
 import { STORAGE_SETTLEMENT_MS } from "../db/settlement.js";
@@ -135,17 +135,11 @@ export async function prepareTurnEgress(options: {
       let pending:unknown;
       recordFirstTaint(db,event,input=>{pending=record(input);});
       const result=await pending;
-      if(result===true)return true;
-      // Only {id:0, recorded:false} acknowledges a tolerated loss. A positive
-      // id is a durable replay and keeps its evidence. Anything else, bare
-      // false included, is no acknowledgment (#4351).
-      if(result===false)throw new Error("Malformed recording acknowledgment");
-      if(result&&typeof result === "object"&&"recorded" in result){
-        const {recorded,id}=result as {recorded:unknown;id?:unknown};
-        if(recorded===true||recorded===false&&typeof id === "number"&&Number.isSafeInteger(id)&&id>0)return true;
-        if(recorded===false&&id===0)return false;
-        throw new Error("Malformed recording acknowledgment");
-      }
+      // One shape rule for every acknowledgment (`recordAcknowledgment`, #4351).
+      const acknowledged=recordAcknowledgment(result);
+      if(acknowledged==="durable")return true;
+      if(acknowledged==="loss")return false;
+      if(acknowledged==="malformed")throw new Error("Malformed recording acknowledgment");
       const input=event.payload.occurrence;
       return !input?.admission?.trusted || db.query("SELECT id FROM safety_records WHERE id=? AND kind='occurrence'").get(input.id) !== null;
     },
@@ -218,16 +212,12 @@ export async function prepareTurnEgress(options: {
   /** `tolerable`: a taint record, whose tolerated loss on a gapped turn is not an audit failure. */
   const track = (committed: unknown, tolerable = false) => {
     const confirm=(result:unknown)=>{
-      if(result===false)throw new Error("Egress audit was not durably recorded");
-      if(result&&typeof result === "object"&&"recorded" in result){
-        const {recorded,id}=result as {recorded:unknown;id?:unknown};
-        if(recorded===true)return;
-        // A positive existing id is a durable replay, not a lost write.
-        if(recorded===false&&typeof id === "number"&&Number.isSafeInteger(id)&&id>0)return;
-        // Only the writer's exact acknowledgment of a tolerated loss; any other reply stops the turn.
-        if(tolerable&&recorded===false&&id===0&&gapped())return;
-        throw new Error("Egress audit was not durably recorded");
-      }
+      // A durable write or a replay passes; only the exact tolerated-loss
+      // acknowledgment on a gapped turn is excused; any other reply stops the turn.
+      const acknowledged=recordAcknowledgment(result);
+      if(acknowledged==="durable"||acknowledged==="none")return;
+      if(acknowledged==="loss"&&tolerable&&gapped())return;
+      throw new Error("Egress audit was not durably recorded");
     };
     if (!(committed instanceof Promise)) {try{confirm(committed);}catch{fail();}return;}
     const pending = committed.then(confirm).catch(fail).finally(() => recording.delete(pending));
