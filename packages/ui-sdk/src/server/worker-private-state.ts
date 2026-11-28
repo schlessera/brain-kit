@@ -253,9 +253,12 @@ export function recordUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: stri
  * spawns, refusing with the walk's typed error, and it is counted as an
  * unqualified launch whenever the brain has a layout or the launch masks.
  */
-export function walkUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: string, masked: boolean): void {
+export function walkUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: string, masked: boolean,
+  /** The caller's own admission already ran and passed this walk: count, and do not walk twice. */
+  walked = false): void {
   const registered = workerPrivateStateProviders(brain);
   if (registered.length || masked) recordUnqualified(site, brain);
+  if (walked) return;
   for (const provider of registered) {
     const refusal = provider.walk();
     if (refusal) {

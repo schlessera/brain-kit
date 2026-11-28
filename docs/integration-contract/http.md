@@ -1249,8 +1249,9 @@ reads that table while the sandbox's start gate is closed, so the payload never
 runs; the launch function throws a typed refusal with that reason. Agent
 workers and asynchronous maintenance and transport launches are qualified;
 synchronous maintenance (`runMaintenanceWorkerSync`) is not: it runs the
-brain's registered alias walk itself before it spawns, whatever its caller
-checked, and refuses with the walk's own typed reason (its qualification is
+brain's registered alias walk itself before it spawns, unless it runs inside
+a turn admission that has just run and passed that walk (one walk per
+admission), and refuses with the walk's own typed reason (its qualification is
 tracked separately). A qualification refuses
 only that launch, and the turn whose admission probe it was, for governed and
 strict alike; status advertises no strict fallback for it. Nothing is stored:

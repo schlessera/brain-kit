@@ -88,6 +88,12 @@ export interface MaintenanceHost {
   maskPaths?: readonly string[];
   /** @internal How long an awaited scratch check waits for a busy budget; default `SCRATCH_ADMISSION_WAIT_MS` (#4079). */
   admissionWaitMs?: number;
+  /**
+   * @internal The turn admission that hands out this host has already run the
+   * brain's registered walk and passed it: a synchronous launch inside that
+   * admission does not walk again, and is still counted (#4301 path O5).
+   */
+  admissionWalked?: boolean;
 }
 
 export interface MaintenanceResult {
@@ -531,7 +537,9 @@ function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: num
     preparedMaintenanceCommands.delete(input);
     // Synchronous maintenance is not qualified; it walks here, whatever its
     // caller checked, and is counted (#4301 path O5, #4973 r4 F42, F50; qualification in #5026).
-    walkUnqualifiedLaunch("synchronous-maintenance", kernelRealpath(input.brainPath), Boolean(launch.maintenance?.maskPaths?.length));
+    walkUnqualifiedLaunch("synchronous-maintenance", kernelRealpath(input.brainPath), Boolean(launch.maintenance?.maskPaths?.length),
+      // Inside a turn admission that has just walked, one walk per admission (#4301 PR B is the walk's removal).
+      (input as MaintenanceHost).admissionWalked === true);
     const boot = workerBootstrap(launch);
     pipes = yield* createWorkerPipesSteps();
     const child = yield* workerStepSpawn(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],

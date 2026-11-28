@@ -148,6 +148,20 @@ describe("synchronous maintenance is not qualified; it walks (#4301 path O5, #50
     expect(f.ran(), "F42_PAYLOAD_NEVER_RAN").toBe(0);
   }, watchdogMs(60_000));
 
+  test("a synchronous launch inside an admission that already walked does not walk again, and is still counted", async () => {
+    const f = await fixture();
+    let walks = 0;
+    f.duringWalk(() => { walks++; });
+    const before = unqualifiedLaunches().count;
+    // The admission's maintenance host carries the mark into the launch it starts.
+    const inAdmission = { ...maintenance(f, [f.markers]), admissionWalked: true };
+    expect(runMaintenanceWorkerSync(inAdmission).exitCode).toBe(0);
+    expect(walks, "ADMISSION_WALKED_NOT_WALKED_AGAIN").toBe(0);
+    expect(unqualifiedLaunches().count, "ADMISSION_WALKED_STILL_COUNTED").toBe(before + 1);
+    expect(runMaintenanceWorkerSync(maintenance(f, [f.markers])).exitCode).toBe(0);
+    expect(walks, "UNADMITTED_SYNC_WALKS").toBe(1);
+  }, watchdogMs(60_000));
+
   test("F50: every synchronous launch for a brain with a layout is counted, masked or not", async () => {
     const f = await fixture();
     const before = unqualifiedLaunches().count;
