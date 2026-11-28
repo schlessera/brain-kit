@@ -410,3 +410,110 @@ test("a sent-message count draws the coverage notice; an empty complete history 
     expect(notice?.kind === "voice-coverage" && notice.coverage.includedMessages, "VOICE_COVERAGE_CARRIES_COUNT").toBe(12);
   } finally { root.dispose(); }
 });
+
+// #4741: the projection is kept per session.
+test("a write to one session leaves another session's entries and selected array identical", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState();
+    const timeline = transcriptTimelineFor(root.stores.chat).state;
+    chat.addUserMessage("pylos", "Which harbour shelters the fleet?");
+    chat.startAssistantMessage("pylos", "pylos-turn");
+    chat.appendText("pylos", "The sandy bay.");
+    root.connection.conversation.state.setState({ outputs: [{ conversationId: "pylos", epoch: 1, outputId: "harbour", sessionId: "pylos", generated: "The bay is calm.", playback: "unknown" }] });
+    chat.addUserMessage("ithaca", "Is the mast ready?");
+    chat.startAssistantMessage("ithaca", "ithaca-turn");
+    const before = timeline.getState().entries.filter(e => e.sessionId === "pylos");
+    // Read optionally so the tree before #4741, which has no per-session arrays, fails on the entry identity below.
+    const selected = timeline.getState().sessions?.get("pylos");
+    expect(before.map(e => e.kind)).toEqual(["message", "message", "speech"]);
+    chat.appendText("ithaca", "The mast is ready.");
+    const after = timeline.getState().entries.filter(e => e.sessionId === "pylos");
+    expect(after).toHaveLength(before.length);
+    for (const [index, entry] of after.entries()) expect(entry, "OTHER_SESSION_ENTRY_KEPT").toBe(before[index]!);
+    expect(timeline.getState().sessions.get("pylos"), "OTHER_SESSION_ARRAY_KEPT").toBe(selected!);
+    expect(timeline.getState().sessions.get("ithaca")!.map(entryText)).toEqual(["Is the mast ready?", "The mast is ready."]);
+  } finally { root.dispose(); }
+});
+
+test("a buffer replacement that changes no entry publishes no timeline state", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat;
+    chat.getState().addUserMessage("ithaca", "Is the mast ready?");
+    const timeline = transcriptTimelineFor(chat).state;
+    let published = 0;
+    const stop = timeline.subscribe(() => { published++; });
+    chat.setState(s => ({ buffers: { ...s.buffers, ithaca: { ...s.buffers.ithaca!, lastTouched: s.buffers.ithaca!.lastTouched + 1 } } }));
+    stop();
+    expect(published, "NO_OP_WRITE_PUBLISHES_NOTHING").toBe(0);
+  } finally { root.dispose(); }
+});
+
+test("appending to one session reads none of eight background transcripts", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat;
+    chat.getState().addUserMessage("ithaca", "Is the mast ready?");
+    chat.getState().startAssistantMessage("ithaca", "ithaca-turn");
+    let reads = 0;
+    const counted = <T extends object>(items: T[]) => new Proxy(items, { get(target, property, receiver) { reads++; return Reflect.get(target, property, receiver); } });
+    const background = Object.fromEntries(Array.from({ length: 8 }, (_, session) => [`voyage-${session}`, {
+      messages: counted(Array.from({ length: 500 }, (_, index) => ({ id: `voyage-${session}-${index}`, role: index % 2 ? "assistant" as const : "user" as const, content: "Row on.", parts: [{ kind: "text" as const, text: "Row on." }], toolCalls: [], timestamp: 0, isStreaming: false }))),
+      isStreaming: false, askUser: null, lastTouched: 0,
+    }]));
+    chat.setState(s => ({ buffers: { ...s.buffers, ...background } }));
+    expect(reads).toBeGreaterThan(0);
+    reads = 0;
+    chat.getState().appendText("ithaca", "The mast is ready.");
+    expect(reads, "BACKGROUND_TRANSCRIPTS_NOT_READ").toBe(0);
+    expect(transcriptTimelineFor(chat).state.getState().sessions.get("ithaca")!.map(entryText)).toEqual(["Is the mast ready?", "The mast is ready."]);
+  } finally { root.dispose(); }
+});
+
+test("a grouped reading keeps its fragments' arrival order when its key comes from a later member", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const voice = root.connection.conversation.state;
+    const fragment = (sequence: number, text: string) => ({ kind: "unassigned_input_fragment" as const, sequence, text, conversationId: "ithaca", epoch: 1, sessionId: "ithaca", providerId: "gpt-live", activation: 1, contextual: true });
+    const rows = () => transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e => e.kind === "recognition");
+    const read = () => rows().map(e => e.kind === "recognition" && e.fragments.map(f => f.sequence));
+    // The earlier fragment arrives empty, so the later one is drawn first and
+    // gives the joined reading its key once the earlier one has words.
+    voice.setState({ recognition: [fragment(0, ""), fragment(1, " note?")] });
+    expect(read()).toEqual([[1]]);
+    voice.setState({ recognition: [fragment(0, "Which"), fragment(1, " note?")] });
+    expect(read()).toEqual([[0, 1]]);
+    root.stores.chat.getState().addUserMessage("ithaca", "Find the note.");
+    expect(read(), "GROUPED_FRAGMENT_KEEPS_ARRIVAL").toEqual([[0, 1]]);
+    expect(rows().map(entryText)).toEqual(["Which note?"]);
+  } finally { root.dispose(); }
+});
+
+// #4741 ruling: grouping and finish-only attachment see one session only.
+test("another session's activity neither splits a reading nor lends it finish-only evidence", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const voice = root.connection.conversation.state;
+    const fragment = (sequence: number, text: string, sessionId: string, finalization?: "final") => ({ kind: "unassigned_input_fragment" as const, sequence, text, conversationId: "voyage", epoch: 1, sessionId, providerId: "gpt-live", activation: 1, contextual: true, ...(finalization ? { finalization } : {}) });
+    const readings = (sessionId: string) => transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e => e.kind === "recognition" && e.sessionId === sessionId).map(e => e.kind === "recognition" && e.fragments.map(f => f.sequence));
+    voice.setState({ recognition: [fragment(0, "Which", "ithaca")] });
+    root.stores.chat.getState().addUserMessage("pylos", "A separate harbour.");
+    voice.setState(s => ({ recognition: [...s.recognition, fragment(1, " note?", "ithaca"), fragment(2, "", "pylos", "final")] }));
+    expect(readings("ithaca"), "ONE_SESSION_READING_STAYS_WHOLE").toEqual([[0, 1]]);
+    expect(readings("pylos")).toEqual([]);
+  } finally { root.dispose(); }
+});
+
+// #4741 ruling: the flat list is each session's entries in turn.
+test("the flat entry list holds each session's entries in turn", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState();
+    for (const sessionId of ["ithaca", "pylos", "ithaca", "pylos"]) chat.addUserMessage(sessionId, `Watch from ${sessionId}.`);
+    const { entries } = transcriptTimelineFor(root.stores.chat).state.getState();
+    expect(entries.map(e => e.sessionId), "SESSIONS_IN_TURN").toEqual(["ithaca", "ithaca", "pylos", "pylos"]);
+    const { sessions } = transcriptTimelineFor(root.stores.chat).state.getState();
+    expect(entries).toEqual([...sessions.values()].flat());
+  } finally { root.dispose(); }
+});
