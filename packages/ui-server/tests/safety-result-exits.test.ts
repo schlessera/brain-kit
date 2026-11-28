@@ -776,3 +776,21 @@ test('invalid UTF-8 grep filename bytes retain unknown alongside valid marked ro
   expect(f.db.query("SELECT source FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all()).toEqual([{source:'user_marked'},{source:'legacy_unknown'}]);
  }finally{await f.close();}
 });
+
+// #5038: the collector reads its terminal recorder reply through
+// parseRecordReply(): an {error} reply is no record.
+test("#5038: an error reply to a result's terminal record neither completes the result nor discharges its obligation", async () => {
+  const f = await voyage(); try {
+    await f.collector.begin("toolu_scout", "WebFetch", { url: "https://example.com/ithaca" });
+    const original = f.writes.record;
+    f.writes.record = async (...args) => args[0].kind === "taint_exposure" ? { error: "write failed" } as never : original(...args);
+    const first = await refusal(f.collector.result("toolu_scout", "WebFetch", "Ithaca lies to the west.", true));
+    f.writes.record = original;
+    expect(first, "ERROR_REPLY_REFUSES_THE_RESULT").toBeInstanceOf(Error);
+    await f.idle();
+    expect(f.owed(), "ERROR_REPLY_LEAVES_THE_OBLIGATION_OWED").toBe(1);
+    // The refused result leaves its chat a durable gap rather than a clean record.
+    expect(f.failure(), "ERROR_REPLY_IS_A_DURABLE_GAP").toBe("recording_failed");
+  } finally { await f.close(); }
+});
+

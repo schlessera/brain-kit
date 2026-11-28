@@ -6494,8 +6494,8 @@ gap: card paths refuse as `egress_unavailable` (503) without new-turn advice.
 Only the writer's exact `{id:0, recorded:false}` acknowledges a tolerated
 loss. A positive id is a durable replay and keeps its evidence: never a
 tolerated loss, on the hosted writer as on a legacy recorder. One strict
-parser reads every reply, at the hosted writer, the legacy recorder adapter
-and the audit check: a non-negative integer `id` with a boolean `recorded`,
+parser reads every reply, at the hosted writer, the legacy recorder adapter,
+the audit check and the tool-result collector's terminal record (#5038): a non-negative integer `id` with a boolean `recorded`,
 `true`, or, from a legacy recorder only, no reply at all. Any other reply,
 bare `false`, `{id:0}` without `recorded`, a non-boolean `recorded` or an
 explicit `{error}` reply included, is malformed: a 503 for an occurrence, a
