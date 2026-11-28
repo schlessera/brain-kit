@@ -68,7 +68,10 @@ export class SafetyRecordingUnavailable extends Error {
   }
 }
 const one = <T>(db: Database, sql: string, ...args: (string | number | null)[]) => db.query(sql).get(...args) as T;
-const collection = (db: Database, turn: string) => one<Collection | null>(db,"SELECT * FROM safety_collections WHERE turn_id=?",turn);
+/** Every safety_collections column enforcement reads; never tool_reuse (#4513). */
+const COLLECTION_COLUMNS = ["id","turn_id","session_id","principal_id","history_owner_id","generation","backend_id","started_at","ended","acknowledged",
+  "gap","failure","policy_hash","start_revision","end_revision","restricted_begin","failure_cause","principal_account"].map(column=>`c.${column}`).join(",");
+const collection = (db: Database, turn: string) => one<Collection | null>(db,`SELECT ${COLLECTION_COLUMNS} FROM safety_collections c WHERE c.turn_id=?`,turn);
 const meta = (db: Database) => one<{revision:string;failed:number;reason:string|null;used_rows:number;used_bytes:number;scope_rows:number;scope_bytes:number}>(db,"SELECT * FROM safety_meta WHERE singleton=1");
 export function advance(db: Database): string {
   const old=BigInt(meta(db).revision);
@@ -147,7 +150,7 @@ function failSafetySession(db:Database,turnId:string|null,sessionId:string,reaso
     const owned=turnId??`lost_${crypto.randomUUID().replaceAll("-","")}`;
     ensureSafetyEventCollection(db,{sessionId,turnId:owned,at:cause.at} as GovernanceEventRow);
     if(!failSafetyCollection(db,owned,reason,cause))return false;
-    if(!turnId)db.query("UPDATE safety_collections SET ended=1,end_revision=COALESCE(end_revision,?) WHERE turn_id=?").run(advance(db),owned);
+    if(!turnId)db.query("UPDATE safety_collections SET ended=1,end_revision=COALESCE(end_revision,?),tool_reuse=NULL WHERE turn_id=?").run(advance(db),owned);
     return true;
   }).immediate();
 }
@@ -244,8 +247,8 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   if(input.policyHash!==undefined&&input.policyHash!==null&&!/^[a-f0-9]{64}$/.test(input.policyHash))throw new SafetyUnavailable("Invalid safety policy hash");
   const gap=restricted?"recording_failed":uncollectedOwner?"missing_history_owner_collection":input.sessionId&&!session?.principal_id?"unknown_history_owner":session?.backend_id&&session.backend_id!==input.backendId?"backend_history_not_reconstructed":null;
   // The account comes from the principal's own row, never from the input.
-  db.query(`INSERT INTO safety_collections(id,turn_id,session_id,principal_id,principal_account,history_owner_id,generation,backend_id,started_at,gap,start_revision)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(input.bindingId,input.turnId,input.sessionId,input.principalId,principalAccount(db,input.principalId),owner,generation,input.backendId,input.at,gap,advance(db));
+  db.query(`INSERT INTO safety_collections(id,turn_id,session_id,principal_id,principal_account,history_owner_id,generation,backend_id,started_at,gap,start_revision,tool_reuse)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,'[]')`).run(input.bindingId,input.turnId,input.sessionId,input.principalId,principalAccount(db,input.principalId),owner,generation,input.backendId,input.at,gap,advance(db));
   db.query("UPDATE safety_collections SET policy_hash=?,restricted_begin=? WHERE id=?").run(input.policyHash??null,restricted?1:0,input.bindingId);
   db.query("UPDATE safety_meta SET scope_rows=scope_rows+1,scope_bytes=scope_bytes+2048 WHERE singleton=1").run();
   if(input.sessionId)bindSafetyCollection(db,input.turnId,input.sessionId);
@@ -429,10 +432,22 @@ function gapOwedResults(db:Database,collectionId:string|null,site:SafetyFailureS
  return causes;
 }
 const logOwed=(causes:SafetyFailureCause[])=>{for(const cause of causes)logSafetyRecording("safety recording failed for one chat",causeAttributes("chat","recording_failed",cause));};
-export function endSafetyCollection(db:Database,turnId:string):void {
+/** The collector's reuse finding as the column stores it (#4513): at most 8
+ * entry-shaped IDs, or ["*"]; anything else is NULL, never checked. */
+function toolReuseColumn(value:string|null):string|null {
+ if(value===null)return null;
+ try{
+  const ids=JSON.parse(value) as unknown;
+  if(!Array.isArray(ids)||ids.length>8||!ids.every(id=>typeof id==="string"&&/^[A-Za-z0-9_-]{1,128}$/.test(id)||id==="*")||ids.includes("*")&&ids.length!==1)return null;
+  return JSON.stringify(ids);
+ }catch{return null;}
+}
+/** `toolReuse`: what the turn's own collector found (#4513); any other end
+ * leaves it NULL, never checked. */
+export function endSafetyCollection(db:Database,turnId:string,toolReuse:string|null=null):void {
  const owed=db.transaction(()=>{const c=collection(db,turnId);if(!c||c.ended)return [];
  // Lost/incomplete hooks leave exposures open and therefore unresolved.
- db.query("UPDATE safety_collections SET ended=1,end_revision=? WHERE id=?").run(advance(db),c.id);
+ db.query("UPDATE safety_collections SET ended=1,end_revision=?,tool_reuse=? WHERE id=?").run(advance(db),toolReuseColumn(toolReuse),c.id);
  // A reservation still open at the end can never commit: an ended epoch
  // refuses late input. Its possibly delivered input becomes this chat's
  // permanent gap, so the chat runs restricted instead of staying pending.
@@ -527,7 +542,8 @@ export function safetyEvidenceSequence(db:Database,turnId:string|null,sessionId:
 }
 function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|null,excludedPending:readonly string[]):SafetyProjection {
  const {s,scope,args}=safetyScope(db,turnId,sessionId);
- const cs=db.query(`SELECT c.* FROM safety_collections c WHERE ${scope} ORDER BY c.rowid`).all(...args) as Collection[];
+ // Explicit columns: enforcement never reads the display-only tool_reuse (#4513).
+ const cs=db.query(`SELECT ${COLLECTION_COLUMNS} FROM safety_collections c WHERE ${scope} ORDER BY c.rowid`).all(...args) as Collection[];
  const epochs=cs.slice(0,128).map(c=>{
    const acknowledged=JSON.parse(c.acknowledged) as string[];
    const complete=!c.gap&&!c.failure&&SAFETY_DETECTORS.every(d=>acknowledged.includes(d));
@@ -559,7 +575,7 @@ function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|nu
 export function recoverSafetyCollections(db:Database):void {
  const owed=db.transaction(()=>{
   const n=one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE ended=0").n;
-  if(n){db.query("UPDATE safety_collections SET gap=COALESCE(gap,'host_restart_unknown'),ended=1,end_revision=? WHERE ended=0").run(advance(db));}
+  if(n){db.query("UPDATE safety_collections SET gap=COALESCE(gap,'host_restart_unknown'),ended=1,end_revision=?,tool_reuse=NULL WHERE ended=0").run(advance(db));}
   // A call that owed its result when the process died may have run: its
   // chat keeps the gap, as if its collection had ended with it owed.
   const owed=gapOwedResults(db,null,"boot-obligation");
@@ -622,7 +638,7 @@ export function migrateSafetyHistory(db:Database):boolean {
     try{db.transaction(()=>{
       ensureSafetyEventCollection(db,{sessionId:r.session_id,turnId,at:r.at,kind:r.kind,payload:r.payload,version:r.schema_version,actor:r.actor,model:r.model,profile:r.profile,dedupeKey:r.dedupe_key});
       failSafetyCollection(db,turnId,reason,cause);
-      db.query("UPDATE safety_collections SET ended=1,end_revision=COALESCE(end_revision,?) WHERE turn_id=?").run(advance(db),turnId);
+      db.query("UPDATE safety_collections SET ended=1,end_revision=COALESCE(end_revision,?),tool_reuse=NULL WHERE turn_id=?").run(advance(db),turnId);
      }).immediate();}
     catch(scoped){
       if(scoped instanceof ChatRetiredError){after=r.id;continue;}

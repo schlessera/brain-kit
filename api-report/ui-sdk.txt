@@ -16929,6 +16929,7 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>, z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
+        includeAttribution: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
@@ -17097,6 +17098,7 @@ signatures (every public export and the types it is made of)
     const clientSafetyReadSchema: z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
+        includeAttribution: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
@@ -22005,6 +22007,10 @@ signatures (every public export and the types it is made of)
   safetyFuturePreparedSchema (packages/ui-sdk/src/safety.ts)
     const safetyFuturePreparedSchema: z.ZodObject<{
         currentProjection: z.ZodNullable<z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -22102,6 +22108,10 @@ signatures (every public export and the types it is made of)
   safetyFutureResultSchema (packages/ui-sdk/src/safety.ts)
     const safetyFutureResultSchema: z.ZodObject<{
         currentProjection: z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -22195,6 +22205,10 @@ signatures (every public export and the types it is made of)
             occurrenceId: z.ZodString;
             operationId: z.ZodNullable<z.ZodString>;
             projection: z.ZodNullable<z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -22293,6 +22307,10 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>]>;
         nextCursor: z.ZodNullable<z.ZodString>;
         projection: z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -22450,6 +22468,10 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   safetyProjectionSchema (packages/ui-sdk/src/safety.ts)
     const safetyProjectionSchema: z.ZodObject<{
+        attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            bindingId: z.ZodString;
+            toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>>;
         coverage: z.ZodObject<{
             detectorVersion: z.ZodLiteral<1>;
             epochs: z.ZodArray<z.ZodObject<{
@@ -22619,6 +22641,10 @@ signatures (every public export and the types it is made of)
         occurrenceId: z.ZodString;
         operationId: z.ZodNullable<z.ZodString>;
         projection: z.ZodNullable<z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -22684,6 +22710,10 @@ signatures (every public export and the types it is made of)
   safetyReviewResponseSchema (packages/ui-sdk/src/safety.ts)
     const safetyReviewResponseSchema: z.ZodUnion<readonly [z.ZodObject<{
         currentProjection: z.ZodNullable<z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -22732,6 +22762,10 @@ signatures (every public export and the types it is made of)
             occurrenceId: z.ZodString;
             operationId: z.ZodNullable<z.ZodString>;
             projection: z.ZodNullable<z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -22809,6 +22843,10 @@ signatures (every public export and the types it is made of)
             unavailable: "unavailable";
         }>;
         currentProjection: z.ZodNullable<z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -22858,6 +22896,10 @@ signatures (every public export and the types it is made of)
             occurrenceId: z.ZodString;
             operationId: z.ZodNullable<z.ZodString>;
             projection: z.ZodNullable<z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -22960,6 +23002,10 @@ signatures (every public export and the types it is made of)
             turnId: z.ZodString;
         }, z.core.$strict>]>;
         projection: z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -28474,6 +28520,10 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>]>;
             nextCursor: z.ZodNullable<z.ZodString>;
             projection: z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -28644,6 +28694,10 @@ signatures (every public export and the types it is made of)
                 turnId: z.ZodString;
             }, z.core.$strict>]>;
             projection: z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -29387,6 +29441,10 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>]>;
             nextCursor: z.ZodNullable<z.ZodString>;
             projection: z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -29573,6 +29631,10 @@ signatures (every public export and the types it is made of)
                 turnId: z.ZodString;
             }, z.core.$strict>]>;
             projection: z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{

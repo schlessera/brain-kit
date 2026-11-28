@@ -45,11 +45,11 @@ export function setup(db: Database): WriteProcedures {
     safetyReady: (turnId:string,backendId:string,version:number) => acknowledgeSafety(db,turnId,backendId,version),
     safetyOblige: (turnId:string,id:string,toolUseId:string,tool:string) => openSafetyObligation(db,turnId,id,toolUseId,tool),
     safetyDischarge: (turnId:string,id:string,neverDelivered?:readonly string[]) => dischargeSafetyObligation(db,turnId,id,neverDelivered),
-    safetyEnd: (turnId:string,loss=false) => {
+    safetyEnd: (turnId:string,loss=false,toolReuse:string|null=null) => {
       // Never seal an apparently complete epoch if its loss notice rolled
       // back. A failed retry leaves it open for restart classification.
       if(loss&&!retired(turnId))recordSafetyFailure(db,turnId,new SafetyUnavailable("Safety evidence was lost before its collection ended"),"safetyEnd");
-      endSafetyCollection(db,turnId);
+      endSafetyCollection(db,turnId,toolReuse);
     },
     safetyFail: (turnId:string|null,cause?:{name:string;message:string;stack?:string}) => {
       if(turnId&&retired(turnId))return null;
@@ -292,7 +292,14 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
         await Promise.race([Promise.allSettled([...under]),new Promise<void>(resolve=>{timer=setTimeout(resolve,SAFETY_END_RECORD_WAIT_MS);(timer as {unref?:()=>void}).unref?.();})]);
         clearTimeout(timer);
       }
-      await call<void>("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId));
+      // The turn's tool-name tracker is written once, by this end's own
+      // UPDATE (#4513). It stays served from memory until that commits; a
+      // failed end leaves it, and the collection open, for the restart.
+      const tracker=shared.attribution.get(turnId);
+      if(tracker){tracker.closed=true;tracker.ending=true;}
+      try{await call<void>("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId),tracker?(tracker.all?'["*"]':JSON.stringify([...tracker.reused])):null);}
+      finally{if(tracker)tracker.ending=false;}
+      shared.attribution.delete(turnId);
     },
     safetyFail,
     safety: (turnId,sessionId,excludedPending=[])=>snapshot(()=>{

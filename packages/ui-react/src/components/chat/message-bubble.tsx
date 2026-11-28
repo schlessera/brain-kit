@@ -451,6 +451,12 @@ function AssistantContent({
     />
   );
 
+  // The runtime can reuse one tool-use ID for several calls (#4513); a later
+  // call under it gets its own key, so neither card replaces the other.
+  const toolKeys = new Map<string, number>();
+  // Its own prefix keeps a repeat apart from a real ID such as `x:1`.
+  const toolKey = (id: string) => { const n = toolKeys.get(id) ?? 0; toolKeys.set(id, n + 1); return n ? `tool-repeat:${n}:${id}` : `tool:${id}`; };
+
   return (
     <div className="space-y-3">
       {message.statsAnswer ? <StatsAnswer sections={message.statsAnswer} /> : null}
@@ -475,7 +481,7 @@ function AssistantContent({
             });
             return group.toolCalls.map((tool, toolIndex) => (
               <ToolCallTimelineCell
-                key={`tool:${tool.id}`}
+                key={toolKey(tool.id)}
                 toolCalls={group.toolCalls}
                 turnId={message.turnId ?? message.streamTurnId}
                 toolIndex={toolIndex}
