@@ -104,8 +104,12 @@ export function* createWorkerStatusPipeSteps() {
     let gateClosing: Promise<void> = Promise.resolve();
     let gated: ProcessIdentity | undefined;
     const closeGate = () => { if (!gateClosed) { gateClosed = true; closeSync(gateReader!); closeSync(gateWriter!); } };
-    /** `interrupted` is asked on every wait: a caller's abort or deadline ends the wait at once (#4301). */
-    function* childPidSteps(supervisor: number, deadline: number, interrupted?: () => boolean): WorkerSteps<number> {
+    /**
+     * `interrupted` is asked on every wait: a caller's abort or deadline ends
+     * the wait at once (#4301). `now` is the clock `deadline` is on; a direct
+     * launch passes the monotonic one (#5016 F33).
+     */
+    function* childPidSteps(supervisor: number, deadline: number, interrupted?: () => boolean, now: () => number = Date.now): WorkerSteps<number> {
       if (closed) throw new Error("Worker status pipe is closed");
       const buffer = Buffer.alloc(MAX_STATUS_BYTES + 1);
       let used = 0;
@@ -132,7 +136,7 @@ export function* createWorkerStatusPipeSteps() {
           throw error;
         }
         if (interrupted?.()) throw new WorkerStatusInterrupted();
-        if (Date.now() >= deadline) throw new Error("Worker did not report authenticated bubblewrap status in time");
+        if (now() >= deadline) throw new Error("Worker did not report authenticated bubblewrap status in time");
         yield* workerStepSleep(1);
       }
     }
