@@ -1,8 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "fs";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import type { Database } from "bun:sqlite";
+import { CHUNKER_VERSION } from "../src/lib/chunker";
 import { openDatabase } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { buildTaxonomy } from "../src/lib/taxonomy";
@@ -64,6 +66,38 @@ async function fresh(root: string, name: string) {
   const db = open(root, name);
   await indexAll(db, options(root));
   return partitions(snapshot(db));
+}
+
+/**
+ * Run `commit` once, right after the run loads the index's document rows: the
+ * window in which another connection (an MCP server, a git hook) can commit
+ * before the run writes. Restored in teardown.
+ */
+function afterRowsLoad(db: Database, commit: () => void) {
+  const prepare = db.prepare;
+  let fired = false;
+  db.prepare = ((...args: Parameters<typeof prepare>) => {
+    const statement = prepare.apply(db, args);
+    if (!String(args[0]).startsWith("SELECT id, path, asset_type, content_hash, chunker_version, accepted_mtime, stat_fingerprint FROM documents")) return statement;
+    const all = statement.all.bind(statement);
+    statement.all = ((...params: Parameters<typeof all>) => {
+      const rows = all(...params);
+      if (!fired) { fired = true; commit(); }
+      return rows;
+    }) as typeof statement.all;
+    return statement;
+  }) as typeof prepare;
+  cleanups.push(() => { db.prepare = prepare; });
+  return () => fired;
+}
+
+/** Another connection's index of an earlier version of `path`: its row, as that run committed it. */
+function commitRow(root: string, name: string, path: string, title: string) {
+  const other = open(root, name);
+  other.prepare(`INSERT INTO documents (path, title, type, created, updated, content, content_hash, asset_type, indexed_at, chunker_version)
+    VALUES (?, ?, 'note', '2026-07-01', '2026-07-12', 'An earlier version.', 'earlier', 'markdown', ?, ?)`).run(path, title, new Date().toISOString(), CHUNKER_VERSION);
+  const { id } = other.prepare("SELECT id FROM documents WHERE path = ?").get(path) as { id: number };
+  other.prepare("INSERT INTO documents_fts(rowid, title, summary, content, tags, aliases) VALUES (?, ?, '', 'An earlier version.', '', '')").run(id, title);
 }
 
 describe("targeted index runs (#2835)", () => {
@@ -145,6 +179,125 @@ describe("targeted index runs (#2835)", () => {
     await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
     const after = partitions(snapshot(db));
     expect(after.links).toEqual([{ source: "notes/raft.md", target: "Nymph of Ogygia", resolved: "notes/calypso.md" }]);
+    expect(after).toEqual(await fresh(root, "fresh"));
+  });
+
+  test("a row another connection commits for a named path after the run read the index is indexed over (#4899)", async () => {
+    const root = brain({ "notes/penelope.md": note("Penelope", "Penelope weaves.") });
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    write(root, "notes/telemachus.md", note("Telemachus", "Son of [[Penelope]]."));
+    const fired = afterRowsLoad(db, () => commitRow(root, "brain", "notes/telemachus.md", "Telemachus"));
+    await indexAll(db, { ...options(root), paths: ["notes/telemachus.md"] });
+    expect(fired()).toBe(true);
+    expect(partitions(snapshot(db))).toEqual(await fresh(root, "fresh"));
+  });
+
+  test("a note another connection commits after the run read the index resolves links as a fresh build does (#4899)", async () => {
+    const root = brain({
+      "notes/penelope.md": note("Penelope", "Penelope waits for [[odysseus]]."),
+      "notes/telemachus.md": note("Telemachus", "Son of Penelope."),
+    });
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    write(root, "notes/odysseus.md", note("Odysseus", "Returns to Ithaca."));
+    write(root, "notes/telemachus.md", note("Telemachus", "Son of Penelope, edited."));
+    const fired = afterRowsLoad(db, () => commitRow(root, "brain", "notes/odysseus.md", "Odysseus"));
+    await indexAll(db, { ...options(root), paths: ["notes/telemachus.md"] });
+    expect(fired()).toBe(true);
+    const after = partitions(snapshot(db));
+    expect(after.links).toContainEqual({ source: "notes/penelope.md", target: "odysseus", resolved: "notes/odysseus.md" });
+    expect(after).toEqual(await fresh(root, "fresh"));
+  });
+
+  test("a row another connection commits for a named, deleted path after the run read the index is swept and counted (#4873)", async () => {
+    const root = brain({ "notes/penelope.md": note("Penelope", "Penelope weaves.") });
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    // Indexed elsewhere, then deleted before this run reads the disk.
+    const fired = afterRowsLoad(db, () => commitRow(root, "brain", "notes/raft.md", "Raft"));
+    const stats = await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
+    expect(fired()).toBe(true);
+    expect(stats.deleted).toBe(1);
+    expect(partitions(snapshot(db))).toEqual(await fresh(root, "fresh"));
+  });
+
+  test("an alias that holds a line break resolves links as a fresh build does (#4876)", async () => {
+    // The stored aliases column holds one alias per line; this one spans two.
+    const root = brain({
+      "notes/cove.md": note("Cove", "Where the Phaeacians left him.", 'aliases: ["Phorcys\\nharbour"]\n'),
+      "notes/landing.md": note("Landing", "Asleep at [[harbour]], then woke at [[Phorcys\nharbour]]."),
+      "notes/raft.md": note("Raft", "Built on Ogygia."),
+    });
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    const built = partitions(snapshot(db));
+    expect(built.links).toEqual([
+      { source: "notes/landing.md", target: "Phorcys\nharbour", resolved: "notes/cove.md" },
+      { source: "notes/landing.md", target: "harbour", resolved: null },
+    ]);
+    write(root, "notes/raft.md", note("Raft", "Built on Ogygia, then wrecked."));
+    await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
+    expect(partitions(snapshot(db))).toEqual(await fresh(root, "fresh-targeted"));
+    // A complete run that finds the note unchanged takes its aliases from the index too.
+    write(root, "notes/raft.md", note("Raft", "Built on Ogygia, wrecked, rebuilt."));
+    await indexAll(db, options(root));
+    expect(partitions(snapshot(db)).links).toEqual(built.links);
+    // Such a note's aliases come from its file, as a fresh build reads them,
+    // even when it changed and the run was not told.
+    write(root, "notes/cove.md", note("Cove", "Where the Phaeacians left him.", 'aliases: ["Phorcys\\nbay"]\n'));
+    write(root, "notes/raft.md", note("Raft", "Built on Ogygia, wrecked, rebuilt, sailed."));
+    await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
+    expect(partitions(snapshot(db)).links).toEqual((await fresh(root, "fresh-edited")).links);
+  });
+
+  // A multi-line alias whose lines, and their space-joined form, are aliases
+  // of the same note too: the name keys written from the whole aliases equal
+  // the keys of the stored lines.
+  const STRAIT = {
+    "notes/strait.md": note("Strait", "Between the rock and the whirlpool.", 'aliases: ["Scylla\\nCharybdis", "Scylla", "Charybdis", "Scylla Charybdis"]\n'),
+    "notes/passage.md": note("Passage", "Rowed through [[Scylla\nCharybdis]], past [[Scylla]] and [[Charybdis]]."),
+    "notes/calm.md": note("Calm", "No wind for days.", "aliases: [Calm Sea]\n"),
+    "notes/raft.md": note("Raft", "Built on Ogygia."),
+  };
+  const STRAIT_LINKS = [
+    { source: "notes/passage.md", target: "Charybdis", resolved: "notes/strait.md" },
+    { source: "notes/passage.md", target: "Scylla", resolved: "notes/strait.md" },
+    { source: "notes/passage.md", target: "Scylla\nCharybdis", resolved: "notes/strait.md" },
+  ];
+
+  test("a targeted run reads a multi-line alias whole when its lines are also aliases of the note (#4876, #5002)", async () => {
+    const root = brain(STRAIT);
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    write(root, "notes/raft.md", note("Raft", "Built on Ogygia, then wrecked."));
+    const read = fs.readFileSync;
+    const reads: string[] = [];
+    const spy = spyOn(fs, "readFileSync").mockImplementation(((path: unknown, ...rest: unknown[]) => {
+      if (typeof path === "string") reads.push(path);
+      return (read as (...a: unknown[]) => unknown)(path, ...rest);
+    }) as typeof fs.readFileSync);
+    try {
+      await indexAll(db, { ...options(root), paths: ["notes/raft.md"] });
+    } finally {
+      spy.mockRestore();
+    }
+    const after = partitions(snapshot(db));
+    expect(after.links).toEqual(STRAIT_LINKS);
+    expect(after).toEqual(await fresh(root, "fresh"));
+    // Only the note whose aliases may span lines is read; a single-line alias is taken from the index.
+    expect(reads.filter((path) => path.endsWith("notes/strait.md"))).toHaveLength(1);
+    expect(reads.filter((path) => path.endsWith("notes/calm.md") || path.endsWith("notes/passage.md"))).toEqual([]);
+  });
+
+  test("a complete run that skips such a note reads its multi-line alias whole too (#4876, #5002)", async () => {
+    const root = brain(STRAIT);
+    const db = open(root, "brain");
+    await indexAll(db, options(root));
+    write(root, "notes/raft.md", note("Raft", "Built on Ogygia, then wrecked."));
+    await indexAll(db, options(root));
+    const after = partitions(snapshot(db));
+    expect(after.links).toEqual(STRAIT_LINKS);
     expect(after).toEqual(await fresh(root, "fresh"));
   });
 

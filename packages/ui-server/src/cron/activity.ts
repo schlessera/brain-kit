@@ -12,9 +12,10 @@ interface CronSpan {
 
 /**
  * Open the root span of one run of `name`, attributed to the scheduled-jobs
- * principal. The one shape the container cron process writes, for a job the
- * crontab wrapper (`run-job.ts`) runs and for module discovery alike, so a
- * status read finds every run the same way.
+ * principal. The one shape every scheduled run writes, so a status read finds
+ * each the same way: in the container cron process, a job the crontab wrapper
+ * (`run-job.ts`) runs and module discovery; in the server process, the turn
+ * journal's idle `journal-scrub` (`turn-journal.ts`).
  */
 export function startCronSpan(db: Database, store: AwaitableActivityStore, name: string, failed: (error: unknown) => void = () => {}): CronSpan {
   const principal = resolveSystemPrincipal(db, {

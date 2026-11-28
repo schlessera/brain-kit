@@ -496,6 +496,7 @@ describe("createClaudeBackend identity + profiles", () => {
       concurrentSessions: true,
       followUp: true,
       historyRemoval: true,
+      fastOutput: true,
     });
   });
 

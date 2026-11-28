@@ -300,6 +300,8 @@ export "." (./src/index.ts)
   type ModuleSettingsMigrationPreview
   type ModuleSettingsOption
   type ModuleSettingsSnapshot
+  OUTPUT_SPEEDS
+  type OutputSpeed
   PILL_LABEL_MAX_CHARS
   PROFILE_UNAVAILABLE_REASONS
   PROTOCOL_REV
@@ -541,6 +543,7 @@ export "." (./src/index.ts)
   hostStopOutcomeDetail
   isBillingMode
   isFailureOutcome
+  isOutputSpeed
   isPricingRoute
   isProfileUnavailableReason
   isThinkingLevel
@@ -1042,6 +1045,8 @@ export "./client" (./src/client/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
+  OUTPUT_SPEEDS
+  type OutputSpeed
   PILL_LABEL_MAX_CHARS
   POLICY_CHANGE_REVIEW_SCHEMA
   PROFILE_UNAVAILABLE_REASONS
@@ -1404,6 +1409,7 @@ export "./client" (./src/client/index.ts)
   isGithubRepositoryName
   isGithubSearchUrl
   isGithubToolName
+  isOutputSpeed
   isPricingRoute
   isProfileUnavailableReason
   isThinkingLevel
@@ -2014,6 +2020,8 @@ export "./protocol" (./src/protocol.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
+  OUTPUT_SPEEDS
+  type OutputSpeed
   PILL_LABEL_MAX_CHARS
   PROFILE_UNAVAILABLE_REASONS
   PROTOCOL_REV
@@ -2255,6 +2263,7 @@ export "./protocol" (./src/protocol.ts)
   hostStopOutcomeDetail
   isBillingMode
   isFailureOutcome
+  isOutputSpeed
   isPricingRoute
   isProfileUnavailableReason
   isThinkingLevel
@@ -2828,6 +2837,7 @@ export "./server" (./src/server/index.ts)
   FILE_SIZE_CAP_BYTES
   FIRST_PARTY_FAILURE_CLASSES
   FOLLOW_UP_QUEUE_CAPABILITY
+  FastOutputUnavailableError
   type FetchContentInput
   type FetchLike
   type FileContentKind
@@ -3058,6 +3068,8 @@ export "./server" (./src/server/index.ts)
   type ModelCatalogResponse
   type ModelUsage
   OSM_ATTRIBUTION
+  OUTPUT_SPEEDS
+  type OutputSpeed
   PILL_LABEL_MAX_CHARS
   POLICY_CHANGE_REVIEW_SCHEMA
   PROFILE_UNAVAILABLE_REASONS
@@ -3490,6 +3502,7 @@ export "./server" (./src/server/index.ts)
   isGithubRepositoryName
   isGithubSearchUrl
   isGithubToolName
+  isOutputSpeed
   isPricingRoute
   isProfileUnavailableReason
   isSessionUuid
@@ -6890,6 +6903,7 @@ signatures (every public export and the types it is made of)
         concurrentSessions: boolean;
         followUp: boolean;
         historyRemoval?: boolean;
+        fastOutput?: boolean;
     }
   BackendContractHarness (packages/ui-sdk/src/testing/index.ts)
     export interface BackendContractHarness {
@@ -7500,6 +7514,7 @@ signatures (every public export and the types it is made of)
         text: string;
         sessionId?: string;
         providerId?: string;
+        outputSpeed?: OutputSpeed;
         attachments?: ChatImageAttachment[];
         files?: ChatFileAttachment[];
         attachmentRefs?: ChatAttachmentReference[];
@@ -8477,6 +8492,11 @@ signatures (every public export and the types it is made of)
     }>;
   FOLLOW_UP_QUEUE_CAPABILITY (packages/ui-sdk/src/protocol.ts)
     const FOLLOW_UP_QUEUE_CAPABILITY: "followUpQueue";
+  FastOutputUnavailableError (packages/ui-sdk/src/server/backend.ts)
+    export class FastOutputUnavailableError extends BackendRequestError {
+        readonly errorClass: typeof FIRST_PARTY_FAILURE_CLASSES.fast_output_unavailable;
+        constructor(readonly reason: string);
+    }
   FetchContentInput (packages/ui-sdk/src/tool-contracts/web.ts)
     export type FetchContentInput = z.infer<typeof FETCH_CONTENT_INPUT_SCHEMA>;
   FetchLike (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
@@ -8512,7 +8532,7 @@ signatures (every public export and the types it is made of)
         entries: FileEntry[];
     }
   FirstPartyFailureClass (packages/ui-sdk/src/failure-classes.ts)
-    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "private_state_unverified" | "OperationalStateAliasVerificationUnavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "fast_output_unavailable" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "private_state_unverified" | "OperationalStateAliasVerificationUnavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
   FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
     export interface FirstRequestCacheUsage {
         inputTokens: number | null;
@@ -11547,6 +11567,10 @@ signatures (every public export and the types it is made of)
         commit?: string | null;
     }
   OSM_ATTRIBUTION (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
+  OUTPUT_SPEEDS (packages/ui-sdk/src/protocol.ts)
+    const OUTPUT_SPEEDS: readonly OutputSpeed[];
+  OutputSpeed (packages/ui-sdk/src/protocol.ts)
+    export type OutputSpeed = "standard" | "fast";
   OutwardActionKind (packages/ui-sdk/src/server/outward-actions.ts)
     export type OutwardActionKind = "git_push" | "gh_write" | "mcp_tool" | "http_write";
   OutwardClassification (packages/ui-sdk/src/server/outward-actions.ts)
@@ -14488,6 +14512,7 @@ signatures (every public export and the types it is made of)
         attachments?: ChatImageAttachment[];
         sessionId?: string;
         profileId?: string;
+        outputSpeed?: import("../protocol.js").OutputSpeed;
         thinkingLevel?: ThinkingLevel;
         signal: AbortSignal;
         turnBudgetMs?: number;
@@ -16188,6 +16213,7 @@ signatures (every public export and the types it is made of)
             id: z.ZodString;
             prompt: z.ZodString;
         }, z.core.$loose>>>;
+        outputSpeed: z.ZodOptional<z.ZodCustom<OutputSpeed, OutputSpeed>>;
         profileDraftId: z.ZodOptional<z.ZodString>;
         providerId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
@@ -16564,6 +16590,7 @@ signatures (every public export and the types it is made of)
             id: z.ZodString;
             prompt: z.ZodString;
         }, z.core.$loose>>>;
+        outputSpeed: z.ZodOptional<z.ZodCustom<OutputSpeed, OutputSpeed>>;
         profileDraftId: z.ZodOptional<z.ZodString>;
         providerId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
@@ -16764,6 +16791,7 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>, z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
+        includeAttribution: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
@@ -16932,6 +16960,7 @@ signatures (every public export and the types it is made of)
     const clientSafetyReadSchema: z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
+        includeAttribution: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         includeNonDelivery: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
@@ -21061,6 +21090,8 @@ signatures (every public export and the types it is made of)
     } | null, q: string): boolean;
   isGithubToolName (packages/ui-sdk/src/tool-contracts/github.ts)
     const isGithubToolName: (name: string) => name is GithubToolName;
+  isOutputSpeed (packages/ui-sdk/src/protocol.ts)
+    export function isOutputSpeed(v: unknown): v is OutputSpeed;
   isPricingRoute (packages/ui-sdk/src/protocol.ts)
     export function isPricingRoute(v: unknown): v is PricingRoute;
   isProfileUnavailableReason (packages/ui-sdk/src/protocol.ts)
@@ -21780,6 +21811,10 @@ signatures (every public export and the types it is made of)
   safetyFuturePreparedSchema (packages/ui-sdk/src/safety.ts)
     const safetyFuturePreparedSchema: z.ZodObject<{
         currentProjection: z.ZodNullable<z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -21877,6 +21912,10 @@ signatures (every public export and the types it is made of)
   safetyFutureResultSchema (packages/ui-sdk/src/safety.ts)
     const safetyFutureResultSchema: z.ZodObject<{
         currentProjection: z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -21970,6 +22009,10 @@ signatures (every public export and the types it is made of)
             occurrenceId: z.ZodString;
             operationId: z.ZodNullable<z.ZodString>;
             projection: z.ZodNullable<z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -22068,6 +22111,10 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>]>;
         nextCursor: z.ZodNullable<z.ZodString>;
         projection: z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -22225,6 +22272,10 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   safetyProjectionSchema (packages/ui-sdk/src/safety.ts)
     const safetyProjectionSchema: z.ZodObject<{
+        attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            bindingId: z.ZodString;
+            toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>>;
         coverage: z.ZodObject<{
             detectorVersion: z.ZodLiteral<1>;
             epochs: z.ZodArray<z.ZodObject<{
@@ -22394,6 +22445,10 @@ signatures (every public export and the types it is made of)
         occurrenceId: z.ZodString;
         operationId: z.ZodNullable<z.ZodString>;
         projection: z.ZodNullable<z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -22459,6 +22514,10 @@ signatures (every public export and the types it is made of)
   safetyReviewResponseSchema (packages/ui-sdk/src/safety.ts)
     const safetyReviewResponseSchema: z.ZodUnion<readonly [z.ZodObject<{
         currentProjection: z.ZodNullable<z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -22507,6 +22566,10 @@ signatures (every public export and the types it is made of)
             occurrenceId: z.ZodString;
             operationId: z.ZodNullable<z.ZodString>;
             projection: z.ZodNullable<z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -22584,6 +22647,10 @@ signatures (every public export and the types it is made of)
             unavailable: "unavailable";
         }>;
         currentProjection: z.ZodNullable<z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -22633,6 +22700,10 @@ signatures (every public export and the types it is made of)
             occurrenceId: z.ZodString;
             operationId: z.ZodNullable<z.ZodString>;
             projection: z.ZodNullable<z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -22735,6 +22806,10 @@ signatures (every public export and the types it is made of)
             turnId: z.ZodString;
         }, z.core.$strict>]>;
         projection: z.ZodObject<{
+            attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                bindingId: z.ZodString;
+                toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>>;
             coverage: z.ZodObject<{
                 detectorVersion: z.ZodLiteral<1>;
                 epochs: z.ZodArray<z.ZodObject<{
@@ -28214,6 +28289,10 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>]>;
             nextCursor: z.ZodNullable<z.ZodString>;
             projection: z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -28384,6 +28463,10 @@ signatures (every public export and the types it is made of)
                 turnId: z.ZodString;
             }, z.core.$strict>]>;
             projection: z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -29075,6 +29158,10 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>]>;
             nextCursor: z.ZodNullable<z.ZodString>;
             projection: z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{
@@ -29261,6 +29348,10 @@ signatures (every public export and the types it is made of)
                 turnId: z.ZodString;
             }, z.core.$strict>]>;
             projection: z.ZodObject<{
+                attributionUnknown: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    bindingId: z.ZodString;
+                    toolUseIds: z.ZodNullable<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>>;
                 coverage: z.ZodObject<{
                     detectorVersion: z.ZodLiteral<1>;
                     epochs: z.ZodArray<z.ZodObject<{

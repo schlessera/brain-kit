@@ -5,7 +5,7 @@ import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { workerIdentityHelperInput } from "../config/env.js";
 import { WORKER_IDENTITY_CLIENT, WORKER_IDENTITY_FALLBACK, WORKER_IDENTITY_STOP, WORKER_IDENTITY_SUPERVISOR } from "./worker-identity-program.js";
-import { runWorkerStepsSync, workerStep, workerStepRun, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
+import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, workerStepRun, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 
 export const WORKER_IDENTITY_HELPER_ENV = "BRAIN_UI_WORKER_IDENTITY_HELPER";
 export class WorkerIdentityCleanupError extends Error {
@@ -69,7 +69,6 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
       { env: {}, stdin: "ignore", timeout: 2_000 });
     if (stop.exitCode !== 0) throw new WorkerIdentityCleanupError(`worker_identity_supervisor_stop_unconfirmed: ${stop.stderr.slice(0, 300)}`);
   };
-  const supervisionLost = () => runWorkerStepsSync(supervisionLostSteps());
   const fallbackSteps = function* (operations: ("signal" | "cleanup")[]): WorkerSteps<void> {
     if (!supervisorIdentity) throw new Error("worker_identity_supervisor_identity_lost");
     const supervisor = supervisorIdentity;
@@ -84,7 +83,6 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
     })], { env: {}, stdin: "ignore", timeout: 12_000 });
     if (cleanup.exitCode !== 0) throw new WorkerIdentityCleanupError(`worker_identity_cleanup_unconfirmed: ${cleanup.stderr.slice(0, 300)}`);
   };
-  const fallback = (operations: ("signal" | "cleanup")[]) => runWorkerStepsSync(fallbackSteps(operations));
   const requestSteps = function* <T extends object>(operation: string, input: object = {}): WorkerSteps<T> {
     if (!open) throw new Error("worker_identity_control_closed");
     const command = [python, "-I", "-S", "-c", WORKER_IDENTITY_CLIENT, socket, JSON.stringify({ secret, operation, ...input })];
@@ -109,25 +107,30 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
     if (!open) throw new Error("worker_identity_control_closed");
     const child = Bun.spawn([python, "-I", "-S", "-c", WORKER_IDENTITY_CLIENT, socket,
       JSON.stringify({ secret, operation, ...input })], { env: {}, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-    let cancellationFailure: unknown, cancelled = false;
+    // The asynchronous request never stops its supervisor synchronously:
+    // the stop is awaited off the event loop on both the cancellation and
+    // the failure path (#4894 round 7 F3).
+    let cancellationFailure: unknown, cancelled = false, stopping: Promise<void> | undefined;
     const cancel = () => {
       if (cancelled) return;
       cancelled = true;
       try { child.kill("SIGKILL"); } catch (error) { cancellationFailure = error; }
-      try { supervisionLost(); } catch (error) { cancellationFailure = error; }
+      stopping = runWorkerStepsAsync(supervisionLostSteps()).catch((error: unknown) => { cancellationFailure = error; });
     };
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     try {
       const [code, output, errors] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      await stopping;
       if (cancellationFailure) throw cancellationFailure;
       signal?.throwIfAborted();
-      if (code !== 0) { supervisionLost(); throw new Error(`worker_identity_control_lost: ${errors.slice(0, 300)}`); }
+      if (code !== 0) { await runWorkerStepsAsync(supervisionLostSteps()); throw new Error(`worker_identity_control_lost: ${errors.slice(0, 300)}`); }
       const reply: unknown = JSON.parse(output);
       if (!reply || typeof reply !== "object" || !("ok" in reply) || reply.ok !== true)
         throw new Error(`worker_identity_operation_failed: ${JSON.stringify(reply).slice(0, 300)}`);
       return reply as T;
     } catch (error) {
+      await stopping;
       if (cancellationFailure) throw cancellationFailure;
       signal?.throwIfAborted();
       throw error;
@@ -175,6 +178,11 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
     // obtain a fresh authenticated receipt after outstanding IO has drained.
     open = false; rmSync(directory, { recursive: true, force: true });
   };
+  /** Independently authorized termination: the broker's kill, or its fallback when control is lost. */
+  const terminateSteps = function* (): WorkerSteps<void> {
+    try { yield* requestSteps("signal", { signal: "KILL" }); }
+    catch { yield* fallbackSteps(["signal"]); }
+  };
   return {
     command: [python, "-I", "-S", "-c", WORKER_IDENTITY_SUPERVISOR, JSON.stringify({
       helper, argv, roots, cgroup, socket, ready: readyPath, secret, ...(view ? { view } : {}),
@@ -210,10 +218,9 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
         *close(): WorkerSteps<void> { if (held) { held = false; yield* requestSteps("unview"); } },
       };
     },
-    terminate() {
-      try { request("signal", { signal: "KILL" }); }
-      catch { fallback(["signal"]); }
-    },
+    terminate() { runWorkerStepsSync(terminateSteps()); },
+    /** `terminate` as steps, so a separate-UID exit observer keeps its event loop (#4894 round 8 F3). */
+    terminateSteps,
     /**
      * The supervisor's last recorded setup step, for a readiness timeout's
      * detail (#3664). Read before close removes the directory; never follows

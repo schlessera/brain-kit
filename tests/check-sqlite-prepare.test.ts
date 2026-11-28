@@ -39,6 +39,16 @@ describe("the refused shapes", () => {
       expect({ call, findings: run(`${call}.run();\n`).findings.length }).toEqual({ call, findings: 1 });
     }
   });
+
+  test("SQL held in a same-file constant of any name, or in a tagged template, is refused with its file and line (#4997)", () => {
+    const cases = [
+      ['const INSERT_ROW = "INSERT INTO session_drafts (draft_id) VALUES (?)";\nexport const insert = (db: Database, id: string) => db.prepare(INSERT_ROW).run(id);\n', 2],
+      ['export function touch(db: Database, id: string) {\n  const stmt = "UPDATE session_drafts SET updated_at = 0 WHERE draft_id = ?";\n  db.prepare(stmt).run(id);\n}\n', 3],
+      ["export const one = (db: Database) =>\n  db.prepare(String.raw`SELECT 1`).get();\n", 2],
+    ] as const;
+    expect(cases.map(([text]) => ({ text, findings: run(text).findings.map((f) => ({ file: f.file, line: f.line })) })))
+      .toEqual(cases.map(([text, line]) => ({ text, findings: [{ file: FILE, line }] })));
+  });
 });
 
 describe("what passes", () => {
@@ -47,6 +57,7 @@ describe("what passes", () => {
       "await boundary.prepare();",
       "const before = operation.prepare(); if (!before.ok) throw before;",
       "await privateIndexes.prepare({ startupView, index, signal });",
+      "const view = { startupView, index }; await privateIndexes.prepare(view);",
       "await options.execution.boundary.prepare(signal, startupView, timing);",
       "await this.settings.prepare(principal.id, { version: 1 });",
       "await combined.prepare(c.get(\"principal\")!, input, signal);",
