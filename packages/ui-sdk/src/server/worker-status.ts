@@ -98,6 +98,7 @@ export function* createWorkerStatusPipeSteps() {
     gateWriter = openSync(gate, constants.O_WRONLY);
     const source = `/proc/${process.pid}/fd/${writer}`, gateSource = `/proc/${process.pid}/fd/${gateReader}`;
     let closed = false, writerClosed = false, gateClosed = false;
+    let gateClosing: Promise<void> = Promise.resolve();
     let gated: ProcessIdentity | undefined;
     const closeGate = () => { if (!gateClosed) { gateClosed = true; closeSync(gateReader!); closeSync(gateWriter!); } };
     function* childPidSteps(supervisor: number, deadline: number): WorkerSteps<number> {
@@ -152,17 +153,19 @@ export function* createWorkerStatusPipeSteps() {
        * open for good: a held descriptor, never a released payload. Only a
        * gate with no supervisor, which nothing can have opened, closes at once.
        */
-      close(supervisor?: WorkerStatusSupervisor) {
-        if (closed) return;
+      /** Resolves once the gate is closed, or once its sandbox's death could not be confirmed (it stays held). */
+      close(supervisor?: WorkerStatusSupervisor): Promise<void> {
+        if (closed) return gateClosing;
         closed = true;
         closeSync(reader!);
         if (!writerClosed) { writerClosed = true; closeSync(writer!); }
-        if (gateClosed) return;
-        if (!supervisor) { closeGate(); return; }
+        if (gateClosed) return gateClosing;
+        if (!supervisor) { closeGate(); return gateClosing; }
         const doomed = killGatedSandbox(supervisor, gated);
-        void supervisor.exited.then(() => undefined, () => undefined)
+        gateClosing = supervisor.exited.then(() => undefined, () => undefined)
           .then(() => confirmedDead(doomed, Date.now() + REFUSAL_DEATH_MS))
           .then(dead => { if (dead) closeGate(); });
+        return gateClosing;
       },
     };
   } catch (error) {

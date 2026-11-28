@@ -9,6 +9,7 @@ import { conformingPrivateSocket, createPrivateSocketDirectory, verifyPrivateSoc
 import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
   realpathSync, rmSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
 import { createWorkerFreezer } from "./worker-freezer.js";
@@ -1120,6 +1121,165 @@ function withIdentity(boot: ReturnType<typeof workerBootstrap>, helper: string, 
   delete payload.cgroup;
   boot.env.BRAIN_WORKER_LAUNCH = JSON.stringify(payload);
   return broker;
+}
+
+/** The spawned outer process, described without Bun's types so the published surface stays node-clean. */
+export interface SpawnedWorkerProcess {
+  readonly pid: number;
+  readonly exited: Promise<number>;
+  readonly exitCode: number | null;
+  readonly signalCode: NodeJS.Signals | null;
+  kill(signal?: number | NodeJS.Signals): void;
+}
+
+/** A direct-spawn launch held at its start gate, then released (#4301). */
+export interface GatedWorkerSpawn {
+  child: SpawnedWorkerProcess;
+  /** When the spawn happened; a caller's deadline counts from here. */
+  spawnedAt: number;
+  /** The caller's deadline (spawn plus a positive timeout), or absent: a timeout of zero or none waits as long as the child runs. */
+  deadline?: number;
+  /** The sandbox's PID, absent when bubblewrap exited before reporting it: no payload started. */
+  pid?: number;
+  /** The caller's deadline passed before release: the launch was stopped unreleased. */
+  timedOut?: boolean;
+  /**
+   * Close the start-gate status channel. Whoever confirms the child's exit
+   * calls it; a synchronous caller cannot wait for the exit callback (#4301).
+   */
+  close(): void;
+}
+
+/** How long a bubblewrap that stopped reporting is given to exit on its own before the gate failure is its host's. */
+const SUPERVISOR_EXIT_BOUND_MS = 250;
+/** Whether the spawned supervisor has exited, or does so within `boundMs`. */
+function* supervisorGoneSteps(child: SpawnedWorkerProcess, boundMs: number): WorkerSteps<boolean> {
+  const until = Date.now() + boundMs;
+  for (;;) {
+    try {
+      const stat = readFileSync(`/proc/${child.pid}/stat`, "utf8");
+      if (["Z", "X", "x"].includes(stat.slice(stat.lastIndexOf(") ") + 2)[0]!)) return true;
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return true; throw error; }
+    if (Date.now() >= until) return false;
+    yield* workerStepSleep(5);
+  }
+}
+
+/**
+ * Spawn a caller-command launch behind START_GATE and release it (#4301): the
+ * direct-spawn maintenance and transport launches. Every caller runs as the
+ * server, so the status pipe belongs to the spawning UID. A bubblewrap that
+ * exits before its PID is verified never opened the gate; its own exit code
+ * and stderr stand, as they did before the gate existed. A gate that fails
+ * while bubblewrap is still alive kills the sandbox and throws
+ * `WorkerHostError`; the gate shell exits 125 if the server dies first.
+ */
+export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number; stdout: number; stderr: number },
+  onSpawn?: (child: SpawnedWorkerProcess) => void,
+  /**
+   * `timeoutMs` counts from the spawn, as `Bun.spawnSync`'s did, and zero
+   * disables it as there: a launch whose setup outlasts it is stopped
+   * unreleased and reported `timedOut`. An abort seen before release stops
+   * the sandbox and throws its reason. Neither ever starts the payload.
+   */
+  options: { timeoutMs?: number; signal?: AbortSignal } = {}): WorkerSteps<GatedWorkerSpawn> {
+  const status = yield* createWorkerStatusPipeSteps();
+  let child: ReturnType<typeof Bun.spawn> | undefined, aborted = false;
+  try {
+    const boot = workerBootstrap(input, undefined, status);
+    const spawnedAt = Date.now();
+    const deadline = options.timeoutMs !== undefined && options.timeoutMs > 0 ? spawnedAt + options.timeoutMs : undefined;
+    child = Bun.spawn(boot.command, { cwd: "/", env: boot.env, ...stdio });
+    onSpawn?.(child);
+    const supervisor = child;
+    const close = () => { status.close(supervisor); };
+    let pid: number;
+    try { pid = yield* status.childPidSteps(child.pid, spawnedAt + STATE_SETUP_MS); }
+    catch (error) {
+      // Bubblewrap that is gone, or goes, failed its own setup: its exit stands.
+      if (yield* supervisorGoneSteps(child, SUPERVISOR_EXIT_BOUND_MS)) { close(); return { child, spawnedAt, ...(deadline ? { deadline } : {}), close }; }
+      throw new WorkerHostError(error instanceof Error ? error.message : String(error));
+    }
+    status.closeWriter();
+    // An asynchronous caller's exit closes it; a synchronous one calls `close`.
+    void child.exited.then(close, close);
+    if (options.signal?.aborted) { aborted = true; throw options.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"); }
+    if (deadline !== undefined && Date.now() >= deadline) {
+      // Its deadline passed during setup: stopped as spawnSync's timeout stopped it, never released.
+      child.kill("SIGTERM");
+      return { child, spawnedAt, deadline, pid, timedOut: true, close };
+    }
+    status.release();
+    return { child, spawnedAt, ...(deadline ? { deadline } : {}), pid, close };
+  } catch (error) {
+    // An unreleased start gate closes only after its sandbox is dead (#3387).
+    const gateClosed = status.close(child);
+    child?.kill("SIGKILL");
+    // An abort leaves as itself once its sandbox is gone and, for an
+    // asynchronous caller, its gate descriptors are closed.
+    if (child && aborted) {
+      yield* awaitWorkerExitSteps(child);
+      yield* workerStep(() => undefined, () => gateClosed);
+    }
+    throw error;
+  }
+}
+
+let waitpid: ((pid: number) => void) | null | undefined;
+/**
+ * Reap one exited child of this process without blocking (`waitpid` with
+ * WNOHANG). Without libc or FFI the zombie stays until Bun's event loop reaps it.
+ */
+function reapChild(pid: number): void {
+  if (waitpid === undefined) {
+    waitpid = null;
+    try {
+      const { dlopen, ptr } = createRequire(import.meta.url)("bun:ffi") as typeof import("bun:ffi");
+      const api = dlopen("libc.so.6", { waitpid: { args: ["i32", "ptr", "i32"], returns: "i32" } });
+      const status = new Int32Array(1);
+      waitpid = target => { api.symbols.waitpid(target, ptr(status), 1); };
+    } catch { /* The event loop reaps it later. */ }
+  }
+  waitpid?.(pid);
+}
+
+/**
+ * Wait for a spawned launch's outer process, killing it with SIGTERM at the
+ * deadline as `Bun.spawnSync`'s timeout did. `exitCode` is null when a signal
+ * ended it. The synchronous form never returns to the event loop, so it reads
+ * the exit status the kernel keeps for an unreaped child.
+ */
+/** Exit status of a child this process reaped itself; Bun can no longer report it (F7). */
+const reapedExits = new WeakMap<object, number | null>();
+export function awaitWorkerExitSteps(child: SpawnedWorkerProcess, deadline?: number): WorkerSteps<{ exitCode: number | null }> {
+  return workerStep(() => {
+    if (reapedExits.has(child)) return { exitCode: reapedExits.get(child)! };
+    let signalled = false;
+    for (let wait = 1; ; wait = Math.min(wait * 2, 10)) {
+      let stat: string | undefined;
+      try { stat = readFileSync(`/proc/${child.pid}/stat`, "utf8"); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      if (stat === undefined) {
+        if (child.exitCode !== null || child.signalCode !== null) return { exitCode: child.exitCode };
+        throw new WorkerHostError("the worker's exit status is unavailable");
+      }
+      const fields = stat.slice(stat.lastIndexOf(") ") + 2).split(" ");
+      if (fields[0] === "Z") {
+        const status = Number(fields[49]), exitCode = status & 0x7f ? null : (status >> 8) & 0xff;
+        // Reap it as spawnSync did: consecutive synchronous launches leave no zombies.
+        reapedExits.set(child, exitCode);
+        reapChild(child.pid);
+        return { exitCode };
+      }
+      if (!signalled && deadline !== undefined && Date.now() >= deadline) { signalled = true; child.kill("SIGTERM"); }
+      Bun.sleepSync(wait);
+    }
+  }, async () => {
+    if (reapedExits.has(child)) return { exitCode: reapedExits.get(child)! };
+    const timer = deadline === undefined ? undefined : setTimeout(() => child.kill("SIGTERM"), Math.max(0, deadline - Date.now()));
+    try { await child.exited; } finally { clearTimeout(timer); }
+    return { exitCode: child.exitCode };
+  });
 }
 
 /** How close to a worker's death its own memory limit and an OOM kill must be to have caused it. */
