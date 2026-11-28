@@ -1,7 +1,7 @@
 // What dismisses a SlidePanel drawer (#90). A backdrop click used to close
 // every drawer, and closing the sync panel unmounts the stream it is reading,
 // so a stray click cancelled the run. Same containment contract as
-// render-smoke.test.tsx: the DOM module first, `afterAll(unregisterDom)`,
+// the smoke-*.test.tsx files: the DOM module first, `afterAll(unregisterDom)`,
 // queries off `render()` and never `screen`.
 import { registerSlidePanelDom, unregisterSlidePanelDom as unregisterDom } from "./slide-panel-dom.js";
 

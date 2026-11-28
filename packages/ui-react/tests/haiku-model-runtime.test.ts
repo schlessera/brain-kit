@@ -1,38 +1,23 @@
-import { runtimePackageBuild } from "./fixtures/runtime-package-build";
-import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
+import { chromePath, startRuntimeHost, type RuntimeHost } from "./fixtures/runtime-host";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { statSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium, type Browser } from "playwright";
+import type { Browser } from "playwright";
 
-const executablePath = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium"]
-  .find(path => path && statSync(path, { throwIfNoEntry: false })?.isFile());
-if (!executablePath) throw new Error("Haiku picker verification requires real Chrome");
+const executablePath = chromePath("haiku-model-runtime.test.ts");
+let host: RuntimeHost | undefined;
 let browser: Browser;
-let server: ReturnType<typeof Bun.serve>;
-const scratch = mkdtempSync(join(tmpdir(), "haiku-browser-"));
-const hook = runtimeHookPhases("haiku-model-runtime.test.ts");
-beforeAll(() => hook.phase("setup", async () => {
-  // Browser consumers follow the published default exports, which resolve to
-  // dist. Build those outputs; never force a Bun condition in the consumer.
-  const [out, err, code] = await runtimePackageBuild(join(import.meta.dir, "../../.."), ["ui-react"], hook);
-  if (code !== 0) throw new Error(`Haiku fixture build failed (${code}): ${out}\n${err}`);
-  const built = await hook.phase("client-build", () => Bun.build({ entrypoints: [join(import.meta.dir, "fixtures/haiku-model-browser.tsx")], target: "browser", outdir: scratch, naming: "client.js" }));
-  if (!built.success) throw new Error(JSON.stringify(built.logs));
-  server = await hook.phase("static-host-start", async () => Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: req => {
-    const path = new URL(req.url).pathname;
-    if (path === "/client.js") return new Response(Bun.file(join(scratch, "client.js")));
-    if (path === "/kit.css") return new Response(Bun.file(join(import.meta.dir, "../../ui-kit/dist/styles.css")));
-    if (path === "/app.css") return new Response(Bun.file(join(import.meta.dir, "../dist/styles.css")));
-    return new Response('<!doctype html><html><head><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column;justify-content:flex-end}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>', { headers: { "content-type": "text/html" } });
-  } }));
-  browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] }));
-}), 180_000);
-afterAll(() => hook.phase("cleanup", async () => { await browser?.close(); server?.stop(true); rmSync(scratch, { recursive: true, force: true }); }));
+let origin = "";
+beforeAll(async () => {
+  if (!executablePath) return;
+  // No app: the production composer alone, against a static page.
+  host = await startRuntimeHost({ file: "haiku-model-runtime.test.ts", executablePath, packages: ["ui-react"], scratchPrefix: "haiku-browser-",
+    client: join(import.meta.dir, "fixtures/haiku-model-browser.tsx"),
+    page: '<!doctype html><html><head><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column;justify-content:flex-end}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>' });
+  ({ browser, origin } = host);
+}, 180_000);
+afterAll(() => host?.close());
 
-test("real Chrome selects, persists and sends canonical Haiku 5.5 through the production composer", async () => {
-  const origin = `http://127.0.0.1:${server.port}`;
+test.skipIf(!executablePath)("real Chrome selects, persists and sends canonical Haiku 5.5 through the production composer", async () => {
   const context = await browser.newContext();
   const external: string[] = [];
   await context.route("**/*", route => {
