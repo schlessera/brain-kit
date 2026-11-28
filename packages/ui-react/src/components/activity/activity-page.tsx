@@ -430,6 +430,7 @@ export function ActivityPage() {
   ) {
     const tool = approvals.find((a) => a.tool.id === toolUseId)?.tool;
     const { receipt, frame } = approvalOutcome(tool, toolUseId, approved, asked, networkScope);
+    if (!frame) return;
     // Network approvals are host-owned (#4967): mark Sending… and wait for tool_resolution.
     if (tool?.approvalNetwork || tool?.approvalOrigin) {
       const chatState = root.stores.chat.getState();

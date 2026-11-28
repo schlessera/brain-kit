@@ -51,14 +51,17 @@ export function approvalOutcome(
   requestedScope?: NetworkApprovalScope
 ): {
   receipt: { text: string; target: string; effect: string };
-  frame: Extract<ClientMessage, { type: "tool_approval" | "tool_denial" }>;
+  frame: Extract<ClientMessage, { type: "tool_approval" | "tool_denial" }> | null;
 } {
   const always = approved && asked === true && tool !== undefined && offersAlwaysAllow(tool);
   const advertisedScopes = tool?.approvalNetwork?.scopes;
-  const networkScope =
-    approved && requestedScope && advertisedScopes?.includes(requestedScope)
-      ? requestedScope
-      : undefined;
+  const scopeValid =
+    !approved
+    || requestedScope === undefined
+    || (advertisedScopes !== undefined
+      && advertisedScopes.includes(requestedScope)
+      && !(tool?.approvalNetwork?.managedReference && requestedScope !== "once"));
+  const networkScope = approved && scopeValid ? requestedScope : undefined;
   const revision = tool?.approvalRevision;
   const targetName = tool?.approvalNetwork || tool?.approvalOrigin
     ? formatNetworkOriginLabel(tool.approvalOrigin, tool.approvalNetwork, tool.input)
@@ -89,24 +92,27 @@ export function approvalOutcome(
             : "tool_denial",
     },
     // Every decision on this surface is made on the card (#113, #4966, #3595).
-    frame: approved
-      ? {
-          type: "tool_approval",
-          toolUseId,
-          ...(always ? { always: true } : {}),
-          ...(revision ? { revision } : {}),
-          ...(networkScope ? { networkScope } : {}),
-          ...(tool?.approvalTurnId ? { turnId: tool.approvalTurnId } : {}),
-          channel: "card",
-        }
-      : {
-          type: "tool_denial",
-          toolUseId,
-          message: "Denied by user",
-          ...(revision ? { revision } : {}),
-          ...(tool?.approvalTurnId ? { turnId: tool.approvalTurnId } : {}),
-          channel: "card",
-        },
+    // Never downgrade an unadvertised scope into a legacy unscoped approval (#3595).
+    frame: !scopeValid
+      ? null
+      : approved
+        ? {
+            type: "tool_approval",
+            toolUseId,
+            ...(always ? { always: true } : {}),
+            ...(revision ? { revision } : {}),
+            ...(networkScope ? { networkScope } : {}),
+            ...(tool?.approvalTurnId ? { turnId: tool.approvalTurnId } : {}),
+            channel: "card",
+          }
+        : {
+            type: "tool_denial",
+            toolUseId,
+            message: "Denied by user",
+            ...(revision ? { revision } : {}),
+            ...(tool?.approvalTurnId ? { turnId: tool.approvalTurnId } : {}),
+            channel: "card",
+          },
   };
 }
 

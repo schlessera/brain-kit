@@ -397,7 +397,7 @@ describe("network approval stack (#4967, #3595)", () => {
       await act(async () => { await Bun.sleep(20); });
       expect(revokes.some((u) => u.includes("/sessions/ithaca/network-grants/ng_1"))).toBe(true);
 
-      // Activity approvalOutcome: managed reference refuses unadvertised `origin` scope!
+      // Activity approvalOutcome: managed reference or missing tool refuses unadvertised scope (frame: null, never legacy fallback)!
       const managedOutcome = approvalOutcome(
         {
           id: "gh-1",
@@ -414,7 +414,8 @@ describe("network approval stack (#4967, #3595)", () => {
         false,
         "origin"
       );
-      expect((managedOutcome.frame as { networkScope?: string }).networkScope, "UNADVERTISED_SCOPE_NOT_SENT").toBeUndefined();
+      expect(managedOutcome.frame, "UNADVERTISED_SCOPE_REFUSED_NO_FRAME").toBeNull();
+      expect(approvalOutcome(undefined, "missing-1", true, false, "session").frame, "MISSING_TOOL_SCOPED_REFUSED").toBeNull();
 
       // Activity ApprovalCard renders four scope buttons for non-managed origin offer.
       const decided: Array<[boolean, string | undefined]> = [];
