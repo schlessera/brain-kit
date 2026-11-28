@@ -113,8 +113,12 @@ async function mount(ctx: { onTestFinished: (fn: () => Promise<void>) => void },
   const panel = () => page.getByRole("tabpanel").element() as HTMLElement;
   for (const marker of ready) await expect.poll(() => panel().textContent ?? "", { timeout: watchdogMs(5000) }).toContain(marker);
   await expect.poll(() => pending, { timeout: watchdogMs(5000) }).toBe(0);
+  // The mouse stays wherever an earlier file in this browser left it; a
+  // control drawn under it would capture in its hover state (#5011).
+  await commands.parkPointer();
   await document.fonts.ready;
   await frame(); await frame();
+  expect(document.querySelector(":hover"), `SETTINGS_POINTER_PARKED ${pane.name}`).toBeNull();
   // Measure and capture only the settled pane: every marker is still there.
   const settled = panel().textContent ?? "";
   for (const marker of ready) expect(settled, `SETTINGS_PANE_READY ${pane.name}: ${marker}`).toContain(marker);
