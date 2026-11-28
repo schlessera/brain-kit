@@ -14,8 +14,8 @@ export const RED_MAIN_ARCHIVE = "red-main.json";
 /** The hosted gate's step in ci.yml's metadata job (#2942). */
 export const GATE_STEP = "Refuse doomed proof while main is red";
 /** The coordinator prints this line with the PR runs it cancelled. */
-const COORDINATOR_MARKER = "BRAIN_RED_MAIN ";
-const COORDINATOR_WORKFLOW = "red-main.yml";
+export const COORDINATOR_MARKER = "BRAIN_RED_MAIN ";
+export const COORDINATOR_WORKFLOW = "red-main.yml";
 /** The coordinator that opens a record starts before the record's server timestamp. */
 const COORDINATOR_LEAD_MS = 30 * 60_000;
 /** Bounds one history walk; a longer walk is an acquisition error, never a silent truncation. */
@@ -25,12 +25,12 @@ const PROBES = ["pending", "passed", "failed", "unavailable"] as const;
 type Probe = typeof PROBES[number];
 type Escalation = "repeated-suspected-flake" | "probe-reproduced";
 
-interface IncidentFailure {
+export interface IncidentFailure {
   test: string | null; category: Category; reasons: string[]; run: number; sha: string;
   /** Why a failure the estimator once suspected was declared real; null for a first-sight real failure. */
   escalated: Escalation | null; priorSuspectRun: number | null;
 }
-interface IncidentObservation {
+export interface IncidentObservation {
   /** The record's opening run, which also keys its incident issue marker. */
   run: number; opened: number; firstBad: string; firstBadHistory: { sha: string; at: number }[];
   failures: IncidentFailure[]; incident: number | null; fixes: number[];
@@ -39,7 +39,7 @@ interface IncidentObservation {
   reported: string[];
   cleared: { at: number; run: number | null } | null; sources: string[];
 }
-interface FlakeObservation {
+export interface FlakeObservation {
   test: string; category: Category; run: number; sha: string; at: number; probe: Probe; issue: number | null; sources: string[];
 }
 export interface RedMainArchive {
@@ -272,7 +272,7 @@ interface Attempt {
 }
 const CI_PATH = ".github/workflows/ci.yml";
 const consumed = (s: Attempt) => s.jobs.reduce((sum, job) => sum + (job.seconds ?? 0), 0);
-const gateRefused = (s: Attempt) => s.run.path === CI_PATH && s.run.event === "pull_request" &&
+export const gateRefused = (s: Attempt) => s.run.path === CI_PATH && s.run.event === "pull_request" &&
   s.jobs.some(j => j.category === "changeset" && j.steps.some(step => step.name === GATE_STEP && step.conclusion === "failure"));
 
 function stopped(rows: { run: number; attempt: Attempt | null; stopped: boolean }[], reference: number | null) {
@@ -291,7 +291,7 @@ function stopped(rows: { run: number; attempt: Attempt | null; stopped: boolean 
     unknownSaved: out.filter(r => r.estimatedSavedRunnerSeconds === null).length };
 }
 
-interface RedMainInputs {
+export interface RedMainInputs {
   archives: RedMainArchive[]; coordinator: CoordinatorObservation[]; snapshots: Attempt[]; pulls: Pick<PullObservation, "number" | "merge">[];
 }
 export function summarizeRedMain({ archives, coordinator, snapshots, pulls }: RedMainInputs) {

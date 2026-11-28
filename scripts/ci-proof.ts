@@ -18,12 +18,12 @@ import { startUnitMemorySampler } from "./unit-memory";
 import { diskSampler, floorProblem } from "./ci-disk";
 
 export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "browser_determinism"] as const;
-const PROOF_CATEGORIES = ["unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "browser_determinism"] as const;
-type ProofCategory = typeof PROOF_CATEGORIES[number];
+export const PROOF_CATEGORIES = ["unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "browser_determinism"] as const;
+export type ProofCategory = typeof PROOF_CATEGORIES[number];
 export const DETERMINISM_REPORT = "tmp/determinism-report.json";
 export const BROWSER_DETERMINISM_REPORT = "tmp/browser-determinism-report.json";
 /** Bun tests that start the pinned image with `--pull=never`: a partition holding one pulls the image first. */
-const PINNED_IMAGE_TESTS = DOCKER_TEST_FILES;
+export const PINNED_IMAGE_TESTS = DOCKER_TEST_FILES;
 
 /** One partition of the planner's added or modified Bun test files, at the count decided over the
  * whole selection (#4117). An empty selection is never a job (#4109), and a shard divisor that is
