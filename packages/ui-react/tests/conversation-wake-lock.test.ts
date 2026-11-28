@@ -284,4 +284,61 @@ describe("live conversation screen wake lock", () => {
     await flushMicrotasks();
     expect(env4.sentinels[0]!.released).toBe(true);
   });
+
+  test("releases on non-recoverable pause while muted (e.g. provider_error close or CONVERSATION_UNKNOWN) and re-acquires on resume", async () => {
+    const { client, sentinels, sent } = setupEnv();
+    client.enter();
+    client.start();
+    await flushMicrotasks();
+    expect(sentinels).toHaveLength(1);
+    expect(sentinels[0]!.released).toBe(false);
+
+    const startMsg = sent.find((m) => m.type === "conversation_start");
+    const requestId = startMsg?.type === "conversation_start" ? startMsg.requestId : undefined;
+    client.receive({
+      type: "conversation_opened",
+      conversationId: "ithaca-voice",
+      epoch: 1,
+      requestId,
+      providerId: PROFILE.providerId,
+      capabilities: CAPS,
+      disclosure: PROFILE.disclosure,
+      limits: { ...CONVERSATION_LIMITS },
+      resync: { work: 0, outputs: 0 },
+    });
+
+    // Mute keeps wake lock held while conversation is live.
+    client.mute();
+    await flushMicrotasks();
+    expect(client.state.getState().capture).toBe("muted");
+    expect(sentinels[0]!.released).toBe(false);
+
+    // Non-recoverable conversation_closed (provider_error) calls pause(true) while muted.
+    client.receive({
+      type: "conversation_closed",
+      conversationId: "ithaca-voice",
+      epoch: 1,
+      reason: "provider_error",
+    });
+    await flushMicrotasks();
+    expect(sentinels[0]!.released).toBe(true);
+
+    // Explicit resume re-acquires wake lock.
+    client.resume();
+    await flushMicrotasks();
+    expect(sentinels).toHaveLength(2);
+    expect(sentinels[1]!.released).toBe(false);
+
+    // Non-recoverable CONVERSATION_UNKNOWN error while muted with existing profile also releases.
+    client.mute();
+    await flushMicrotasks();
+    expect(sentinels[1]!.released).toBe(false);
+    client.frame({
+      type: "error",
+      code: "CONVERSATION_UNKNOWN",
+      message: "The voice session is no longer active.",
+    });
+    await flushMicrotasks();
+    expect(sentinels[1]!.released).toBe(true);
+  });
 });
