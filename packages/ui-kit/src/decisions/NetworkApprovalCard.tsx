@@ -262,7 +262,7 @@ export function NetworkApprovalCard(p: NetworkApprovalCardProps) {
         </div>
       ) : null}
 
-      {state === "updated" && p.updateNotice ? (
+      {(state === "updated" || state === "armed") && p.updateNotice ? (
         <div style={noticeStyle} data-kit-update-notice="">
           <Icon icon="failed" size={12} color={accent.gold.ink} />
           <span>{p.updateNotice}</span>

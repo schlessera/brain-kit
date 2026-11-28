@@ -72,7 +72,7 @@ async function openScopeHarness() {
   const writes = createGovernanceWrites(db, writer);
   const store = createActivityStore(db);
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
-  const backend = makeFakeBackend({ id: "scripted-3595" });
+  const backend = makeFakeBackend({ id: "claude" });
   const catalog = createSessionCatalog(() => db, undefined, undefined, {
     writer,
     store,
@@ -138,6 +138,7 @@ async function openScopeHarness() {
       backendId: backend.id,
       at: Date.now(),
     });
+    await writes.safetyReady(options.turnId, backend.id, 1);
     const bridge: BackendBridge = await makeBridge(host, turn, {
       promptText: "Odysseus sails.",
       backendId: backend.id,
@@ -591,7 +592,7 @@ describe("network approval scopes (#3595)", () => {
 
       // Unowned session fails closed (404).
       h.db.query("INSERT INTO sessions (id, backend_id, created_at, last_active_at) VALUES (?, ?, ?, ?)")
-        .run("session-unowned", "scripted-3595", Date.now(), Date.now());
+        .run("session-unowned", "claude", Date.now(), Date.now());
       const unownedRes = await h.routes.request("/api/sessions/session-unowned/network-grants");
       expect(unownedRes.status, "UNOWNED_SESSION_FAILS_CLOSED").toBe(404);
 
@@ -696,6 +697,32 @@ describe("network approval scopes (#3595)", () => {
       expect(turnB.cancelled).toBe(false);
       expect(h.host.coordinator.drainedReason(turnB, "unbound-b"), "BUDGET_DRAIN_RECORDED_BEFORE_ABORT").toBe("Turn stopped: inference budget exceeded.");
     } finally {
+      await h.close();
+    }
+  });
+
+  test("degraded safety coverage disables standing origin/session grants until re-approved (#3595/#4966)", async () => {
+    const h = await openScopeHarness();
+    const t1 = await h.openTurn({ turnId: "t-cov", sessionId: "session-cov", createSession: true });
+    const island = Bun.serve({ hostname: "127.0.0.2", port: 0, fetch: () => new Response("cov-ok") });
+    try {
+      await h.addTaint("t-cov", "session-cov", "web_fetch");
+      await h.writer.idle();
+      const first = fetchViaProxy(t1.egress.socketPath, island.url);
+      await waitFor(() => h.cards().length === 1, "initial card raised");
+      await h.approve(h.cards()[0]!, "origin");
+      expect((await first).status).toBe(200);
+
+      // Degrade coverage to incomplete via a recording gap on the collection.
+      h.db.query("UPDATE safety_collections SET gap = 'uninstrumented_backend_input' WHERE turn_id = 't-cov'").run();
+      const beforeDegraded = h.cards().length;
+      const second = fetchViaProxy(t1.egress.socketPath, new URL("/after-gap", island.url));
+      await waitFor(() => h.cards().length > beforeDegraded, "degraded coverage refuses standing grant and asks again");
+      await h.approve(h.cards().at(-1)!, "once");
+      expect((await second).status, "DEGRADED_COVERAGE_REQUIRES_FRESH_APPROVAL").toBe(200);
+    } finally {
+      await t1.stop();
+      island.stop(true);
       await h.close();
     }
   });

@@ -132,26 +132,30 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
       // The decision stamps the wait/execution boundary on the tool span
       // (grant) or lands the denied outcome (deny) before the backend's
       // own error tool_result can mislabel it — write-once protects it.
+      let spanRecorded = false;
       const recorded = (
         decision: PermissionDecision,
         response?: { principalId: string; always?: boolean; channel?: ApprovalChannel },
         expired?: { cause: ApprovalExpiryCause; reason: string; outcome: "timeout" | "cancelled" }
       ) => {
         cleanupWatchers();
-        if (expired) {
-          recorder?.onApprovalDecision(req.toolUseId, "expire", req.kind ?? "tool", undefined, undefined, expired);
-        } else {
-          recorder?.onApprovalDecision(
-            req.toolUseId,
-            decision.behavior === "deny"
-              ? "deny"
-              : response?.always
-                ? "always_allow"
-                : "allow",
-            req.kind ?? "tool",
-            response?.principalId,
-            response?.channel
-          );
+        if (!spanRecorded) {
+          spanRecorded = true;
+          if (expired) {
+            recorder?.onApprovalDecision(req.toolUseId, "expire", req.kind ?? "tool", undefined, undefined, expired);
+          } else {
+            recorder?.onApprovalDecision(
+              req.toolUseId,
+              decision.behavior === "deny"
+                ? "deny"
+                : response?.always
+                  ? "always_allow"
+                  : "allow",
+              req.kind ?? "tool",
+              response?.principalId,
+              response?.channel
+            );
+          }
         }
         resolve(decision);
       };
@@ -169,6 +173,17 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
       }
       const expire = (reason: string, cause: ApprovalExpiryCause) => {
         cleanupWatchers();
+        // Record the write-once approval expiry on the Activity span immediately
+        // so a fast tool_result or turn finish cascadeClose("cancelled") after
+        // synchronous abort cannot claim the span before the durable write settles (#1763).
+        if (!spanRecorded) {
+          spanRecorded = true;
+          recorder?.onApprovalDecision(req.toolUseId, "expire", req.kind ?? "tool", undefined, undefined, {
+            outcome: expirySpanOutcome(turn, turnId, cause, reason),
+            cause,
+            reason,
+          });
+        }
         const writes = host.activity?.governanceWrites;
         const sessionId = turn.sessionId;
         // Coordinator ownership has already been removed from both waiting

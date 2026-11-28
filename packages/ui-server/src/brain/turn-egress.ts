@@ -464,11 +464,13 @@ export async function prepareTurnEgress(options: {
           return { ok: true, scope: "once" };
         }
         if (scope === undefined) {
-          // Legacy reply without scope preserves hostname/session grant and settles same-host siblings (#4966, #3595).
+          // Legacy reply without scope settles currently-pending same-host siblings;
+          // `contacted.add(destination.host)` happens only in `committed()` on actual
+          // dispatch so a pre-first-byte new taint class or aborted request cannot
+          // bypass re-asking via `contacted` (#4966, #3595).
           return {
             ok: true,
             onSettled: () => {
-              contacted.add(origin.host);
               options.settleSiblings?.(
                 (req) => req.network?.host === origin.host,
                 undefined,
@@ -659,9 +661,11 @@ export async function prepareTurnEgress(options: {
         if (destination.managedReference) return null;
         const sid = options.sessionId();
         if (!sid) return null;
+        // Standing grants require complete coverage and no recording gaps (#3595, #4966).
+        if (currentProjection().coverage.state !== "complete") return null;
         const origin = canonicalNetworkOrigin(destination);
         const generation = sessionHistoryGeneration(db, options.turnId, sid);
-        const classes = unresolvedTaintClasses(db, options.turnId, sid);
+        const classes = currentTaintClasses();
         return matchNetworkGrant(db, sid, generation, origin.key, classes);
       },
       onStandingGrantApplied: (info: { connectionId: string; destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }; scope: "origin" | "session"; grantId: string }) => {
