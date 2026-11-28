@@ -4,7 +4,7 @@
  * sandbox's mount table while its start gate is closed. The verdict itself
  * is `evaluateNamespace` (`namespace-qualification.ts`).
  */
-import { closeSync, lstatSync, openSync, readFileSync, realpathSync, statSync, constants } from "node:fs";
+import { closeSync, lstatSync, openSync, readFileSync, readlinkSync, statSync, constants } from "node:fs";
 import { resolve } from "node:path";
 import { evaluateNamespace, holdsPath, namespaceComplete, parseMountinfo, resolveMount, type MountRow, type NamespaceExposure, type StateRootObservation } from "./namespace-qualification.js";
 import { workerStepSleep, type WorkerSteps } from "./worker-steps.js";
@@ -72,8 +72,17 @@ export interface WorkerPrivateStateProvider {
 const REGISTRY = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-registry");
 const providers: Map<string, Map<unknown, Set<WorkerPrivateStateProvider>>> =
   ((globalThis as Record<symbol, unknown>)[REGISTRY] ??= new Map()) as Map<string, Map<unknown, Set<WorkerPrivateStateProvider>>>;
-// The kernel's component order: a link is followed before a later `..` (F16).
-const brainKey = (brain: string) => { try { return realpathSync.native(brain); } catch { return resolve(brain); } };
+/**
+ * A path's canonical name in the kernel's own component order: a link is
+ * followed before a later `..` (F16). Bun's realpathSync, and `.native` before
+ * Bun 1.4.4, collapse `..` first; the kernel's open does not. Throws as open
+ * does (ENOENT for an absent path).
+ */
+export function kernelRealpath(path: string): string {
+  const fd = openSync(path, O_PATH);
+  try { return readlinkSync(`/proc/self/fd/${fd}`); } finally { closeSync(fd); }
+}
+const brainKey = (brain: string) => { try { return kernelRealpath(brain); } catch { return resolve(brain); } };
 
 /**
  * Register the private-state layout of one brain; returns its disposer. A
@@ -146,7 +155,7 @@ export function observeStateRoots(roots: readonly { setting: string; path: strin
   const observed: StateRootObservation[] = [];
   for (const root of roots) {
     let path: string;
-    try { path = realpathSync.native(root.path); }
+    try { path = kernelRealpath(root.path); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
     observed.push({ setting: root.setting, path, ...coordinates(path, hostRow(path, rows)) });
     if (!lstatSync(path).isDirectory()) continue;
@@ -263,7 +272,7 @@ export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadlin
       owner: path => { try { const info = statSync(path); return { uid: info.uid, mode: info.mode }; } catch { return undefined; } },
       layer: path => {
         try {
-          const real = realpathSync.native(path), host = parseMountinfo(readFileSync("/proc/self/mountinfo", "utf8"));
+          const real = kernelRealpath(path), host = parseMountinfo(readFileSync("/proc/self/mountinfo", "utf8"));
           return host ? coordinates(real, hostRow(real, host)) : undefined;
         } catch { return undefined; }
       },

@@ -4,7 +4,7 @@ import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe, createWorkerStatusPipeSteps } from "./worker-status.js";
 import { WORKER_NAMESPACE_SEAL } from "./namespace-qualification.js";
-import { privateStateRefusalOf, qualifyWorkerNamespaceSteps } from "./worker-private-state.js";
+import { kernelRealpath, privateStateRefusalOf, qualifyWorkerNamespaceSteps } from "./worker-private-state.js";
 import { prepareWorkerIdentity, workerCleanupUnconfirmed, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
 import { conformingPrivateSocket, createPrivateSocketDirectory, verifyPrivateSocketDirectory } from "./private-socket-dir.js";
@@ -1208,7 +1208,7 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     status.closeWriter();
     // An asynchronous caller's exit closes it; a synchronous one calls `close`.
     void child.exited.then(close, close);
-    yield* qualifyWorkerNamespaceSteps(pid, realpathSync.native(input.brainPath), spawnedAt + STATE_SETUP_MS,
+    yield* qualifyWorkerNamespaceSteps(pid, kernelRealpath(input.brainPath), spawnedAt + STATE_SETUP_MS,
       { site: input.transport ? "transport" : "maintenance", masked: launchMasked(input), ...launchDescription(input, boot.env), launcher: "spawnQualifiedSteps" });
     if (options.signal?.aborted) { aborted = true; throw options.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"); }
     if (deadline !== undefined && Date.now() >= deadline) {
