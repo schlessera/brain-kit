@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
+/** @type {(name: string) => import("vitest/config").TestProjectInlineConfiguration} */
 const project = name => ({
   extends: true,
   test: {

@@ -19,16 +19,23 @@
 import { join, resolve } from "path";
 import { listTree } from "./lib/source";
 
-/** The directories the gate lints. */
-const ROOTS = ["packages/", "scripts/", "tests/", "experiments/", "evals/", "template/", "website/scripts/"];
 /** The extensions oxlint lints: JavaScript and TypeScript, and the script blocks of component files. */
 export const LINTED = /\.(?:[cm]?[jt]sx?|vue|svelte|astro)$/;
+/**
+ * The listed files of a linted extension the gate leaves out, each with its reason (#5065).
+ * Every other one is linted, wherever it lives. `.oxlintrc.json`'s `ignorePatterns`
+ * say the same for editors, plus build output and dependencies, which are never listed.
+ */
+export const OXLINT_EXCLUSIONS: ReadonlyArray<{ pattern: string; reason: string }> = [
+  { pattern: "**/fixtures/**", reason: "test inputs, some of which break a rule on purpose for the gate or test that reads them" },
+];
 /** Argument bytes per oxlint process: a quarter of macOS's 1 MiB limit and an eighth of Linux's 2 MiB. */
 const BATCH_BYTES = 256 * 1024;
 
 /** The files the gate hands to oxlint, in listing order. */
-export function oxlintFiles(root: string): string[] {
-  return listTree(root).filter(file => ROOTS.some(dir => file.startsWith(dir)) && LINTED.test(file));
+export function oxlintFiles(root: string, exclusions = OXLINT_EXCLUSIONS): string[] {
+  const excluded = exclusions.map(entry => new Bun.Glob(entry.pattern));
+  return listTree(root).filter(file => LINTED.test(file) && !excluded.some(glob => glob.match(file)));
 }
 
 /** `files` split into consecutive batches of at most `limit` argument bytes each. */
