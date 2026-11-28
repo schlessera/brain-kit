@@ -33,6 +33,7 @@ import { makeFakeBackend } from "./helpers/fake-backend.js";
 import { createPrincipal } from "../src/db/principals.js";
 import { GOVERNANCE_EVENT_SCHEMAS, queryGovernanceEvents } from "../src/governance/events.js";
 import { GENERIC_GITHUB_SENTINEL, GITHUB_TOOLS_POSTER, GITHUB_TOOLS_SENTINEL, fakeGithub, routeGithubApi } from "./fixtures/github-host-fixture.js";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 
 const SESSION = "sess-ithaca-github";
 
@@ -80,7 +81,9 @@ async function hostedTurn(backendId: "pi" | "claude", env: Record<string, string
     const handlers = createWsHandlers(app.wsHost, principal), ws = { send: (text: string) => { sent.push(text); }, close() {}, readyState: 1 } as WSContext;
     await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Look up the suitors issue", requestId: "github-request" }) } as MessageEvent, ws);
-    const until = Date.now() + 45_000, answered = new Set<string>(), cards: Array<Record<string, unknown>> = [];
+    // Not `until`: each pass answers the approval cards shown so far. The
+    // bound is a watchdog, so it scales under load.
+    const until = Date.now() + watchdogMs(45_000), answered = new Set<string>(), cards: Array<Record<string, unknown>> = [];
     while (!finished || app.isTurnActive()) {
       if (Date.now() > until) throw new Error(`turn did not finish: ${sent.join("\n")}`);
       // Answer each approval card the client is shown, as the user would.

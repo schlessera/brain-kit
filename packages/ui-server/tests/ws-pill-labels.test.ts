@@ -18,13 +18,16 @@ import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
 import { until } from "../../../tests/helpers/until";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 
 const settle = () => new Promise((r) => setTimeout(r, 25));
 /** Poll an asynchronous read, such as the session list route, until it holds. */
+// Not `until`, whose predicate is synchronous. The bound is a watchdog, so it
+// scales under load.
 async function untilAsync(cond: () => Promise<boolean>, timeoutMs = 2000): Promise<void> {
-  const start = Date.now();
+  const start = Date.now(), bound = watchdogMs(timeoutMs);
   while (!(await cond())) {
-    if (Date.now() - start > timeoutMs) throw new Error("untilAsync: timed out");
+    if (Date.now() - start > bound) throw new Error("untilAsync: timed out");
     await new Promise((r) => setTimeout(r, 5));
   }
 }

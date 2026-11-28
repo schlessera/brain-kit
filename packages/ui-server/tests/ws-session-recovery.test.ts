@@ -39,6 +39,7 @@ import { removeDbFile } from "./helpers/test-host";
 import { recoveryDeadline } from "./helpers/recovery-deadline";
 import { testAuthorization, testPrincipal } from "./helpers/principal";
 import { until } from "../../../tests/helpers/until";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 
 const QUESTIONS: AskUserQuestion[] = [{
   question: "Which harbour first?",
@@ -452,8 +453,12 @@ describe("authorization and existence", () => {
 
 describe("a stalled backend", () => {
   const nativeTurn = () => new Promise<void>(resolve => setImmediate(resolve));
+  // Not `until`: this fixture replaces setTimeout (recoveryDeadline), so the
+  // loop yields event-loop turns (setImmediate) instead of timer sleeps, and
+  // its failure is the named oracle assertion below. The bound is still only a
+  // watchdog, so it scales under load.
   async function completed(check: () => boolean, oracle: string) {
-    const deadline = performance.now() + 1_000;
+    const deadline = performance.now() + watchdogMs(1_000);
     while (!check() && performance.now() < deadline) await nativeTurn();
     expect(check(), oracle).toBe(true);
   }
