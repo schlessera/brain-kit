@@ -318,6 +318,19 @@ describe("review round 2 (#4301)", () => {
     expect(f.ran()).toBe(0);
   }, watchdogMs(60_000));
 
+  test("F35: an agent launch named through a link then `..` finds the layout registered under the same name", async () => {
+    const f = await fixture();
+    // hop -> brain/x/y, so hop/../.. is the brain in kernel order; Bun's realpathSync collapses it lexically to the root's parent.
+    fs.mkdirSync(join(f.brain, "x/y"), { recursive: true });
+    fs.symlinkSync(join(f.brain, "x/y"), join(f.root, "hop"));
+    const named = `${f.root}/hop/../..`;
+    let consulted = 0;
+    cleanups.push(registerWorkerPrivateState(named, { roots: () => { consulted++; return []; }, walk: () => undefined }));
+    const worker = launchAgentWorker({ brainPath: named, startupView: f.view(), env: {}, command: ["/bin/sh", "-c", "exit 0"] });
+    await worker.exited;
+    expect(consulted, "F35_SAME_NAME_FINDS_THE_LAYOUT").toBeGreaterThan(0);
+  }, watchdogMs(60_000));
+
   test("F25: with no host log listening, a skipped masked launch writes one stderr line per site and brain", async () => {
     const f = await fixture();
     const other = join(f.root, "other-brain"); mkdirSync(other);
