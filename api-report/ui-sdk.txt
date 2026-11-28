@@ -1692,6 +1692,7 @@ export "./internal" (./src/internal.ts)
   startInferenceRelay
   startProviderRelay
   stripHostContextFromTitle
+  takeAdmissionWalk
   toolAdmissionSafety
   turnTempLimit
   turnTempSpace

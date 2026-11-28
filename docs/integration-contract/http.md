@@ -1250,7 +1250,7 @@ runs; the launch function throws a typed refusal with that reason. Agent
 workers and asynchronous maintenance and transport launches are qualified;
 synchronous maintenance (`runMaintenanceWorkerSync`) is not: it runs the
 brain's registered alias walk itself before it spawns, and refuses with the
-walk's own typed reason. A warm admission walks each registered layout once;
+walk's own typed reason. Within one loaded SDK, a warm admission walks each registered layout once;
 a retried, repeated or refreshed launch walks again (the admission's first
 synchronous launch redeems a one-shot receipt the admission's passing walk
 left on its startup view, for the same brain and layouts only) (its qualification is

@@ -180,14 +180,72 @@ describe("synchronous maintenance is not qualified; it walks (#4301 path O5, #50
       expect(privateStateRefusalOf(refused)?.reason, "NO_RECEIPT_AFTER_A_REFUSAL").toBe("private_state_in_brain");
     }, watchdogMs(60_000));
 
-    test("minting skips only the caller's own layout: another layout's refusal is thrown and mints nothing", async () => {
-      const f = await fixture();
-      f.setWalk({ reason: "private_state_in_brain", detail: "the turn journal is inside the brain at .brain/ithaca" });
-      const own = { roots: () => [], walk: () => undefined };
-      cleanups.push(registerWorkerPrivateState(f.brain, own));
-      const view = f.view();
-      expect(() => walkForAdmission(view, f.brain, own), "OTHER_LAYOUT_WALKED_AT_MINT").toThrow(WorkerPrivateStateError);
-    }, watchdogMs(60_000));
+    /** Two plain brains with no fixture layout: registration order is the test's own. */
+    const brains = () => {
+      const root = mkdtempSync(join(tmpdir(), "odysseus-receipt-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+      const ithaca = join(root, "ithaca"), ogygia = join(root, "ogygia"); mkdirSync(ithaca); mkdirSync(ogygia);
+      return { ithaca, ogygia };
+    };
+    const refusal = { reason: "private_state_in_brain" as const, detail: "the turn journal is inside the brain at .brain/ithaca" };
+    const redeem = (brain: string, view: object) => () => walkUnqualifiedLaunch("synchronous-maintenance", brain, false, takeAdmissionWalk(view));
+
+    test("F117: minting skips only the caller's own layout, reached first; a later layout's refusal is thrown and leaves no receipt", () => {
+      const { ithaca } = brains();
+      let ownWalks = 0;
+      const own = { roots: () => [], walk: () => { ownWalks++; return undefined; } };
+      cleanups.push(registerWorkerPrivateState(ithaca, own));
+      cleanups.push(registerWorkerPrivateState(ithaca, { roots: () => [], walk: () => refusal }));
+      const view = {};
+      expect(() => walkForAdmission(view, ithaca, own), "OTHER_LAYOUT_WALKED_AT_MINT").toThrow(WorkerPrivateStateError);
+      expect(ownWalks, "OWN_LAYOUT_SKIPPED_AT_MINT").toBe(0);
+      expect(takeAdmissionWalk(view), "REFUSED_MINT_LEAVES_NO_RECEIPT").toBeUndefined();
+    });
+
+    test("F111: a failed re-mint removes the earlier receipt", () => {
+      const { ithaca } = brains();
+      let refusing = false;
+      cleanups.push(registerWorkerPrivateState(ithaca, { roots: () => [], walk: () => refusing ? refusal : undefined }));
+      const view = {};
+      walkForAdmission(view, ithaca);
+      refusing = true;
+      expect(() => walkForAdmission(view, ithaca)).toThrow(WorkerPrivateStateError);
+      expect(redeem(ithaca, view), "F111_FAILED_REMINT_LEAVES_NO_RECEIPT").toThrow(WorkerPrivateStateError);
+    });
+
+    test("F112: a layout registered during the mint's walk is not covered by the receipt", () => {
+      const { ithaca } = brains();
+      let registered = false;
+      cleanups.push(registerWorkerPrivateState(ithaca, { roots: () => [], walk: () => {
+        if (!registered) { registered = true; cleanups.push(registerWorkerPrivateState(ithaca, { roots: () => [], walk: () => refusal })); }
+        return undefined;
+      } }));
+      const view = {};
+      walkForAdmission(view, ithaca);
+      expect(redeem(ithaca, view), "F112_LAYOUT_ADDED_DURING_MINT_WALKS").toThrow(WorkerPrivateStateError);
+    });
+
+    test("F113: a layout an unqualified-launch listener registers is walked by that launch", () => {
+      const { ithaca } = brains();
+      cleanups.push(registerWorkerPrivateState(ithaca, { roots: () => [], walk: () => undefined }));
+      const view = {};
+      walkForAdmission(view, ithaca);
+      let once = false;
+      cleanups.push(onUnqualifiedLaunch(() => { if (!once) { once = true; cleanups.push(registerWorkerPrivateState(ithaca, { roots: () => [], walk: () => refusal })); } }));
+      expect(redeem(ithaca, view), "F113_LISTENER_REGISTRATION_WALKS").toThrow(WorkerPrivateStateError);
+    });
+
+    test("F114: the same provider re-registered under another layout key is a new registration", () => {
+      const { ithaca } = brains();
+      let refusing = false;
+      const provider = { roots: () => [], walk: () => refusing ? refusal : undefined };
+      const dispose = registerWorkerPrivateState(ithaca, provider, "layout-ithaca");
+      const view = {};
+      walkForAdmission(view, ithaca);
+      dispose();
+      refusing = true;
+      cleanups.push(registerWorkerPrivateState(ithaca, provider, "layout-ogygia"));
+      expect(redeem(ithaca, view), "F114_REREGISTERED_PROVIDER_WALKS").toThrow(WorkerPrivateStateError);
+    });
 
     test("a receipt for another brain, or for changed registrations, walks", async () => {
       const f = await fixture(), walks = counted(f);

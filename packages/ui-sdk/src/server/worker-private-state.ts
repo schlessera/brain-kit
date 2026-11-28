@@ -73,6 +73,13 @@ const REGISTRY = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-regis
 const providers: Map<string, Map<unknown, Set<WorkerPrivateStateProvider>>> =
   ((globalThis as Record<symbol, unknown>)[REGISTRY] ??= new Map()) as Map<string, Map<unknown, Set<WorkerPrivateStateProvider>>>;
 /**
+ * The registry's generation, process-wide like the registry: every register
+ * and every dispose, under any brain and layout key, moves it. A walk receipt
+ * holds the generation its walk began at (#4973 r8 F112-F114).
+ */
+const GENERATION = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-generation");
+const registry: { generation: number } = ((globalThis as Record<symbol, unknown>)[GENERATION] ??= { generation: 0 }) as { generation: number };
+/**
  * A path's canonical name in the kernel's own component order: a link is
  * followed before a later `..` (F16). Bun's realpathSync, and `.native` before
  * Bun 1.4.4, collapse `..` first; the kernel's open does not. Throws as open
@@ -94,10 +101,11 @@ export function registerWorkerPrivateState(brain: string, provider: WorkerPrivat
   const layouts = providers.get(key) ?? new Map<unknown, Set<WorkerPrivateStateProvider>>();
   const set = layouts.get(layout) ?? new Set<WorkerPrivateStateProvider>();
   set.add(provider); layouts.set(layout, set); providers.set(key, layouts);
+  registry.generation++;
   let disposed = false;
   return () => {
     if (disposed) return;
-    disposed = true; set.delete(provider);
+    disposed = true; set.delete(provider); registry.generation++;
     if (!set.size && layouts.get(layout) === set) layouts.delete(layout);
     if (!layouts.size && providers.get(key) === layouts) providers.delete(key);
   };
@@ -252,7 +260,7 @@ export function recordUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: stri
  * minted only by a walk that passed, redeemed at most once, and only for the
  * same brain and the same registered layouts.
  */
-const admissionWalks = new WeakMap<object, { brain: string; providers: readonly WorkerPrivateStateProvider[] }>();
+const admissionWalks = new WeakMap<object, AdmissionWalk>();
 
 /**
  * A turn admission's walk of the brain's registered layouts (#4973 r7). It
@@ -263,7 +271,11 @@ const admissionWalks = new WeakMap<object, { brain: string; providers: readonly 
  * does not walk again. Minting always walks, so any caller may mint.
  */
 export function walkForAdmission(view: object, brain: string, own?: WorkerPrivateStateProvider): void {
+  // A failed re-mint must leave nothing behind (F111).
+  admissionWalks.delete(view);
   const key = brainKey(brain);
+  // Read before the walks: a registration during them makes the receipt stale (F112).
+  const generation = registry.generation;
   const layouts = [...providers.get(key)?.values() ?? []];
   for (const set of layouts) {
     if (own && set.has(own)) continue;
@@ -273,7 +285,7 @@ export function walkForAdmission(view: object, brain: string, own?: WorkerPrivat
       throw new WorkerPrivateStateError(refusal.reason, refusal.detail);
     }
   }
-  admissionWalks.set(view, { brain: key, providers: workerPrivateStateProviders(key) });
+  admissionWalks.set(view, { brain: key, generation });
 }
 
 /**
@@ -286,7 +298,7 @@ export function walkForAdmission(view: object, brain: string, own?: WorkerPrivat
  * retried, repeated or refreshed launch walks again (#4973 r7).
  */
 /** An admission's receipt, spent as it is taken: it never serves a second launch. */
-export type AdmissionWalk = { readonly brain: string; readonly providers: readonly WorkerPrivateStateProvider[] };
+export type AdmissionWalk = { readonly brain: string; readonly generation: number };
 /**
  * Take, and so spend, the receipt on `view`. A launch takes it first, before
  * any wait (a busy budget's retry included), so a launch that waited walks
@@ -299,11 +311,10 @@ export function takeAdmissionWalk(view: object | undefined): AdmissionWalk | und
   return receipt;
 }
 export function walkUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: string, masked: boolean, receipt?: AdmissionWalk): void {
-  const registered = workerPrivateStateProviders(brain);
-  if (registered.length || masked) recordUnqualified(site, brain);
-  if (receipt && receipt.brain === brainKey(brain) && receipt.providers.length === registered.length
-    && receipt.providers.every((provider, at) => provider === registered[at])) return;
-  for (const provider of registered) {
+  if (workerPrivateStateProviders(brain).length || masked) recordUnqualified(site, brain);
+  // Judged after the record's listeners ran: one that registered a layout moved the generation (F113).
+  if (receipt && receipt.brain === brainKey(brain) && receipt.generation === registry.generation) return;
+  for (const provider of workerPrivateStateProviders(brain)) {
     const refusal = provider.walk();
     if (refusal) {
       for (const each of workerPrivateStateReporters(brain)) report(each, { kind: "refused", ...refusal });

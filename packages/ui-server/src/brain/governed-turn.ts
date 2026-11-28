@@ -5,7 +5,7 @@ import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import type { PhaseTimer } from "../activity/turn-lifecycle.js";
-import { assertManagedTurnStartupView, prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepareWorkerSandboxAsync, workerProfile, type WorkerSandbox, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { assertManagedTurnStartupView, prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepareWorkerSandboxAsync, takeAdmissionWalk, workerProfile, type WorkerSandbox, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
@@ -253,9 +253,15 @@ export function createGovernedTurns(options: {
       try { ensureRetainedDirectories(options.brainPath, folderPaths); } catch { /* resolver refuses */ }
       const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
       const selected = requested === "governed" && !availability.available ? "strict" : requested;
-      const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { timing, profile: selected, codeChanges: route?.codeChanges === true,
-        protectedPaths: protectedPaths(policy.policy), folderPaths,
-        maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
+      // Whatever resolution did with it, the admission's walk receipt ends with
+      // it: a later command with this view walks (#4973 r8 F115).
+      const resolveSandbox = async () => {
+        try {
+          return await prepareWorkerSandboxAsync(options.brainPath, { timing, profile: selected, codeChanges: route?.codeChanges === true,
+            protectedPaths: protectedPaths(policy.policy), folderPaths,
+            maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
+        } finally { takeAdmissionWalk(startupView!); }
+      };
       let resolved = await step("sandbox_resolve", resolveSandbox);
       const missingWritableRoot = () => resolved.areas.find(area => (area.mount.writable || area.mount.readOnlyPath)
         && !lstatSync(join(startupView!.root, area.rel), { throwIfNoEntry: false })?.isDirectory());
