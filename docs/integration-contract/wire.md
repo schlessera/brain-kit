@@ -3765,8 +3765,10 @@ fresh snapshot. The one exception is the opted-in, display-only
 `attributionUnknown` field (#4513): when only it changes, the subscription
 sends `safety_update` with `fromRevision` equal to `toRevision`, no records and
 the new projection. A client adopts that field and keeps the rest of its
-aggregate; this is not a gap. An opted-in subscription also receives one such
-update as soon as it starts, carrying the current field. Final delivery also rejects a view that omits newly pending
+aggregate; this is not a gap. A subscription starts from the field its
+snapshot's final page delivered; when responses of that page differed (a
+retried page), it receives one such update as soon as it starts, carrying the
+current field. Final delivery also rejects a view that omits newly pending
 input or known local recording loss. A same-revision restrictive update is not
 an ordinary duplicate: clients retain the more restrictive aggregate and
 resynchronize; a same-revision normal frame cannot loosen that state.

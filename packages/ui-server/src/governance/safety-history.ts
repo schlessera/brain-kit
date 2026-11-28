@@ -14,7 +14,8 @@ export class SafetyReadUnavailable extends Error {
 }
 interface Snapshot { id:string; principalId:string; target:SafetyTarget; identity:SafetyIdentity; highWater:string;
   projection:SafetyPage["projection"]; membership:string; expiresAt:number; pruned:number; bytes:number; entries:boolean; admissions:boolean; nonDelivery:boolean; attribution:boolean;
- }
+  /** The attribution fingerprint of each final page this snapshot delivered (#4513), append-only, at most 4; `null` once more differed. */
+  delivered:Set<string>|null }
 interface Row { id:string; sequence:string; observed_at:number; kind:string; occurrence_id:string; source:string|null;
   detector:string|null; state:string|null; payload:string; detail_pruned:number; turn_id:string; collection_id:string }
 const same = (a:unknown,b:unknown) => JSON.stringify(a)===JSON.stringify(b);
@@ -204,7 +205,7 @@ export class SafetyHistory {
         // retained bytes are exactly what the aggregate limit counts.
         const projection=enforcement(this.projection(identity)),size=bytes(projection)+2048;
         if(this.retainedBytes+size>4194304)throw new SafetyReadUnavailable("capacity");
-        snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,membership:this.membership(identity,projection.evidenceRevision),expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size,entries,admissions,nonDelivery,attribution};
+        snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,membership:this.membership(identity,projection.evidenceRevision),expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size,entries,admissions,nonDelivery,attribution,delivered:new Set()};
         this.snapshots.set(snapshot.id,snapshot);this.retainedBytes+=size;
       }
       const fetched=this.records(identity,after,snapshot.highWater,limit+1,snapshot.entries,snapshot.admissions,snapshot.nonDelivery),records:SafetyRecord[]=[];
@@ -223,7 +224,14 @@ export class SafetyHistory {
       }
       if(this.clock()>=snapshot.expiresAt)throw new SafetyReadUnavailable("expired");
       if(!same(identity,this.authorize(principal,target)))throw new SafetyReadUnavailable("generation_changed");
-      return safetyPageSchema.parse(page);
+      const parsed=safetyPageSchema.parse(page);
+      // Each delivered final page's attribution, so a subscription can start
+      // from what its response actually carried.
+      if(snapshot.attribution&&page.snapshotComplete&&snapshot.delivered){
+        snapshot.delivered.add(fingerprint(delivered.attributionUnknown??null));
+        if(snapshot.delivered.size>4)snapshot.delivered=null;
+      }
+      return parsed;
     }).deferred() as SafetyPage;
     }finally{release();}
   }
@@ -256,10 +264,11 @@ export class SafetyHistory {
     if(!this.subscriptions.has(key)&&this.subscriptions.size>=256)throw new SafetyReadUnavailable("capacity");
     const anchor=this.anchor(principal,identity,revision,snapshotId);
     this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(enforcement(anchor.projection)),valid,send,busy:false,entries:anchor.entries,admissions:anchor.admissions,nonDelivery:anchor.nonDelivery,attribution:anchor.attribution,
-      // An opted-in subscription starts knowing no attribution, so its first
-      // poll delivers the current one as an update (#4513): no response of
-      // its snapshot, first or retried, can leave it stale.
-      attributionHash:anchor.attribution?"":fingerprint(null)});this.poll();
+      // An opted-in subscription starts from the attribution its snapshot's
+      // final page delivered (#4513). When responses of that page differed
+      // (a retry after reuse) it starts knowing none, so its first poll
+      // delivers the current attribution: no response can leave it stale.
+      attributionHash:!anchor.attribution?fingerprint(null):anchor.delivered?.size===1?[...anchor.delivered][0]!:""});this.poll();
   }
   unsubscribe(key:object):void {this.subscriptions.delete(key);}
   revoke(principalIds:readonly string[]):void {

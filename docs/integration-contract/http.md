@@ -1582,8 +1582,9 @@ stores it. A stored finding that cannot be read keeps its binding turn-wide
 unknown. A turn never checked (one that predates this field, or ended any
 other way, such as a restart) reads as before: nothing is reported for it. A
 change to the field alone reaches an existing subscription as an update at the
-same revision, never as a gap, and a new subscription first receives the
-current field that way. Each page computes the field when it is
+same revision, never as a gap. A subscription whose final page was answered
+more than once with differing values first receives the current field that
+way. Each page computes the field when it is
 delivered; a retained snapshot never holds it, so the snapshot limits count
 evidence only. A name first observed
 after the turn's end is not reported (#5004). A client shows no tool as the

@@ -169,10 +169,9 @@ test("T9 reuse followed by another record arrives in the update's projection", a
     const read = await page(f.history, f);
     const sent: { projection?: { attributionUnknown?: unknown } }[] = [];
     f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent.push(value as never));
-    // The first poll delivers the attribution the subscription starts from.
-    await until(() => sent.length > 0, () => sent);
-    expect(sent.map(value => value.projection?.attributionUnknown), "SUBSCRIPTION_STARTS_WITH_THE_CURRENT_ATTRIBUTION").toEqual([[]]);
-    sent.length = 0;
+    // Let the subscription's first poll settle: nothing changed since the response.
+    await settled(f.history);
+    expect(sent, "UNCHANGED_SUBSCRIPTION_STAYS_QUIET").toEqual([]);
     const recorded = f.add("calypso");
     collector.admitting?.("fetch", "Bash");
     await recorded;
@@ -201,8 +200,7 @@ test("T10 another chat's reuse, live or stored, never reaches this chat", async 
     const read = await page(f.history, f);
     const sent: unknown[] = [];
     f.history.subscribe({}, f.principal, read.identity, read.highWater, read.snapshotId, () => true, value => sent.push(value));
-    await until(() => sent.length > 0, () => sent);
-    sent.length = 0;
+    await settled(f.history);
     const elsewhere = collect(f, "aeaea");
     elsewhere.admitting?.("circe", "WebFetch"); elsewhere.admitting?.("circe", "Bash");
     f.history.poll();
