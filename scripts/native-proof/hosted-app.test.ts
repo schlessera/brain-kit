@@ -679,7 +679,7 @@ if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] 
     if (held === "descriptor") fd = openSync(join(checkpoint.path, name), "r");
     else { holder = Bun.spawn(["/bin/sh", "-c", "read line"], { cwd: checkpoint.path, env: {}, stdin: "pipe", stdout: "ignore", stderr: "ignore" });
       await until(() => { try { return readlinkSync(`/proc/${holder!.pid}/cwd`) === checkpoint.path; } catch { return false; } }); }
-    const released = await client.release(id).then(() => "released", error => String(error));
+    const released = await client.release(id).then(() => "released", (error: unknown) => String(error));
     expect(deadlineClientError(released), `PINNED_NATIVE_RELEASE_REMAINS_UNKNOWN: ${released}`).toBe(true);
     await releaseObservations.drain();
     const path = join(ARTIFACTS, "native-release", `${id}.json`);
