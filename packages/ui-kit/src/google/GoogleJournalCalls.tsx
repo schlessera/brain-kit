@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-import { color, font } from "../tokens.js";
+import { color } from "../tokens.js";
 
 export interface GoogleJournalCall {
   /** Row key. */
@@ -47,10 +47,8 @@ function decisionWords(call: GoogleJournalCall): string {
   }
 }
 
-// The standing lists' MONO_ID size. An inline block keeps an id that fits the
-// line whole (a draft id never splits at its hyphen); one longer than the line
-// wraps inside itself, filling each line rather than stranding its "r-".
-const MONO: CSSProperties = { font: `500 11.5px/1.35 ${font.mono}`, display: "inline-block", maxWidth: "100%", overflowWrap: "anywhere", wordBreak: "break-all" };
+// Ids take `.bk-google-mono-id` from tokens.css, which the journal's outward
+// receipts share; a ui-react host loads that file and no kit inline style.
 const NOTE: CSSProperties = { margin: "8px 0 0", color: color.inkMute };
 
 /** Reversible admission receipts, inheriting the surrounding journal's type. */
@@ -61,15 +59,15 @@ export function GoogleJournalCalls({ calls, truncated, headingLevel = 3 }: Googl
     <section data-google-journal-calls="" style={{ minWidth: 0 }}>
       <Heading style={{ margin: 0, fontSize: "inherit", fontWeight: 500 }}>Reversible Google calls</Heading>
       <p style={{ margin: "8px 0 0" }}>These record each decision, not that Google applied it. Brain recorded how to reverse each admitted change, but restoring local files does not reverse them. Undo is not available here yet.</p>
-      <ul role="list" className="grid gap-[8px] any-pointer-coarse:gap-y-[16px]" style={{ margin: "8px 0 0", padding: 0, listStyle: "none" }}>
+      <ul role="list" className="bk-google-journal-list">
         {calls.map((call) => {
           const words = googleOperationWords(call.operation);
           return (
             <li key={call.id}>
               <span data-google-journal-row="">
-                {words.text}{words.mono !== undefined ? <> <span style={MONO} data-google-operation-id="">{words.mono}</span></> : null}
+                {words.text}{words.mono !== undefined ? <> <span className="bk-google-mono-id" data-google-operation-id="">{words.mono}</span></> : null}
                 {" · "}{decisionWords(call)}
-                {call.target !== null && call.target !== call.operation ? <> · <span style={MONO} data-google-journal-target="">{call.target}</span></> : null}
+                {call.target !== null && call.target !== call.operation ? <> · <span className="bk-google-mono-id" data-google-journal-target="">{call.target}</span></> : null}
               </span>
               {call.tainted && (call.decision === "allowed" || call.decision === "approved") ? (
                 <span data-google-journal-taint="" style={{ display: "block", color: color.inkMute }}>Review recommended: the chat had read text other people wrote.</span>

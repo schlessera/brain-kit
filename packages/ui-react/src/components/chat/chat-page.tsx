@@ -426,8 +426,8 @@ export function ChatPage() {
   };
 
   const handleToolApproval = useCallback(
-    (toolUseId: string, approved: boolean, always?: boolean) => {
-      return replyToToolApproval(root, sessionId, send, toolUseId, approved, always);
+    (toolUseId: string, approved: boolean, always?: boolean, forSession?: boolean) => {
+      return replyToToolApproval(root, sessionId, send, toolUseId, approved, always, forSession);
     },
     [send, sessionId, root]
   );

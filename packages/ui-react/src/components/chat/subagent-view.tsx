@@ -36,7 +36,7 @@ export function SubagentView({
 }: {
   spanId: string;
   backRef?: Ref<HTMLButtonElement>;
-  onApproval?: (toolUseId: string, approved: boolean, always?: boolean) => void;
+  onApproval?: (toolUseId: string, approved: boolean, always?: boolean, forSession?: boolean) => void;
 }) {
   const popSubagentView = useUIStore((s) => s.popSubagentView);
   const pushSubagentView = useUIStore((s) => s.pushSubagentView);

@@ -1,6 +1,6 @@
 import { ScopeCapCard, scopeReceiptText, scopeNumber } from "./scope-cap-card.js";
-import { Button, DiffBlock, Disclosure, IconButton, Overlay } from "@schlessera/brain-ui-kit";
-import type { TurnJournalChange, TurnJournalDetails, TurnJournalSummary } from "@schlessera/brain-ui-sdk/protocol";
+import { Button, DiffBlock, Disclosure, GoogleJournalCalls, googleOperationWords, IconButton, Overlay } from "@schlessera/brain-ui-kit";
+import type { JournalOutwardAction, TurnJournalChange, TurnJournalDetails, TurnJournalSummary } from "@schlessera/brain-ui-sdk/protocol";
 import { useEffect, useId, useRef, useState } from "react";
 import { JournalCoverage } from "./journal-coverage.js";
 import { turnJournalChangeCount } from "./turn-journal-count.js";
@@ -127,10 +127,11 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
           {details.missing.filter(item => item.reason !== "configuration_inputs_not_fully_identified").map((item, index) => <p key={`${item.path}-${index}`} className="break-all">{item.path} · {({ interrupted_observation: "Observation was interrupted", journal_capacity: "Journal storage was full", journal_unavailable: "Journal storage was unavailable", revert_not_observed: "The revert was not observed" } as Record<string, string>)[item.reason] ?? item.reason}</p>)}
         </section>}
         <JournalCoverage key={`${sessionId}/${turnId}`} coverage={summary?.configurationCoverage} missing={details?.missing} />
+        {details?.googleActions && <GoogleJournalCalls calls={details.googleActions} truncated={details.googleActionsTruncated} />}
         {!!details?.outwardActions?.length && <section className="min-w-0"><h3 className="font-medium">Outward actions</h3>
           <p className="mt-2">These receipts record approval, not external completion. External actions are irreversible here; restoring local files cannot undo them.</p>
           <ul className="grid gap-2 mt-2">{details.outwardActions.map(action => <li key={action.id} className="break-all min-w-0">
-            {({ git_push: "Git push", gh_write: "GitHub write", mcp_tool: "Outward tool", http_write: "HTTP write", outward_host_connect: "Outward connection", compute_run: "External compute job", google_write: "Google write" })[action.action]} · {({ policy_allowed: "Allowed by policy", approved: "Approved", declined: "Declined", refused: "Refused" })[action.decision]} · {action.target ?? "Destination unresolved"}{action.historyRewrite ? " · Remote history rewrite" : ""}
+            <OutwardActionWords action={action} /> · {({ policy_allowed: "Allowed by policy", approved: "Approved", declined: "Declined", refused: "Refused" })[action.decision]}<OutwardTarget action={action} />{action.historyRewrite ? " · Remote history rewrite" : ""}
           </li>)}</ul>
           {details.outwardActionsTruncated && <p className="mt-2">Showing the first 1,000 outward receipts. More remain in the retained governance records.</p>}
         </section>}
@@ -167,4 +168,24 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
     {revert.announcement}
     {revert.dialog}
   </div>;
+}
+
+const OUTWARD_WORDS: Record<JournalOutwardAction["action"], string> = { git_push: "Git push", gh_write: "GitHub write", mcp_tool: "Outward tool", http_write: "HTTP write", outward_host_connect: "Outward connection", compute_run: "External compute job", google_write: "Google write" };
+
+/** A Google receipt names its operation in the reversible list's words; older receipts keep "Google write". */
+function OutwardActionWords({ action }: { action: JournalOutwardAction }) {
+  if (!action.google) return <>{OUTWARD_WORDS[action.action]}</>;
+  const words = googleOperationWords(action.google.operation);
+  return <>{words.text}{words.mono !== undefined && <> <span className="bk-google-mono-id" data-google-operation-id="">{words.mono}</span></>}</>;
+}
+
+/**
+ * A Google target is drawn as in the reversible list: left out when it equals
+ * the operation id, which says nothing new, and otherwise a draft id in the
+ * kit's mono, kept whole when it fits the line.
+ */
+function OutwardTarget({ action }: { action: JournalOutwardAction }) {
+  if (!action.google || action.target === null) return <>{` · ${action.target ?? "Destination unresolved"}`}</>;
+  if (action.target === action.google.operation) return null;
+  return <> · <span className="bk-google-mono-id" data-google-journal-target="">{action.target}</span></>;
 }
