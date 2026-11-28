@@ -539,7 +539,7 @@ sandbox's UIDs can open.
 | --- | --- |
 | L1 agent workers (`launchAgentWorkerSteps`), every envelope | yes, unconditionally |
 | L2 asynchronous maintenance and transport (`launchMaintenanceWorker`, `runMaintenanceWorker`) | yes, at the direct start gate |
-| L3 synchronous maintenance (`runMaintenanceWorkerSync`) | **no; it walks.** It stays on `spawnSync`, the admission walk alone covers it, and every masked launch is recorded as unqualified (`runtime.unqualifiedLaunches`, site `synchronous-maintenance`). Its qualification is a follow-up. |
+| L3 synchronous maintenance (`runMaintenanceWorkerSync`) | **no; it walks.** It stays on `spawnSync` with main's argv (no seal), runs the brain's registered walk itself before it spawns (a refusal is the walk's typed error), and every launch for a brain with a layout, or that masks, is recorded as unqualified (`runtime.unqualifiedLaunches`, site `synchronous-maintenance`). Its qualification is a follow-up. |
 | L4–L6 fixed probes, the probe keeper and the output-staging keeper | no: constant host programs |
 | L7 the web executor | no: built outside the launcher, with no state masks (a separate follow-up) |
 

@@ -206,6 +206,12 @@ export interface LaunchDescription {
   tmpfs?: readonly string[];
   /** Whether output staging went through the keeper's namespace (`nsenter`). */
   staged?: boolean;
+  /** The caller's abort or deadline: it ends the mount-table wait and skips the walk (#4973 r4 F46). */
+  interrupted?: () => boolean;
+}
+/** The caller's abort or deadline arrived while the launch was being qualified; its own result stands. */
+export class WorkerQualificationInterrupted extends Error {
+  constructor() { super("the launch's qualification was interrupted by its caller"); this.name = "WorkerQualificationInterrupted"; }
 }
 /** An exposure's evidence: the rows that decide its name, and the launch's inputs. */
 export interface ExposureDiagnostic {
@@ -241,6 +247,23 @@ const reportedWithoutListener = new Set<string>();
  * instead (#4301 path O5).
  */
 export function recordUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: string): void { recordUnqualified(site, brain); }
+/**
+ * Synchronous maintenance's own check (#4301 path O5, #4973 r4 F42, F50): it
+ * is not qualified, so it runs every registered walk for its brain before it
+ * spawns, refusing with the walk's typed error, and it is counted as an
+ * unqualified launch whenever the brain has a layout or the launch masks.
+ */
+export function walkUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: string, masked: boolean): void {
+  const registered = workerPrivateStateProviders(brain);
+  if (registered.length || masked) recordUnqualified(site, brain);
+  for (const provider of registered) {
+    const refusal = provider.walk();
+    if (refusal) {
+      for (const each of workerPrivateStateReporters(brain)) report(each, { kind: "refused", ...refusal });
+      throw new WorkerPrivateStateError(refusal.reason, refusal.detail);
+    }
+  }
+}
 function recordUnqualified(site: UnqualifiedLaunchSite, brain: string): void {
   const launch = { at: Date.now(), site, brain };
   unqualified.count++; unqualified.last = launch;
@@ -257,7 +280,7 @@ function recordUnqualified(site: UnqualifiedLaunchSite, brain: string): void {
 }
 
 export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadline: number,
-  launch: LaunchDescription): WorkerSteps<NamespaceQualification> {
+  { interrupted, ...launch }: LaunchDescription): WorkerSteps<NamespaceQualification> {
   const registered = workerPrivateStateProviders(brain), reporters = workerPrivateStateReporters(brain);
   // No layout registered for this brain in this process (a backend or library
   // used on its own, whose masks are credential files): nothing to judge or
@@ -269,14 +292,17 @@ export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadlin
   }
   let cause: string | undefined;
   try {
-    const roots = observeStateRoots(registered.flatMap(provider => provider.roots()));
     let rows: MountRow[] | undefined;
     for (;;) {
       rows = parseMountinfo(readFileSync(`/proc/${pid}/mountinfo`, "utf8"));
       if (rows && namespaceComplete(rows)) break;
+      if (interrupted?.()) throw new WorkerQualificationInterrupted();
       if (Date.now() >= deadline) throw new Error(rows ? "the sandbox's mount table was not complete in time" : "the sandbox's mount table stayed empty");
       yield* workerStepSleep(1);
     }
+    // Observed against the final table, never before it: a root that appears
+    // while the sandbox finishes its mounts is judged (#4973 r4 F45).
+    const roots = observeStateRoots(registered.flatMap(provider => provider.roots()));
     const verdict = evaluateNamespace(rows, roots, processUids(pid), {
       owner: path => { try { const info = statSync(path); return { uid: info.uid, mode: info.mode }; } catch { return undefined; } },
       layer: path => {
@@ -303,9 +329,10 @@ export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadlin
     if (verdict.result === "hidden") return { result: "hidden" };
     cause = verdict.cause;
   } catch (error) {
-    if (error instanceof WorkerPrivateStateError) throw error;
+    if (error instanceof WorkerPrivateStateError || error instanceof WorkerQualificationInterrupted) throw error;
     cause = error instanceof Error ? error.message : String(error);
   }
+  if (interrupted?.()) throw new WorkerQualificationInterrupted();
   // Unknown never refuses by itself and never releases on boundary evidence alone.
   for (const provider of registered) {
     const refusal = provider.walk();

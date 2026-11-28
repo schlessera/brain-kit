@@ -5,10 +5,10 @@
  * synchronous write on the launch path.
  */
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { createNativeBrainManagerClient, privateStateRefusalOf, registerWorkerPrivateState, WorkerPrivateStateError } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeBrainManagerClient, kernelRealpath, privateStateRefusalOf, registerWorkerPrivateState, WorkerPrivateStateError } from "@schlessera/brain-ui-sdk/internal";
 import { workerPrivateStateProviders } from "../../ui-sdk/src/server/worker-private-state";
 import { createHostBoundary } from "../src/brain/host-boundary";
 import { createWriterGate } from "../src/brain/writer-gate";
@@ -281,4 +281,18 @@ describe("review round 3 (F38, F40)", () => {
     expect(refused, "F40_SCRATCH_QUERY_RAN").toHaveBeenCalled();
     expect(privateStateRefusalOf(thrown)?.reason, "F40_SCRATCH_REFUSAL_KEEPS_ITS_TYPE").toBe("private_state_exposed");
   }, watchdogMs(60_000));
+});
+
+describe("review round 4 (F43)", () => {
+  test("F43: a boundary named through a link then `..` registers its layout under the brain the kernel resolves", () => {
+    const root = mkdtempSync(join(tmpdir(), "odysseus-boundary-link-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const brain = join(root, "ithaca", "brain"); mkdirSync(join(brain, "x/y"), { recursive: true });
+    symlinkSync(join(brain, "x/y"), join(root, "hop"));
+    // hop/../.. is the brain in kernel order; Bun's realpathSync collapses it to the root.
+    const named = `${root}/hop/../..`;
+    expect(kernelRealpath(named)).toBe(realpathSync(brain));
+    const boundary = createHostBoundary({ brainPath: named, exec: {}, dbPath: join(root, "ui.db") });
+    cleanups.push(() => boundary.disposePrivateState?.());
+    expect(workerPrivateStateProviders(realpathSync(brain)).length, "F43_LAYOUT_UNDER_THE_KERNELS_BRAIN").toBeGreaterThan(0);
+  });
 });

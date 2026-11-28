@@ -35,7 +35,7 @@ import {
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
   startProviderRelay, relayedProviderKeys, hostProviderCredential, FIRST_PARTY_PROVIDER_RECIPIENTS, type ProviderRelay, type ProviderRelayReceipt,
-  privateStateRefusalOf, registerWorkerPrivateState, type WorkerPrivateStateEvent,
+  kernelRealpath, privateStateRefusalOf, registerWorkerPrivateState, type WorkerPrivateStateEvent,
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { markUnpinnedHostWriter, refuseHostFallback, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
@@ -220,7 +220,11 @@ const maintenanceRelayedKeys = (origins?: ReadonlyMap<string, readonly string[]>
   relayedProviderKeys(origins).filter(name => name !== FIRST_PARTY_PROVIDER_RECIPIENTS.typesafe.key || Boolean(origins?.has(name)));
 /** Deny direction (#3422): whether `path` is `dir` or below it; a `dir` of `/` holds every absolute path. */
 export const within = (dir: string, path: string) => isWithin(dir, path, { trailingSeparator: "boundary" });
-const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
+/**
+ * The kernel's own resolution, as the launcher and qualification resolve the
+ * brain: Bun's realpathSync collapses `link/..` lexically (#4973 r4 F43).
+ */
+const real = (path: string) => { try { return kernelRealpath(path); } catch { return resolve(path); } };
 
 /** A verdict for one preparation only; never retained across turns. */
 type OperationalStateCheck = { refusal: ReturnType<typeof operationalStateRefusal> };

@@ -8,6 +8,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ComputeToolResult } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { privateStateRefusalOf, WorkerPrivateStateError } from "@schlessera/brain-ui-sdk/internal";
 
 import { resolveComputeConfig } from "../src/config/env.js";
 import { computeFixture, SENTINEL, summary } from "./helpers/compute-host-fixture.js";
@@ -610,4 +611,19 @@ test("concurrent compute driver passes join the active pass without overlapping 
     expect(maximum, "COMPUTE_DRIVER_REENTRY_NEVER_OVERLAPS_VISITS").toBe(1);
     expect(visits, "COMPUTE_DRIVER_REENTRY_VISITS_EACH_JOB_ONCE").toEqual([first.job.id, second.job.id]);
   } finally { resume.resolve(); await Promise.allSettled([one, two]); }
+});
+
+describe("a private-state refusal (#4973 r4 F47)", () => {
+  test("is neither compute_disabled nor cached: the turn sees the typed refusal and the next call reads again", async () => {
+    let reads = 0;
+    const f = fixture({ host: { readConfig: async () => {
+      if (++reads === 1) throw new WorkerPrivateStateError("private_state_exposed", "WorkerPrivateStateError: turn journal is reachable in the worker's namespace at /opt/aeolus");
+      return { ok: true, config: summary() };
+    } } });
+    const call = f.host.forTurn(f.turn("t-1"));
+    const refused = await call({ tool: "brain_compute_health", input: {} }).catch(error => error);
+    expect(privateStateRefusalOf(refused)?.reason, `F47_TYPED_REFUSAL: ${JSON.stringify(refused)}`).toBe("private_state_exposed");
+    expect(code(await call({ tool: "brain_compute_health", input: {} })), "F47_RETRIED_AFTER_REFUSAL").toBe("ok");
+    expect(reads).toBe(2);
+  });
 });

@@ -140,6 +140,9 @@ describe("review round 1 (#4301)", () => {
     expect(overlayLayers("ro,lowerdir=/srv/a\\:b:/srv/c,upperdir=/srv/up:per,workdir=/srv/work"), "F3_ESCAPED_COLONS").toEqual(["/srv/a:b", "/srv/c", "/srv/up:per", "/srv/work"]);
     // Linux shows the legacy lowerdir as given, backslashes octal-escaped: `\\134:` is an escaped colon (F33).
     expect(overlayLayers("ro,lowerdir=/srv/ithaca\\134:state:/srv/oar"), "F33_ESCAPED_COLON_DECODED_BEFORE_SPLIT").toEqual(["/srv/ithaca:state", "/srv/oar"]);
+    // Backslashes pair up, as the kernel consumes them: after an even run a colon still separates layers (#4973 r4 F44).
+    expect(overlayLayers("ro,lowerdir=/srv/ithaca\\134\\134:/srv/oar"), "F44_PAIRED_BACKSLASHES_SPLIT").toEqual(["/srv/ithaca\\", "/srv/oar"]);
+    expect(overlayLayers("ro,lowerdir=/srv/ithaca\\134\\134\\134:state:/srv/oar"), "F44_ODD_RUN_ESCAPES").toEqual(["/srv/ithaca\\:state", "/srv/oar"]);
   });
   test("F4: a host mount stacked under another below a state root is not what that path shows", () => {
     const rows = table(line(1, 0, "8:1", "/@", "/"), line(2, 1, "8:1", "/state", "/srv/state"),

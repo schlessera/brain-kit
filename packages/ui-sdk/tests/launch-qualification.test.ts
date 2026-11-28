@@ -14,9 +14,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { text as streamText } from "node:stream/consumers";
 import { runMaintenanceWorker, runMaintenanceWorkerSync } from "../src/server/maintenance-worker";
-import { launchAgentWorker, launchAgentWorkerAsync, prepareWorkerSandbox, probeWorkerHost } from "../src/server/worker-launcher";
+import { launchAgentWorker, launchAgentWorkerAsync, prepareWorkerSandbox, probeWorkerHost, workerBootstrap } from "../src/server/worker-launcher";
 import { parseMountinfo, resolveMount, WORKER_NAMESPACE_SEAL } from "../src/server/namespace-qualification";
-import { onUnqualifiedLaunch, privateStateRefusalOf, qualifyWorkerNamespaceSteps, registerWorkerPrivateState, unqualifiedLaunches, type UnqualifiedLaunch, workerPrivateStateProviders, WorkerPrivateStateError, type WorkerPrivateStateEvent, type WorkerPrivateStateProvider } from "../src/server/worker-private-state";
+import { kernelRealpath, onUnqualifiedLaunch, privateStateRefusalOf, qualifyWorkerNamespaceSteps, WorkerQualificationInterrupted, registerWorkerPrivateState, unqualifiedLaunches, type UnqualifiedLaunch, workerPrivateStateProviders, WorkerPrivateStateError, type WorkerPrivateStateEvent, type WorkerPrivateStateProvider } from "../src/server/worker-private-state";
 import * as workerStatus from "../src/server/worker-status";
 import { assertScratchMaskAsync } from "../src/server/bridge-tools/mask";
 import { runWorkerStepsSync } from "../src/server/worker-steps";
@@ -137,6 +137,32 @@ describe("synchronous maintenance is not qualified; it walks (#4301 path O5, #50
     expect(f.ran(), "L3_PAYLOAD_RAN").toBe(1);
     expect(unqualifiedLaunches(), "L3_COUNTED_UNQUALIFIED").toMatchObject({ count: before + 1, last: { site: "synchronous-maintenance", brain: realpathSync(f.brain) } });
   }, watchdogMs(60_000));
+
+  test("F42: a synchronous launch runs the registered walk itself and refuses with its typed reason; the payload never runs", async () => {
+    const f = await fixture();
+    f.setWalk({ reason: "private_state_in_brain", detail: "the turn journal is inside the brain at .brain/ithaca" });
+    let refused: unknown;
+    try { runMaintenanceWorkerSync(maintenance(f, [f.markers])); } catch (error) { refused = error; }
+    expect(privateStateRefusalOf(refused)?.reason, `F42_SYNC_WALK_REFUSES: ${refused}`).toBe("private_state_in_brain");
+    await f.settle();
+    expect(f.ran(), "F42_PAYLOAD_NEVER_RAN").toBe(0);
+  }, watchdogMs(60_000));
+
+  test("F50: every synchronous launch for a brain with a layout is counted, masked or not", async () => {
+    const f = await fixture();
+    const before = unqualifiedLaunches().count;
+    expect(runMaintenanceWorkerSync(maintenance(f, [f.markers])).exitCode).toBe(0);
+    expect(unqualifiedLaunches(), "F50_UNMASKED_SYNC_COUNTED").toMatchObject({ count: before + 1, last: { site: "synchronous-maintenance" } });
+  }, watchdogMs(60_000));
+
+  test("F51: synchronous maintenance carries no namespace seal; a qualified launch does", async () => {
+    const f = await fixture();
+    const table = ["/bin/sh", "-c", "cat /proc/self/mountinfo"];
+    const sync = runMaintenanceWorkerSync({ ...maintenance(f, [f.markers]), command: table });
+    expect(sync.exitCode, sync.stderr).toBe(0);
+    expect(sync.stdout, "F51_SYNC_HAS_NO_SEAL").not.toContain(WORKER_NAMESPACE_SEAL);
+    expect((await runMaintenanceWorker({ ...maintenance(f, [f.markers]), command: table })).stdout, "F51_QUALIFIED_HAS_THE_SEAL").toContain(WORKER_NAMESPACE_SEAL);
+  }, watchdogMs(60_000));
 });
 
 describe("ownership rule on a shared-UID host (A17)", () => {
@@ -224,6 +250,46 @@ describe("qualification never judges an incomplete table (A25)", () => {
     expect(runWorkerStepsSync(qualifyWorkerNamespaceSteps(424242, f.brain, Date.now() + 200, { site: "maintenance", masked: true })), "STACKED_TO_DEADLINE_UNKNOWN").toEqual({ result: "namespace_unverified" });
     expect(f.events.at(-1)).toMatchObject({ kind: "namespace_unverified", cause: "the sandbox's mount table was not complete in time" });
   }, watchdogMs(30_000));
+  test("F45: state roots are observed against the final table, never before it", async () => {
+    const f = await fixture();
+    const served = injected(reads);
+    let observedAt = -1;
+    cleanups.push(registerWorkerPrivateState(f.brain, { roots: () => { observedAt = served(); return []; }, walk: () => undefined }));
+    runWorkerStepsSync(qualifyWorkerNamespaceSteps(424242, f.brain, Date.now() + 5_000, { site: "maintenance", masked: true }));
+    expect(observedAt, "F45_ROOTS_OBSERVED_AFTER_THE_FINAL_TABLE").toBe(4);
+  }, watchdogMs(30_000));
+  test("F46: the caller's abort or deadline ends the mount-table wait at once and skips the walk", async () => {
+    const f = await fixture();
+    injected(reads.slice(0, 3));
+    let walked = false;
+    f.duringWalk(() => { walked = true; });
+    const started = performance.now(), until = started + 100;
+    const interrupted = () => performance.now() >= until;
+    expect(() => runWorkerStepsSync(qualifyWorkerNamespaceSteps(424242, f.brain, Date.now() + 5_000, { site: "maintenance", masked: true, interrupted })), "F46_WAIT_INTERRUPTED")
+      .toThrow(WorkerQualificationInterrupted);
+    expect(performance.now() - started, "F46_INTERRUPTION_IS_PROMPT").toBeLessThan(2_000);
+    expect(walked, "F46_NO_WALK_AFTER_INTERRUPTION").toBe(false);
+  }, watchdogMs(30_000));
+  test("F46: an L2 launch whose mount table never completes keeps its caller's timeout and abort results, promptly", async () => {
+    const f = await fixture();
+    const real = fs.readFileSync;
+    // Every sandbox's table stays incomplete: the wait would run to the setup bound.
+    const spy = spyOn(fs, "readFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, ...rest: unknown[]) =>
+      typeof path === "string" && /^\/proc\/\d+\/mountinfo$/.test(path) && path !== `/proc/${process.pid}/mountinfo` ? reads[2]
+        : (real as (...args: unknown[]) => unknown)(path, ...rest)) as typeof fs.readFileSync);
+    cleanups.push(() => spy.mockRestore());
+    let started = performance.now();
+    const timed = await runMaintenanceWorker({ ...maintenance(f, [f.markers]), timeoutMs: 300 });
+    expect(timed, "F46_TIMEOUT_RESULT_KEPT").toMatchObject({ killed: true, exitCode: 137 });
+    expect(performance.now() - started, "F46_TIMEOUT_IS_PROMPT").toBeLessThan(3_000);
+    const controller = new AbortController();
+    started = performance.now();
+    setTimeout(() => controller.abort("Penelope recalls the ship"), 300);
+    const aborted = await runMaintenanceWorker({ ...maintenance(f, [f.markers]), signal: controller.signal, timeoutMs: 60_000 }).then(() => "resolved", error => ({ error }));
+    expect(aborted, "F46_ABORT_REASON_KEPT").toEqual({ error: "Penelope recalls the ship" });
+    expect(performance.now() - started, "F46_ABORT_IS_PROMPT").toBeLessThan(3_000);
+    expect(f.ran(), "F46_PAYLOAD_NEVER_RAN").toBe(0);
+  }, watchdogMs(60_000));
 });
 
 describe("resolveMount equals the kernel in a real sandbox (A8)", () => {
@@ -324,11 +390,24 @@ describe("review round 2 (#4301)", () => {
     fs.mkdirSync(join(f.brain, "x/y"), { recursive: true });
     fs.symlinkSync(join(f.brain, "x/y"), join(f.root, "hop"));
     const named = `${f.root}/hop/../..`;
+    // No root of the fixture's own layout exists: this unmasked launch has nothing to refuse.
+    f.setRoots([{ setting: "turn journal", path: join(f.root, "not-created-yet") }]);
     let consulted = 0;
     cleanups.push(registerWorkerPrivateState(named, { roots: () => { consulted++; return []; }, walk: () => undefined }));
     const worker = launchAgentWorker({ brainPath: named, startupView: f.view(), env: {}, command: ["/bin/sh", "-c", "exit 0"] });
     await worker.exited;
     expect(consulted, "F35_SAME_NAME_FINDS_THE_LAYOUT").toBeGreaterThan(0);
+  }, watchdogMs(60_000));
+
+  test("F43: the sandbox binds the brain the kernel resolves, the one qualification and the registry name", async () => {
+    const f = await fixture();
+    fs.mkdirSync(join(f.brain, "x/y"), { recursive: true });
+    fs.symlinkSync(join(f.brain, "x/y"), join(f.root, "hop"));
+    const named = `${f.root}/hop/../..`;
+    expect(kernelRealpath(named)).toBe(realpathSync.native(f.brain));
+    const { payload } = workerBootstrap({ brainPath: named, command: ["/bin/true"], env: {} });
+    const chdir = payload.argv[payload.argv.indexOf("--chdir") + 1];
+    expect(chdir, "F43_SANDBOX_BRAIN_IS_THE_KERNELS").toBe(kernelRealpath(named));
   }, watchdogMs(60_000));
 
   test("F25: with no host log listening, a skipped masked launch writes one stderr line per site and brain", async () => {

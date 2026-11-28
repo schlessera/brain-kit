@@ -44,7 +44,7 @@ import { z } from "zod";
 
 import { isEnvName, PROTECTED_TIER_A } from "@schlessera/brain-common/internal/protected-paths";
 import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
-import { AGENT_INFERENCE_CREDENTIAL_ENV, hostComputeCredential } from "@schlessera/brain-ui-sdk/internal";
+import { AGENT_INFERENCE_CREDENTIAL_ENV, hostComputeCredential, privateStateRefusalOf } from "@schlessera/brain-ui-sdk/internal";
 import { filterSubprocessEnv, type PermissionDecision, type PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import type { ComputeHealthToolInput, ComputeJobToolInput, ComputeRequestToolInput, ComputeToolCall, ComputeToolResult, ComputeToolRefusalCode } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { Logger } from "@opentelemetry/api-logs";
@@ -390,7 +390,13 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
         for (const instance of Object.values(parsed.data.providers)) if (instance.provider && !instance.byValue) await builtin(instance.provider);
         recordInstances(parsed.data);
         return { ok: true as const, config: parsed.data };
-      }, error => ({ ok: false as const, reason: `the brain's compute configuration could not be read: ${error instanceof Error ? error.message : String(error)}` }));
+      }, error => {
+        // A launch refused for private state is neither a failed read nor
+        // cached: the typed refusal reaches the turn and the next call checks
+        // again (#4973 r4 F47).
+        if (privateStateRefusalOf(error)) { if (turnConfigs.get(ctx.turnId) === read) turnConfigs.delete(ctx.turnId); throw error; }
+        return { ok: false as const, reason: `the brain's compute configuration could not be read: ${error instanceof Error ? error.message : String(error)}` };
+      });
       turnConfigs.set(ctx.turnId, read);
     }
     return read;

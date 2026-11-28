@@ -39,8 +39,18 @@ if [ "$kind" = identity ]; then
     shift
   done
   shift
-  # The variant files are bound; their source directory is this run's too.
+  # The variant files are bound; their source directory is this run's too,
+  # so it names the run's private state a second time (#4301). setup.sh still
+  # copies fault helpers and runs the fixture from there: a private read-only
+  # copy, taken before the run writes any state, takes its place before the
+  # source detaches (#4973 r4 F52).
+  mkdir /fixture-copy
+  mount -t tmpfs -o mode=0755 tmpfs /fixture-copy
+  cp -a /fixture-variants/. /fixture-copy/
+  mount -o remount,ro /fixture-copy
   umount -l /fixture-variants /fixture-runs
+  mount --bind /fixture-copy /fixture-variants
+  umount -l /fixture-copy
 elif [ "$kind" != host ]; then
   echo 'Invalid native proof kind' >&2
   exit 2

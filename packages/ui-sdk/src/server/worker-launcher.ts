@@ -581,7 +581,9 @@ export function workerCommand(input: WorkerLaunch,
    * bubblewrap's own `PWD` last, instead of as `--setenv` arguments: a direct
    * start gate restores them after release (#5016 F34).
    */
-  environment?: string[]): string[] {
+  environment?: string[],
+  /** Mount the namespace seal: only a launch that is qualified gets it (#4973 r4 F51). */
+  seal = false): string[] {
   if (input.startupView && input.sandbox?.profile === "governed" && !input.restricted && !input.maintenance) {
     throw new WorkerHostError("governed workers require their shared live brain; an immutable startupView cannot be mounted over that writable root");
   }
@@ -591,7 +593,8 @@ export function workerCommand(input: WorkerLaunch,
   if (!isAbsolute(input.brainPath) || !input.command[0] || !isAbsolute(input.command[0])) {
     throw new WorkerHostError("an absolute brain path and worker executable are required");
   }
-  const brain = realpathSync(input.brainPath);
+  // The kernel's resolution, as qualification and the host boundary use (#4973 r4 F43).
+  const brain = kernelRealpath(input.brainPath);
   const scratch = input.scratchPath ? realpathSync(normalize(input.scratchPath)) : WORKER_SCRATCH;
   if (!isAbsolute(scratch) || holds(brain, scratch) || holds(scratch, brain) || brain === "/tmp") {
     throw new WorkerHostError("scratch must be a separate location outside the authoritative brain and its ancestors");
@@ -794,7 +797,7 @@ export function workerCommand(input: WorkerLaunch,
   if (emptyHome) argv.push("--tmpfs", WORKER_EMPTY_HOME, "--remount-ro", WORKER_EMPTY_HOME);
   // The last mount option: once it is read-only in the sandbox's table,
   // bubblewrap has built every bind, mask and HOME of this launch (#4301).
-  argv.push("--tmpfs", WORKER_NAMESPACE_SEAL, "--remount-ro", WORKER_NAMESPACE_SEAL);
+  if (seal) argv.push("--tmpfs", WORKER_NAMESPACE_SEAL, "--remount-ro", WORKER_NAMESPACE_SEAL);
   // A governed or strict turn worker holds no provider credential its own
   // inference does not need (#1666); the CLI's providers name what is missing.
   const setenv = [...workerEnvironmentArgs({ env: input.env, ...(input.credentialEnv ? { credentialEnv: input.credentialEnv } : {}),
@@ -1148,13 +1151,19 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
  */
 export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: { source: string; gateSource: string },
   /** A direct spawn's gate goes before the rlimit prefix (#4301). */
-  direct = false): { command: string[]; env: Record<string, string>; payload: WorkerLaunchPayload } {
+  direct = false,
+  /**
+   * Whether the launch is qualified, and so carries the namespace seal: the
+   * agent launcher and the direct spawn. Synchronous maintenance and the
+   * fixed probes keep main's argv (#4973 r4 F51).
+   */
+  seal = direct): { command: string[]; env: Record<string, string>; payload: WorkerLaunchPayload } {
   // Resolve using this package's source/build output, never the brain's module resolver.
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
   const { limits: _limits, populateState: _populate, ...launch } = input;
   // A direct gate restores the launch's variables itself after release (#5016 F34).
   const environment = direct && status !== undefined && !gated(input) ? [] as string[] : undefined;
-  let argv = workerCommand(input, environment);
+  let argv = workerCommand(input, environment, seal);
   if (status !== undefined) {
     if (![status.source, status.gateSource].every(source => new RegExp(`^/proc/${process.pid}/fd/[0-9]+$`).test(source))) throw new WorkerHostError("invalid trusted worker status source");
     const bwrap = argv.indexOf(Bun.which("bwrap")!);
@@ -1705,7 +1714,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     }
     const bootInput = { ...input, limits: plan };
     transferNativeMaintenanceMasks(input, bootInput);
-    const boot = workerBootstrap(bootInput, cgroup?.path, status);
+    const boot = workerBootstrap(bootInput, cgroup?.path, status, false, true);
     // The helper enrolls only the payload launch. Coordination stays outside its cgroup.
     if (helper) identityBroker = withIdentity(boot, helper, payloadCommand(input), input, cgroup?.path, input.areaOutput?.storage ?? input.maintenance?.output?.storage,
       input.sandbox?.profile === "governed" && input.sandbox.retainedFolders?.length ? brain : undefined);

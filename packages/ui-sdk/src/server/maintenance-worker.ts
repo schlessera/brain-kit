@@ -24,7 +24,7 @@ import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
 import { reserveMaintenanceTemp, type MaintenanceTempDomain, type MaintenanceTempKind } from "./maintenance-temp-budget.js";
 import { OUTPUT_STAGING_BYTES_ENV, resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
-import { kernelRealpath, privateStateRefusalOf, recordUnqualifiedLaunch } from "./worker-private-state.js";
+import { kernelRealpath, privateStateRefusalOf, walkUnqualifiedLaunch } from "./worker-private-state.js";
 import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
 
@@ -529,9 +529,9 @@ function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: num
     // Synchronous callers cannot prepare an unreadable protected stage.
     // workerCommand refuses that stage before any payload or helper starts.
     preparedMaintenanceCommands.delete(input);
-    // Synchronous maintenance is not qualified; it walks (#4301 path O5, qualification in #5026).
-    // A masked launch is never skipped silently: it is recorded, with its site and brain.
-    if (launch.maintenance?.maskPaths?.length) recordUnqualifiedLaunch("synchronous-maintenance", kernelRealpath(input.brainPath));
+    // Synchronous maintenance is not qualified; it walks here, whatever its
+    // caller checked, and is counted (#4301 path O5, #4973 r4 F42, F50; qualification in #5026).
+    walkUnqualifiedLaunch("synchronous-maintenance", kernelRealpath(input.brainPath), Boolean(launch.maintenance?.maskPaths?.length));
     const boot = workerBootstrap(launch);
     pipes = yield* createWorkerPipesSteps();
     const child = yield* workerStepSpawn(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],

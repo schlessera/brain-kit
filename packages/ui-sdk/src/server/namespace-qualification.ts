@@ -135,6 +135,25 @@ const describe = (row: MountRow) => `${row.id} ${row.parent} ${row.sb} ${row.roo
  * first and split on the colons a `\\` does not escape (F33). `lowerdir+`,
  * `datadir+`, `upperdir` and `workdir` each name one layer.
  */
+/**
+ * The legacy lowerdir string split as the kernel splits it (#4973 r4 F44): a
+ * backslash escapes the character after it, so backslashes pair up and a
+ * colon after an even run still separates layers; each layer then drops its
+ * escapes.
+ */
+function splitLowerdir(value: string): string[] {
+  const layers: string[] = [];
+  let layer = "";
+  for (let at = 0; at < value.length; at++) {
+    const char = value[at]!;
+    if (char === "\\") { if (at + 1 < value.length) layer += value[++at]; }
+    else if (char === ":") { if (layer) layers.push(layer); layer = ""; }
+    else layer += char;
+  }
+  if (layer) layers.push(layer);
+  return layers;
+}
+
 export function overlayLayers(superOptions: string): string[] {
   const layers: string[] = [];
   for (const option of superOptions.split(",")) {
@@ -143,7 +162,7 @@ export function overlayLayers(superOptions: string): string[] {
     const key = option.slice(0, eq), value = decode(option.slice(eq + 1));
     // Linux keeps the legacy lowerdir string as given and octal-escapes its
     // backslashes: decode first, then split on the colons it left unescaped (F33).
-    if (key === "lowerdir") layers.push(...value.split(/(?<!\\):/).filter(Boolean).map(part => part.replace(/\\:/g, ":")));
+    if (key === "lowerdir") layers.push(...splitLowerdir(value));
     else if (["lowerdir+", "datadir+", "upperdir", "workdir"].includes(key)) layers.push(value);
   }
   return layers;

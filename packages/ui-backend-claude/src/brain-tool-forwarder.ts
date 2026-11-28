@@ -8,7 +8,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CallToolResultSchema, type JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { brainReadDefinitions, BRAIN_READ_DEFINITION_VERSION } from "@schlessera/brain/internal/read-definitions";
-import { launchAgentWorkerAsync, retainWorkerStartupView, processStateLedger,
+import { launchAgentWorkerAsync, privateStateRefusalOf, retainWorkerStartupView, processStateLedger,
   workerCleanupUnconfirmed, processCleanupReconciler, reportStrandedWorkerCleanup,
   type LaunchedWorker, type WorkerLimitReport, type WorkerSandbox, type WorkerStartupView, type WorkerLimitsPlan, type WorkerStateLimits,
 } from "@schlessera/brain-ui-sdk/internal";
@@ -100,7 +100,9 @@ export function createBrainToolForwarder(start: (signal: AbortSignal) => Promise
     observe(error);
     // A full budget is transient: the next read starts again once capacity
     // returns, instead of every later read repeating it (#4894 round 7 F1).
-    if ((error as { errorClass?: unknown })?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_busy) ready = undefined;
+    // A private-state refusal is the launch's verdict, not the forwarder's:
+    // the next read launches again and is checked again (#4973 r4 F49).
+    if ((error as { errorClass?: unknown })?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_busy || privateStateRefusalOf(error)) ready = undefined;
     else failed = error;
     throw error;
   });
@@ -124,8 +126,10 @@ export function createBrainToolForwarder(start: (signal: AbortSignal) => Promise
       } catch (error) {
         observe(error);
         const timeout = (error as { code?: number })?.code === -32001 || (error as Error)?.message === "brain_tool_timeout";
+        const refusal = privateStateRefusalOf(error);
         return { isError: true, content: [{ type: "text" as const,
-          text: `${timeout ? "brain_tool_timeout" : "brain_tool_unavailable"}: the sandboxed brain server could not complete this call. Other tools remain available.` }] };
+          text: refusal ? `${refusal.reason}: the sandboxed brain server was refused because host private state is reachable in its sandbox. The next call checks again. Other tools remain available.`
+            : `${timeout ? "brain_tool_timeout" : "brain_tool_unavailable"}: the sandboxed brain server could not complete this call. Other tools remain available.` }] };
       } finally { clearTimeout(timer); }
     });
   }
@@ -390,7 +394,11 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
     // Only active modules' tools are served by the brain's MCP server; a
     // dormant module's declarations do not count (#4894 round 7 F5).
     return result.enabled.some((module: { tools: string[]; state?: unknown }) => module.state !== "dormant" && module.tools.length > 0) ? "module-tools" : "core-only";
-  } catch { return "unavailable"; }
+  } catch (error) {
+    // A launch refused for private state is the turn's typed refusal, never a stdio fallback (#4973 r4 F48).
+    if (privateStateRefusalOf(error)) throw error;
+    return "unavailable";
+  }
   finally {
     clearTimeout(timer); controller.abort();
     // The deadline race alone decides the verdict: cleanup always runs
@@ -404,6 +412,6 @@ async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: Abo
 export async function probeBrainBridgeInventory(input: BrainToolWorkerInput, signal: AbortSignal) {
   const observed = safeStartupTiming(input.req.startupTiming)?.start("brain_tool_inventory");
   try { return await readBrainBridgeInventory(input, signal); }
-  catch { return "unavailable" as const; }
+  catch (error) { if (privateStateRefusalOf(error)) throw error; return "unavailable" as const; }
   finally { observed?.(); }
 }
