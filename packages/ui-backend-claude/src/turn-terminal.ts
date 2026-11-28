@@ -1,6 +1,7 @@
 import { SessionRosterIncompatibleError } from "./session-request-shape.js";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import type { ServerMessage, StartTurnRequest, TurnFailure } from "@schlessera/brain-ui-sdk/server";
+import { FastOutputUnavailableError } from "@schlessera/brain-ui-sdk/server";
 import { privateStateRefusalOf, WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
 
 import { SessionTooLargeError } from "./worker-state.js";
@@ -269,10 +270,10 @@ export function thrownTurnFailure(err: unknown): { refusal?: TurnRefusal; diagno
   if (privateState && (privateState.reason === "private_state_exposed" || privateState.reason === "private_state_unverified")) return { refusal: { code: privateState.reason.toUpperCase(), message: privateState.message,
     failure: { errorClass: privateState.errorClass, message: privateState.message } } };
   const stateClass = workerStateClass(err);
-  if (err instanceof WorkerHostError || err instanceof SessionTooLargeError || err instanceof SessionRosterIncompatibleError || stateClass) {
+  if (err instanceof WorkerHostError || err instanceof SessionTooLargeError || err instanceof SessionRosterIncompatibleError || err instanceof FastOutputUnavailableError || stateClass) {
     const { message } = err as Error;
     return { refusal: { code: "CLAUDE_ERROR", message,
-      failure: { errorClass: stateClass ?? (err as WorkerHostError | SessionTooLargeError | SessionRosterIncompatibleError).errorClass, message } } };
+      failure: { errorClass: stateClass ?? (err as WorkerHostError | SessionTooLargeError | SessionRosterIncompatibleError | FastOutputUnavailableError).errorClass, message } } };
   }
   return { diagnostic: { code: "CLAUDE_ERROR", message: err instanceof Error ? err.message : String(err) } };
 }
