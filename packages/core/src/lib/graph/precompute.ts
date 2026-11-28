@@ -59,20 +59,42 @@ function outputCounts(db: Database): string {
   ].map((table) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n));
 }
 
+/** A document was indexed after the tables were computed. */
+function provenanceBehind(db: Database): boolean {
+  const computedAt = getMeta(db, "graph_computed_at");
+  const { newest } = db
+    .prepare("SELECT MAX(indexed_at) AS newest FROM documents")
+    .get() as { newest: string | null };
+  return !!computedAt && !!newest && Date.parse(computedAt) < Date.parse(newest);
+}
+
+/** The cached tables were computed from exactly these inputs. */
+function cacheCurrent(db: Database, inputHash: string): boolean {
+  return getMeta(db, "graph_input_hash") === inputHash && !!getMeta(db, "graph_computed_at") &&
+    getMeta(db, "graph_output_counts") === outputCounts(db);
+}
+
 /**
  * The tables still describe the index, but a document was indexed after they
  * were computed (a body edit, say). Move `graph_computed_at` forward so the
  * reader's staleness check (newest `documents.indexed_at` against it) stays
  * false, and rewrite nothing else. A run in which nothing was indexed writes
  * nothing.
+ *
+ * The caller hashed the inputs outside any transaction, so another connection
+ * may have committed a title, tag or link since. The write therefore checks
+ * the fingerprint again under the write lock, in the snapshot it writes to,
+ * and moves nothing when the inputs changed: the caller then rebuilds.
+ * Returns whether the tables are still current.
  */
-function refreshProvenance(db: Database): void {
-  const computedAt = getMeta(db, "graph_computed_at");
-  const { newest } = db
-    .prepare("SELECT MAX(indexed_at) AS newest FROM documents")
-    .get() as { newest: string | null };
-  if (!computedAt || !newest || !(Date.parse(computedAt) < Date.parse(newest))) return;
-  setMeta(db, "graph_computed_at", new Date().toISOString());
+function refreshProvenance(db: Database, currentHash: () => string): boolean {
+  if (!provenanceBehind(db)) return true;
+  return db.transaction(() => {
+    if (!provenanceBehind(db)) return true;
+    if (!cacheCurrent(db, currentHash())) return false;
+    setMeta(db, "graph_computed_at", new Date().toISOString());
+    return true;
+  }).immediate();
 }
 
 /**
@@ -99,24 +121,15 @@ export function runGraphPrecomputeIfChanged(
   return precompute(db, options, true);
 }
 
-function precompute(
-  db: Database,
-  options: GraphPrecomputeOptions,
-  reuse: boolean
-): GraphPrecomputeResult | null {
-  const started = Date.now();
-
-  const root = resolveGraphRoot(db, {
-    root: options.root,
-    taxonomy: options.taxonomy,
-    override: options.rootOverride,
-  });
-  // Hash only what the graph tables are computed from (node ids and paths,
-  // titles for labels, link rows, tags), never layout output: a body edit
-  // leaves every table as it is. Resolving the root on every run also catches
-  // edits to index-excluded entry files. Bump revision when graph
-  // algorithms/label rules or the hashed inputs change, even if the numeric
-  // parameters do not. This key is internal disposable cache state.
+/**
+ * Hash only what the graph tables are computed from (node ids and paths,
+ * titles for labels, link rows, tags), never layout output: a body edit
+ * leaves every table as it is. Resolving the root on every run also catches
+ * edits to index-excluded entry files. Bump revision when graph
+ * algorithms/label rules or the hashed inputs change, even if the numeric
+ * parameters do not. This key is internal disposable cache state.
+ */
+function graphInputHash(db: Database, root: ReturnType<typeof resolveGraphRoot>, options: GraphPrecomputeOptions): string {
   const hash = createHash("sha256");
   hash.update(JSON.stringify({
     revision: 2, root, anchors: options.taxonomy.dirAnchors,
@@ -131,12 +144,24 @@ function precompute(
   ]) {
     for (const row of db.prepare(sql).iterate()) hash.update(JSON.stringify(row) + "\n");
   }
-  const inputHash = hash.digest("hex");
-  if (reuse && getMeta(db, "graph_input_hash") === inputHash && getMeta(db, "graph_computed_at") &&
-      getMeta(db, "graph_output_counts") === outputCounts(db)) {
-    refreshProvenance(db);
-    return null;
-  }
+  return hash.digest("hex");
+}
+
+function precompute(
+  db: Database,
+  options: GraphPrecomputeOptions,
+  reuse: boolean
+): GraphPrecomputeResult | null {
+  const started = Date.now();
+
+  const root = resolveGraphRoot(db, {
+    root: options.root,
+    taxonomy: options.taxonomy,
+    override: options.rootOverride,
+  });
+  let inputHash = graphInputHash(db, root, options);
+  // A rebuild after a failed recheck records the inputs that recheck read.
+  if (reuse && cacheCurrent(db, inputHash) && refreshProvenance(db, () => (inputHash = graphInputHash(db, root, options)))) return null;
 
   const { graph, nodes, edges, brokenLinks } = loadLinkGraph(db);
   const metrics = computeMetrics(graph);

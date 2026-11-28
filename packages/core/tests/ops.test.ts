@@ -314,7 +314,9 @@ describe("write operations index only the paths they change", () => {
     } finally {
       spy.mockRestore();
     }
-    expect(reads).toBe(2);
+    // Once by the write, once by its targeted run, and once more by the
+    // complete run that targeted run falls back to on finding the new row.
+    expect(reads).toBe(3);
     expect(row(db, other)).not.toBeNull();
   });
 

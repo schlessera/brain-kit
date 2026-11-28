@@ -13,8 +13,9 @@
  * not parsed: a row is written only from a successful parse, so its title and
  * aliases are what a parse of those bytes produced, and the caller takes them
  * from the index (`completeCorpusMaps`). An alias that itself holds a line
- * break is the one thing that reads back differently: aliases are stored one
- * per line, so it comes back as two. Targeted runs already read it that way.
+ * break is the one thing the index cannot give back whole, because aliases
+ * are stored one per line; `completeCorpusMaps` reads such a file's aliases
+ * from the file instead.
  *
  * Nothing here writes to the database. A file that cannot be read or parsed is
  * skipped with a warning rather than aborting the run — a file can vanish
@@ -112,16 +113,19 @@ export function parseMarkdownFiles(
   return { files: parsed, fileMap, aliasMap, unparsed };
 }
 
+/** The alias-map keys of a file's frontmatter `aliases`, in frontmatter order. */
+export function aliasKeys(aliases: unknown): string[] {
+  if (!Array.isArray(aliases)) return [];
+  return aliases.map((alias) => String(alias).toLowerCase().trim()).filter(Boolean);
+}
+
 /** Record this file's frontmatter aliases into the corpus-wide alias map. */
 function collectAliases(
   aliasMap: Map<string, string[]>,
   aliases: unknown,
   filePath: string
 ): void {
-  if (!Array.isArray(aliases)) return;
-  for (const alias of aliases) {
-    const key = String(alias).toLowerCase().trim();
-    if (!key) continue;
+  for (const key of aliasKeys(aliases)) {
     const paths = aliasMap.get(key) ?? [];
     paths.push(filePath);
     aliasMap.set(key, paths);
