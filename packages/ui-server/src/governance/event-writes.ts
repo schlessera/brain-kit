@@ -146,20 +146,22 @@ const SAFETY_END_RECORD_WAIT_MS = 10_000;
 
 /** The app side: every write commits on `writer` when there is one, else on `db` at once. */
 /**
- * One record's acknowledgment, validated by shape (#4351): `durable` (true,
- * committed, or a replay with a positive id that keeps its evidence), `loss`
- * (exactly {id:0, recorded:false}, which only a gapped turn tolerates),
- * `malformed` (bare false, or any id/recorded reply that is not a
- * non-negative integer id with a boolean recorded), or `none` (no
- * acknowledgment at all, such as a legacy recorder's void).
+ * The one strict parser for a record reply (#4351), used by every caller
+ * that reads one: the hosted writer's `firstTaint`, the legacy recorder
+ * adapter and turn egress's audit check. `durable`: true, a commit, or a
+ * replay with a positive id that keeps its evidence. `loss`: exactly
+ * {id:0, recorded:false}, which only a gapped turn tolerates. `none`: no
+ * reply at all (undefined), a legacy recorder's void. Anything else, bare
+ * false, a partial or mistyped shape, or an error reply, throws.
  */
-export function recordAcknowledgment(result: unknown): "durable" | "loss" | "malformed" | "none" {
+export function parseRecordReply(result: unknown): "durable" | "loss" | "none" {
+  if (result === undefined) return "none";
   if (result === true) return "durable";
-  if (result === false) return "malformed";
-  if (!result || typeof result !== "object" || !("id" in result || "recorded" in result)) return "none";
-  const { id, recorded } = result as { id?: unknown; recorded?: unknown };
-  if (typeof recorded !== "boolean" || typeof id !== "number" || !Number.isSafeInteger(id) || id < 0) return "malformed";
-  return recorded || id > 0 ? "durable" : "loss";
+  if (result !== null && typeof result === "object" && !("error" in result)) {
+    const { id, recorded } = result as { id?: unknown; recorded?: unknown };
+    if (typeof recorded === "boolean" && typeof id === "number" && Number.isSafeInteger(id) && id >= 0) return recorded || id > 0 ? "durable" : "loss";
+  }
+  throw new Error("Malformed recording acknowledgment");
 }
 export function createGovernanceWrites(db: Database, writer?: SqliteWriter): GovernanceWrites {
   const invoke = procedureCaller(db, { url, setup }, undefined, writer);
@@ -329,7 +331,11 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       });
     },
     // A replay keeps its durable evidence end to end (#4351).
-    firstTaint: (input, options) => record(input, options).then(result => recordAcknowledgment(result) === "durable"),
+    firstTaint: (input, options) => record(input, options).then(result => {
+      const reply = parseRecordReply(result);
+      if (reply === "none") throw new Error("Malformed recording acknowledgment");
+      return reply === "durable";
+    }),
     taint(turnId, sessionId) {
       return snapshot(()=>{
         if (shared.failed||lostInScope(turnId,sessionId)) return { eventId: 0, source: "legacy_unknown" };

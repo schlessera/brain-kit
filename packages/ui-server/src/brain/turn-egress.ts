@@ -7,7 +7,7 @@ import type { Database } from "bun:sqlite";
 import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
-import { recordAcknowledgment, type GovernanceWrites } from "../governance/event-writes.js";
+import { parseRecordReply, type GovernanceWrites } from "../governance/event-writes.js";
 import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
 import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
 import { STORAGE_SETTLEMENT_MS } from "../db/settlement.js";
@@ -135,11 +135,10 @@ export async function prepareTurnEgress(options: {
       let pending:unknown;
       recordFirstTaint(db,event,input=>{pending=record(input);});
       const result=await pending;
-      // One shape rule for every acknowledgment (`recordAcknowledgment`, #4351).
-      const acknowledged=recordAcknowledgment(result);
-      if(acknowledged==="durable")return true;
-      if(acknowledged==="loss")return false;
-      if(acknowledged==="malformed")throw new Error("Malformed recording acknowledgment");
+      // One strict parser for every reply (`parseRecordReply`, #4351); a malformed one throws.
+      const reply=parseRecordReply(result);
+      if(reply==="durable")return true;
+      if(reply==="loss")return false;
       const input=event.payload.occurrence;
       return !input?.admission?.trusted || db.query("SELECT id FROM safety_records WHERE id=? AND kind='occurrence'").get(input.id) !== null;
     },
@@ -214,10 +213,8 @@ export async function prepareTurnEgress(options: {
     const confirm=(result:unknown)=>{
       // A durable write or a replay passes; only the exact tolerated-loss
       // acknowledgment on a gapped turn is excused; any other reply stops the turn.
-      const acknowledged=recordAcknowledgment(result);
-      if(acknowledged==="durable"||acknowledged==="none")return;
-      if(acknowledged==="loss"&&tolerable&&gapped())return;
-      throw new Error("Egress audit was not durably recorded");
+      const reply=parseRecordReply(result);
+      if(reply==="loss"&&!(tolerable&&gapped()))throw new Error("Egress audit was not durably recorded");
     };
     if (!(committed instanceof Promise)) {try{confirm(committed);}catch{fail();}return;}
     const pending = committed.then(confirm).catch(fail).finally(() => recording.delete(pending));

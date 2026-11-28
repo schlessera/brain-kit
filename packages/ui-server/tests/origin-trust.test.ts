@@ -28,10 +28,13 @@ function trust(rule: TrustRule) {
   const live: OriginTrust = { revision: () => revision, read: () => ({revision,rules,policyHash,ruleInstances}), subscribe: cb => {listeners.add(cb);return () => {listeners.delete(cb);};} };
   return { live, publish(next:TrustRule[]) {const old=new Map(rules.map(r=>[r.id,JSON.stringify([r.selector,r.incomingContent])]));revision=String(BigInt(revision)+1n);ruleInstances=Object.fromEntries(next.map(r=>[r.id,old.get(r.id)===JSON.stringify([r.selector,r.incomingContent])?ruleInstances[r.id]??revision:revision]));rules=next;policyHash=revision.padStart(64,"0");for(const cb of listeners)cb();}, remove(notify=true) { rules=[];ruleInstances={};revision=String(BigInt(revision)+1n);policyHash="b".repeat(64);if(notify)for(const cb of listeners)cb(); } };
 }
-async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false, listenHost = "127.0.0.1", legacy = false) {
+/** `commitReply` replaces the write worker's safetyCommit reply after the real commit, for malformed-reply cells. */
+async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false, listenHost = "127.0.0.1", legacy = false, commitReply?: () => unknown) {
   const root=full?mkdtempSync(join(tmpdir(),"odysseus-origin-trust-")):null;
   const db = createUiDb(root?join(root,"ui.db"):":memory:"); connectedSafetySession(db,"voyage","turn-voyage");
-  const writer=full?openSqliteWriter(db):undefined;
+  const real=full?openSqliteWriter(db):undefined;
+  const writer=real&&commitReply?{...real,channel:(...args:Parameters<typeof real.channel>)=>{const channel=real.channel(...args);
+    return {...channel,call:async(name:string,...rest:unknown[])=>{const result=await channel.call(name,...rest);return name==="safetyCommit"?commitReply():result;}} as typeof channel;}} as typeof real:real;
   const writes = createGovernanceWrites(db,writer); let asks = 0, hits = 0;
   let decide: BackendBridge["requestPermission"] = async () => ({behavior:"deny",message:"Athena declines"});
   // How the host reports a denied card: an owner denial unless a test says it was withdrawn.
@@ -733,5 +736,30 @@ for (const source of ["untrusted", "trusted"] as const) test(`#4351: a ${source}
     expect(status, "HOSTED_REPLAY_KEEPS_ITS_DURABLE_EVIDENCE").toBe(200);
     expect(queryGovernanceEvents(f.db, { kinds: ["taint_exposure"], limit: 10 }), "HOSTED_REPLAY_RECORDS_ITS_TERMINAL_STATE").toHaveLength(1);
     expect(f.controller.signal.aborted).toBe(false);
+  } finally { troy.stop(); await f.close(); }
+});
+// #4351: one strict reply parser for every caller. A worker reply other than
+// {id:0, recorded:false} never resolves as a tolerated loss.
+for (const reply of [{ id: 0 }, { id: 0, recorded: "false" }, null] as const) test(`#4351: a malformed write-worker reply (${JSON.stringify(reply)}) on a gapped turn refuses the occurrence`, async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, true, "127.0.0.1", false, () => reply);
+  const troy = untrustedOrigin();
+  try {
+    gappedTurn(f);
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0), "MALFORMED_WORKER_REPLY_REFUSES_THE_OCCURRENCE").toBe(503);
+    expect(troy.hits()).toBe(0);
+  } finally { troy.stop(); await f.close(); }
+});
+// An explicit error reply is no acknowledgment, with or without a gap.
+for (const gapped of [false, true]) for (const lost of ["taint", "taint_exposure"] as const) test(`#4351: an explicit error reply for a ${lost} is malformed (${gapped ? "gapped" : "no gap"})`, async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, false, "127.0.0.1", true);
+  const troy = untrustedOrigin();
+  const original = f.writes.record;
+  try {
+    if (gapped) gappedTurn(f);
+    f.writes.record = async (...args) => args[0].kind === lost && (lost === "taint_exposure" || (args[0].payload as { source?: string }).source === "egress_connection") ? { error: "write failed" } as never : original(...args);
+    const status = await get(f.proxy.socketPath, troy.url).catch(() => 0);
+    await f.proxy.settled();
+    if (lost === "taint") { expect(status, "ERROR_REPLY_REFUSES_THE_OCCURRENCE").toBe(503); expect(troy.hits()).toBe(0); }
+    else expect(f.controller.signal.aborted, "ERROR_REPLY_STOPS_THE_TURN").toBe(true);
   } finally { troy.stop(); await f.close(); }
 });
