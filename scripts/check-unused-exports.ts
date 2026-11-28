@@ -47,6 +47,13 @@
 // The scanned package list is explicit. Other workspace packages are not
 // scanned: adding one is a reviewed change to SCANNED_PACKAGES.
 //
+// REPORTED_ROOTS are scanned by the same rules, report-only (#4706): their
+// findings are printed and listed in the `--json` report's `reportOnly`
+// section, and never fail the gate. A script that a workflow, a package.json
+// script or `Bun.spawn` runs by path is a program, not an importer's target:
+// the gate reads names, so such a file is never a finding by itself, only an
+// export in it that no file imports.
+//
 //   bun scripts/check-unused-exports.ts [root] [--json]
 
 import { existsSync, readFileSync } from "node:fs";
@@ -56,6 +63,9 @@ import { listTree, parse } from "./lib/source";
 
 /** The packages (directory names under packages/) whose `src/` is scanned. */
 export const SCANNED_PACKAGES = ["ui-server", "ui-kit", "ui-react"] as const;
+
+/** Repository directories scanned report-only: printed, never failing (#4706). */
+export const REPORTED_ROOTS = ["scripts/"] as const;
 
 export interface AllowlistEntry {
   file: string;
@@ -138,6 +148,8 @@ export interface Report {
   findings: Finding[];
   allowlisted: AllowlistEntry[];
   staleAllowlist: AllowlistEntry[];
+  /** REPORTED_ROOTS' findings, which never fail the gate (#4706). */
+  reportOnly: { roots: string[]; scannedFiles: number; findings: Finding[] };
 }
 
 const SOURCE = /\.(?:[cm]?tsx?|[cm]?jsx?)$/;
@@ -411,6 +423,8 @@ function reportedSignatures(root: string, pkg: string): Set<string> {
 
 export interface CheckOptions {
   packages?: readonly string[];
+  /** Report-only roots, as REPORTED_ROOTS. */
+  reportedRoots?: readonly string[];
   allowlist?: AllowlistEntry[];
   /** Repository-relative files to read instead of `git ls-files` (tests). */
   files?: string[];
@@ -418,6 +432,7 @@ export interface CheckOptions {
 
 export function check(root: string, options: CheckOptions = {}): Report {
   const packages = options.packages ?? SCANNED_PACKAGES;
+  const reportedRoots = options.reportedRoots ?? REPORTED_ROOTS;
   const allowlist = options.allowlist ?? ALLOWLIST;
   const listed = options.files ?? listTree(root);
   const files = listed.filter(file => SOURCE.test(file) && !file.endsWith(".d.ts"));
@@ -433,44 +448,60 @@ export function check(root: string, options: CheckOptions = {}): Report {
   const allowlisted: AllowlistEntry[] = [];
   let scannedFiles = 0;
 
+  const scan = (file: string, signatures: Set<string>, out: Finding[]) => {
+    const info = graph.modules.get(file)!;
+    const reached = used.get(file) ?? new Set<string>();
+    const reachedOutsideTests = usedOutsideTests.get(file) ?? new Set<string>();
+    const exports: Array<[string, number, Finding["kind"]]> = [
+      ...[...info.local].map(([name, line]) => [name, line, "declaration"] as [string, number, Finding["kind"]]),
+      ...[...info.forwards].map(([name, f]) => [name, f.line, "re-export"] as [string, number, Finding["kind"]]),
+    ];
+    for (const [name, line, declared] of exports) {
+      if (signatures.has(`${file}\0${name}`)) continue;
+      let kind: Finding["kind"] = declared;
+      if (reached.has(ALL) || reached.has(name)) {
+        // Used. Report it only if no production path can reach it.
+        if (declared !== "declaration" || !info.values.has(name) || info.references.has(name) ||
+          reachedOutsideTests.has(ALL) || reachedOutsideTests.has(name)) continue;
+        kind = "test-only";
+      }
+      const entry = excuse(kind, file, name);
+      if (entry) { allowlisted.push(entry); continue; }
+      out.push({ file, line, name, kind });
+    }
+  };
   for (const pkg of packages) {
     const signatures = reportedSignatures(root, pkg);
     const prefix = `packages/${pkg}/src/`;
     for (const file of files) {
       if (!file.startsWith(prefix) || TEST_FILE.test(file) || entryFiles.has(file)) continue;
       scannedFiles++;
-      const info = graph.modules.get(file)!;
-      const reached = used.get(file) ?? new Set<string>();
-      const reachedOutsideTests = usedOutsideTests.get(file) ?? new Set<string>();
-      const exports: Array<[string, number, Finding["kind"]]> = [
-        ...[...info.local].map(([name, line]) => [name, line, "declaration"] as [string, number, Finding["kind"]]),
-        ...[...info.forwards].map(([name, f]) => [name, f.line, "re-export"] as [string, number, Finding["kind"]]),
-      ];
-      for (const [name, line, declared] of exports) {
-        if (signatures.has(`${file}\0${name}`)) continue;
-        let kind: Finding["kind"] = declared;
-        if (reached.has(ALL) || reached.has(name)) {
-          // Used. Report it only if no production path can reach it.
-          if (declared !== "declaration" || !info.values.has(name) || info.references.has(name) ||
-            reachedOutsideTests.has(ALL) || reachedOutsideTests.has(name)) continue;
-          kind = "test-only";
-        }
-        const entry = excuse(kind, file, name);
-        if (entry) { allowlisted.push(entry); continue; }
-        findings.push({ file, line, name, kind });
-      }
+      scan(file, signatures, findings);
     }
+  }
+  const reportOnly = { roots: [...reportedRoots], scannedFiles: 0, findings: [] as Finding[] };
+  for (const file of files) {
+    if (!reportedRoots.some(prefix => file.startsWith(prefix)) || isTestFile(file)) continue;
+    reportOnly.scannedFiles++;
+    scan(file, new Set(), reportOnly.findings);
   }
   const hit = new Set(allowlisted);
   const staleAllowlist = allowlist.filter(entry => !hit.has(entry));
-  findings.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
-  return { schemaVersion: 1, packages: [...packages], scannedFiles, findings, allowlisted, staleAllowlist };
+  const order = (a: Finding, b: Finding) => a.file.localeCompare(b.file) || a.line - b.line;
+  findings.sort(order);
+  reportOnly.findings.sort(order);
+  return { schemaVersion: 1, packages: [...packages], scannedFiles, findings, allowlisted, staleAllowlist, reportOnly };
+}
+
+/** The gate's exit code: a finding or a stale entry fails it; report-only findings never do. */
+export function exitCode(report: Report): 0 | 1 {
+  return report.findings.length > 0 || report.staleAllowlist.length > 0 ? 1 : 0;
 }
 
 /** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
 export function lintGate(root: string): number {
   const report = check(root);
-  const failed = report.findings.length > 0 || report.staleAllowlist.length > 0;
+  const failed = exitCode(report) === 1;
   for (const f of report.findings) {
     if (f.kind === "test-only") {
       console.error(`${f.file}:${f.line}: \`${f.name}\` is imported only by tests and its own file never uses it, so no production path runs it — delete it with its tests, wire it, or allowlist it with \`kind: "test-only"\` and a reason in scripts/check-unused-exports.ts`);
@@ -485,6 +516,10 @@ export function lintGate(root: string): number {
   if (!failed) {
     console.log(`unused exports: ${report.scannedFiles} files in ${report.packages.join(", ")} clean (${report.allowlisted.length} allowlisted)`);
   }
+  const { roots, scannedFiles, findings } = report.reportOnly;
+  if (findings.length > 0) {
+    console.log(`unused exports, report-only (never fails): ${findings.length} in ${new Set(findings.map(f => f.file)).size} of ${scannedFiles} files under ${roots.join(", ")}; \`bun scripts/check-unused-exports.ts --json\` lists them under reportOnly`);
+  }
   return failed ? 1 : 0;
 }
 
@@ -495,7 +530,7 @@ if (import.meta.main) {
   if (json) {
     const report = check(root);
     console.log(JSON.stringify(report, null, 2));
-    process.exit(report.findings.length > 0 || report.staleAllowlist.length > 0 ? 1 : 0);
+    process.exit(exitCode(report));
   }
   process.exit(lintGate(root));
 }

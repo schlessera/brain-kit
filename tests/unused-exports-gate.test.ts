@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { ALLOWLIST, SCANNED_PACKAGES, check, isTestFile, type AllowlistEntry, type CheckOptions } from "../scripts/check-unused-exports.ts";
+import { ALLOWLIST, REPORTED_ROOTS, SCANNED_PACKAGES, check, exitCode, isTestFile, type AllowlistEntry, type CheckOptions } from "../scripts/check-unused-exports.ts";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -231,5 +231,48 @@ describe("unused exports gate: code only tests reach", () => {
       expect(entry.reason).toContain(entry.owner!);
     }
     for (const entry of ALLOWLIST.filter(e => e.kind === undefined)) expect(entry.owner).toBeUndefined();
+  });
+});
+
+describe("unused exports gate: report-only roots (#4706)", () => {
+  test("scans scripts/ report-only", () => {
+    expect([...REPORTED_ROOTS]).toEqual(["scripts/"]);
+  });
+
+  test("an export under scripts/ that no file imports is listed report-only, and the exit code stays 0", () => {
+    const report = tree({ "scripts/probe.ts": "export const probe = 1;\n" });
+    expect(report.reportOnly.findings).toEqual([{ file: "scripts/probe.ts", line: 1, name: "probe", kind: "declaration" }]);
+    expect(report.findings).toEqual([]);
+    expect(exitCode(report)).toBe(0);
+  });
+
+  test("a failing package finding still fails beside report-only findings", () => {
+    const report = tree({ "scripts/probe.ts": "export const probe = 1;\n", "packages/ui-server/src/probe.ts": "export const probe = 1;\n" });
+    expect(report.findings.map(f => f.file)).toEqual(["packages/ui-server/src/probe.ts"]);
+    expect(report.reportOnly.findings.map(f => f.file)).toEqual(["scripts/probe.ts"]);
+    expect(exitCode(report)).toBe(1);
+  });
+
+  test("the test-only rule applies under scripts/ too", () => {
+    const report = tree({ "scripts/probe.ts": "export function probeOnlyTests() {}\n", "tests/probe.test.ts": 'import { probeOnlyTests } from "../scripts/probe.ts";\nprobeOnlyTests();\n' });
+    expect(report.reportOnly.findings).toEqual([{ file: "scripts/probe.ts", line: 1, name: "probeOnlyTests", kind: "test-only" }]);
+    expect(report.findings).toEqual([]);
+  });
+
+  test("a script run only by path is scanned and is never a finding by itself", () => {
+    // Run by a workflow step, a package.json script and Bun.spawn; nothing imports it.
+    const report = tree({
+      "scripts/run-me.ts": 'const main = () => console.log("Ithaca");\nif (import.meta.main) main();\n',
+      "package.json": JSON.stringify({ scripts: { voyage: "bun scripts/run-me.ts" } }),
+      ".github/workflows/ci.yml": "jobs:\n  voyage:\n    steps:\n      - run: bun scripts/run-me.ts\n",
+      "scripts/launch.ts": 'Bun.spawnSync(["bun", "scripts/run-me.ts"]);\n',
+    });
+    expect(report.reportOnly.scannedFiles).toBe(2);
+    expect(report.reportOnly.findings).toEqual([]);
+  });
+
+  test("fixtures and skill tests under scripts/ are not scanned", () => {
+    const report = tree({ "scripts/fixtures/probe.ts": "export const probe = 1;\n", "scripts/skill-tests/probe.ts": "export const probe = 1;\n" });
+    expect(report.reportOnly).toEqual({ roots: ["scripts/"], scannedFiles: 0, findings: [] });
   });
 });
