@@ -629,7 +629,8 @@ for (const scenario of ["open-normal", "proc-normal", "cancel"] as const) {
       return originalOpen(pid, flags);
     }); restores.push(() => openFault.mockRestore());
     const procFault = spyOn(fs, "readFileSync").mockImplementation(((path: unknown, ...args: unknown[]) => {
-      if (scenario === "proc-normal" && registrationPid !== undefined && String(path) === `/proc/${registrationPid}/stat`) {
+      // Registration's own observation only: the start gate reads the same file afterwards (#4301).
+      if (scenario === "proc-normal" && registrationPid !== undefined && registrationFaults === 0 && String(path) === `/proc/${registrationPid}/stat`) {
         registrationFaults++; throw Object.assign(Error("maintenance registration observation"), { code: "EMFILE" });
       }
       return Reflect.apply(originalRead, fs, [path, ...args]);
