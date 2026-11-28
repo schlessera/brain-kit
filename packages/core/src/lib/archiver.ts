@@ -7,7 +7,7 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 import { openDatabase, migrateVecSchema, storedVectorWidth } from "./db.js";
 import { EMBEDDING_DIMENSIONS } from "./llm-defaults.js";
 import { updateDocument } from "./frontmatter-edit.js";
-import { safeResolve, WriteRefusedError, writeFileSafely } from "./safe-path.js";
+import { safeResolve, slashPath, WriteRefusedError, writeFileSafely } from "./safe-path.js";
 
 export interface ArchiveResult {
   path: string;
@@ -128,7 +128,7 @@ export async function archiveDocument(
   // close it — mirroring the original two-branch behaviour.
   if (options?.reindex) {
     const canonicalRoot = realpathSync(root);
-    const changed = [relative(canonicalRoot, fullPath), ...(archiveFullPath ? [relative(canonicalRoot, archiveFullPath)] : [])];
+    const changed = [fullPath, ...(archiveFullPath ? [archiveFullPath] : [])].map((path) => slashPath(relative(canonicalRoot, path)));
     if (options.db) {
       await options.reindex(options.db, changed);
     } else {
