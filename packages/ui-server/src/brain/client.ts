@@ -180,7 +180,9 @@ export function taxonomyArgv(brainPath: string, command: readonly string[] = bra
 /** Probe the selected content CLI, keeping unknown versions warning-only by default. */
 export async function probeBrainCliVersion(brainPath: string, log: Logger, options: { exec: ExecWrapperConfig; minimumVersion?: string; phase?: string; command?: readonly string[]; signal?: AbortSignal;
   /** @internal Where the CLI runs: in a maintenance worker while the host execution boundary holds (#1648). */
-  boundary?: HostBoundary; admissionSignal?: AbortSignal; outputBytes?: number; assertAuthorized?: () => void }): Promise<void | { deferred: WorkerPrivateStateError }> {
+  boundary?: HostBoundary; admissionSignal?: AbortSignal; outputBytes?: number; assertAuthorized?: () => void;
+  /** The writer gate the probe holds; a caller under its own exclusive hold asks with "none" (#4301 F19). Default "shared". */
+  gate?: "shared" | "none" }): Promise<void | { deferred: WorkerPrivateStateError }> {
   const phase = options.phase ?? "startup";
   const requirements = [{ owner: "@schlessera/brain-ui-server", kind: "minimum" as const, declaration: MIN_BRAIN_CLI_VERSION }];
   if (options.minimumVersion !== undefined) {
@@ -202,7 +204,7 @@ export async function probeBrainCliVersion(brainPath: string, log: Logger, optio
     if (boundary.isolated()) {
       // The CLI is the brain's own code: answered from a maintenance worker.
       const answer = await boundary.run({ argv: [...command, "--version"], env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
-        credentials: false, gate: "shared", purpose: "brain CLI version", admissionSignal: options.admissionSignal, ...(options.signal ? { signal: options.signal } : {}),
+        credentials: false, gate: options.gate ?? "shared", purpose: "brain CLI version", admissionSignal: options.admissionSignal, ...(options.signal ? { signal: options.signal } : {}),
         timeoutMs: VERSION_PROBE_TIMEOUT_MS, ...(options.outputBytes ? { outputBytes: options.outputBytes } : {}), ...(options.assertAuthorized ? { assertAuthorized: options.assertAuthorized } : {}) });
       result = { stdout: answer.stdout, stderr: answer.stderr, exitCode: answer.timedOut ? null : answer.exitCode,
         timedOut: answer.timedOut === true, cleanupWarnings: [] };
@@ -347,6 +349,8 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       // that ignores SIGTERM; abandoning a run must not leave the process alive.
       ...(signal ? { signal, killSignal: "SIGKILL" as const } : {}),
     }); } catch (error) {
+      // A launch refused for private state keeps its cause through any preparation step (#4301 F27).
+      if (privateStateRefusalOf(error)) throw error;
       if (maintenance?.bounded && !entered) throw new BrainMaintenanceUnavailable("The owner refused maintenance before its command started.");
       throw error;
     }

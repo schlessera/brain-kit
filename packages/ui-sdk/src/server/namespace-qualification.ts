@@ -173,7 +173,9 @@ export function evaluateNamespace(rows: readonly MountRow[], roots: readonly Sta
       const exposure = { setting: root.setting, path: root.path, name, row: describe(row) };
       const owner = inspect.owner(object);
       if (!owner) return { result: "unknown", cause: `the owner of ${root.setting} could not be read` };
-      if (!workerUids.includes(owner.uid) && (owner.mode & 0o077) === 0) ownershipOnly.push(exposure);
+      // An idmapped mount shows another owner at the worker's name than the host
+      // reads at its own: the host's owner decides nothing there (F31).
+      if (!row.options.includes("idmapped") && !workerUids.includes(owner.uid) && (owner.mode & 0o077) === 0) ownershipOnly.push(exposure);
       else return { result: "exposed", ...exposure };
     }
   }

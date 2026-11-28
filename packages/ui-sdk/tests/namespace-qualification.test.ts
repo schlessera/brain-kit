@@ -146,3 +146,13 @@ describe("review round 1 (#4301)", () => {
     expect(liveDescendantMounts(rows, "/srv/state").map(row => row.id), "F4_ONLY_LIVE_DESCENDANTS").toEqual([4, 5]);
   });
 });
+
+describe("review round 2 (#4301)", () => {
+  test("F31: an idmapped covering mount never gets the ownership rule: its host owner is not the worker's", () => {
+    const rows = table(line(1, 0, "8:1", "/@", "/"), line(2, 1, "8:1", "/state", "/srv/ithaca/state", "ext4", "rw,idmapped"), seal(3, 1));
+    const ownerOnly = { owner: () => ({ uid: 1000, mode: 0o40700 }), layer: () => undefined };
+    expect(evaluateNamespace(rows, [STATE], [21003], ownerOnly).result, "F31_IDMAPPED_IS_EXPOSED").toBe("exposed");
+    const plain = table(line(1, 0, "8:1", "/@", "/"), line(2, 1, "8:1", "/state", "/srv/ithaca/state"), seal(3, 1));
+    expect(evaluateNamespace(plain, [STATE], [21003], ownerOnly).result, "F31_PLAIN_OWNER_ONLY_STAYS").toBe("ownership_only");
+  });
+});

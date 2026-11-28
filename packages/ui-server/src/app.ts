@@ -542,8 +542,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   reconciled(hostExecution.reconcileExisting());
   await boundary.prepare();
   // An exposure refuses no boot: the version check is then repeated before any later execution (#4301).
-  const probeVersion = () => probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary });
-  if ((await probeVersion())?.deferred) boundary.deferPreflight?.(async () => (await probeVersion())?.deferred);
+  const probeVersion = (gate?: "shared" | "none") => probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary, ...(gate ? { gate } : {}) });
+  if ((await probeVersion())?.deferred) boundary.deferPreflight?.(async gate => (await probeVersion(gate))?.deferred);
   // The CLI now keeps its index in .brain-index/. Delete the root-level copy
   // an earlier release left (it holds document bodies a provider-restricted
   // turn must not read); the index is rebuilt below, never moved (#1668).

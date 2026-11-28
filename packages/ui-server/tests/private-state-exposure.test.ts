@@ -5,11 +5,14 @@
  * synchronous write on the launch path.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createNativeBrainManagerClient, privateStateRefusalOf, registerWorkerPrivateState, WorkerPrivateStateError } from "@schlessera/brain-ui-sdk/internal";
 import { workerPrivateStateProviders } from "../../ui-sdk/src/server/worker-private-state";
 import { createHostBoundary } from "../src/brain/host-boundary";
+import { createWriterGate } from "../src/brain/writer-gate";
+import { createRuntimeStatus } from "../src/activity/runtime-status";
 import { WorkerIdentityCleanupError } from "../../ui-sdk/src/server/worker-identity";
 import { brainGitSync, runMaintenanceWorker } from "../../ui-sdk/src/server/maintenance-worker";
 import { createFixtureMaintenanceHost } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
@@ -194,4 +197,62 @@ describe("an unqualified masked launch is never silent (#4301 Q1 ruling)", () =>
     const status = await (await app.fetch(new Request("http://localhost/api/status"))).json() as { runtime?: { unqualifiedLaunches?: unknown } };
     expect(status.runtime?.unqualifiedLaunches, "UNQUALIFIED_SKIP_IN_STATUS").toMatchObject({ count: expect.any(Number), last: { site: "maintenance", brain: realpathSync(other) } });
   }, watchdogMs(90_000));
+});
+
+describe("review round 2 at the boundary (F19, F22, F30)", () => {
+  /** An isolated native boundary whose brain also has a layout the host cannot read: every launch walks at its gate. */
+  function walkingBoundary(onWalk: () => void, gate?: () => ReturnType<typeof createWriterGate>) {
+    const root = mkdtempSync(join(tmpdir(), "odysseus-boundary-walk-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const brain = join(root, "brain"), marker = join(root, "marker"); mkdirSync(brain); mkdirSync(join(root, "state"));
+    writeFileSync(join(brain, "ithaca.md"), "# Ithaca\n"); writeFileSync(marker, "");
+    const native = createNativeAppFixture(brain); cleanups.push(native.close);
+    const db = createUiDb(join(root, "state/ui.db")); cleanups.push(() => db.close());
+    const writerGate = createWriterGate(db, brain);
+    const boundary = createHostBoundary({ brainPath: brain, dbPath: join(root, "state/ui.db"), nativeManager: createNativeBrainManagerClient(native.nativeBrain),
+      gate: gate ?? (() => writerGate) });
+    cleanups.push(() => boundary.disposePrivateState?.());
+    const notADirectory = join(root, "not-a-directory"); writeFileSync(notADirectory, "x");
+    cleanups.push(registerWorkerPrivateState(brain, { roots: () => [{ setting: "turn journal", path: join(notADirectory, "journal") }], walk: () => { onWalk(); return undefined; } }));
+    const payload = { argv: ["/bin/sh", "-c", `printf ran >> ${JSON.stringify(marker)}`], env: { PATH: "/usr/bin:/bin" }, credentials: false, purpose: "odysseus check", writeFiles: [marker] };
+    return { boundary, marker, payload, writerGate };
+  }
+  const ran = (marker: string) => readFileSync(marker, "utf8");
+
+  test("F22: an abort while boundary.launch waits at the gate never starts the payload", async () => {
+    const controller = new AbortController();
+    const f = walkingBoundary(() => controller.abort());
+    await expect(f.boundary.launch({ ...f.payload, gate: "shared", signal: controller.signal }), "F22_LAUNCH_ABORT_REJECTS").rejects.toThrow();
+    expect(ran(f.marker), "F22_LAUNCH_ABORT_NEVER_RAN").toBe("");
+  }, watchdogMs(60_000));
+
+  test("F22: a walk that outlasts boundary.run's timeout never starts the payload", async () => {
+    const f = walkingBoundary(() => Bun.sleepSync(1_500));
+    await f.boundary.run({ ...f.payload, gate: "shared", timeoutMs: 500 }).catch(() => undefined);
+    expect(ran(f.marker), "F22_RUN_TIMEOUT_NEVER_RAN").toBe("");
+  }, watchdogMs(60_000));
+
+  test("F19: an ungated caller under an exclusive hold runs its own deferred check, also beside a pending gated one", async () => {
+    const f = walkingBoundary(() => {});
+    const modes: string[] = [];
+    f.boundary.deferPreflight!(async mode => { modes.push(mode); await f.boundary.run({ ...f.payload, argv: ["/bin/sh", "-c", "exit 0"], gate: mode, timeoutMs: 20_000 }); return undefined; });
+    const hold = await f.writerGate.acquire("exclusive", "workspace history revert");
+    try {
+      // A gated caller's check waits for the exclusive hold; the ungated one must not.
+      const gated = f.boundary.run({ ...f.payload, argv: ["/bin/sh", "-c", "exit 0"], gate: "shared", timeoutMs: 20_000 });
+      await Bun.sleep(200);
+      const ungated = await f.boundary.run({ ...f.payload, argv: ["/bin/sh", "-c", "exit 0"], gate: "none", timeoutMs: 20_000 });
+      expect(ungated.exitCode, "F19_UNGATED_RUN_UNDER_EXCLUSIVE_HOLD_RESOLVES").toBe(0);
+      expect(modes, "F19_UNGATED_CHECK_IS_ITS_OWN").toEqual(["shared", "none"]);
+      await hold.release();
+      expect((await gated).exitCode, "F19_GATED_CALLER_COMPLETES_AFTER_RELEASE").toBe(0);
+    } finally { await hold.release().catch(() => {}); }
+  }, watchdogMs(90_000));
+
+  test("F30: an exposure's log line says governed and strict turns are refused", () => {
+    const lines: string[] = [];
+    const status = createRuntimeStatus(undefined, { emit: (record: { body?: unknown }) => { lines.push(String(record.body)); }, enabled: () => true } as never);
+    status.recordGoverned({ hostExecution: "worker", available: false, reason: "private_state_exposed", detail: "WorkerPrivateStateError: turn journal is reachable at /opt/aeolus" });
+    expect(lines.join("\n"), "F30_EXPOSURE_REFUSES_BOTH_PROFILES").toContain("Governed and strict turns are refused");
+    expect(lines.join("\n")).not.toContain("run under strict");
+  });
 });

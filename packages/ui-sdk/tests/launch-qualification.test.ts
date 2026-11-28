@@ -334,3 +334,34 @@ describe("review round 1: one registry and one refusal per process (F11-F13)", (
     expect(rejected, "F11_SCRATCH_QUERY_KEEPS_REFUSAL").toBe(refusal);
   });
 });
+
+describe("review round 2 (#4301)", () => {
+  test("F16: a root configured through a link then `..` resolves in kernel order and is judged", async () => {
+    const f = await fixture();
+    // link -> sub/deep, so link/.. is sub, not the root's parent: the state lives under sub.
+    fs.mkdirSync(join(f.root, "sub/deep"), { recursive: true });
+    const state = join(f.root, "sub/state/brain-ui.db.journal"); fs.mkdirSync(state, { recursive: true });
+    fs.symlinkSync(join(f.root, "sub/deep"), join(f.root, "link"));
+    // Built by hand: path.join would collapse `link/..` before the kernel follows the link.
+    f.setRoots([{ setting: "turn journal", path: `${f.root}/link/../state/brain-ui.db.journal` }]);
+    const refused = await runMaintenanceWorker(maintenance(f, [f.markers, state])).catch(error => error);
+    expect(isExposure(refused), `F16_KERNEL_ORDER_ROOT_REFUSED: ${refused}`).toBe(true);
+    expect(f.ran()).toBe(0);
+  }, watchdogMs(60_000));
+
+  test("F25: with no host log listening, a skipped masked launch writes one stderr line per site and brain", async () => {
+    const f = await fixture();
+    const other = join(f.root, "other-brain"); mkdirSync(other);
+    const lines: string[] = [], write = process.stderr.write.bind(process.stderr);
+    const spy = spyOn(process.stderr, "write").mockImplementation(((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      if (String(chunk).includes("worker_launch_unqualified")) { lines.push(String(chunk)); return true; }
+      return (write as (...args: unknown[]) => boolean)(chunk, ...rest);
+    }) as typeof process.stderr.write);
+    cleanups.push(() => spy.mockRestore());
+    for (let i = 0; i < 2; i++) {
+      const view = createFixtureWorkerStartupView(other); cleanups.push(view.cleanup);
+      expect((await runMaintenanceWorker({ ...maintenance(f, [f.markers]), brainPath: other, startupView: view, maskPaths: [join(f.root, "state")] })).exitCode).toBe(0);
+    }
+    expect(lines.map(line => JSON.parse(line)), "F25_ONE_LINE_PER_SITE_AND_BRAIN").toEqual([expect.objectContaining({ kind: "worker_launch_unqualified", site: "maintenance", brain: realpathSync(other) })]);
+  }, watchdogMs(60_000));
+});

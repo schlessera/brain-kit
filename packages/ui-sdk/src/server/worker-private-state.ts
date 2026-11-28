@@ -72,7 +72,8 @@ export interface WorkerPrivateStateProvider {
 const REGISTRY = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-registry");
 const providers: Map<string, Map<unknown, Set<WorkerPrivateStateProvider>>> =
   ((globalThis as Record<symbol, unknown>)[REGISTRY] ??= new Map()) as Map<string, Map<unknown, Set<WorkerPrivateStateProvider>>>;
-const brainKey = (brain: string) => { try { return realpathSync(brain); } catch { return resolve(brain); } };
+// The kernel's component order: a link is followed before a later `..` (F16).
+const brainKey = (brain: string) => { try { return realpathSync.native(brain); } catch { return resolve(brain); } };
 
 /**
  * Register the private-state layout of one brain; returns its disposer. A
@@ -145,7 +146,7 @@ export function observeStateRoots(roots: readonly { setting: string; path: strin
   const observed: StateRootObservation[] = [];
   for (const root of roots) {
     let path: string;
-    try { path = realpathSync(root.path); }
+    try { path = realpathSync.native(root.path); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
     observed.push({ setting: root.setting, path, ...coordinates(path, hostRow(path, rows)) });
     if (!lstatSync(path).isDirectory()) continue;
@@ -220,10 +221,21 @@ export function onUnqualifiedLaunch(listener: (launch: UnqualifiedLaunch) => voi
   unqualified.listeners.add(listener);
   return () => { unqualified.listeners.delete(listener); };
 }
+/** The sites and brains already reported on stderr, with no host log listening (F25). */
+const reportedWithoutListener = new Set<string>();
 function recordUnqualified(site: UnqualifiedLaunchSite, brain: string): void {
   const launch = { at: Date.now(), site, brain };
   unqualified.count++; unqualified.last = launch;
   for (const listener of unqualified.listeners) { try { listener(launch); } catch { /* A diagnostic never changes the launch. */ } }
+  // A standalone backend or library has no host log: one line per site and brain, never silent.
+  const key = `${site}\u0000${brain}`;
+  if (!unqualified.listeners.size && !reportedWithoutListener.has(key)) {
+    reportedWithoutListener.add(key);
+    try {
+      process.stderr.write(JSON.stringify({ kind: "worker_launch_unqualified", reason: "no_private_state_layout", site, brain,
+        message: `a masked ${site} launch skipped private-state qualification: no private-state layout is registered for brain ${brain} in this process` }) + "\n");
+    } catch { /* A diagnostic never changes the launch. */ }
+  }
 }
 
 export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadline: number,
@@ -251,7 +263,7 @@ export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadlin
       owner: path => { try { const info = statSync(path); return { uid: info.uid, mode: info.mode }; } catch { return undefined; } },
       layer: path => {
         try {
-          const real = realpathSync(path), host = parseMountinfo(readFileSync("/proc/self/mountinfo", "utf8"));
+          const real = realpathSync.native(path), host = parseMountinfo(readFileSync("/proc/self/mountinfo", "utf8"));
           return host ? coordinates(real, hostRow(real, host)) : undefined;
         } catch { return undefined; }
       },

@@ -242,7 +242,7 @@ export function createRuntimeStatus(
         ? { severityText: "INFO", body: "the governed profile is available; the brain's own code runs only in maintenance workers", attributes }
         // A worker host failure is already a warning of its own; say it once.
         : { severityText: status.reason === "worker_host_unavailable" ? "INFO" : "WARN",
-          body: `the governed profile is unavailable (${status.reason}): ${status.detail}. ${status.reason === "private_state_unverified" ? "Governed and strict turns are refused until private-state verification succeeds." : status.reason === "worker_host_unavailable" ? "Agent turns cannot start until worker host qualification succeeds." : "Interactive and voice turns run under strict."}`, attributes });
+          body: `the governed profile is unavailable (${status.reason}): ${status.detail}. ${status.reason === "private_state_unverified" ? "Governed and strict turns are refused until private-state verification succeeds." : status.reason === "private_state_exposed" ? "Governed and strict turns are refused until the exposed private state is masked or removed; the next admission checks again." : status.reason === "worker_host_unavailable" ? "Agent turns cannot start until worker host qualification succeeds." : "Interactive and voice turns run under strict."}`, attributes });
     },
     snapshot() {
       return {

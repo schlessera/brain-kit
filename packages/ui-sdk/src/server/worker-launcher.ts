@@ -1208,7 +1208,7 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     status.closeWriter();
     // An asynchronous caller's exit closes it; a synchronous one calls `close`.
     void child.exited.then(close, close);
-    yield* qualifyWorkerNamespaceSteps(pid, realpathSync(input.brainPath), spawnedAt + STATE_SETUP_MS,
+    yield* qualifyWorkerNamespaceSteps(pid, realpathSync.native(input.brainPath), spawnedAt + STATE_SETUP_MS,
       { site: input.transport ? "transport" : "maintenance", masked: launchMasked(input), ...launchDescription(input, boot.env), launcher: "spawnQualifiedSteps" });
     if (options.signal?.aborted) { aborted = true; throw options.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"); }
     if (deadline !== undefined && Date.now() >= deadline) {
