@@ -124,6 +124,25 @@ test("the candidate read does the same work over 20 and over 2,000 settled threa
   expect(many.steps, "CANDIDATE_WORK_INDEPENDENT_OF_SETTLED_THREADS").toBe(few.steps);
 });
 
+test("the expired-work branch does the same work over 20 and over 2,000 threads whose cleanup is queued and not yet run (#4993)", () => {
+  const work = (threads: number) => {
+    const db = createUiDb(":memory:");
+    try {
+      // Queued: finished work, and a staging cleanup still `ready` with no expiry.
+      seedFinished(db, threads);
+      expect(db.query("SELECT COUNT(*) AS n FROM inbox_items WHERE type = 'cleanup_pending' AND status = 'ready'").get()).toEqual({ n: threads });
+      const recorded = recordStatements(db);
+      sweepInboxLifecycle(recorded.db, SWEEP_AT);
+      const candidates = recorded.statements.find(statement => statement.sql.includes("UNION SELECT"));
+      expect(candidates).toBeDefined();
+      return vmSteps(db, candidates!.sql, SWEEP_AT);
+    } finally { db.close(); }
+  };
+  const few = work(20), many = work(2_000);
+  expect([few.rows, many.rows]).toEqual([0, 0]);
+  expect(many.steps, "CANDIDATE_WORK_INDEPENDENT_OF_QUEUED_CLEANUPS").toBe(few.steps);
+});
+
 test("inbox_cleanup_due holds exactly the triage items whose thread has no cleanup for them, by trigger and by backfill (#4897)", () => {
   const db = createUiDb(":memory:");
   try {
@@ -177,7 +196,10 @@ test("the candidate read searches the ready index and never scans the inbox", ()
     const steps = queryPlan(db, candidates!);
     // The one scan is of the due triage items, which holds no settled thread (#4897).
     expect(steps.filter(step => step.startsWith("SCAN "))).toEqual(["SCAN d USING COVERING INDEX inbox_cleanup_due_thread"]);
-    expect(steps.filter(step => step.startsWith("SEARCH inbox_items ")).every(step => step.includes("USING INDEX inbox_items_ready"))).toBe(true);
+    // Work past its retention is read by expiry, without queued staging cleanups (#4993).
+    const searches = steps.filter(step => step.startsWith("SEARCH inbox_items "));
+    expect(searches.filter(step => !step.includes("USING INDEX inbox_items_ready"))).toEqual(["SEARCH inbox_items USING INDEX inbox_items_work_expiry (status=? AND expires_at<?)"]);
+    expect(searches.length).toBe(5);
     // Finished work is read only from the threads of those due items.
     expect(steps.filter(step => step.startsWith("SEARCH i "))).toEqual(["SEARCH i USING INDEX inbox_items_thread (thread_id=?)"]);
   } finally { db.close(); }
