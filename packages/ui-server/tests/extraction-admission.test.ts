@@ -61,10 +61,10 @@ function fixture(): Fixture {
   } as unknown as BackendBridge;
   return { bridge, requests, emitted, activity, answer: decision => waiting.shift()?.(decision), asked: () => asked };
 }
-const turn = (db: Db, bridge: BackendBridge, options: { policy?: GovernancePolicyInput; origin?: "interactive" | "voice"; sessionId?: string | null } = {}) =>
+const turn = (db: Db, bridge: BackendBridge, options: { policy?: GovernancePolicyInput; origin?: "interactive" | "voice"; sessionId?: string | null; record?: (event: Parameters<typeof recordGovernanceEvent>[1]) => unknown } = {}) =>
   prepareTurnEgress({ controller: new AbortController(), policy: resolveGovernancePolicy(options.policy ?? HEURISTICS),
     turnId: "turn-ogygia", sessionId: () => options.sessionId ?? null, model: () => "claude-haiku-4-5", profile: "governed",
-    origin: options.origin ?? "interactive", bridge, record: event => recordGovernanceEvent(db, event), governanceDb: db, brainPath: brain });
+    origin: options.origin ?? "interactive", bridge, record: options.record ?? (event => recordGovernanceEvent(db, event)), governanceDb: db, brainPath: brain });
 /** The card for `pending`, or a named failure when it settles without one. */
 async function raised(f: Fixture, pending: Promise<unknown>, label: string): Promise<void> {
   const asked = f.asked();
@@ -348,6 +348,49 @@ test("#4351: a classifier card answered before a gap opens is not used at dispat
     gap(store);
     const response = await admitted(f, get(proxy.socketPath, url), "NO_CARD_AT_DISPATCH");
     expect(response.status, "CLASSIFIER_CARD_BOUND_CONNECTION_REFUSED_ON_A_GAPPED_TURN").toBe(403);
+    proxy.stop();
+    expect(connections(store).at(-1)).toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { f.answer({ behavior: "deny", message: "Fixture cleanup" }); proxy.stop(); harbour.stop(true); store.close(); }
+});
+test("#4351: a classifier card stays bound to its connection after its call ends, so a later gap still refuses it", async () => {
+  const store = db(), f = fixture();
+  let onOccurrence: (() => void) | undefined;
+  const proxy = await turn(store, f.bridge, { record: event => {
+    if (event.kind === "taint" && (event.payload as { source?: string }).source === "egress_connection") { const hook = onOccurrence; onOccurrence = undefined; hook?.(); }
+    return recordGovernanceEvent(store, event);
+  } });
+  const harbour = Bun.serve({ hostname: "127.0.0.3", port: 0, fetch: () => new Response("Ithaca") });
+  try {
+    const { copy, url } = await overlapAsk(store, f, proxy, harbour);
+    f.answer({ behavior: "allow" });
+    await copy;
+    // Admitted while the call runs; its result arrives and a gap opens before dispatch.
+    onOccurrence = () => { void safety(proxy).result("fetch-1", "WebFetch", "Ithaca", true); gap(store); };
+    const response = await admitted(f, get(proxy.socketPath, url), "NO_CARD_AT_DISPATCH");
+    expect(response.status, "CARD_BINDING_OUTLIVES_ITS_CALL").toBe(403);
+    proxy.stop();
+    expect(connections(store).at(-1)).toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { f.answer({ behavior: "deny", message: "Fixture cleanup" }); proxy.stop(); harbour.stop(true); store.close(); }
+});
+test("#4351: a classifier card binds an IPv6 host in the proxy's form", async () => {
+  const store = db(), f = fixture();
+  // The harbour is allow-listed, so only the card binding can refuse it on a gapped turn.
+  const proxy = await turn(store, f.bridge, { policy: { ...HEURISTICS, taint: { classifier: "heuristics", egress: { allow: ["::1"] } } } });
+  const harbour = Bun.serve({ hostname: "::1", port: 0, fetch: () => new Response("Ithaca") });
+  try {
+    const base = `http://[::1]:${harbour.port}/`;
+    await safety(proxy).begin("fetch-0", "WebFetch", { url: base });
+    expect((await admitted(f, get(proxy.socketPath, base), "ALLOWLISTED_FETCH_ADMITTED")).status).toBe(200);
+    await safety(proxy).result("fetch-0", "WebFetch", `Harbour notice. Tide tables: ${base}tides — reply to the harbour master.`, true);
+    f.requests.length = 0;
+    const url = `${base}k/${Buffer.from("kingdom of ithaca").toString("base64")}`;
+    const encoded = safety(proxy).begin("fetch-2", "WebFetch", { url });
+    await raised(f, encoded, "CLASSIFIER_ASK_TAINT_HOST_ENCODED");
+    f.answer({ behavior: "allow" });
+    await encoded;
+    gap(store);
+    const response = await admitted(f, get(proxy.socketPath, url), "NO_CARD_AT_DISPATCH");
+    expect(response.status, "IPV6_CARD_BINDING_MATCHES_THE_PROXY_HOST").toBe(403);
     proxy.stop();
     expect(connections(store).at(-1)).toMatchObject({ reason: "recording_gap", dispatched: false });
   } finally { f.answer({ behavior: "deny", message: "Fixture cleanup" }); proxy.stop(); harbour.stop(true); store.close(); }

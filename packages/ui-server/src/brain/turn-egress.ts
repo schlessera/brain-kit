@@ -135,12 +135,15 @@ export async function prepareTurnEgress(options: {
       let pending:unknown;
       recordFirstTaint(db,event,input=>{pending=record(input);});
       const result=await pending;
-      if(typeof result === "boolean")return result;
+      if(result===true)return true;
+      // Only {id:0, recorded:false} acknowledges a tolerated loss. A positive
+      // id is a durable replay and keeps its evidence. Anything else, bare
+      // false included, is no acknowledgment (#4351).
+      if(result===false)throw new Error("Malformed recording acknowledgment");
       if(result&&typeof result === "object"&&"recorded" in result){
-        if(result.recorded === true)return true;
-        // A tolerated loss is exactly {id:0, recorded:false}; a positive id is a replay. Anything else is no acknowledgment.
-        const id=(result as {id?:unknown}).id;
-        if(id===0||typeof id === "number"&&id>0)return false;
+        const {recorded,id}=result as {recorded:unknown;id?:unknown};
+        if(recorded===true||recorded===false&&typeof id === "number"&&Number.isSafeInteger(id)&&id>0)return true;
+        if(recorded===false&&id===0)return false;
         throw new Error("Malformed recording acknowledgment");
       }
       const input=event.payload.occurrence;
@@ -196,7 +199,12 @@ export async function prepareTurnEgress(options: {
   // see the losses it tolerates. Only a known gap tolerates a loss; an
   // unreadable one (undefined) still raises no card.
   const gapRead = (): boolean | undefined => {
-    try { return (db?.query("SELECT restricted_begin FROM safety_collections WHERE turn_id=?").get(options.turnId) as {restricted_begin:number}|null)?.restricted_begin === 1; }
+    try {
+      if (!db) return false;
+      const row = db.query("SELECT restricted_begin FROM safety_collections WHERE turn_id=?").get(options.turnId) as {restricted_begin:unknown}|null;
+      // Exactly 0 or 1; any other stored value is unknown, never "no gap".
+      return !row ? false : row.restricted_begin === 1 ? true : row.restricted_begin === 0 ? false : undefined;
+    }
     catch { return undefined; }
   };
   // `cardsAllowed` is the one predicate every card path reads (#4351): the
@@ -210,10 +218,14 @@ export async function prepareTurnEgress(options: {
   /** `tolerable`: a taint record, whose tolerated loss on a gapped turn is not an audit failure. */
   const track = (committed: unknown, tolerable = false) => {
     const confirm=(result:unknown)=>{
-      // A positive existing id is a durable replay, not a lost write.
-      if(result===false||result&&typeof result === "object"&&"recorded" in result&&result.recorded===false&&(!("id" in result)||typeof result.id !== "number"||result.id<=0)){
-        // Only the writer's exact acknowledgment of a tolerated loss; any other reply still stops the turn.
-        if(tolerable&&typeof result === "object"&&(result as {id?:unknown}).id===0&&gapped())return;
+      if(result===false)throw new Error("Egress audit was not durably recorded");
+      if(result&&typeof result === "object"&&"recorded" in result){
+        const {recorded,id}=result as {recorded:unknown;id?:unknown};
+        if(recorded===true)return;
+        // A positive existing id is a durable replay, not a lost write.
+        if(recorded===false&&typeof id === "number"&&Number.isSafeInteger(id)&&id>0)return;
+        // Only the writer's exact acknowledgment of a tolerated loss; any other reply stops the turn.
+        if(tolerable&&recorded===false&&id===0&&gapped())return;
         throw new Error("Egress audit was not durably recorded");
       }
     };

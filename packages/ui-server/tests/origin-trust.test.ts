@@ -631,12 +631,13 @@ test("#4351: covered outward traffic keeps connecting when its own occurrence wr
 });
 // #4351: only the writer's exact {id:0, recorded:false} acknowledges a
 // tolerated loss on a gapped turn; any other negative reply is no acknowledgment.
-for (const reply of ["exact", "no id", "negative id", "text id"] as const) for (const lost of ["taint", "taint_exposure"] as const)
+for (const reply of ["exact", "no id", "negative id", "text id", "recorded null", "bare false"] as const) for (const lost of ["taint", "taint_exposure"] as const)
   test(`#4351: a gapped turn's ${lost} reply (${reply}) is tolerated only when it is the exact acknowledgment`, async () => {
     const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, false, "127.0.0.1", true);
     const troy = untrustedOrigin();
     const original = f.writes.record;
-    const answer = reply === "exact" ? { id: 0, recorded: false } : reply === "no id" ? { recorded: false } : reply === "negative id" ? { id: -1, recorded: false } : { id: "0", recorded: false };
+    const answer = reply === "exact" ? { id: 0, recorded: false } : reply === "no id" ? { recorded: false } : reply === "negative id" ? { id: -1, recorded: false }
+      : reply === "text id" ? { id: "0", recorded: false } : reply === "recorded null" ? { id: 0, recorded: null } : false;
     try {
       gappedTurn(f);
       f.writes.record = async (...args) => args[0].kind === lost && (lost === "taint_exposure" || (args[0].payload as { source?: string }).source === "egress_connection") ? answer as never : original(...args);
@@ -674,5 +675,39 @@ test("#4351: an unreadable gap refuses a card-needing destination as egress_unav
     expect(f.asks(), "UNKNOWN_GAP_RAISES_NO_CARD").toBe(0);
     expect(troy.hits()).toBe(0);
     expect(lastConnection(f), "UNKNOWN_GAP_IS_NOT_A_GAP_REFUSAL").toMatchObject({ reason: "egress_unavailable", dispatched: false });
+  } finally { troy.stop(); await f.close(); }
+});
+// #4351: a positive id is a durable replay. It keeps its evidence on a
+// gapped turn: never a tolerated loss.
+for (const source of ["untrusted", "trusted"] as const) test(`#4351: a replayed ${source} occurrence on a gapped turn keeps its durable evidence`, async () => {
+  const f = await fixture(true, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, false, "127.0.0.1", true);
+  const troy = untrustedOrigin();
+  const original = f.writes.record;
+  try {
+    gappedTurn(f);
+    f.writes.record = async (...args) => {
+      if (args[0].kind === "taint" && (args[0].payload as { source?: string }).source === "egress_connection") { await original(...args); return { id: 7, recorded: false }; }
+      return original(...args);
+    };
+    const status = await get(f.proxy.socketPath, source === "trusted" ? f.origin.url.href : troy.url).catch(() => 0);
+    await f.proxy.settled();
+    expect(status, "REPLAY_KEEPS_ITS_DURABLE_EVIDENCE").toBe(200);
+    expect(queryGovernanceEvents(f.db, { kinds: ["taint_exposure"], limit: 10 }), "REPLAY_RECORDS_ITS_TERMINAL_STATE").toHaveLength(1);
+    expect(f.controller.signal.aborted).toBe(false);
+  } finally { troy.stop(); await f.close(); }
+});
+// #4351: restricted_begin is exactly 0 or 1; any other value is unknown.
+test("#4351: a malformed restricted_begin is unknown and refuses a card-needing destination as egress_unavailable", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    await f.taint();
+    f.db.query("UPDATE safety_collections SET restricted_begin=2 WHERE turn_id='turn-voyage'").run();
+    f.decide(async () => ({ behavior: "allow" }));
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0), "MALFORMED_GAP_IS_UNAVAILABLE").toBe(503);
+    await f.proxy.settled();
+    expect(f.asks()).toBe(0);
+    expect(troy.hits()).toBe(0);
+    expect(lastConnection(f)).toMatchObject({ reason: "egress_unavailable", dispatched: false });
   } finally { troy.stop(); await f.close(); }
 });

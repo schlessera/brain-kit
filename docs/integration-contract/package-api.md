@@ -6461,13 +6461,18 @@ The extraction classifier (`taint.classifier: heuristics`) reads the same
 predicate: an `ask` verdict raises no card and refuses the call, an answer
 that arrives after the gap opened is not used, and an `allow` never counts a
 new host as contacted. A call such a card approved stays bound to it: the
-proxy's new `hostCard()` option names its hosts, so its connections, even to
-an already-contacted host, are refused as `recording_gap` before dispatch
-once a gap opens. A gap the host cannot read is unknown, not a gap: card
-paths refuse as `egress_unavailable` (503) without new-turn advice. Only the
-writer's exact `{id:0, recorded:false}` acknowledges a tolerated loss; any
-other negative reply keeps its earlier handling (a 503 for an occurrence, a
-stopped turn for a terminal exposure). A card pending when the gap appeared,
+proxy's new `hostCard()` option names its hosts, compared in the proxy's
+canonical form, and the proxy binds a connection to that card when it is
+admitted, for the connection's whole life. Its connections, even to an
+already-contacted host and after the call ended, are refused as
+`recording_gap` before dispatch once a gap opens. A gap the host cannot read,
+or a stored `restricted_begin` other than exactly 0 or 1, is unknown, not a
+gap: card paths refuse as `egress_unavailable` (503) without new-turn advice.
+Only the writer's exact `{id:0, recorded:false}` acknowledges a tolerated
+loss. A positive id is a durable replay and keeps its evidence: never a
+tolerated loss. Any other reply, bare `false` or a non-boolean `recorded`
+included, keeps its earlier handling (a 503 for an occurrence, a stopped turn
+for a terminal exposure). A card pending when the gap appeared,
 or answered before it, is never used: its connection, of either kind, is
 refused as `recording_gap` before dispatch. Allow-listed and already-contacted
 destinations need no card and still connect, and a new turn restores

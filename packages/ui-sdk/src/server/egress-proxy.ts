@@ -169,9 +169,11 @@ export interface EgressProxyOptions {
   recordingGap?(): boolean;
   /**
    * Synchronous: a card the host raised outside the proxy (the extraction
-   * classifier's) covers this destination's call (#4351). Such a connection
-   * counts as card-approved for the dispatch gap check, whatever lets it
-   * through the recipient check, even an already-contacted host.
+   * classifier's) covers this destination's call (#4351). Read once when the
+   * connection is admitted and bound to it for its whole life, such a
+   * connection counts as card-approved for the dispatch gap check, whatever
+   * lets it through the recipient check, even an already-contacted host.
+   * `host` is in the proxy's canonical form (`canonicalEgressHost`).
    */
   hostCard?(host: string): boolean;
   /** Synchronous notification only after final admission, immediately before dispatch. */
@@ -473,6 +475,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     const recipient = { host, port, method, protocol: url.protocol, managedReference };
     const hostCarded = () => { try { return options.hostCard?.(host) === true; } catch { return true; } };
+    // Bound once at admission, for the connection's whole life: a call that
+    // ends later never unbinds its card (#4351).
+    let cardBound = false;
     const outwardCovered = () => { try { return options.outwardCovered?.({host,port,method}) === true; } catch { return false; } };
     /** A permanent recording gap refuses a connection that needs, or holds, an unused card (#4351). */
     const gapRefused = () => {
@@ -534,6 +539,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     const admitDestination = () => lifecycle.admit(async () => {
       if (!lifecycle.active()) return false;
+      cardBound = hostCarded();
       snapshot = readSafety();
       for (const pending of pendingRecording()) await pending;
       if (!lifecycle.active() || refuseSafety(snapshot?.recordingAvailable === false ? readSafety() : snapshot, snapshot)) return false;
@@ -599,7 +605,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       const stateRefusal=lifecycle.sendRefusal(count,options.maxBytes-usedBytes);
       if (stateRefusal) { finish(stateRefusal==="turn_cancelled"?"cancelled":"denied",stateRefusal);return null; }
       // Before any other recheck, so a gap is always named as one (#4351).
-      if ((granted || outwardApproved || hostCarded()) && !lifecycle.dispatched() && gapRefused()) return null;
+      if ((granted || outwardApproved || cardBound) && !lifecycle.dispatched() && gapRefused()) return null;
       // Covered outward traffic that lost its cover would need a card: on a
       // gapped turn that is a gap refusal, otherwise a fresh decision.
       if (outwardByCoverage && !outwardCovered()) { if (!gapRefused()) refuseStaleApproval(); return null; }

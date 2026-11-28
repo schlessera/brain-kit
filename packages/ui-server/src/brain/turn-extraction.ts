@@ -27,7 +27,7 @@
  * elsewhere and never consult it. Its session state is in-memory host state,
  * never written to the record or the provider-facing conversation.
  */
-import { prepareOutwardPlan } from "@schlessera/brain-ui-sdk/internal";
+import { canonicalEgressHost, prepareOutwardPlan } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendBridge, type InputSafetyOutputStatus } from "@schlessera/brain-ui-sdk/server";
 import { inputTaintSignals, outputTaintSignals, searchOutputContext, searchOutputComplete } from "../activity/ingestion-taint.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
@@ -60,6 +60,8 @@ function extractionCardDescription(tool: string, reason: string, cause: string |
 
 /** A call in progress: the hosts it relaxes, the hosts it names, and whether the proxy can attribute its connections at all. */
 interface Call { relax: readonly string[]; hosts: readonly string[]; withholds: boolean; carded?: boolean }
+/** The proxy's form of a host (no root dot, no IPv6 brackets), so a binding made here matches the one the proxy checks. */
+const sameHost = (left: string, right: string) => { try { return canonicalEgressHost(left) === canonicalEgressHost(right); } catch { return left === right; } };
 /** Whether this turn may raise or honour a card (#4351): a known gap or an unreadable one refuses. */
 export type CardState = "allowed" | "gapped" | "unknown";
 
@@ -233,14 +235,15 @@ export function createTurnExtraction(options: {
      */
     /** Whether a call in progress that an extraction card approved names `host`: its connection relies on that card. */
     carded(host: string): boolean {
-      return [...calls.values()].some(call => call.carded === true && call.hosts.includes(host));
+      return [...calls.values()].some(call => call.carded === true && call.hosts.some(named => sameHost(named, host)));
     },
     relaxes(host: string): boolean {
       // A relaxation stands in for a card; a gapped turn honours none (#4351).
       if ((options.cardsAllowed?.() ?? "allowed") !== "allowed") return false;
       const active = [...calls.values()];
       if (active.some(call => call.withholds)) return false;
-      return active.some(call => call.relax.includes(host)) && active.every(call => !call.hosts.includes(host) || call.relax.includes(host));
+      const names = (list: readonly string[]) => list.some(named => sameHost(named, host));
+      return active.some(call => names(call.relax)) && active.every(call => !names(call.hosts) || names(call.relax));
     },
   };
 }
