@@ -4,8 +4,8 @@
  * `runMaintenanceWorkerSync` and its steps) wait at START_GATE before their
  * payload starts. These pin what must not change (G1-G13 of the design).
  */
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { launchMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSteps, runMaintenanceWorkerSync } from "../src/server/maintenance-worker";
 import { probeWorkerHost } from "../src/server/worker-launcher";
@@ -107,6 +107,26 @@ describe("L3 runMaintenanceWorkerSync and its steps", () => {
     expect(performance.now() - started).toBeLessThan(15_000);
   }, watchdogMs(60_000));
 
+  test("G5b: a zero timeout disables the deadline, as spawnSync's did, in both forms", async () => {
+    const f = fixture();
+    const options = { ...command(f, sh("sleep 0.3; printf landed")), timeoutMs: 0 };
+    expect(runMaintenanceWorkerSync(options), "G5B_SYNC_ZERO_TIMEOUT_RUNS").toMatchObject({ exitCode: 0, killed: false, stdout: "landed" });
+    expect(await runWorkerStepsAsync(runMaintenanceWorkerSteps(options)), "G5B_STEPPED_ZERO_TIMEOUT_RUNS").toMatchObject({ exitCode: 0, killed: false, stdout: "landed" });
+  }, watchdogMs(30_000));
+
+  test("G5c: a deadline shorter than the sandbox's setup passes before release: killed, the payload never runs, in every form", async () => {
+    const f = fixture();
+    const options = { ...command(f, sh("printf ran")), timeoutMs: 1 };
+    const asynchronous = await runMaintenanceWorker(options);
+    expect(asynchronous, "G5C_ASYNC_DEADLINE_COUNTS_FROM_SPAWN").toMatchObject({ killed: true, stdout: "" });
+    expect(runMaintenanceWorkerSync(options), "G5C_SYNC_DEADLINE_COUNTS_FROM_SPAWN").toMatchObject({ exitCode: 1, killed: true, stdout: "" });
+    // The direct launch itself stops it unreleased: its gate says so, and its exit follows.
+    const worker = launchMaintenanceWorker({ ...options } as Parameters<typeof launchMaintenanceWorker>[0]);
+    expect(worker.gate?.timedOut, "G5C_GATE_STOPPED_UNRELEASED").toBe(true);
+    await Promise.all([new Response(worker.stdout).text(), new Response(worker.stderr).text(), worker.input(""), worker.exited]);
+    await worker.released();
+  }, watchdogMs(30_000));
+
   test("G12: the synchronous form blocks for the child's lifetime; the stepped form yields", async () => {
     const f = fixture();
     let ticks = 0;
@@ -141,13 +161,48 @@ describe("both paths", () => {
     for (let i = 0; i < 3; i++) {
       expect((await runMaintenanceWorker(base)).exitCode, "G8_SUCCESS_RELEASES").toBe(0);
       await expect(runMaintenanceWorker({ ...base, command: ["odysseus"] }), "G8_SPAWN_REFUSAL").rejects.toThrow();
-      // bubblewrap cannot bind a missing writable file: it exits before starting any payload.
-      const setup = await runMaintenanceWorker({ ...base, writeFiles: [join(f.root, "missing-log")] }).catch(error => error);
-      expect(setup instanceof Error ? 1 : setup.exitCode, "G8_SETUP_FAILURE_IS_NOT_SUCCESS").not.toBe(0);
       expect(runMaintenanceWorkerSync(base).exitCode, "G8_SYNC_SUCCESS_RELEASES").toBe(0);
     }
     expect(existsSync(f.startupView.root), "G8_CALLER_VIEW_KEPT").toBe(true);
   }, watchdogMs(120_000));
+
+  test("G8b: a sandbox setup failure reports bubblewrap's own exit code and stderr, never a throw, 20 times in both forms", async () => {
+    const f = fixture();
+    // The writable file exists when the argv is built and is gone when bubblewrap
+    // binds it: bubblewrap itself fails its setup and starts no payload.
+    const log = join(f.root, "voyage.log");
+    const failing = { ...command(f, sh("exit 0")), writeFiles: [log], timeoutMs: 20_000 };
+    const spawn = Bun.spawn, spawnSync = Bun.spawnSync;
+    const removeFirst = (args: unknown[]) => { if ((args[1] as { env?: Record<string, string> } | undefined)?.env?.BRAIN_WORKER_LAUNCH) rmSync(log, { force: true }); };
+    const spies = [spyOn(Bun, "spawn").mockImplementation(((...args: unknown[]) => { removeFirst(args); return (spawn as (...a: unknown[]) => unknown)(...args); }) as typeof Bun.spawn),
+      spyOn(Bun, "spawnSync").mockImplementation(((...args: unknown[]) => { removeFirst(args); return (spawnSync as (...a: unknown[]) => unknown)(...args); }) as typeof Bun.spawnSync)];
+    cleanups.push(() => { for (const spy of spies) spy.mockRestore(); });
+    for (let i = 0; i < 20; i++) {
+      writeFileSync(log, "");
+      const asynchronous = await runMaintenanceWorker(failing);
+      expect(asynchronous.exitCode, "G8B_ASYNC_SETUP_FAILURE_EXIT").not.toBe(0);
+      expect(asynchronous.stderr, "G8B_ASYNC_SETUP_FAILURE_STDERR").toContain("bwrap");
+      writeFileSync(log, "");
+      const synchronous = runMaintenanceWorkerSync(failing);
+      expect(synchronous.exitCode, "G8B_SYNC_SETUP_FAILURE_EXIT").not.toBe(0);
+      expect(synchronous.stderr, "G8B_SYNC_SETUP_FAILURE_STDERR").toContain("bwrap");
+    }
+  }, watchdogMs(240_000));
+
+  test("G9b: 200 consecutive synchronous launches with no await leave no descriptor behind", async () => {
+    const f = fixture();
+    const options = { ...command(f, sh("exit 0")), timeoutMs: 20_000 };
+    runMaintenanceWorkerSync(options);
+    await Bun.sleep(50);
+    // Bun holds one pidfd per spawned child until its event loop next runs; nothing synchronous can release it.
+    const kinds = () => readdirSync("/proc/self/fd").map(fd => { try { return readlinkSync(`/proc/self/fd/${fd}`); } catch { return "gone"; } });
+    const others = () => kinds().filter(target => target !== "anon_inode:[pidfd]").length;
+    const before = { all: kinds().length, others: others() };
+    for (let i = 0; i < 200; i++) expect(runMaintenanceWorkerSync(options).exitCode).toBe(0);
+    expect(others(), "G9B_NO_DESCRIPTOR_LEFT_IN_ONE_SYNCHRONOUS_STRETCH").toBeLessThanOrEqual(before.others);
+    await Bun.sleep(100);
+    expect(kinds().length, "G9B_NO_DESCRIPTOR_LEFT_AFTER_ONE_TICK").toBeLessThanOrEqual(before.all);
+  }, watchdogMs(240_000));
 
   test("G9: no descriptor leaks after 200 launches", async () => {
     const f = fixture();

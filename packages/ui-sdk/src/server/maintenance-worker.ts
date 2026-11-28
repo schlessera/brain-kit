@@ -232,6 +232,8 @@ export interface MaintenanceWorker {
   /** Resolves once no descriptor of the worker's stdio remains open in this process, once its streams have ended (#2862). */
   released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
+  /** @internal A gated direct spawn's deadline, counted from its spawn, and whether it passed before release (#4301). */
+  gate?: { deadline?: number; timedOut?: boolean };
 }
 
 /** Shared host state can never be writable repository input. */
@@ -313,9 +315,11 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
     }
     pipes = yield* createWorkerPipesSteps();
     // The payload starts only once the host releases its start gate (#4301).
-    yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] },
+    // The caller's deadline counts from the spawn, through the gate (#4301).
+    const gated = yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] },
       // The launcher's own Bun child, typed structurally on its published surface.
-      spawned => { child = spawned as ReturnType<typeof Bun.spawn>; registerWorker(child); }, { signal: (input as { signal?: AbortSignal }).signal });
+      spawned => { child = spawned as ReturnType<typeof Bun.spawn>; registerWorker(child); },
+      { signal: (input as { signal?: AbortSignal }).signal, timeoutMs: (input as { timeoutMs?: number }).timeoutMs });
     pipes.closeChild();
     const ends = pipes.take();
     let inputClosed = false;
@@ -344,6 +348,7 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       }),
       released: pipes.released,
       kill: (signal?: NodeJS.Signals) => killWorker(running, signal),
+      gate: { ...(gated.deadline !== undefined ? { deadline: gated.deadline } : {}), ...(gated.timedOut ? { timedOut: true } : {}) },
     };
   } catch (error) {
     if (helperWorker) {
@@ -372,8 +377,9 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       const cleanup = Promise.all([running.exited.catch(() => undefined), workerStopCompletion(running)]).then(() => {
         try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
       }).catch(() => { /* Unconfirmed cleanup retains ownership. */ });
-      // A private-state refusal's or an abort's sandbox has already exited: it leaves as itself (#4301),
-      // once what the launch owns is released (an asynchronous caller waits for that).
+      // A private-state refusal's or an abort's sandbox has already exited: it
+      // leaves as itself (#4301), once what the launch owns is released (an
+      // asynchronous caller waits for that).
       if (privateStateRefusalOf(error) || (input as { signal?: AbortSignal }).signal?.aborted) {
         yield* workerStep(() => undefined, () => cleanup);
         throw error;
@@ -406,7 +412,10 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
   input.signal?.addEventListener("abort", kill, { once: true });
   // An abort accepted while the launch was awaited still stops the worker.
   if (input.signal?.aborted) kill();
-  const timer = input.timeoutMs ? setTimeout(kill, input.timeoutMs) : undefined;
+  // A gated launch's deadline counts from its spawn: the timer gets what is
+  // left, and a deadline that passed before release reports killed (#4301).
+  if (worker.gate?.timedOut) kill();
+  const timer = input.timeoutMs ? setTimeout(kill, worker.gate?.deadline !== undefined ? Math.max(0, worker.gate.deadline - Date.now()) : input.timeoutMs) : undefined;
   let bytes = 0;
   const collect = async (stream: ReadableStream<Uint8Array>) => {
     const chunks: Uint8Array[] = [];
@@ -525,8 +534,11 @@ export function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeout
       { timeoutMs: input.timeoutMs }); }
     catch (error) { if (spawned) yield* awaitWorkerExitSteps(spawned); throw error; }
     pipes.closeChild();
-    // The caller's deadline counts from the spawn, as it did for spawnSync; one that passed during setup never released the payload.
-    const { exitCode } = yield* awaitWorkerExitSteps(gated.child, gated.timedOut ? undefined : gated.spawnedAt + input.timeoutMs);
+    // The caller's deadline counts from the spawn, as it did for spawnSync, and
+    // zero disables it; one that passed during setup never released the payload.
+    const { exitCode } = yield* awaitWorkerExitSteps(gated.child, gated.timedOut ? undefined : gated.deadline);
+    // The exit is confirmed here; a synchronous caller never reaches the exit callback.
+    gated.close();
     pipes.closeInput();
     return { stdout: readFileSync(pipes.parent[1], "utf8"), stderr: readFileSync(pipes.parent[2], "utf8"),
       exitCode: exitCode ?? 1, killed: exitCode === null };
