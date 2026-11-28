@@ -35,6 +35,31 @@ test("governed worker writes ordinary Markdown while the policy stays read-only"
   expect(readFileSync(join(brain, "context/policies/governance.md"), "utf8")).toBe("Athena sets the policy.\n");
 });
 
+// #4325 F10: a read-only consumer of a governed turn reads the live brain and
+// writes nothing to it, including through a writable area or workspace.
+test("a read-only governed worker reads the live brain and cannot write it", () => {
+  const brain = fixture();
+  mkdirSync(join(brain, "workspaces"));
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: ["workspaces"], codeChanges: true });
+  expect(sandbox.areas.some(area => area.mount.writable), "FIXTURE_HAS_A_WRITABLE_AREA").toBe(true);
+  // The read-only worker first, then the ordinary governed worker as the control.
+  for (const readOnlyBrain of [true, false]) {
+    const argv = workerCommand({ brainPath: brain, sandbox, env: {}, ...(readOnlyBrain ? { readOnlyBrain } : {}), command: ["/bin/sh", "-c",
+      'grep -q Odysseus harbor.md || exit 40; printf "Odysseus departs.\\n" > harbor.md && exit 41; printf raft > workspaces/raft.md && exit 42; printf raft > context/raft.md && exit 43; exit 0'] });
+    const child = Bun.spawnSync(argv, { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(child.exitCode, `READ_ONLY_BRAIN_${readOnlyBrain} ${child.stderr.toString()}`).toBe(readOnlyBrain ? 0 : 41);
+    if (readOnlyBrain) expect(readFileSync(join(brain, "harbor.md"), "utf8"), "READ_ONLY_WORKER_LEFT_BRAIN_UNCHANGED").toBe("Odysseus arrives.\n");
+  }
+  // Round 2 F1/F2: no bind into the brain stays writable, protection pins and a
+  // writable private index included.
+  const index = mkdtempSync(join(tmpdir(), "governed-worker-index-")); roots.push(index);
+  mkdirSync(join(brain, ".brain-index"));
+  const argv = workerCommand({ brainPath: brain, env: {}, readOnlyBrain: true, command: ["/bin/true"],
+    sandbox: { ...sandbox, providerMasks: { folders: [], index, indexWritable: true } } as never });
+  const writable = argv.flatMap((part, at) => part === "--bind" ? [argv[at + 2]!] : []).filter(target => target === brain || target.startsWith(`${brain}/`));
+  expect(writable, "READ_ONLY_BRAIN_BINDS_NOTHING_WRITABLE_INTO_THE_BRAIN").toEqual([]);
+});
+
 test("every protected file resists writes, aliases, replacement and ancestor rename in a real worker", () => {
   const brain = fixture();
   const directories = new Set(["context/policies", ".git/hooks", ".git/info", ".git/modules", "node_modules"]);

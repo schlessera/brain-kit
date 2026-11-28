@@ -5,7 +5,9 @@ import type { ActivityPricingConfig } from "../activity/store-writes.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
 import { resolveStandalonePricingConfig } from "../config/env.js";
 import type { ClaudeUsageEvidence } from "./claude-usage-accounting.js";
-import type { BillingMode, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
+import type { BillingMode, OutputSpeed, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
+import { isOutputSpeed } from "@schlessera/brain-ui-sdk/protocol";
+import { pricingForSpeed } from "../pricing/fast-output.js";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type {
@@ -80,7 +82,7 @@ export interface SessionCatalog {
   /** Claude cumulative totals are evidence only; returns this turn's priced
    * completed responses and retains newly measured unstreamed usage once. */
   accountClaudeUsage?(sessionId: string, backendId: string, turnId: string, evidence: ClaudeUsageEvidence,
-    resumed: boolean, context?: { billingMode?: BillingMode; pricingRoute?: PricingRoute; principalId?: string }): number | undefined;
+    resumed: boolean, context?: { billingMode?: BillingMode; pricingRoute?: PricingRoute; principalId?: string; outputSpeed?: "fast" }): number | undefined;
 
   recordStateRoom?(sessionId: string, observation: StateRoomObservation): void;
   readStateRoom?(sessionId: string): StateRoomObservation | undefined;
@@ -112,6 +114,8 @@ export interface SessionCatalog {
   attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /** The provider/profile a stored session is pinned to, or null. */
   getStoredProviderId(sessionId: string): string | null;
+  /** The speed a session started with; null predates the choice (#4310). */
+  getStoredOutputSpeed?(sessionId: string): OutputSpeed | null;
   saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
   clearRetryRequest?(sessionId: string): void;
   /** Required to advertise Retry for file-backed requests; reads precede reservation. */
@@ -139,7 +143,9 @@ export interface SessionCatalog {
      * creates the session's row; omitted for resumes and host work.
      */
     ownerPrincipalId?: string,
-    creatorTurnId?: string
+    creatorTurnId?: string,
+    /** A new session's speed (#4310), in the same write as its row; the first stored speed is kept. */
+    outputSpeed?: OutputSpeed
   ): void;
   /** Persist session accounting on the terminal `result` frame. */
   persistSession(
@@ -246,7 +252,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   // committed row with these applied, so a write is visible from its
   // submission, as it was when it committed inline. Each effect goes when its
   // own write settles: a failed one stops counting at once.
-  type RowEffect = { upsert: { providerId: string | null; backendId: string | null } } | { label: { label: string; source: string } };
+  type RowEffect = { upsert: { providerId: string | null; backendId: string | null; outputSpeed?: OutputSpeed } } | { label: { label: string; source: string } };
   const rowEffects = new Map<string, RowEffect[]>();
   const pendingExchanges = new Map<string, LocalExchange[]>();
   const takenExchanges = new Map<string, Set<string>>();
@@ -263,13 +269,21 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     }
     return null;
   };
+  /** The committed speed, else the first pending one: the write's COALESCE keeps the first stored. */
+  const storedOutputSpeed = (sessionId: string): OutputSpeed | null => {
+    const row = db().query("SELECT output_speed AS speed FROM sessions WHERE id = ?").get(sessionId) as { speed: string | null } | null;
+    const speed = row?.speed;
+    if (isOutputSpeed(speed)) return speed;
+    for (const effect of rowEffects.get(sessionId) ?? []) if ("upsert" in effect && effect.upsert.outputSpeed) return effect.upsert.outputSpeed;
+    return null;
+  };
   const pendingRow = (sessionId: string) => (rowEffects.get(sessionId) ?? []).some(effect => "upsert" in effect);
   const storedBackendId = (sessionId: string) => pendingValue(sessionId, "backendId") ?? committedRow(sessionId)?.backendId ?? null;
   const hasRow = (sessionId: string) => pendingRow(sessionId) || db().query("SELECT 1 FROM sessions WHERE id = ?").get(sessionId) !== null;
-  const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number, ownerPrincipalId?: string, creatorTurnId?: string) => {
+  const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number, ownerPrincipalId?: string, creatorTurnId?: string, outputSpeed?: OutputSpeed) => {
     const row: writes.SessionRow = { id: sessionId, title: promptText.slice(0, 100), at: Date.now(), costUsd, turns, providerId, backendId,
-      ...(ownerPrincipalId ? { ownerPrincipalId, creatorTurnId } : {}) };
-    return trackPendingEffect(rowEffects, sessionId, { upsert: { providerId, backendId } }, submit<void>("upsertSession", row));
+      ...(ownerPrincipalId ? { ownerPrincipalId, creatorTurnId } : {}), ...(outputSpeed ? { outputSpeed } : {}) };
+    return trackPendingEffect(rowEffects, sessionId, { upsert: { providerId, backendId, ...(outputSpeed ? { outputSpeed } : {}) } }, submit<void>("upsertSession", row));
   };
   /** Highest revision issued per session; it never goes down, so a failed acceptance's revision is never reused. */
   const issued = new Map<string, number>();
@@ -379,7 +393,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       let mainCost: number | undefined;
       try {
         const { pricing } = getAccounting();
-        mainCost = evidence.completed?.perModel ? priceUsage(evidence.completed.perModel, pricing, context?.pricingRoute)?.costUsd : undefined;
+        // A fast session's turn is priced at its fast rate, never a standard one (#4310).
+        mainCost = evidence.completed?.perModel ? priceUsage(evidence.completed.perModel, pricingForSpeed(pricing, context?.outputSpeed), context?.pricingRoute)?.costUsd : undefined;
         submit("claudeUsage", sessionId, backendId, turnId, evidence, resumed, context).catch(error => reportWriteFailure(sessionId, error));
       } catch (error) { reportWriteFailure(sessionId, error); }
       return mainCost;
@@ -483,10 +498,12 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       return pendingValue(sessionId, "providerId") ?? committedRow(sessionId)?.providerId ?? null;
     },
 
+    getStoredOutputSpeed: storedOutputSpeed,
+
     getStoredBackendId: storedBackendId,
 
-    persistSessionStub(sessionId, promptText, providerId, backendId, ownerPrincipalId, creatorTurnId) {
-      upsert(sessionId, promptText, providerId, backendId, 0, 0, ownerPrincipalId, creatorTurnId).catch(err => reportWriteFailure(sessionId, err));
+    persistSessionStub(sessionId, promptText, providerId, backendId, ownerPrincipalId, creatorTurnId, outputSpeed) {
+      upsert(sessionId, promptText, providerId, backendId, 0, 0, ownerPrincipalId, creatorTurnId, outputSpeed).catch(err => reportWriteFailure(sessionId, err));
     },
 
     persistSession(msg, promptText, providerId, backendId) {

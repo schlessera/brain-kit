@@ -59,7 +59,7 @@ next to it.
   spawned it directly at this baseline. #1037 subsequently made worker execution
   unconditional; #1808 retired this unused adapter. The optional exec wrapper
   now runs inside the worker (`createWorkerSpawn`,
-  `packages/ui-backend-claude/src/worker-spawn.ts:95-365`).
+  `packages/ui-backend-claude/src/worker-spawn.ts:96-366`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
@@ -1575,14 +1575,64 @@ the local relay still emits `speed: "fast"` for fake API credentials and the
 OAuth placeholder, while the native status reports `on`; omitting the setting
 reports `sdk_opt_in_required`. The explicit disable reports `disabled_by_env`
 and omits wire speed. These are keyless request-assembly observations, not
-account entitlement, pricing, throughput or spend evidence. No session speed
-control or billing change is introduced by this qualification.
+account entitlement, pricing, throughput or spend evidence.
 
-The earlier system-role message content array-to-string rewrite observed on
-resume is a provider-history violation (#4324), not an approved normalization.
-Fast-mode product work (#4310) waits for that fix. The qualification capture
-records this exact failure without weakening the strict earlier-message guard;
-no user-facing mode, pricing or budget change ships here.
+### 2026-11-27 — Per-session fast output (#4310)
+
+Option A of the 2026-11-20 ruling ships. A session's speed is chosen when it
+starts, stored in the host's session catalog, and passed unchanged on every
+turn, so a running or resumed session never changes speed. The backend pins
+it as the flag-tier `fastMode` setting, which outranks project settings. On
+the pinned runtime (SDK 0.3.293, CLI 2.1.293), production assembly sends
+`speed: "fast"` on every request through the Unix relay with `fast_mode_state:
+"on"` and a byte-stable prefix. The runtime does not gate fast output on a
+first-party base URL behind the relay, so no extra pin is needed. The host
+still offers it only when the selected upstream is the first-party origin and
+no cloud provider is selected; anything else is refused with
+`fast_output_unavailable` before anything persists. The prompt gate then
+requires the runtime to report `fast_mode_state: "on"` before releasing input.
+Per the maintainer ruling of 2026-11-27 on #4310, the EFFECTIVE route is
+qualified on direct turns too, and brain-kit names no route selector to do
+it: the pinned runtime selects routes from more inputs than a host can list
+(profile base URLs, per-request base URLs, gateway credential slots). A direct
+fast turn's assembly pins the runtime's own provider policy in the SDK parent
+policy tier (`managedSettings: { allowedProviders: ["anthropic"] }`), and sets
+`CLAUDE_CODE_STARTUP_FAILURE_RESULTS` so a refused provider ends with a named
+result. The runtime then refuses any other route (a custom base URL, a socket,
+a cloud or gateway provider) at startup and on contact. The prompt gate admits
+the turn only on positive proof that the policy is in force: a settings report
+with effective settings, sources, no errors, `allowedProviders` exactly
+`["anthropic"]`, and a policy tier (`policySettings`) holding exactly that pin
+and nothing else. The runtime enforces only the policy tier, and the report
+names a source but not its origin, so a pin from project or user settings, or
+a policy tier an admin tier replaced or merged into, is refused by name. A `provider_not_allowed` startup refusal is reported as
+`fast_output_unavailable` (`not_first_party`). The pin is never set on a
+relayed turn, where the list would refuse the relay's own socket; the relay
+qualifies that route, and its settings conflict refuses the turn at any speed
+with its existing class. Limits: an admin managed tier on the host drops the
+parent tier, so the gate sees no pin and refuses direct fast sessions by name;
+the network path and TLS trust (`HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`) are not
+judged, as through the relay. Selectors the host itself can see (every
+`CLAUDE_CODE_USE_*` switch and `ANTHROPIC_UNIX_SOCKET`, the names the
+subscription guard already clears) are refused early by name.
+Any other state (`off` with its reason, `cooldown`, or no report) refuses the
+turn by name instead of running it at standard speed. A standard session that
+native settings turn fast is a `settings_conflict`. The pinned
+binary prices `claude-opus-5-5` fast output at $8 input and $40 output per
+million tokens. The host prices fast usage from a copy of that table, as real
+spend; see [cost tracking](cost-tracking.md#fast-output-runs-4310). The
+runtime may still drop a request to standard speed after a rate limit
+(`cooldown`). The host cannot prevent that, so a fast turn whose responses
+report `standard` speed, or whose final fast-mode state is not `on`, ends with
+a `fast_output_unavailable` error result instead of a plain success, keeping
+its output and usage. The UI control is a separate design issue.
+
+The earlier system-role message content array-to-string rewrite is the CLI's
+cache-breakpoint carrier: the one message that carries the moving breakpoint is
+wrapped as one text block and reverts to a string after. The 2026-11-26
+[provider-history amendment](provider-history.md#2026-11-26--string-content-equals-one-text-block-4324)
+compares that documented equivalence (#4324); every other earlier byte stays
+strict, and the captures assert that the carrier is the only encoding change.
 
 ### 2026-11-21 — Off-state retention and mandatory authority
 
@@ -1619,3 +1669,111 @@ strict tool guard rejects the reorder. This remains evidence against enablement,
 exception. The maintainer keeps tool search off in #4319. Follow-up #4325
 registers static host bridge definitions and forwards execution to a per-turn
 sandboxed `brain mcp` process; enablement waits for that path's qualification.
+
+## 2026-11-21 — Static hosted brain read bridge (#4325)
+
+New hosted Claude sessions override the project `brain` MCP entry with an
+in-process SDK server. Its six read definitions come from core's static,
+versioned definitions, shared with the standalone server without loading a
+brain or its configuration. Five common reads carry `anthropic/alwaysLoad`;
+`brain_graph` remains deferred. Existing host application, compute and Apify
+tools keep their own authority routes.
+
+The forwarder starts one `brain mcp` process at backend invocation, alongside
+runtime startup, using the same sandbox, immutable startup view, data tree,
+provider masks and limits as the turn. Host code relays MCP requests and
+results only. Readiness is awaited only by an early call, for at most 30
+seconds; each forwarded request also has a 30-second bound. Failure is a named
+tool result, never a host content read. The process and its reservation are
+owned until turn cleanup confirms release. It is not retained between turns.
+
+Both the inventory helper and the forwarder share the runtime's ordinary
+launch construction, including the operator exec wrapper, worker PATH and
+shell-startup variable filtering. The forwarder and runtime share one atomic
+runtime-state/turn-temp admission. Each gets half the configured turn-temp
+allowance, rounded to whole pages, with any extra page going to the runtime;
+the two mount sizes add up to the admitted allowance. The runtime's note and
+`turn_temp` tool report its own mount size. New sessions below two pages keep
+stdio with `brain_bridge_fallback_temp_allowance`. The reservation remains
+charged until both cleanup owners release it, including reconciliation after
+a refused storage close. A rejected exit observer still disposes pipes and
+attempts storage cleanup in `finally`.
+
+Independent runtime-version preparation stays parallel for ordinary turns.
+Restricted autonomous turns first assemble their envelope, then probe with the
+SDK turn's exact environment, so version probes receive inference placeholders
+and never the profile credential.
+
+The internal session snapshot records bridge version 1 for new hosted
+sessions. Previous snapshots, including version 4 selection records, keep the
+stdio path and their search pin unchanged. New first-party-origin relayed
+sessions pin tool search on in environment and flag settings; other routes
+keep it off, and the effective-setting gate remains mandatory. The approved
+sorted insertion rule still requires exact earlier definitions and relative
+order. Provider cache hits and cost require live provider measurements.
+
+Pi retains its current in-worker reads. Its bridge carries host tool RPCs,
+but its native tool contract has no MCP transport or deferred-definition/tool
+reference discovery mechanism. Its existing sandboxed reads have no project
+MCP startup race; switching their schemas and execution to a second process
+would be a separate session-roster change.
+
+Module MCP tools have no static inventory yet (#4381). Every new hosted
+session runs `brain module list --json` in a credential-filtered sandbox worker
+with the same turn view, before retaining its roster. The helper runs it only
+when the project `brain` entry is exactly `bun node_modules/.bin/brain mcp`,
+with no environment, working directory or other option, the project's Claude
+settings do not turn that server off, and the brain's installed
+`@schlessera/brain` is the host's own version (the static definitions are that
+version's), and the brain already has an index a read-only open can use (a
+SQLite file and, in WAL mode, its `-wal`/`-shm` sidecars, which the read-only
+forwarder cannot create while the project's stdio entry can); it runs under the
+tool-search setting the bridged session pins. Any other brain keeps stdio.
+A turn whose host login lies inside the brain skips the helper. The forwarder
+serves read tools only: it keeps the turn's profile, view, data tree and masks
+but is launched read-only on every profile (`readOnlyBrain`: the brain itself
+read-only, no writable area, workspace or worktree, no output stage), names the brain entry
+relative to the worker's brain root so the host plans no runtime path inside
+the live brain, and adds its limit hits to the turn's limit report. The host neither reads
+brain bytes nor resolves brain paths for this inventory, and keeps no cache.
+The maintainer's 2026-11-21 ruling rejects host-side hashing: its input set
+cannot safely prove that executable configuration selects the same modules,
+and reading those inputs on the host bypasses the worker boundary.
+
+A proven empty module-tool inventory permits the bridge; a dormant module's
+declared tools do not count, as the brain's MCP server does not serve them.
+The verdict arrives only once the helper's turn-temp allowance is free, so the
+forwarder can reserve it. Active module tools, helper failure, timeout, an
+allowance not freed within the bound, or malformed output retain the original
+project stdio entry and pin search off. Owner logs record
+`brain_bridge_fallback_module_tools` or
+`brain_bridge_fallback_inventory_unavailable`; these diagnostics never enter
+the provider conversation. Resumes use their retained selection and skip the
+helper. The extra command is not a `brain mcp` process. Pi keeps its existing
+in-worker reads.
+
+The pinned runtime can start a project stdio server even when an SDK server
+uses the same name. Bridge sessions therefore reject only the project `brain`
+entry with `disabledMcpjsonServers: ["brain"]` in flag settings. The prompt gate
+checks that rejection in effective native settings before releasing input;
+other project MCP servers retain their existing startup behavior.
+
+The new-session inventory has its own `backend` startup span,
+`brain_tool_inventory`, covering the sandboxed command until its verdict,
+without cache attributes; the worker's cleanup runs detached afterwards and is
+not included. The command overlaps only independent runtime-version and
+route-input preparation before `query()`. Its verdict fixes `mcpServers.brain`,
+`disabledMcpjsonServers` and `ENABLE_TOOL_SEARCH`, so query dispatch waits for
+it. All preparation owners settle before a failure propagates.
+
+Three fresh-process offline component runs measured core-only checks at
+252.4, 253.3 and 243.4 ms (median 252.4 ms). Concurrent pinned CLI version and
+route-input preparation hid 17.1, 16.5 and 15.4 ms (median 16.5 ms), leaving
+235.2, 236.9 and 228.0 ms unhidden (median 235.2 ms). Module-tool checks cost
+248.0, 250.0 and 238.7 ms. These measurements include worker cleanup and use
+copied immutable fixture storage on a shared host with version probing enabled;
+turns without that probe cannot claim its overlap. This per-new-session check
+roughly offsets the first-turn stdio discovery saving until #4381 supplies a
+static module inventory. Component overlap does
+not establish the net change of a native hosted turn. The native observation
+attempt could not open `/dev/loop-control` in its proof container.

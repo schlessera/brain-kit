@@ -4,6 +4,7 @@ import type {
   DraftRef,
   LocalExchange,
   MessageSource,
+  OutputSpeed,
   ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
@@ -33,6 +34,8 @@ export type RunSessionInput = {
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
   attachmentFiles?: import("../../attachments/context.js").MessageAttachment[];
   providerId?: string;
+  /** The client's speed for a NEW session; resumes use the stored one (#4310). */
+  outputSpeed?: OutputSpeed;
   client?: ClientEnvironment;
   source?: MessageSource;
   thinkingLevel?: ThinkingLevel;
