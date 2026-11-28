@@ -26,7 +26,8 @@ if (!process.env[CHILD_MARKER]) {
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
   GlobalRegistrator.register();
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const { enterActEnvironment, restoreActEnvironment } = await import("./act-environment.js");
+  enterActEnvironment();
 
   const { act, cleanup, fireEvent, render } = await import("@testing-library/react");
   const { BrainUiProvider } = await import("../src/root-context.js");
@@ -64,9 +65,13 @@ if (!process.env[CHILD_MARKER]) {
   }
 
   afterAll(async () => {
-    cleanup();
-    root.dispose();
-    await act(async () => {});
-    await GlobalRegistrator.unregister();
+    try {
+      cleanup();
+      root.dispose();
+      await act(async () => {});
+      await GlobalRegistrator.unregister();
+    } finally {
+      restoreActEnvironment();
+    }
   });
 }

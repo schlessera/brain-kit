@@ -162,7 +162,8 @@ if (!process.env[CHILD_MARKER]) {
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
   GlobalRegistrator.register();
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const { enterActEnvironment, restoreActEnvironment } = await import("./act-environment.js");
+  enterActEnvironment();
 
   const { cleanup, fireEvent, render, screen, waitFor } = await import("@testing-library/react");
   const { BrainUiProvider } = await import("../src/root-context.js");
@@ -175,7 +176,7 @@ if (!process.env[CHILD_MARKER]) {
     cleanup();
     for (const root of roots.splice(0)) root.dispose();
   });
-  afterAll(async () => { await React.act(async () => {}); await GlobalRegistrator.unregister(); });
+  afterAll(async () => { try { await React.act(async () => {}); await GlobalRegistrator.unregister(); } finally { restoreActEnvironment(); } });
 
   describe("the chat", () => {
     test("a cleared scratch link keeps its words, is inert and is named expired", async () => {

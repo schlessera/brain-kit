@@ -3,7 +3,7 @@
 // answers each recorded press once, in the root it was made in. The hook's
 // cases run in a child process with happy-dom registered, so its DOM globals
 // never reach another test file.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { createUIStore, type UIState } from "../src/stores/ui-state.js";
 
 const CHILD_MARKER = "BRAIN_UI_REACT_DESTINATION_PRESS_CHILD";
@@ -82,8 +82,12 @@ if (!process.env[CHILD_MARKER]) {
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
   GlobalRegistrator.register();
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const { enterActEnvironment, restoreActEnvironment } = await import("./act-environment.js");
+  enterActEnvironment();
   const { act, renderHook } = await import("@testing-library/react");
+  // After Testing Library's import: its own `afterAll`, registered as it loads,
+  // writes the flag back, and Bun runs `afterAll` hooks in registration order.
+  afterAll(restoreActEnvironment);
   const { BrainUiProvider } = await import("../src/root-context.js");
   const { createBrainUiRoot } = await import("../src/root.js");
   const { useDestinationPress } = await import("../src/hooks/use-destination-press.js");

@@ -2,7 +2,7 @@
 // registration/rebind, the first authenticated probe, reconnection, foreground
 // return and a detected zone change. Runs in a child process with happy-dom
 // registered, so its DOM globals never reach another test file.
-import { expect, spyOn, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 
 const CHILD_MARKER = "BRAIN_UI_REACT_NOTIFICATION_ZONE_CHILD";
 
@@ -27,9 +27,13 @@ if (!process.env[CHILD_MARKER]) {
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
   GlobalRegistrator.register();
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const { enterActEnvironment, restoreActEnvironment } = await import("./act-environment.js");
+  enterActEnvironment();
 
   const { act, renderHook } = await import("@testing-library/react");
+  // After Testing Library's import: its own `afterAll`, registered as it loads,
+  // writes the flag back, and Bun runs `afterAll` hooks in registration order.
+  afterAll(restoreActEnvironment);
   const registration = await import("../src/lib/push-registration.js");
   const { useNotificationZoneRefresh } = await import("../src/hooks/use-notification-zone.js");
   type Api = Parameters<typeof registration.rebindPushSubscriptionAfterLogin>[0];

@@ -4,7 +4,7 @@
 // renders on the client (server rendering reads a store's initial state), so
 // it runs in a child process with happy-dom registered, whose DOM globals never
 // reach another test file.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 
 const CHILD_MARKER = "BRAIN_UI_REACT_SHELL_STORES_CHILD";
 
@@ -28,9 +28,13 @@ if (!process.env[CHILD_MARKER]) {
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
   GlobalRegistrator.register();
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const { enterActEnvironment, restoreActEnvironment } = await import("./act-environment.js");
+  enterActEnvironment();
 
   const { renderHook } = await import("@testing-library/react");
+  // After Testing Library's import: its own `afterAll`, registered as it loads,
+  // writes the flag back, and Bun runs `afterAll` hooks in registration order.
+  afterAll(restoreActEnvironment);
   const { defaultRoot } = await import("../src/default-root.js");
   const { BrainUiProvider } = await import("../src/root-context.js");
   const { createBrainUiRoot } = await import("../src/root.js");

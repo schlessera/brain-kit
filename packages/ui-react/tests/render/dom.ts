@@ -25,6 +25,7 @@
 //      after the previous evaluation's scoped unregistration.
 
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { enterActEnvironment, restoreActEnvironment } from "../act-environment.js";
 
 export function registerDom(): void {
   if (!GlobalRegistrator.isRegistered) {
@@ -32,13 +33,17 @@ export function registerDom(): void {
   }
   // React 18+ requires this before act()-wrapped renders outside a real browser;
   // @testing-library/react wraps every render in act().
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  enterActEnvironment();
 }
 
 registerDom();
 
 export async function unregisterDom(): Promise<void> {
-  if (GlobalRegistrator.isRegistered) {
-    await GlobalRegistrator.unregister();
+  try {
+    if (GlobalRegistrator.isRegistered) {
+      await GlobalRegistrator.unregister();
+    }
+  } finally {
+    restoreActEnvironment();
   }
 }

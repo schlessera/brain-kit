@@ -28,7 +28,8 @@ if (!process.env[CHILD_MARKER]) {
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
   GlobalRegistrator.register();
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const { enterActEnvironment, restoreActEnvironment } = await import("./act-environment.js");
+  enterActEnvironment();
 
   const PANEL_WIDTH = 390;
   const DPR = 3;
@@ -323,8 +324,8 @@ if (!process.env[CHILD_MARKER]) {
       // reaches the previous file's previewer before its cleanup has run.
       const { createRoot } = await import("react-dom/client");
       const { useLayoutEffect } = await import("react");
-      const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
-      env.IS_REACT_ACT_ENVIRONMENT = false;
+      const actEnvironment = Object.getOwnPropertyDescriptor(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+      Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, enumerable: true, writable: true, value: false });
       const container = document.createElement("div");
       document.body.append(container);
       const reactRoot = createRoot(container);
@@ -350,9 +351,13 @@ if (!process.env[CHILD_MARKER]) {
         expect(container.textContent).not.toContain("Preview not available");
         expect(container.querySelector('button[aria-label="Page 1 of 1, open zoomed"]')).not.toBeNull();
       } finally {
-        reactRoot.unmount();
-        container.remove();
-        env.IS_REACT_ACT_ENVIRONMENT = true;
+        try {
+          reactRoot.unmount();
+          container.remove();
+        } finally {
+          if (actEnvironment) Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", actEnvironment);
+          else Reflect.deleteProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+        }
       }
     });
 
@@ -419,9 +424,13 @@ if (!process.env[CHILD_MARKER]) {
   });
 
   afterAll(async () => {
-    cleanup();
-    root.dispose();
-    await act(async () => {});
-    await GlobalRegistrator.unregister();
+    try {
+      cleanup();
+      root.dispose();
+      await act(async () => {});
+      await GlobalRegistrator.unregister();
+    } finally {
+      restoreActEnvironment();
+    }
   });
 }

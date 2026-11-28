@@ -3,14 +3,19 @@
 // body runs once per process, so each render test file registers its own DOM
 // and unregisters it in `afterAll`. Import it FIRST, before any component.
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { enterActEnvironment, restoreActEnvironment } from "../act-environment.js";
 
 export function registerStreamingMarkdownDom(): void {
   if (!GlobalRegistrator.isRegistered) GlobalRegistrator.register({ url: "http://localhost/" });
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  enterActEnvironment();
 }
 
 registerStreamingMarkdownDom();
 
 export async function unregisterStreamingMarkdownDom(): Promise<void> {
-  if (GlobalRegistrator.isRegistered) await GlobalRegistrator.unregister();
+  try {
+    if (GlobalRegistrator.isRegistered) await GlobalRegistrator.unregister();
+  } finally {
+    restoreActEnvironment();
+  }
 }

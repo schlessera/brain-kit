@@ -3,7 +3,7 @@
 // composer's drawn line count, including changes no event reports. Runs in a
 // child process with happy-dom registered, so its DOM globals never reach
 // another test file.
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 
 const CHILD_MARKER = "BRAIN_UI_REACT_SOFT_KEYBOARD_CHILD";
 
@@ -26,8 +26,12 @@ if (!process.env[CHILD_MARKER]) {
 } else {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
   GlobalRegistrator.register();
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const { enterActEnvironment, restoreActEnvironment } = await import("./act-environment.js");
+  enterActEnvironment();
   const { act, renderHook } = await import("@testing-library/react");
+  // After Testing Library's import: its own `afterAll`, registered as it loads,
+  // writes the flag back, and Bun runs `afterAll` hooks in registration order.
+  afterAll(restoreActEnvironment);
   const { useSoftKeyboard } = await import("../src/hooks/use-soft-keyboard.js");
 
   // A phone: a coarse pointer, and a visual viewport the test can shorten.
