@@ -8,7 +8,7 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 import type { BrainContext } from "./context.js";
 import { parseContextScope, type ContextScope, type ContextScopeInput } from "./context-scope.js";
 import type { EmbeddingProvider } from "./seams.js";
-import { CHUNKER_VERSION, estimateTokens, headingText as chunkerHeadingText, lineIndex } from "./chunker.js";
+import { CHUNKER_VERSION, estimateTokens, headingText as chunkerHeadingText, leadingBlankLength, lineIndex } from "./chunker.js";
 import { topLevelBlocks, type TopLevelBlock } from "./document-parts.js";
 import { codeRanges } from "./markdown-code.js";
 import { chunkMatchLine, hybridSearch } from "./search-engine.js";
@@ -789,7 +789,8 @@ function recordedSpan(
     .filter((part) => part.text !== "")
     .map((part) => ({
       ...part,
-      first: lineAt(part.name === null ? body.slice(0, part.end).search(/\S/) : part.start),
+      // The lead starts after its blank lines, as the chunker counts them (#4909).
+      first: lineAt(part.name === null ? leadingBlankLength(body.slice(0, part.end)) : part.start),
       last: lineAt(part.start + body.slice(part.start, part.end).trimEnd().length - 1),
     }));
   const from = parts.findIndex((part) => part.first === range[0]);

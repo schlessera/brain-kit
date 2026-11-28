@@ -1347,6 +1347,65 @@ describe("sections from chunks", () => {
       }
     });
 
+    // #4909 review round 5 of #3683: an oversized section the chunker repacks
+    // into one chunk (its paragraphs' indentation stripped) is still whole
+    // sections, so it records its lines and widens to them.
+    test("a folded section repacked into one chunk widens to its recorded span", async () => {
+      const soundings = Array.from({ length: 72 }, (_, i) => `   Sounding ${i + 1} reads four fathoms over sand and shell.`).join("\n\n");
+      const file = study("Folded", `## Signal\n\nThe beacon code is violet.\n\n## Soundings\n\n${soundings}\n`);
+      const { ctx, db } = await brainWith({ "studies/folded.md": file });
+      const spy = failMatchLine(db);
+      try {
+        // The premise: one chunk, Signal folded into the repacked Soundings.
+        const chunks = db
+          .prepare("SELECT c.heading, c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.path = ? ORDER BY chunk_index")
+          .all("studies/folded.md") as { heading: string; content: string }[];
+        expect(chunks.map((c) => c.heading)).toEqual(["Soundings"]);
+        expect(chunks[0]!.content).toContain("\n\nSounding 1 reads");
+        const coverage = emptyContextCoverage();
+        const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 20000, includeIdentity: false, includeCurrentFocus: false, scope: { include: ["studies/"] }, coverage });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).toContain("#### Signal\nThe beacon code is violet.\n\n#### Soundings\n   Sounding 1 reads");
+        expect(hit).toContain("Sounding 72 reads");
+        const lines = file.split("\n");
+        expect(coverage.excerpts.find((e) => e.path === "studies/folded.md")).toEqual({
+          path: "studies/folded.md",
+          lane: "search",
+          form: "section",
+          lines: [lines.indexOf("## Signal") + 1, lines.findIndex((line) => line.startsWith("   Sounding 72 ")) + 1],
+        });
+      } finally {
+        spy.mockRestore();
+        db.close();
+      }
+    });
+
+    // #4909 review round 6 of #3683: a lead whose first line is only a
+    // nonbreaking space starts there for the chunker (a blank line is spaces
+    // and tabs alone), so the assembler places it by the same rule.
+    test("a folded lead whose first line is a nonbreaking space widens with it", async () => {
+      const file = study("Folded", `\u00a0\nThe beacon lead opens the study.\n\n## Tides\n\n${para("Tide", 8)}\n`);
+      const { ctx, db } = await brainWith({ "studies/folded.md": file });
+      const spy = failMatchLine(db);
+      try {
+        const coverage = emptyContextCoverage();
+        const out = await assembleContext(db, ctx, { query: "beacon", maxTokens: 20000, includeIdentity: false, includeCurrentFocus: false, scope: { include: ["studies/"] }, coverage });
+        const hit = hitsOf(out).find((h) => h.includes("(studies/folded.md)"))!;
+        expect(hit).toContain("The beacon lead opens the study.");
+        expect(hit).toContain("#### Tides\nTide paragraph 1");
+        const lines = file.split("\n");
+        expect(coverage.excerpts.find((e) => e.path === "studies/folded.md")).toEqual({
+          path: "studies/folded.md",
+          lane: "search",
+          form: "section",
+          lines: [lines.indexOf("\u00a0") + 1, lines.findIndex((line) => line.startsWith("Tide paragraph 8 ")) + 1],
+        });
+      } finally {
+        spy.mockRestore();
+        db.close();
+      }
+    });
+
     test("an unfolded section with an unplaced match is that section, with no span lines", async () => {
       const { ctx, db } = await brainWith({ "studies/notes.md": study("Notes", `## Notes\n\nThe beacon log opens here.\n\n${para("Note", 8)}\n`) });
       const spy = failMatchLine(db);
