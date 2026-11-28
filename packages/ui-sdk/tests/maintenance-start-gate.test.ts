@@ -325,12 +325,12 @@ describe("L2 gate lifecycle (#5016 review r2)", () => {
     const f = fixture();
     watchSpawn({ stall: true });
     const controller = new AbortController();
-    patchStatus(() => ({ *childPidSteps() { controller.abort("Penelope recalls the ship"); throw new Error("Odysseus lost the status line"); } }));
+    patchStatus(() => ({ *childPidSteps() { yield* []; controller.abort("Penelope recalls the ship"); throw new Error("Odysseus lost the status line"); } }));
     const rejected = await runMaintenanceWorker({ ...command(f, sh("printf ran")), signal: controller.signal, timeoutMs: 60_000 }).then(() => "resolved", error => ({ error }));
     expect(rejected, "F26_ABORT_DURING_SUPERVISOR_WAIT").toEqual({ error: "Penelope recalls the ship" });
     restoreSpies();
     watchSpawn({ stall: true });
-    patchStatus(() => ({ *childPidSteps() { Bun.sleepSync(400); throw new Error("Odysseus lost the status line"); } }));
+    patchStatus(() => ({ *childPidSteps() { yield* []; Bun.sleepSync(400); throw new Error("Odysseus lost the status line"); } }));
     const result = await runMaintenanceWorker({ ...command(f, sh("printf ran")), timeoutMs: 200 }).catch(error => error);
     expect(result, `F26_DEADLINE_DURING_SUPERVISOR_WAIT: ${result?.name}`).toMatchObject({ killed: true, exitCode: 137, stdout: "" });
   }, watchdogMs(60_000));
