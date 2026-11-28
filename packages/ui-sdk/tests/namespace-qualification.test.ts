@@ -108,6 +108,42 @@ describe("evaluateNamespace", () => {
       expect(evaluateNamespace(live, [STATE], [1000, 1000, 1000, 1000], serverOwned).result, "SERVER_UID_JUDGED_AS_SERVER").toBe("exposed");
       expect(evaluateNamespace(live, [STATE], [21003, 1000], serverOwned).result, "ANY_SANDBOX_UID_MATCHES").toBe("exposed");
     });
+    test("state below an owner-only directory of another UID is reported and released, whatever its own mode (#5051)", () => {
+      // A separate worker identity sees the host's root, where the server's
+      // 0700 state directory holds a database the default umask left 0644.
+      const root = table(line(709, 680, "0:46", "/", "/", "overlay", "ro"), seal(3, 709));
+      const DB: StateRootObservation = { setting: "DB_PATH", path: "/identity-server-private/server-ws/ui.db", sb: "0:46", fspath: "/identity-server-private/server-ws/ui.db" };
+      const modes: Record<string, { uid: number; mode: number }> = {
+        "/identity-server-private/server-ws/ui.db": { uid: 21001, mode: 0o100644 }, "/identity-server-private/server-ws": { uid: 21001, mode: 0o40755 },
+        "/identity-server-private": { uid: 21001, mode: 0o40700 }, "/": { uid: 0, mode: 0o40755 } };
+      // Every host path here is the backing path itself: the route is certain.
+      const host: NamespaceInspector = { owner: path => modes[path], layer: path => modes[path] ? { sb: "0:46", fspath: path } : undefined };
+      expect(evaluateNamespace(root, [DB], [21002, 21002, 21002, 21002], host), "OWNER_ONLY_ANCESTOR_RELEASES").toMatchObject({ result: "ownership_only",
+        entries: [{ setting: "DB_PATH", name: DB.path }] });
+      // The server's own UID traverses its directory: exposed.
+      expect(evaluateNamespace(root, [DB], [21001, 21001, 21001, 21001], host).result, "OWNER_ANCESTOR_TRAVERSED_BY_ITS_OWNER").toBe("exposed");
+      // A directory others may enter protects nothing.
+      modes["/identity-server-private"] = { uid: 21001, mode: 0o40711 };
+      expect(evaluateNamespace(root, [DB], [21002, 21002, 21002, 21002], host).result, "TRAVERSABLE_ANCESTOR_EXPOSED").toBe("exposed");
+      // An ancestor the host cannot read releases nothing: the open object is judged alone.
+      delete modes["/identity-server-private"];
+      expect(evaluateNamespace(root, [DB], [21002, 21002, 21002, 21002], host).result, "UNREADABLE_ANCESTOR_RELEASES_NOTHING").toBe("exposed");
+    });
+
+    test("an owner-only directory on a host alias the worker never crosses releases nothing (#5053 r1 F1)", () => {
+      // The host names the database through a bind alias below its own 0700
+      // directory; the worker's mount reaches the original file through
+      // traversable directories, never through that alias.
+      const worker = table(line(1, 0, "0:70", "/newroot", "/", "tmpfs"), line(2, 1, "8:1", "/", "/data", "ext4", "rw"), seal(3, 1));
+      const DB: StateRootObservation = { setting: "DB_PATH", path: "/srv/penelope/alias/ui.db", sb: "8:1", fspath: "/open/state/ui.db" };
+      const owners: Record<string, { uid: number; mode: number }> = {
+        "/srv/penelope/alias/ui.db": { uid: 21001, mode: 0o100644 }, "/srv/penelope/alias": { uid: 21001, mode: 0o40700 },
+        "/srv/penelope": { uid: 21001, mode: 0o40700 }, "/srv": { uid: 0, mode: 0o40755 } };
+      // The alias directories back onto another filesystem path than the worker's route.
+      const backing: Record<string, { sb: string; fspath: string }> = { "/srv/penelope/alias": { sb: "8:2", fspath: "/alias" }, "/srv/penelope": { sb: "8:2", fspath: "/" } };
+      const host: NamespaceInspector = { owner: path => owners[path], layer: path => backing[path] };
+      expect(evaluateNamespace(worker, [DB], [21002, 21002, 21002, 21002], host).result, "ALIAS_ANCESTOR_RELEASES_NOTHING").toBe("exposed");
+    });
     test("an owner the host cannot read is unknown, never released", () => {
       expect(evaluateNamespace(live, [STATE], [21003], { owner: () => undefined, layer: () => undefined }).result).toBe("unknown");
     });
