@@ -322,6 +322,11 @@ async function runOnTree(options: {
   } catch (error) { await view.cleanup(); throw error; }
   const timeoutMs = options.timeoutMs ?? PRIVATE_INDEX_BUILD_MS;
   const stop = () => worker.kill("SIGKILL");
+  // The request goes to a worker that may be gone: killed for an abort during
+  // its launch, or dead before it read. Its closed pipe fails the write with
+  // EPIPE, and an unheard stream error ends the host process (#5050). The
+  // abort or the worker's missing answer reports the run.
+  worker.stdin.on("error", () => {});
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; stop(); }, timeoutMs);
   options.signal?.addEventListener("abort", stop, { once: true });

@@ -11,8 +11,8 @@ import ts from "typescript";
 import { cssInputs } from "./css-inputs";
 import { normalizeInventory, type Spec } from "./proof-inputs";
 
-export type BrowserCategory = "browser" | "layout" | "endurance" | "captures";
-export interface IndirectInput {
+type BrowserCategory = "browser" | "layout" | "endurance" | "captures";
+interface IndirectInput {
   /** Exact call expression: a source edit invalidates its declaration. */
   expression: string;
   targets: string[];
@@ -22,7 +22,7 @@ export interface IndirectInput {
   observation?: "linux-proc-self-identity";
 }
 export interface InputDeclaration { owner: string; inputs: IndirectInput[]; }
-export interface InputClosure { files: string[]; directories?: string[]; unresolved: string[]; }
+interface InputClosure { files: string[]; directories?: string[]; unresolved: string[]; }
 const builtins = new Set(builtinModules.flatMap(name => [name, `node:${name}`]));
 const sourceExtension = /\.[cm]?[jt]sx?$/;
 const readOperations = new Set(["readFile", "readFileSync", "readdir", "readdirSync", "readlink", "readlinkSync", "createReadStream", "open", "openSync", "opendir", "opendirSync", "access", "accessSync", "existsSync", "stat", "statSync", "lstat", "lstatSync", "watch", "watchFile", "spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"]);

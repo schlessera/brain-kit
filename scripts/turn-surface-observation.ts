@@ -1,8 +1,8 @@
 /** Runtime observations, independent of the router's predicted choices. */
 import { BRIDGE_TOOL_CONTRACTS } from "@schlessera/brain-ui-sdk/server";
 
-export interface ObservedCall { id: string; name: string; input: Record<string, unknown>; accepted: boolean; skill: string | null }
-export interface RoundTripUsage {
+interface ObservedCall { id: string; name: string; input: Record<string, unknown>; accepted: boolean; skill: string | null }
+interface RoundTripUsage {
   id: string; model: string; inputTokens: number; outputTokens: number;
   cacheReadTokens: number; cacheWriteTokens: number;
   cacheCreation: Record<string, unknown> | null;

@@ -84,7 +84,7 @@ export const DEADLINE_CLIENT_ERRORS = [
 export function deadlineClientError(message: unknown): boolean {
   return typeof message === "string" && DEADLINE_CLIENT_ERRORS.some(wording => message.includes(`NativeBrainManagerError: ${wording}`));
 }
-export function deadlineSigkill(signal: any): boolean {
+function deadlineSigkill(signal: any): boolean {
   return signal?.signal === "SIGKILL" && (DEADLINE_ABORT_REASONS as readonly string[]).includes(signal.abort?.reason);
 }
 /**

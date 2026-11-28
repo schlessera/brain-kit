@@ -23,7 +23,7 @@ interface Manifest {
   dependencies?: Record<string, string>;
 }
 
-export interface PinFinding {
+interface PinFinding {
   package: string;
   dep: string;
   pinned: string | undefined;
@@ -34,7 +34,7 @@ export interface PinFinding {
  * Packs each package with internal deps and returns every pin that does not
  * match the current workspace version. Throws when packing itself fails.
  */
-export function checkPublishPins(root: string): PinFinding[] {
+function checkPublishPins(root: string): PinFinding[] {
   const publishable = listPublishablePackages(root);
   const dirs = publishable.map((pkg) => pkg.dir);
   const manifests = new Map<string, Manifest>(publishable.map((pkg) => [pkg.dir, pkg.manifest]));

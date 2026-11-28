@@ -8,7 +8,7 @@ import { join } from "node:path";
 import ts from "typescript";
 
 /** The script kind a gate parses `file` with when it does not force one. */
-export function scriptKind(file: string): ts.ScriptKind {
+function scriptKind(file: string): ts.ScriptKind {
   return /\.[cm]?tsx$|\.jsx$/.test(file) ? ts.ScriptKind.TSX : /\.[cm]?jsx?$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
 }
 

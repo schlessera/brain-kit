@@ -20,7 +20,7 @@ import { git, gitResult } from "../lib/git";
 
 const BATCH_GIT = { error: (args: readonly string[], _code: number | null, stderr: string) => `git ${args[0]}: ${stderr.trim()}` } as const;
 
-export const TRAILER = "Test-Health";
+const TRAILER = "Test-Health";
 /** The commit trailer that ties a commit to its recorded audit. */
 export const trailerFor = (runId: string, cluster: number): string => `${TRAILER}: ${runId}#${cluster}`;
 
@@ -49,7 +49,7 @@ export function changedFilesOf(batch: BatchState, state: LedgerState): string[] 
 export const parkedChangedFiles = (state: LedgerState): number =>
   [...state.batches.values()].filter(batch => batch.status === "open").reduce((sum, batch) => sum + changedFilesOf(batch, state).length, 0);
 
-export interface Ripeness { ripe: boolean; reasons: string[]; changedFiles: number; ageHours: number; full: boolean }
+interface Ripeness { ripe: boolean; reasons: string[]; changedFiles: number; ageHours: number; full: boolean }
 
 /** `exhausted` means the batch's group has nothing left to audit. */
 export function ripeness(batch: BatchState, state: LedgerState, profile: Profile, now: Date, exhausted: boolean): Ripeness {
@@ -90,7 +90,7 @@ export const allowedInBatch = (path: string): boolean => TEST_FILE.test(path) ||
 /** Smells whose count may never rise in a batch: they hide a test instead of fixing it. */
 const GUARDED = ["skipped", "conditional-skip", "retry", "only", "long-timeout"] as const;
 
-export interface VerifyInput {
+interface VerifyInput {
   root: string;
   base: string;
   head: string;
@@ -102,7 +102,7 @@ export interface VerifyInput {
   /** Injectable for tests; defaults to the repository's proof-system classifier. */
   classify?: (base: string, head: string, cwd: string) => { proofSystem: boolean; reasons: unknown[] };
 }
-export interface VerifyResult {
+interface VerifyResult {
   ok: boolean;
   violations: string[];
   stats: { commits: number; files: number; testsBefore: number; testsAfter: number; assertionsBefore: number; assertionsAfter: number;

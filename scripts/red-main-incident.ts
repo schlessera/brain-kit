@@ -38,21 +38,21 @@ export interface IncidentIO {
   write(method: "POST" | "DELETE", path: string, body?: unknown): Promise<any>;
 }
 
-export const EVIDENCE_KINDS = ["reproduction", "bisect", "log", "ruled-out", "related", "duplicate", "fix-attempt", "decision"] as const;
+const EVIDENCE_KINDS = ["reproduction", "bisect", "log", "ruled-out", "related", "duplicate", "fix-attempt", "decision"] as const;
 /** The claimant's recovery choice (#2934 ruling, 2026-11-02): a fix PR, a targeted revert PR, or explicit uncertainty. */
 export const CHOICES = ["fix", "revert", "uncertain"] as const;
 export type Choice = typeof CHOICES[number];
 export type EvidenceKind = typeof EVIDENCE_KINDS[number];
 export interface Evidence extends Claimant { kind: EvidenceKind; summary: string; sha?: string; issue?: number; details?: string; choice?: Choice; }
 
-export const claimMarker = (run: number, claim: FixClaim) => `<!-- brain-red-main-claim: run ${run} claimed ${claim.claimed} -->`;
-export const releaseMarker = (run: number, claim: FixClaim) => `<!-- brain-red-main-release: run ${run} claimed ${claim.claimed} -->`;
+const claimMarker = (run: number, claim: FixClaim) => `<!-- brain-red-main-claim: run ${run} claimed ${claim.claimed} -->`;
+const releaseMarker = (run: number, claim: FixClaim) => `<!-- brain-red-main-release: run ${run} claimed ${claim.claimed} -->`;
 export const evidenceMarker = (run: number, kind: EvidenceKind) => `<!-- brain-red-main-evidence: run ${run} kind ${kind} -->`;
 const iso = (ms: number) => new Date(ms).toISOString();
 const short = (sha: string) => sha.slice(0, 12);
 const issuePath = (io: IncidentIO, n: number) => `repos/${io.repository}/issues/${n}`;
 
-export function claimComment(open: RedIncident, claim: FixClaim): string {
+function claimComment(open: RedIncident, claim: FixClaim): string {
   const lines = [claimMarker(open.run, claim)];
   if (claim.takeover) lines.push(`**Fix claim takeover**: worker \`${claim.worker}\` (orchestrator \`${claim.orchestrator}\`) took over the fix from worker \`${claim.takeover.worker}\` (orchestrator \`${claim.takeover.orchestrator}\`), whose claim expired at ${iso(claim.takeover.expired)}.`);
   else lines.push(`**Fix claimed** by worker \`${claim.worker}\` (orchestrator \`${claim.orchestrator}\`).`);
@@ -104,8 +104,8 @@ async function hasComment(io: IncidentIO, incident: number, marker: string, sinc
   return Array.isArray(comments) && comments.some((comment: { body?: string }) => comment.body?.includes(marker));
 }
 
-export type ClaimMode = "claim" | "renew" | "release";
-export interface ClaimResult { mode: ClaimMode; incident: number; claim: FixClaim | null; action: string | undefined; mirrored: string[]; }
+type ClaimMode = "claim" | "renew" | "release";
+interface ClaimResult { mode: ClaimMode; incident: number; claim: FixClaim | null; action: string | undefined; mirrored: string[]; }
 
 /** Writes the claim through the record's compare-and-swap first; the issue only mirrors what won. */
 export async function claimIncident(io: IncidentIO, who: Claimant, mode: ClaimMode): Promise<ClaimResult> {

@@ -18,11 +18,11 @@ import { GitHubProofAPI, type API } from "./proof-api";
 export const FEEDBACK_WORKFLOW = "heavy-feedback.yml";
 export const FEEDBACK_AGGREGATE = "draft heavy feedback";
 /** Feedback runs allowed in flight repository-wide, counting the admitted run. */
-export const FEEDBACK_SLOTS = 2;
-export const ADMISSION_WAIT_MS = 30 * 60_000, ADMISSION_POLL_MS = 30_000;
+const FEEDBACK_SLOTS = 2;
+const ADMISSION_WAIT_MS = 30 * 60_000, ADMISSION_POLL_MS = 30_000;
 
-export interface FeedbackRequest { repository: string; pr: number; head: string; }
-export interface LiveDraft { base: string; head: string; }
+interface FeedbackRequest { repository: string; pr: number; head: string; }
+interface LiveDraft { base: string; head: string; }
 
 /** Parses workflow inputs; strings arrive from `workflow_dispatch`, never trusted as shell text. */
 export function feedbackRequest(env: NodeJS.ProcessEnv): FeedbackRequest {
@@ -64,7 +64,7 @@ export async function yieldReason(api: API, ownRun: number, now: number): Promis
   return undefined;
 }
 
-export interface AdmitOptions { ownRun: number; clock?: () => number; sleep?: (ms: number) => Promise<void>; log?: (line: string) => void; waitMs?: number; pollMs?: number; }
+interface AdmitOptions { ownRun: number; clock?: () => number; sleep?: (ms: number) => Promise<void>; log?: (line: string) => void; waitMs?: number; pollMs?: number; }
 
 /** Bounded admission: the head is rechecked on every poll, so a push refuses a waiting run.
  * Each poll gets a fresh client, because one proof API client has a short request budget. */

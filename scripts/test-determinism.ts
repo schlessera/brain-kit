@@ -177,7 +177,7 @@ function describePlan(plan: RepetitionPlan, burners: number): string[] {
  * stopped by PID on every path out: completion, a thrown error, a signal and
  * the process's own exit.
  */
-export async function runDeterminism(options: RunOptions): Promise<Report> {
+async function runDeterminism(options: RunOptions): Promise<Report> {
   const { root } = options, log = options.log ?? (line => console.error(line));
   const cpus = availableParallelism(), burnerCount = options.burners ?? cpus;
   const discovered = new Set(discoverTests(root, ["packages", "tests"]));

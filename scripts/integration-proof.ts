@@ -23,7 +23,7 @@ export const MAX_RUN_JOBS = 2 + PROOF_JOBS.reduce((jobs, name) => jobs + (name =
   name in PLANNED_MATRICES ? PLANNED_MATRICES[name as keyof typeof PLANNED_MATRICES].max :
   name in PROOF_SHARDS ? PROOF_SHARDS[name as keyof typeof PROOF_SHARDS] : 1), 0);
 
-export function checkoutFromJob(log: string): string {
+function checkoutFromJob(log: string): string {
   const lines = log.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
   const index = lines.findIndex(line => line.includes("git log -1 --format=%H"));
   const value = index < 0 ? undefined : /\b([a-f0-9]{40})\s*$/.exec(lines[index + 1] ?? "")?.[1];
@@ -43,7 +43,7 @@ export async function latestIntegrationRun(api: API, workflow: string, candidate
 const metadataObject = (value: unknown): boolean =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-export type ContractReadiness = { state: "passed" | "pending" | "refused"; message: string };
+type ContractReadiness = { state: "passed" | "pending" | "refused"; message: string };
 
 /**
  * Whether the newest exact-head contract run can serve as the merge path's contract proof (#3573).

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { runCommands } from "./ci-runner";
 
-export function packCommands(root: string): Array<{ name: string; run: string }> {
+function packCommands(root: string): Array<{ name: string; run: string }> {
   const workflow = Bun.YAML.parse(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8")) as {
     jobs: { pack: { steps: Array<{ name?: string; run?: string }> } };
   };

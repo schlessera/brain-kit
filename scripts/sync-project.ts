@@ -362,17 +362,6 @@ export function statusFor(
 
 export type BlockerState = "open" | "closed";
 
-/**
- * The blockers an issue body names, as `owner/repo#number`.
- *
- * The convention is `Blocked by #N` on its own line (`docs/process/github.md`).
- * Prose that merely mentions being blocked names nothing a script can check,
- * and a line inside a code fence is an example, not a dependency.
- */
-export function blockersIn(body: string, repo: string): string[] {
-  return parseBlockers(body, repo).refs;
-}
-
 /** `#12`, `owner/repo#12`, or a GitHub issue or pull request URL. */
 const BLOCKER_REF =
   /^(?:([\w.-]+\/[\w.-]+)?#(\d+)|https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/(\d+)(?:[#?]\S*?)?)(?=$|[\s,.;:)!?])/;
@@ -381,7 +370,12 @@ const BLOCKER_REF =
 const MENTIONS_BLOCKED_BY = /blocked[\s_*`~-]*by(?![a-z])/i;
 
 /**
- * The blockers an issue body names, and the declarations it could not read.
+ * The blockers an issue body names, as `owner/repo#number`, and the
+ * declarations it could not read.
+ *
+ * The convention is `Blocked by #N` on its own line (`docs/process/github.md`).
+ * Prose that merely mentions being blocked names nothing a script can check,
+ * and a line inside a code fence is an example, not a dependency.
  *
  * A declaration is a `Blocked by` line whose text starts with a list of
  * references (`#1`, `#1, #2`, `#1 and o/r#2`); anything after the list is

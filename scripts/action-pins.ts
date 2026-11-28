@@ -14,7 +14,7 @@ export const ACTION_PINS = {
   "actions/upload-pages-artifact@v4": "7b1f4a764d45c48632c6b24a0339c27f5614fb0b",
   "oven-sh/setup-bun@v2": "0c5077e51419868618aeaa5fe8019c62421857d6",
 } as const;
-export type ActionPin = keyof typeof ACTION_PINS;
+type ActionPin = keyof typeof ACTION_PINS;
 
 const split = (pin: string): [string, string] => [pin.slice(0, pin.lastIndexOf("@")), pin.slice(pin.lastIndexOf("@") + 1)];
 

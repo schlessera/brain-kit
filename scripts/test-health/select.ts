@@ -97,7 +97,7 @@ export function fileState(row: Row, audit: FileAuditState | undefined, now: Date
   return audit.deferred?.some(finding => UNFINISHED_REASONS.includes(finding.deferredFor)) ? "unfinished" : "fresh";
 }
 
-export const SMALL_GROUP = "small";
+const SMALL_GROUP = "small";
 
 /** Each package's group: `small` for a package with at most `smallPackageFiles`
  * test files in the profile's tiers, otherwise the package's own name. */

@@ -21,7 +21,7 @@ import type { FileAccounting } from "./accounting";
 interface Base { v: 1; at: string; runId: string }
 
 export interface ClaimRecord extends Base { type: "claim"; files: string[]; expiresAt: string; profile: string }
-export interface ReleaseRecord extends Base { type: "release" }
+interface ReleaseRecord extends Base { type: "release" }
 export interface AuditedFile { file: string; blobBefore: string; blobAfter: string | null; lenses: Record<LensId, LensVerdict> }
 export interface ClusterRecord extends Base {
   type: "cluster"; cluster: number; batchId: string | null; commit: string | null;
@@ -33,7 +33,7 @@ export interface ClusterRecord extends Base {
 }
 export interface WipPatch { path: string; sha256: string; bytes: number; files: string[] }
 /** Withdraws a cluster's audits, for example when its commit was dropped from a batch. */
-export interface VoidRecord extends Base { type: "void"; cluster: number; reason: string }
+interface VoidRecord extends Base { type: "void"; cluster: number; reason: string }
 export interface Snapshot {
   sha: string; files: number; scenarios: number; assertions: number;
   costSeconds: number; top50CostShare: number;
@@ -224,7 +224,7 @@ export class GitLedgerStore implements LedgerStore {
 }
 
 /** A deferred finding as a later run needs it, with its reason resolved. */
-export interface DeferredFinding { id: string; lens: string; smell: string; action: string; note: string; deferredFor: DeferredReason }
+interface DeferredFinding { id: string; lens: string; smell: string; action: string; note: string; deferredFor: DeferredReason }
 export interface FileAuditState {
   at: string; runId: string; cluster: number; blobBefore: string; blobAfter: string | null; lenses: Record<LensId, LensVerdict>;
   /** This audit's deferred findings on the file itself; absent on states built by hand. */

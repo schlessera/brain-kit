@@ -19,7 +19,7 @@ import type { RunOutput, TestRunner } from "./runner";
 
 export type Verdict = "stable" | "not-collected" | "failing" | "flaky" | "order-dependent" | "leaks-between-files" | "load-sensitive";
 
-export interface FileMeasure {
+interface FileMeasure {
   file: string;
   /** Runs and failures across every variant that ran this file alone. */
   runs: number;
@@ -40,7 +40,7 @@ export interface FileMeasure {
   /** Only for `not-collected`: the last lines the runner printed, which name why nothing was collected. */
   setupError?: string;
 }
-export interface MeasureResult {
+interface MeasureResult {
   schemaVersion: 1;
   tool: "test-health measure";
   at: string;
@@ -48,7 +48,7 @@ export interface MeasureResult {
   together: { runs: number; failures: number; failingCases: string[] } | null;
 }
 
-export interface MeasureOptions {
+interface MeasureOptions {
   files: string[];
   runner: TestRunner;
   runs: number;
@@ -73,7 +73,7 @@ export function median(values: readonly number[]): number | null {
 }
 
 /** One busy loop per CPU, so the test competes for every core. */
-export function cpuLoad(): () => void {
+function cpuLoad(): () => void {
   const burners = Array.from({ length: availableParallelism() }, () =>
     Bun.spawn([process.execPath, "-e", "for(;;){}"], { stdout: "ignore", stderr: "ignore", stdin: "ignore" }));
   return () => { for (const burner of burners) burner.kill("SIGKILL"); };

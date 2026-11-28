@@ -54,7 +54,7 @@ export const Fragment = R.Fragment;`,
 };
 
 /** Story files the bundle carries, keyed by their Storybook title. */
-export function storyFiles(kitDir: string): { title: string; file: string }[] {
+function storyFiles(kitDir: string): { title: string; file: string }[] {
   const out: { title: string; file: string }[] = [];
   for (const file of [...new Glob("stories/**/*.stories.tsx").scanSync(kitDir)].sort()) {
     const text = readFileSync(join(kitDir, file), "utf8");

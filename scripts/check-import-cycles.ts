@@ -50,7 +50,7 @@ export const ALLOWLIST: CycleAllowlistEntry[] = [
   ], reason: "the worker launcher and its helpers import each other; #2530 cuts it" },
 ];
 
-export interface CycleReport {
+interface CycleReport {
   schemaVersion: 1;
   scannedFiles: number;
   /** Every component of two or more files, each sorted, in file order. */
@@ -61,7 +61,7 @@ export interface CycleReport {
   staleAllowlist: CycleAllowlistEntry[];
 }
 
-export interface CycleCheckOptions {
+interface CycleCheckOptions {
   allowlist?: CycleAllowlistEntry[];
   /** Repository-relative files to read instead of `git ls-files` (tests). */
   files?: string[];

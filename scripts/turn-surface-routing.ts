@@ -87,7 +87,7 @@ function routedServer(name: string, peer: Peer, arm: Arm, picked: ReadonlySet<st
   return { type: "sdk", name, instance };
 }
 
-export interface RoutingOptions {
+interface RoutingOptions {
   enabled?: boolean;
   arm: Arm;
   client: JevClient;
@@ -231,7 +231,6 @@ export async function routePreparedTurn(turn: ClaudeSdkTurn, opts: RoutingOption
   } finally { clearTimeout(timer); }
 }
 
-export type AssemblyInput = Parameters<typeof createClaudeSdkTurn>[0];
 export const assembleTurn = createClaudeSdkTurn;
 
 /** JSON boundary only: callbacks/controllers cannot be compared by encoding. */

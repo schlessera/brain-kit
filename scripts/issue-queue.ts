@@ -73,7 +73,7 @@ export function ineligible(issue: Issue): string | null {
 
 export interface OpenPr { number: number; head: string; draft: boolean; body: string }
 
-export function listOpenPrs(gh: Gh, repo: string): OpenPr[] {
+function listOpenPrs(gh: Gh, repo: string): OpenPr[] {
   const raw = JSON.parse(must(gh, ["pr", "list", "--repo", repo, "--state", "open", "--limit", "300", "--json", "number,headRefName,isDraft,body"])) as
     Array<{ number: number; headRefName: string; isDraft: boolean; body: string }>;
   return raw.map(pr => ({ number: pr.number, head: pr.headRefName, draft: pr.isDraft, body: pr.body ?? "" }));
@@ -144,7 +144,7 @@ function parseFlags(argv: readonly string[]): { positional: string[]; flags: Map
   return { positional, flags };
 }
 
-export interface QueueIo { gh?: Gh; out: (text: string) => void; token?: () => string }
+interface QueueIo { gh?: Gh; out: (text: string) => void; token?: () => string }
 
 export async function main(argv: readonly string[], io: QueueIo): Promise<number> {
   const { positional, flags } = parseFlags(argv);

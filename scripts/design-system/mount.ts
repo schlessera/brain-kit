@@ -4,7 +4,7 @@ import * as React from "react";
 import { createRoot } from "react-dom/client";
 
 type Any = Record<string, any>;
-export type StoryModule = Record<string, any>;
+type StoryModule = Record<string, any>;
 
 function storiesOf(mod: StoryModule): [string, Any][] {
   return Object.entries(mod).filter(([k, v]) => k !== "default" && v && v.__bkStory) as [string, Any][];

@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { listPublishablePackages, type PublishableManifest } from "./publishable-packages.ts";
 
 /** The `bin` targets one manifest declares, as paths relative to its package directory. */
-export function binTargets(manifest: PublishableManifest): string[] {
+function binTargets(manifest: PublishableManifest): string[] {
   return Object.values(manifest.bin ?? {});
 }
 
