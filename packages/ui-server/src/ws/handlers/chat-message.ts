@@ -71,6 +71,8 @@ export const handleChatMessageFrame: ClientMessageHandler<"chat_message"> = asyn
     ...(files.length ? { files } : {}),
     ...(attachmentFiles.length ? { attachmentFiles } : {}),
     providerId: msg.providerId,
+    // Only a new conversation chooses its speed (#4310).
+    ...(msg.outputSpeed && !msg.sessionId && !shareSessionId ? { outputSpeed: msg.outputSpeed } : {}),
     client: msg.client,
     source: msg.source,
     draftId: msg.draftId,

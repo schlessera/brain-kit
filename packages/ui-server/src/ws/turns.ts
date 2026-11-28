@@ -281,6 +281,11 @@ export interface RunningTurn extends TurnFields {
   pendingCancellationPrincipalIds: string[];
   sessionId: string | null; // null until session_info resolves it (new session)
   providerId: string | null;
+  /**
+   * The session's fixed output speed (#4310): the new session's choice, or
+   * the speed a resumed session started with. Null predates the choice.
+   */
+  outputSpeed?: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed | null;
   backend: AgentBackend;
   queue: QueuedFollowUp[];
   cancelled: boolean;

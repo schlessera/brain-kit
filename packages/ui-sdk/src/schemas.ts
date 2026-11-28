@@ -26,10 +26,11 @@ export { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 
 import { z } from "zod";
 import { isMcpTimingServerName } from "./protocol-helpers.js";
-import { CONVERSATION_LIMITS, HOST_STOP_CAUSES, LIVE_PERSONA_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
-import type { ThinkingLevel, StateRoomObservation } from "./protocol.js";
+import { CONVERSATION_LIMITS, HOST_STOP_CAUSES, LIVE_PERSONA_LIMITS, isOutputSpeed, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
+import type { OutputSpeed, ThinkingLevel, StateRoomObservation } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
+const outputSpeedSchema = z.custom<OutputSpeed>(isOutputSpeed, "Invalid output speed");
 
 import { ASK_USER_FORM_INPUT_SCHEMA, ASK_USER_FORM_ANSWER_SCHEMA, type AskUserFormNode, type AskUserFormAnswers } from "./tool-contracts/form.js";
 import { BLOCK_SCHEMA } from "./tool-contracts/blocks.js";
@@ -424,6 +425,7 @@ export const clientChatMessageSchema = z
     text: z.string().max(MAX_PROMPT_CHARS),
     sessionId: id.optional(),
     providerId: id.optional(),
+    outputSpeed: outputSpeedSchema.optional(),
     draftId: id.optional(),
     requestId: id.optional(),
     thinkingLevel: thinkingLevelSchema.optional(),

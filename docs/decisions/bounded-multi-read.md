@@ -73,7 +73,7 @@ prototype batch, each repeated five times:
   corpus. A recording wrapper on the client transport logs every JSON-RPC
   message. The prototype is not a served tool, so its response uses the
   framing the server's structured tools use (`structuredResult`,
-  `packages/core/src/mcp-server.ts:165-168`). Its latency is in-process.
+  `packages/core/src/mcp-server.ts:144-147`). Its latency is in-process.
 - **Pi**: `runAgentLoop` from `pi-agent-core` with `pi-ai`'s faux provider,
   executing the curated `brain_read` from `createBrainTools`. The faux provider
   is **scripted**. Its tool choices and request count show runtime mechanics

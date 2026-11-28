@@ -431,3 +431,74 @@ including an inherited tool-search value, without adding a flag pin. The [provid
 and keyless capture guard the first discovery and every subsequent transition.
 Insertion shortens the unchanged tool-array byte prefix versus append; keyless
 captures cannot establish actual provider cache hits or cost.
+
+## 2026-11-21 — Static hosted brain read bridge (#4325)
+
+New hosted Claude sessions override the project `brain` MCP entry with an
+in-process SDK server. Its six read definitions come from core's static,
+versioned definitions, shared with the standalone server without loading a
+brain or its configuration. Five common reads carry `anthropic/alwaysLoad`;
+`brain_graph` remains deferred. Existing host application, compute and Apify
+tools keep their own authority routes.
+
+The forwarder starts one `brain mcp` process at backend invocation, alongside
+runtime startup, using the same sandbox, immutable startup view, data tree,
+provider masks and limits as the turn. Host code relays MCP requests and
+results only. Readiness is awaited only by an early call, for at most 30
+seconds; each forwarded request also has a 30-second bound. Failure is a named
+tool result, never a host content read. The process and its reservation are
+owned until turn cleanup confirms release. It is not retained between turns.
+
+The internal session snapshot records bridge version 1 for new hosted
+sessions. Previous snapshots, including version 4 selection records, keep the
+stdio path and their search pin unchanged. New first-party-origin relayed
+sessions pin tool search on in environment and flag settings; other routes
+keep it off, and the effective-setting gate remains mandatory. The approved
+sorted insertion rule still requires exact earlier definitions and relative
+order. Provider cache hits and cost require live provider measurements.
+
+Pi retains its current in-worker reads. Its bridge carries host tool RPCs,
+but its native tool contract has no MCP transport or deferred-definition/tool
+reference discovery mechanism. Its existing sandboxed reads have no project
+MCP startup race; switching their schemas and execution to a second process
+would be a separate session-roster change.
+
+Module MCP tools have no static inventory yet (#4381). Every new hosted
+session resolves its inventory in a credential-filtered sandbox worker with
+the same turn view, before retaining its roster. The host reads no brain bytes,
+resolves no brain paths and keeps no cache: the maintainer's 2026-11-21 ruling
+rejects host-side configuration hashing, because its input set cannot prove
+that executable configuration selects the same modules and reading those
+inputs on the host bypasses the worker boundary. The helper first requires the
+project `brain` entry to be exactly `bun node_modules/.bin/brain mcp`, with no
+environment, working directory or other option, since the bridge reproduces
+only that entry; the project's Claude settings must not turn that server off;
+and the brain's installed `@schlessera/brain` must be the host's own version,
+whose static definitions the bridge advertises. It then runs
+`brain module list --json` under the tool-search setting the bridged session
+pins. A proven empty module-tool inventory permits
+the bridge. Another project entry, config-selected module tools, helper
+failure, timeout or malformed output retain the original project stdio entry
+and pin search off. The owner log records `brain_bridge_fallback_module_tools`
+or `brain_bridge_fallback_inventory_unavailable`; neither diagnostic enters the
+provider conversation. A turn whose host login lies inside the brain skips the
+helper, so brain configuration never runs before the prompt gate refuses it.
+Resumes use their retained selection and skip the helper. The extra command is
+not a `brain mcp` process. Pi keeps its existing in-worker reads.
+
+The forwarding worker serves read tools only. It keeps the turn's profile,
+startup view, data tree and masks but is launched read-only on every profile:
+the brain itself is mounted read-only (a governed worker would otherwise get
+the live brain writable), and no writable area, workspace or worktree is
+bound, so it stages no output. A strict worker's writable areas are aliased
+outside the brain root that `brain mcp` reads, and a second output stage would
+take a staging slot the runtime needs. Its cleanup ends the server's input
+before killing it and waits for exit within a bound; an exit it cannot confirm
+keeps the worker's allowance held by the cleanup reconciler. No brain process
+starts before the prompt gate while the host login lies inside the brain.
+
+The pinned runtime can start a project stdio server even when an SDK server
+uses the same name. Bridge sessions therefore reject only the project `brain`
+entry with `disabledMcpjsonServers: ["brain"]` in flag settings. The prompt gate
+checks that rejection in effective native settings before releasing input;
+other project MCP servers retain their existing startup behavior.
