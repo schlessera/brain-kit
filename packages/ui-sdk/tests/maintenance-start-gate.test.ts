@@ -5,7 +5,7 @@
  * payload starts. These pin what must not change (G1-G13 of the design).
  */
 import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { launchMaintenanceWorker, runMaintenanceWorker } from "../src/server/maintenance-worker";
 import { WorkerHostError } from "../src/server/worker-launcher";
