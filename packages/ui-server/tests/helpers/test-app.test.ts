@@ -94,4 +94,23 @@ describe("test-app helper teardown", () => {
     expect(existsSync(app.brainPath)).toBe(false);
     expect(existsSync(app.piAgentDir)).toBe(false);
   });
+
+  test("apps torn down in boot order leave no closed app's native socket in the env (#5005)", async () => {
+    // static-asset-headers.test.ts boots two apps and tears them down in this
+    // order; a later file that resolves its config from process.env then
+    // booted on the first app's removed manager socket.
+    const envBefore = helperEnv();
+    const first = await createTestApp({ env: { SOURCE_COMMIT: "test-app-first" } });
+    let second: TestApp | undefined;
+    try {
+      second = await createTestApp();
+      expect(process.env.BRAIN_UI_NATIVE_BRAIN_SOCKET).toBe(second.app.config.nativeBrain?.socketPath);
+    } finally {
+      await first.teardown();
+      await second?.teardown();
+    }
+
+    expect(process.env.BRAIN_UI_NATIVE_BRAIN_SOCKET).toBe(envBefore.BRAIN_UI_NATIVE_BRAIN_SOCKET);
+    expect(helperEnv()).toStrictEqual(envBefore);
+  });
 });
