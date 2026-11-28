@@ -812,7 +812,11 @@ export function workerCommand(input: WorkerLaunch,
   if (environment) {
     for (let at = 0; at < setenv.length; at += 3) {
       if (setenv[at] !== "--setenv") throw new WorkerHostError("the worker environment is not a list of --setenv arguments");
-      environment.push(`${setenv[at + 1]}=${setenv[at + 2]}`);
+      // The one boundary for a variable's name: empty or holding "=", it has
+      // no NAME=VALUE form (main's bubblewrap refused it too) (#5016 r3 F56).
+      const name = setenv[at + 1]!;
+      if (!name || name.includes("=")) throw new WorkerHostError(`the worker environment names an invalid variable ${JSON.stringify(name)}: empty or containing "="`);
+      environment.push(`${name}=${setenv[at + 2]}`);
     }
     // bubblewrap sets PWD to its --chdir after every --setenv.
     environment.push(`PWD=${chdir}`);
@@ -1177,6 +1181,9 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: {
     if (environment) {
       const env = ["/usr/bin/env", "/bin/env"].find(path => existsSync(path));
       if (!env) throw new WorkerHostError("GNU coreutils env is required for the direct start gate");
+      // `env` reads a first word holding "=" as one more assignment (#5016 r3 F55).
+      const first = argv[payloadStart - rlimitPrefix(launchLimits(input)).length]!;
+      if (first.includes("=")) throw new WorkerHostError(`the direct start gate cannot run ${JSON.stringify(first)}: a command whose first word contains "="`);
       argv.splice(payloadStart - rlimitPrefix(launchLimits(input)).length, 0, ...DIRECT_START_GATE, env, String(environment.length), ...environment);
     }
     else if (gated(input)) argv.splice(payloadStart - STATE_GATE.length, STATE_GATE.length, ...START_GATE);
@@ -1274,10 +1281,9 @@ const SUPERVISOR_EXIT_BOUND_MS = 250;
 function* supervisorGoneSteps(child: SpawnedWorkerProcess, boundMs: number, interrupted: () => boolean): WorkerSteps<boolean | "interrupted"> {
   const until = performance.now() + boundMs;
   for (;;) {
-    try {
-      const stat = readFileSync(`/proc/${child.pid}/stat`, "utf8");
-      if (["Z", "X", "x"].includes(stat.slice(stat.lastIndexOf(") ") + 2)[0]!)) return true;
-    } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return true; throw error; }
+    // readProcStat treats ENOENT and ESRCH (reaped between open and read) as gone (#5016 r3 F59).
+    const stat = readProcStat(child.pid);
+    if (stat === undefined || ["Z", "X", "x"].includes(stat.state)) return true;
     if (interrupted()) return "interrupted";
     if (performance.now() >= until) return false;
     yield* workerStepSleep(5);
@@ -1312,7 +1318,15 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
   options: { timeoutMs?: number; signal?: AbortSignal; stop?: (child: SpawnedWorkerProcess) => void } = {}): WorkerSteps<GatedWorkerSpawn> {
   const status = yield* createWorkerStatusPipeSteps();
   let child: ReturnType<typeof Bun.spawn> | undefined, stopped = false;
-  const stop = (supervisor: SpawnedWorkerProcess) => { if (options.stop) options.stop(supervisor); else void status.close(supervisor); };
+  /**
+   * The one terminal close of the status channel: it never throws and never
+   * rejects, so no exit callback or cleanup path can leave an unhandled
+   * rejection, and a caller's own error is never replaced (#5016 r3 F61).
+   */
+  const closeStatus = (supervisor?: SpawnedWorkerProcess): Promise<void> => {
+    try { return status.close(supervisor).catch(() => undefined); } catch { return Promise.resolve(); }
+  };
+  const stop = (supervisor: SpawnedWorkerProcess) => { if (options.stop) options.stop(supervisor); else void closeStatus(supervisor); };
   try {
     const boot = workerBootstrap(input, undefined, status, true);
     const delay = options.timeoutMs ? workerTimerDelay(options.timeoutMs) : undefined;
@@ -1321,7 +1335,7 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     const deadline = delay !== undefined ? spawnedAt + delay : undefined;
     onSpawn?.(child);
     const supervisor = child;
-    const close = () => { void status.close(supervisor); };
+    const close = () => { void closeStatus(supervisor); };
     // Registered before any return: whoever drops the result, the channel closes with the child (F25).
     void supervisor.exited.then(close, close);
     const timedOut = () => deadline !== undefined && performance.now() >= deadline;
@@ -1365,12 +1379,11 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
   } catch (error) {
     // Freeze and enumerate before any kill (F28); the fallback kill follows,
     // so observing the gated tree never skips it.
-    let gateClosed: Promise<void> | undefined;
-    try {
-      if (child) stop(child);
-      // An unreleased start gate closes only after its sandbox is dead (#3387).
-      gateClosed = status.close(child);
-    } finally { if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); }
+    // Nothing here replaces the original error (F61).
+    try { if (child) stop(child); } catch { /* The fallback kill and the close below still run. */ }
+    // An unreleased start gate closes only after its sandbox is dead (#3387).
+    const gateClosed = closeStatus(child);
+    if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     // An abort, a live gate failure or a private-state refusal leaves as
     // itself once its sandbox is gone and, for an asynchronous caller, its
     // gate descriptors are closed.

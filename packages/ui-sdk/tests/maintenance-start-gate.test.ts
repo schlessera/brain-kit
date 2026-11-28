@@ -5,7 +5,7 @@
  * payload starts. These pin what must not change (G1-G13 of the design).
  */
 import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { launchMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "../src/server/maintenance-worker";
 import * as workerStatus from "../src/server/worker-status";
@@ -390,5 +390,40 @@ describe("L2 gate lifecycle (#5016 review r2)", () => {
     watchSpawn({ after: () => { offset = 10 * 24 * 60 * 60 * 1000; } });
     const result = await runMaintenanceWorker({ ...command(f, sh("printf ran")), timeoutMs: 60_000 });
     expect(result, `F33_MONOTONIC_DEADLINE: ${result.stderr}`).toMatchObject({ exitCode: 0, killed: false, stdout: "ran" });
+  }, watchdogMs(30_000));
+});
+
+describe("L2 gate (#5016 review r3)", () => {
+  test("F62: a gate that reaches EOF without `go` (a server that died before release) exits 125 and never runs the payload", async () => {
+    const f = fixture();
+    // The server's release never writes: the gate's writer closes as at its
+    // death. A reader of the status pipe stays open, as bubblewrap's own
+    // channel to the host would, so only the gate sees EOF.
+    const held: number[] = [];
+    cleanups.push(() => { for (const fd of held) closeSync(fd); });
+    patchStatus(real => ({
+      *childPidSteps(...args: Parameters<typeof real.childPidSteps>) {
+        held.push(openSync(real.source, constants.O_RDONLY | constants.O_NONBLOCK));
+        return yield* real.childPidSteps(...args);
+      },
+      release() { void real.close(); },
+    }));
+    const result = await runMaintenanceWorker({ ...command(f, sh("printf ran")), timeoutMs: 20_000 });
+    expect(result, `F62_SERVER_DEATH_FAILS_CLOSED: ${result.stderr}`).toMatchObject({ exitCode: 125, stdout: "" });
+    restoreSpies();
+    // The next launch is unaffected.
+    expect(await runMaintenanceWorker({ ...command(f, sh("printf ran")), timeoutMs: 20_000 }), "F62_NEXT_LAUNCH_RUNS").toMatchObject({ exitCode: 0, stdout: "ran" });
+  }, watchdogMs(30_000));
+
+  test("F55, F56: a variable name without a NAME=VALUE form, or a command whose first word holds '=', is refused before spawn", async () => {
+    const f = fixture();
+    const credentialed = { credentials: true, network: false, timeoutMs: 20_000 };
+    const badName = await runMaintenanceWorker({ ...command(f, sh("printf ran")), env: { PATH: "/usr/bin:/bin", "CREW=SHIP": "ithaca" }, ...credentialed }).catch(error => error);
+    expect(badName instanceof WorkerHostError, `F56_NAME_WITH_EQUALS_REFUSED: ${badName?.name}`).toBe(true);
+    const saved = process.env.BRAIN_UI_WORKER_LIMITS;
+    process.env.BRAIN_UI_WORKER_LIMITS = "processes=off,data=off,file_size=off,open_files=off";
+    cleanups.push(() => { if (saved === undefined) delete process.env.BRAIN_UI_WORKER_LIMITS; else process.env.BRAIN_UI_WORKER_LIMITS = saved; });
+    const badCommand = await runMaintenanceWorker({ ...command(f, ["/srv/ithaca/oar=ship"]), timeoutMs: 20_000 }).catch(error => error);
+    expect(badCommand instanceof WorkerHostError, `F55_COMMAND_WITH_EQUALS_REFUSED: ${badCommand?.name}`).toBe(true);
   }, watchdogMs(30_000));
 });
