@@ -279,6 +279,15 @@ export async function prepareTurnEgress(options: {
     const value = writes?.safety?.(options.turnId,sessionId) ?? safetyProjection(db!,options.turnId,sessionId);
     projectionRead = {version,value}; return value;
   };
+  let classesRead: { version: string; value: readonly string[] } | undefined;
+  const currentTaintClasses = () => {
+    if (!db) return [];
+    const sessionId = options.sessionId(), version = JSON.stringify([safetyReadVersion(db), sessionId]);
+    if (classesRead?.version === version) return classesRead.value;
+    const value = unresolvedTaintClasses(db, options.turnId, sessionId);
+    classesRead = { version, value };
+    return value;
+  };
   /**
    * One request id per connection, carrying its canonical `origin` grouping key
    * and card revision (#4966, #3595). Pending Network taint cards stay valid
@@ -416,6 +425,8 @@ export async function prepareTurnEgress(options: {
         if (expectedRevision !== undefined && expectedRevision !== currentRev) return STALE_SAFETY_ADMISSION;
         const liveClasses = readClasses();
         if (liveClasses.some((cls) => !currentClasses.includes(cls))) return STALE_SAFETY_ADMISSION;
+        const liveRev = computeCardRevision(destination, currentProjection(), liveClasses);
+        if (liveRev !== currentRev) return STALE_SAFETY_ADMISSION;
         return null;
       },
       onGrantedByGrant(_scope, grantedClasses) {
@@ -619,7 +630,7 @@ export async function prepareTurnEgress(options: {
         return "refuse" as const;
       }
       const granted = connectionGrantedClasses.get(connectionId);
-      const current = unresolvedTaintClasses(db, options.turnId, options.sessionId());
+      const current = currentTaintClasses();
       if (granted) {
         for (const cls of current) {
           if (!granted.has(cls)) return "new_class" as const;
@@ -627,6 +638,10 @@ export async function prepareTurnEgress(options: {
       }
       void destination;
       return "ok" as const;
+    },
+    cleanRaceOnly: () => {
+      const classes = currentTaintClasses();
+      return classes.length > 0 && classes.every((cls) => cls === "egress_connection");
     },
     // Standing origin/session grants for interactive turns only (#3595).
     ...(options.origin === "interactive" ? {

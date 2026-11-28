@@ -34,7 +34,7 @@ function replyResolution(
     return;
   }
   const expiring = host.coordinator.expiringApprovals.get(toolUseId);
-  if (expiring && turnIdMatches(expiring, echoed, requireEcho)) {
+  if (expiring && connection.capabilities?.approvalUpdates === true && turnIdMatches(expiring, echoed, requireEcho)) {
     // Provisional expired with no cause while the durable write commits (#4966).
     host.sendMessage(ws, {
       type: "tool_resolution",

@@ -442,43 +442,55 @@ describe("network approval scopes (#3595)", () => {
       await h.approve(h.cards()[0]!, "session");
       expect((await pOpen).status).toBe(200);
 
-      const managedCardPromise = t1.bridge.requestPermission({
-        toolUseId: "managed-gh-1",
-        toolName: "Network",
-        kind: "command",
-        input: { host: "api.github.com", port: 443, method: "CONNECT", protocol: "connect", managedReference: true },
-        origin: "managed:connect://api.github.com:443",
-        revision: "rev-managed-1",
-        network: { transport: "connect", scheme: "connect", host: "api.github.com", port: 443, managedReference: true, scopes: ["once"] },
-      });
-      await waitFor(() => h.host.coordinator.pendingApprovals.has("managed-gh-1"), "managed card pending");
+      // Exercise the real managedReference path through egress-proxy + turn-egress (H5):
+      // even with an active `session` standing grant, managed GitHub acquisition asks
+      // with `managed:` origin, `managedReference: true`, and `scopes: ["once"]`.
+      const managedTarget = new URL("https://github.com/ithaca/voyage");
+      const op1 = t1.egress.managedReference(managedTarget, new AbortController().signal);
+      const admit1 = op1.admit();
+      await waitFor(() => h.cards().length === 2, "real managed GitHub card raised despite session grant");
+      const mCard1 = h.cards()[1]!;
+      expect(mCard1.origin, "MANAGED_ORIGIN_PREFIX").toBe("managed:connect://github.com:443");
+      expect(mCard1.network?.managedReference, "MANAGED_FLAG_TRUE").toBe(true);
+      expect(mCard1.network?.scopes, "MANAGED_OFFERS_ONLY_ONCE").toEqual(["once"]);
+
       await handleToolApproval(h.ctx, {
         type: "tool_approval",
-        toolUseId: "managed-gh-1",
+        toolUseId: mCard1.toolUseId,
         turnId: "t1",
         channel: "card",
-        revision: "rev-managed-1",
+        revision: mCard1.revision,
         networkScope: "origin",
       });
-      expect(h.host.coordinator.pendingApprovals.has("managed-gh-1"), "UNADVERTISED_ORIGIN_REFUSED").toBe(true);
+      expect(h.host.coordinator.pendingApprovals.has(mCard1.toolUseId), "UNADVERTISED_ORIGIN_REFUSED").toBe(true);
       await handleToolApproval(h.ctx, {
         type: "tool_approval",
-        toolUseId: "managed-gh-1",
+        toolUseId: mCard1.toolUseId,
         turnId: "t1",
         channel: "card",
-        revision: "rev-managed-1",
+        revision: mCard1.revision,
         networkScope: "session",
       });
-      expect(h.host.coordinator.pendingApprovals.has("managed-gh-1"), "UNADVERTISED_SESSION_REFUSED").toBe(true);
-      await handleToolApproval(h.ctx, {
-        type: "tool_approval",
-        toolUseId: "managed-gh-1",
-        turnId: "t1",
-        channel: "card",
-        revision: "rev-managed-1",
-        networkScope: "once",
-      });
-      expect(await managedCardPromise).toMatchObject({ behavior: "allow" });
+      expect(h.host.coordinator.pendingApprovals.has(mCard1.toolUseId), "UNADVERTISED_SESSION_REFUSED").toBe(true);
+      await h.approve(mCard1, "once");
+      expect(await admit1, "MANAGED_ONCE_ADMITTED").toBe(true);
+      op1.finish("completed");
+
+      // A second managed GitHub acquisition still requires fresh approval (never added to contacted or grants).
+      const beforeOp2 = h.cards().length;
+      const op2 = t1.egress.managedReference(managedTarget, new AbortController().signal);
+      const admit2 = op2.admit();
+      await waitFor(
+        () => h.cards().length > beforeOp2,
+        () => `second managed GitHub acquisition asks again (cards=${h.cards().length}, outcome=${op2.outcome()}, reason=${op2.reason()}, recFail=${t1.egress.recordingFailure()?.message})`
+      );
+      const mCard2 = h.cards().at(-1)!;
+      expect(mCard2.toolUseId).not.toBe(mCard1.toolUseId);
+      expect(mCard2.network?.managedReference).toBe(true);
+      expect(mCard2.network?.scopes).toEqual(["once"]);
+      await h.approve(mCard2, "once");
+      expect(await admit2).toBe(true);
+      op2.finish("completed");
     } finally {
       await t1.stop();
       island.stop(true);

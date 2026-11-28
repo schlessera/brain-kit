@@ -550,6 +550,83 @@ describe("network approval stack (#4967, #3595)", () => {
       const snap3 = pendingApprovals(root.stores.chat.getState());
       expect(snap3[0]!.tool).not.toBe(snap1[0]!.tool);
       expect(snap3[0]!.tool.approvalSending).toBe(true);
+
+      // 4. Activity ApprovalCard handles empty scopes ([]) and sending state on unscoped Network cards.
+      let activityDecided = 0;
+      const activityView = render(
+        <BrainUiProvider root={root}>
+          <ApprovalCard
+            tool={{
+              ...snap3[0]!.tool,
+              approvalNetwork: offer("legacy.example", { scopes: [] }),
+            }}
+            origin="Chat"
+            keys={false}
+            onDecide={() => { activityDecided++; }}
+          />
+        </BrainUiProvider>
+      );
+      const sendingAllow = activityView.getByRole("button", { name: "Sending…" });
+      expect(sendingAllow.getAttribute("aria-disabled"), "UNSCOPED_ACTIVITY_ALLOW_DISABLED_WHEN_SENDING").toBe("true");
+      fireEvent.click(sendingAllow);
+      expect(activityDecided, "UNSCOPED_ACTIVITY_SENDING_CLICK_INERT").toBe(0);
+
+      // 5. Upgrading a provisional receipt preserves originLabel (both bound session and draft buffer).
+      act(() => {
+        chat.applyToolResolution({
+          type: "tool_resolution",
+          toolUseId: "net-origin-only",
+          outcome: "expired",
+          expiryCause: "turn_ended",
+          sessionId: "ithaca",
+          turnId: "turn-legacy",
+          reason: "Provisional",
+        });
+        chat.applyToolResolution({
+          type: "tool_resolution",
+          toolUseId: "net-origin-only",
+          outcome: "expired",
+          expiryCause: "operation_cancelled",
+          sessionId: "ithaca",
+          turnId: "turn-legacy",
+        });
+      });
+      const upgraded = root.stores.chat.getState().buffers["ithaca"]!.networkReceipts!.find((r) => r.toolUseId === "net-origin-only")!;
+      expect(upgraded.originLabel, "PROVISIONAL_UPGRADE_PRESERVES_ORIGIN_LABEL").toBe("legacy.example");
+      expect(upgraded.reason).toBe("Withdrawn · legacy.example stopped waiting");
+
+      // Draft buffer provisional upgrade (msg.sessionId undefined).
+      act(() => {
+        chat.requestToolApproval(
+          null,
+          "net-draft-1",
+          "Network",
+          { host: "draft.example", port: 443 },
+          "Allow draft.example?",
+          "command",
+          false,
+          "turn-draft",
+          undefined,
+          { origin: "https://draft.example:443", revision: "rev-d1", network: offer("draft.example") }
+        );
+        chat.applyToolResolution({
+          type: "tool_resolution",
+          toolUseId: "net-draft-1",
+          outcome: "expired",
+          expiryCause: "turn_ended",
+          turnId: "turn-draft",
+        });
+        chat.applyToolResolution({
+          type: "tool_resolution",
+          toolUseId: "net-draft-1",
+          outcome: "expired",
+          expiryCause: "operation_cancelled",
+          turnId: "turn-draft",
+        });
+      });
+      const draftUpgraded = root.stores.chat.getState().draft!.networkReceipts!.find((r) => r.toolUseId === "net-draft-1")!;
+      expect(draftUpgraded.originLabel, "DRAFT_UPGRADE_PRESERVES_ORIGIN_LABEL").toBe("draft.example");
+      expect(draftUpgraded.reason).toBe("Withdrawn · draft.example stopped waiting");
     } finally {
       root.dispose();
     }

@@ -144,6 +144,8 @@ export interface EgressProxyOptions {
     onStandingGrantApplied?(info: { connectionId: string; destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }; scope: "origin" | "session"; grantId: string }): void;
     /** Checks a Network taint grant's class set, authority, trust and recording health (#4966). */
     grantCurrent?(connectionId: string, destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, scope: "once" | "origin" | "session" | "legacy" | undefined): "ok" | "new_class" | "refuse";
+    /** True when the only unresolved taint class is `egress_connection` (a clean-session peer race, #4966 RC8). */
+    cleanRaceOnly?(): boolean;
     approve?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?: string, replacement?:boolean): Promise<boolean | "once" | "origin" | "session" | "legacy" | "recheck" | "superseded" | "expired" | "unconfirmed">;
     /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
     cause?(): string | null };
@@ -442,11 +444,6 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       try {
         if (outwardApproved && outwardRevision !== approvalRevision(own, true)) return false;
         if (!granted) return true;
-        // After handoff, an approved connection (once, origin, session, or legacy) is already dispatched;
-        // grant revocation or a new taint class affects later connections only (#3595, #4966).
-        if (lifecycle.dispatched()) {
-          return true;
-        }
         if (options.taint?.grantCurrent) return options.taint.grantCurrent(connectionId, recipient, approvalScope) === "ok";
         return grantRevision === approvalRevision(own);
       } catch { return false; }
@@ -535,8 +532,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     const refuseSafety = (current: AdmissionSafetySnapshot | undefined, before?: AdmissionSafetySnapshot, allowPending = false) => {
       if (allowPending && current) {
-        if ((!current.recordingAvailable && !current.recordingPending) || current.operationRecordingAvailable === false) {
+        if ((!current.recordingAvailable && !current.recordingPending && current.operationRecordingAvailable !== true) || current.operationRecordingAvailable === false) {
           finish("denied", egressChargeRefusal({ ok: false, reason: "unavailable" }, "Network").reason);
+          return true;
+        }
+        if (!current.recordingAvailable && !current.recordingPending && current.operationRecordingAvailable === true) {
+          finish("denied", egressChargeRefusal({ ok: false, reason: "safety_changed" }, "Network").reason);
           return true;
         }
         if (before && !(current.authorityCurrent && current.scope === before.scope && current.policyHash === before.policyHash && current.authorityEpoch === before.authorityEpoch)) {
@@ -604,6 +605,14 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         const needsNewClassCard = granted && options.taint?.grantCurrent?.(connectionId, recipient, approvalScope) === "new_class";
         if (needsNewClassCard) { granted = false; approvalScope = undefined; }
         if (needsNewClassCard || narrowed(true)) {
+          // If this connection entered admitted() on a clean session (no prior card)
+          // and a non-egress untrusted input arrived during admitted()'s commit wait,
+          // refuse the stale clean admission rather than opening a card after the fact;
+          // only a concurrent clean-session egress peer race (RC8) asks a card here (#4966).
+          if (!granted && snapshot && !snapshot.restricted && options.taint?.cleanRaceOnly?.() === false) {
+            refuseStaleApproval(allowPending);
+            return false;
+          }
           if (!await narrowing(true) || !lifecycle.active()) return false;
         }
       }

@@ -53,7 +53,7 @@ export function formatNetworkOriginLabel(
 
 function receiptFromResolution(
   msg: ServerToolResolution,
-  existing: PendingNetworkApproval | undefined,
+  existing: Pick<PendingNetworkApproval, "origin" | "originLabel" | "turnId"> | undefined,
   nextId: () => string
 ): NetworkApprovalReceipt {
   const origin = existing?.origin ?? msg.toolUseId;
@@ -166,13 +166,37 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
         }));
         return;
       }
-      // Standalone standing-grant receipt or idempotent upgrade of an already-recorded receipt.
-      if (msg.sessionId && (msg.grantedByGrant || state.buffers[msg.sessionId]?.networkReceipts?.some((r) => r.toolUseId === msg.toolUseId))) {
-        const receipt = receiptFromResolution(msg, undefined, nextId);
-        mutateBuffer(msg.sessionId, (chat) => ({
+      // Idempotent upgrade of an already-recorded receipt (including draft buffers), preserving origin/originLabel (#4966 RC4).
+      let existingReceiptKey: ChatKey | undefined;
+      let existingReceipt: NetworkApprovalReceipt | undefined;
+      for (const k of candidateKeys) {
+        const buf = k === null ? state.draft : state.buffers[k];
+        const found = buf?.networkReceipts?.find((r) => r.toolUseId === msg.toolUseId);
+        if (found) {
+          existingReceiptKey = k;
+          existingReceipt = found;
+          break;
+        }
+      }
+      if (existingReceiptKey !== undefined && existingReceipt) {
+        const receipt = receiptFromResolution(msg, existingReceipt, nextId);
+        mutateBuffer(existingReceiptKey, (chat) => ({
           networkReceipts: appendReceipt(chat.networkReceipts, receipt),
         }));
         return;
+      }
+      // Standalone standing-grant receipt (no prior card or receipt).
+      if (msg.grantedByGrant) {
+        const targetKey: ChatKey | undefined = msg.sessionId !== undefined
+          ? msg.sessionId
+          : state.activeSessionId ?? (state.draft ? null : undefined);
+        if (targetKey !== undefined) {
+          const receipt = receiptFromResolution(msg, undefined, nextId);
+          mutateBuffer(targetKey, (chat) => ({
+            networkReceipts: appendReceipt(chat.networkReceipts, receipt),
+          }));
+          return;
+        }
       }
       // Also settle ordinary tool cards if the host resolved them (e.g. expired/unknown) without a tool_result.
       for (const k of candidateKeys) {

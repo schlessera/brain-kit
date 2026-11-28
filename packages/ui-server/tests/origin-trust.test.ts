@@ -42,7 +42,7 @@ async function fixture(recipient = false, policy: GovernancePolicyInput = {schem
   const proxy=await prepareTurnEgress({policy:resolveGovernancePolicy(policy),trust:t.live,controller,turnId:"turn-voyage",sessionId:()=>"voyage",model:()=>null,profile:"governed",origin:"interactive",governanceDb:db,governanceWrites:legacy?undefined:writes,record:legacy?event=>writes.record(event):writes.record,
     bridge});
   const epoch=(db.query("SELECT id FROM safety_collections WHERE turn_id='turn-voyage'").get() as {id:string}).id;
-  const taint=()=>writes.firstTaint({kind:"taint",turnId:"turn-voyage",sessionId:"voyage",actor:"interactive",profile:"governed",model:null,payload:{source:"web_search",tool:null,detail:null,occurrence:occurrence(epoch,"tool_web_input",crypto.randomUUID(),"finalized")}});
+  const taint=(source: "web_search" | "web_fetch" = "web_search")=>writes.firstTaint({kind:"taint",turnId:"turn-voyage",sessionId:"voyage",actor:"interactive",profile:"governed",model:null,payload:{source,tool:null,detail:null,occurrence:occurrence(epoch,"tool_web_input",crypto.randomUUID(),"finalized")}});
   return {db,writes,writer,origin,proxy,t,taint,controller,bridge,decide(value: BackendBridge["requestPermission"]) { decide=value; },asks:()=>asks,hits:()=>hits,async close(){proxy.stop();origin.stop(true);await proxy.settled();await writer?.close();db.close();if(root)rmSync(root,{recursive:true,force:true});}};
 }
 test("verified future input retains its decision without creating an unresolved trigger or recipient grant",async()=>{
@@ -118,10 +118,10 @@ test("removing incoming trust leaves its historical decision and makes a later i
  const f=await fixture();try{expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();f.t.remove();expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();expect(safetyProjection(f.db,"turn-voyage","voyage").unresolvedCount,"REMOVAL_APPLIES_ONLY_TO_FUTURE_INPUT").toBe(1);const rows=queryGovernanceEvents(f.db,{kinds:["taint"],limit:10});expect(rows.map(e=>(e.payload as any).occurrence.admission.trusted).sort()).toEqual([false,true]);}finally{await f.close();}
 });
 
-test("review: an approved card cannot survive independent input during its occurrence write",async()=>{
- const f=await fixture(false,{schema_version:1},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;
- try{await f.taint();f.decide(async()=>({behavior:"allow"}));f.writes.firstTaint=async(...args)=>{if(args[0].payload.source==="egress_connection"){entered();await held;}return original(...args);};
- const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;await f.taint();release();expect(await pending,"STALE_APPROVAL_AFTER_INDEPENDENT_WRITE_REFUSES_DISPATCH").toBe(403);expect(f.hits()).toBe(0);
+test("review: an approved card cannot survive independent new-class input during its occurrence write",async()=>{
+ const f=await fixture(false,{schema_version:1},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;let cardCount=0;
+ try{await f.taint("web_search");f.decide(async()=>++cardCount===1?{behavior:"allow"}:{behavior:"deny",message:"Athena declines the new class"});f.writes.firstTaint=async(...args)=>{if(args[0].payload.source==="egress_connection"){entered();await held;}return original(...args);};
+ const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;await f.taint("web_fetch");release();expect(await pending,"STALE_APPROVAL_AFTER_INDEPENDENT_WRITE_REFUSES_DISPATCH").toBe(403);expect(f.hits()).toBe(0);
  }finally{release();await f.close();}
 });
 for(const trusted of [false,true])test(`review: a card remains usable across only its own durable occurrence write (trusted ${trusted})`,async()=>{
@@ -136,19 +136,22 @@ test("review: outward cards cannot survive independent input even on a taint-all
  const f=await fixture(false,{schema_version:1,taint:{egress:{allow:["127.0.0.1"]}},outward:{hosts:["127.0.0.1"]}},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;
  try{await f.taint();f.decide(async()=>({behavior:"allow"}));f.writes.firstTaint=async(...args)=>{if(args[0].payload.source==="egress_connection"){entered();await held;}return original(...args);};const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;await f.taint();release();expect(await pending,"STALE_OUTWARD_CARD_CANNOT_BORROW_TAINT_ALLOWLIST").toBe(403);expect(f.hits()).toBe(0);}finally{release();await f.close();}
 });
-test("review: independent pending input also withdraws a card on a permanently restricted turn",async()=>{
- const f=await fixture(false,{schema_version:1},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;let slow:Promise<unknown>|undefined,pendingTaint:Promise<unknown>|undefined;
- try{f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();await f.taint();f.decide(async()=>({behavior:"allow"}));
+test("review: independent pending new-class input also withdraws a card on a permanently restricted turn",async()=>{
+ const f=await fixture(false,{schema_version:1},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;let slow:Promise<unknown>|undefined,pendingTaint:Promise<unknown>|undefined,cardCount=0;
+ try{f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();await f.taint("web_search");f.decide(async()=>++cardCount===1?{behavior:"allow"}:{behavior:"deny",message:"Athena declines the new class"});
   f.writes.firstTaint=async(...args)=>{const result=await original(...args);if(args[0].payload.source==="egress_connection"){entered();await held;}return result;};
   const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;const probe=await import('./fixtures/write-worker-probe');const channel=f.writer!.channel(probe,{table:'origin_pending_hold'});await channel.ready;const active=new Int32Array(new SharedArrayBuffer(4));slow=channel.call('slow','Calypso',400,active);await Atomics.waitAsync(active,0,0).value;
-  pendingTaint=f.taint();expect(f.writes.safety('turn-voyage','voyage').pendingCount).toBeGreaterThan(0);release();expect(await pending,'PENDING_INPUT_WITHDRAWS_CARD_WITHOUT_NORMALIZING_AWAY_OTHER_SIGNALS').toBe(403);expect(f.hits()).toBe(0);
+  pendingTaint=f.taint("web_fetch");expect(f.writes.safety('turn-voyage','voyage').pendingCount).toBeGreaterThan(0);release();expect(await pending,'PENDING_INPUT_WITHDRAWS_CARD_WITHOUT_NORMALIZING_AWAY_OTHER_SIGNALS').toBe(403);expect(f.hits()).toBe(0);
  }finally{release();await slow;await pendingTaint;await f.close();}
 });
-test("review2: a later revision cannot join a hostname's earlier pending Network card",async()=>{
- const f=await fixture();const answers:Array<(v:PermissionDecision)=>void>=[];let firstReady!:()=>void,secondReady!:()=>void;const firstCard=new Promise<void>(r=>{firstReady=r;}),secondRequest=new Promise<void>(r=>{secondReady=r;});let first:Promise<number>|undefined,second:Promise<number>|undefined;const safety=f.bridge.admissionSafety!,read=safety.read;
- try{delete f.bridge.admissionSafety;await f.taint();f.decide(()=>new Promise(r=>{answers.push(r);firstReady();}));first=get(f.proxy.socketPath,f.origin.url.href);await firstCard;await f.taint();let announced=false;safety.read=()=>{const value=read();if(!announced){announced=true;queueMicrotask(secondReady);}return value;};second=get(f.proxy.socketPath,f.origin.url.href);await secondRequest;
- const cards=f.asks();answers[0]!({behavior:'allow'});expect(await first).toBe(403);if(cards===1){expect(await second,'OLDER_CARD_ANSWER_CANNOT_DISPATCH_A_LATER_CONTEXT').toBe(403);}else{expect(f.hits()).toBe(0);answers[1]!({behavior:'deny',message:'Athena declines the new context'});expect(await second).toBe(403);}expect(cards,'NEW_EVIDENCE_REQUIRES_A_NEW_NETWORK_CARD').toBe(2);
- }finally{f.bridge.admissionSafety=safety;safety.read=read;for(const answer of answers)answer({behavior:'deny',message:'Closed'});await Promise.allSettled([first,second]);await f.close();}
+test("review2: a later new-class revision requires distinct authority on its Network card",async()=>{
+ const f=await fixture();const answers:Array<(v:PermissionDecision)=>void>=[];let firstReady!:()=>void,secondReady!:()=>void;const firstCard=new Promise<void>(r=>{firstReady=r;}),secondCard=new Promise<void>(r=>{secondReady=r;});let first:Promise<number>|undefined,second:Promise<number>|undefined;const safety=f.bridge.admissionSafety!;
+ try{delete f.bridge.admissionSafety;await f.taint("web_search");f.decide(()=>new Promise(r=>{answers.push(r);if(answers.length===1)firstReady();else if(answers.length===2)secondReady();}));first=get(f.proxy.socketPath,f.origin.url.href);await firstCard;await f.taint("web_fetch");second=get(f.proxy.socketPath,f.origin.url.href);await secondCard;
+ const cards=f.asks();expect(cards,'NEW_EVIDENCE_REQUIRES_A_NEW_NETWORK_CARD').toBe(2);answers[0]!({behavior:'allow'});answers[1]!({behavior:'deny',message:'Athena declines the new context'});
+ // First card approved before the new class must ask again and is denied when the replacement card is declined.
+ await new Promise(r=>setTimeout(r,20));while(answers.length>2)answers.pop()!({behavior:'deny',message:'Athena declines replacement'});
+ expect(await first).toBe(403);expect(await second).toBe(403);expect(f.hits()).toBe(0);
+ }finally{f.bridge.admissionSafety=safety;for(const answer of answers)answer({behavior:'deny',message:'Closed'});await Promise.allSettled([first,second]);await f.close();}
 });
 for(const pruned of [false,true])test(`review2: forks inherit unresolved input only, regardless of pruning (${pruned})`,async()=>{
  const f=await fixture();try{expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();if(pruned)pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);expect(f.writes.safety(null,'voyage').unresolvedCount).toBe(0);
@@ -156,37 +159,39 @@ for(const pruned of [false,true])test(`review2: forks inherit unresolved input o
  await f.taint();if(pruned)pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);await f.writes.safetyBegin({turnId:'fork-unresolved',bindingId:crypto.randomUUID(),sessionId:null,principalId:'odysseus',backendId:'claude',sourceSessionId:'voyage',at:3});expect(f.writes.safety('fork-unresolved',null).unresolvedCount).toBe(1);
  }finally{await f.close();}
 });
-test('review2: unchanged context still shares one pending destination card',async()=>{
- const f=await fixture();const answers:Array<(v:PermissionDecision)=>void>=[];let firstReady!:()=>void,secondReady!:()=>void;const firstCard=new Promise<void>(r=>{firstReady=r;}),secondRequest=new Promise<void>(r=>{secondReady=r;});let first:Promise<number>|undefined,second:Promise<number>|undefined;const safety=f.bridge.admissionSafety!,read=safety.read;
- try{await f.taint();f.decide(()=>new Promise(r=>{answers.push(r);firstReady();}));first=get(f.proxy.socketPath,f.origin.url.href);await firstCard;let announced=false;safety.read=()=>{const value=read();if(!announced){announced=true;queueMicrotask(secondReady);}return value;};second=get(f.proxy.socketPath,f.origin.url.href);await secondRequest;expect(f.asks(),'UNCHANGED_CONTEXT_COALESCES_ONE_PENDING_CARD').toBe(1);answers[0]!({behavior:'deny',message:'Athena declines'});expect(await first).toBe(403);expect(await second).toBe(403);
- }finally{safety.read=read;for(const answer of answers)answer({behavior:'deny',message:'Closed'});await Promise.allSettled([first,second]);await f.close();}
+test('review2: concurrent same-origin connections raise distinct per-connection cards with the same canonical origin (#4966/#3595)',async()=>{
+ const f=await fixture();const answers:Array<(v:PermissionDecision)=>void>=[];const origins:string[]=[];let bothReady!:()=>void;const ready=new Promise<void>(r=>{bothReady=r;});let first:Promise<number>|undefined,second:Promise<number>|undefined;
+ try{await f.taint();f.decide((req)=>new Promise(r=>{origins.push(req.origin ?? '');answers.push(r);if(answers.length===2)bothReady();}));first=get(f.proxy.socketPath,f.origin.url.href);second=get(f.proxy.socketPath,f.origin.url.href);await ready;expect(f.asks(),'PER_CONNECTION_CARDS_FOR_EXPLICIT_SCOPES').toBe(2);expect(new Set(origins).size,'SHARED_CANONICAL_ORIGIN_KEY').toBe(1);for(const answer of answers)answer({behavior:'deny',message:'Athena declines'});expect(await first).toBe(403);expect(await second).toBe(403);
+ }finally{for(const answer of answers)answer({behavior:'deny',message:'Closed'});await Promise.allSettled([first,second]);await f.close();}
 });
 
-for(const phase of ['none','card','commit'] as const)test(`shared Network card with real FULL writer excludes only peer reservations (independent ${phase})`,async()=>{
+for(const phase of ['none','card','commit'] as const)test(`concurrent Network cards with real FULL writer exclude own reservations and fence new-class pending input (independent ${phase})`,async()=>{
  const f=await fixture(false,{schema_version:1},undefined,true);const independent=phase!=='none';
  const committed=Promise.withResolvers<void>(),releaseAdmissions=Promise.withResolvers<void>();let commits=0;
- const card=Promise.withResolvers<void>(),answer=Promise.withResolvers<PermissionDecision>(),secondEntered=Promise.withResolvers<void>();
- const safety=f.bridge.admissionSafety!,read=safety.read.bind(safety),firstTaint=f.writes.firstTaint;
+ const bothCards=Promise.withResolvers<void>(),answers:Array<(v:PermissionDecision)=>void>=[];
+ const firstTaint=f.writes.firstTaint;
  const otherDb=new Database(f.db.filename),otherWriter=openSqliteWriter(otherDb),otherWrites=createGovernanceWrites(f.db,otherWriter);
  const gate=new Int32Array(new SharedArrayBuffer(4)),entered=new Int32Array(new SharedArrayBuffer(4));
  let held:Promise<unknown>|undefined,pendingInput:Promise<unknown>|undefined,first:Promise<number>|undefined,second:Promise<number>|undefined,peak=0;
  try{
-  await f.taint();
+  await f.taint("web_search");
   f.writes.firstTaint=(...args)=>{const pending=firstTaint(...args);peak=Math.max(peak,f.writes.safety('turn-voyage','voyage').pendingCount);return phase==='commit'?pending.then(async result=>{if(++commits===2)committed.resolve();await releaseAdmissions.promise;return result;}):pending;};
-  f.decide(()=>{card.resolve();return answer.promise;});first=get(f.proxy.socketPath,f.origin.url.href);await card.promise;
-  let announced=false;safety.read=(...args)=>{const state=read(...args);if(!announced){announced=true;queueMicrotask(secondEntered.resolve);}return state;};
-  second=get(f.proxy.socketPath,`${f.origin.url.href}again`);await secondEntered.promise;safety.read=read;
-  expect(f.asks(),'REAL_WRITER_PEERS_SHARE_EXACTLY_ONE_CARD').toBe(1);
-  if(phase==='commit'){answer.resolve({behavior:'allow'});await committed.promise;}
+  f.decide(()=>{if(answers.length>=2)return Promise.resolve({behavior:'deny',message:'Athena declines new class'});return new Promise(r=>{answers.push(r);if(answers.length===2)bothCards.resolve();});});
+  first=get(f.proxy.socketPath,f.origin.url.href);
+  second=get(f.proxy.socketPath,`${f.origin.url.href}again`);
+  await bothCards.promise;
+  expect(f.asks(),'REAL_WRITER_PEERS_RAISE_PER_CONNECTION_CARDS').toBe(2);
+  if(phase==='commit'){for(const a of answers)a({behavior:'allow'});await committed.promise;}
   if(independent){
    const probe=await import('./fixtures/pending-safety-writer');const channel=otherWriter.channel(probe,undefined);await channel.ready;
    held=channel.call('hold',entered,gate,watchdogMs(15000));
    if(!Atomics.load(entered,0))await Atomics.waitAsync(entered,0,0,watchdogMs(15000)).value;
    expect(Atomics.load(entered,0),'INDEPENDENT_WRITER_IS_HELD_WITHOUT_BLOCKING_PEERS').toBe(1);
-   pendingInput=otherWrites.firstTaint({kind:'taint',turnId:'turn-voyage',sessionId:'voyage',actor:'interactive',profile:'governed',model:null,payload:{source:'web_search',tool:null,detail:'Odysseus reads a separate harbour notice'}});
+   pendingInput=otherWrites.firstTaint({kind:'taint',turnId:'turn-voyage',sessionId:'voyage',actor:'interactive',profile:'governed',model:null,payload:{source:'web_fetch',tool:null,detail:'Odysseus reads a separate harbour notice'}});
    expect(f.writes.safety('turn-voyage','voyage').pendingCount).toBe(1);
   }
-  answer.resolve({behavior:'allow'});releaseAdmissions.resolve();
+  if(phase!=='commit')for(const a of answers)a({behavior:'allow'});
+  releaseAdmissions.resolve();
   expect(await Promise.all([first,second]),independent?'INDEPENDENT_PENDING_INPUT_IS_NOT_A_CARD_PEER':'APPROVED_FULL_WRITER_PEERS_BOTH_DISPATCH').toEqual(independent?[403,403]:[200,200]);
   expect(f.hits()).toBe(independent?0:2);
   if(!independent)expect(peak,'REAL_PEER_WRITE_RESERVATIONS_OVERLAPPED').toBeGreaterThanOrEqual(2);
@@ -194,7 +199,7 @@ for(const phase of ['none','card','commit'] as const)test(`shared Network card w
   const rows=queryGovernanceEvents(f.db,{kinds:['egress_connection'],limit:10});expect(rows).toHaveLength(2);
   for(const row of rows)expect(row.payload).toMatchObject(independent?{outcome:'denied',dispatched:false}:{outcome:'completed',dispatched:true});
  }finally{
-  safety.read=read;answer.resolve({behavior:'deny',message:'Athena closes the fixture'});releaseAdmissions.resolve();Atomics.store(gate,0,1);Atomics.notify(gate,0);
+  for(const a of answers)a({behavior:'deny',message:'Athena closes the fixture'});releaseAdmissions.resolve();Atomics.store(gate,0,1);Atomics.notify(gate,0);
   await Promise.allSettled([held,pendingInput,first,second]);await otherWriter.close();otherDb.close();await f.close();
  }
 });
@@ -230,9 +235,9 @@ test('review6: explicit recipient approval survives independently of a source-on
 
 
 for(const restricted of [false,true])test(`review7: streaming counters avoid history scans (restricted ${restricted})`,async()=>{
- const f=await fixture();try{if(restricted)await f.taint();f.decide(async()=>({behavior:'allow'}));const op=f.proxy.managedReference(new URL('https://github.com/'),new AbortController().signal);expect(await op.admit()).toBe(true);
+ const f=await fixture();try{if(restricted)await f.taint("web_search");f.decide(async()=>({behavior:'allow'}));const op=f.proxy.managedReference(new URL('https://github.com/'),new AbortController().signal);expect(await op.admit()).toBe(true);
  const query=f.db.query.bind(f.db);let scans=0;const spy=spyOn(f.db,'query').mockImplementation(((...args:Parameters<typeof f.db.query>)=>{if(String(args[0]).includes('FROM safety_records'))scans++;return Reflect.apply(query,f.db,args);}) as typeof f.db.query);
- try{expect(op.charge(1).ok).toBe(true);scans=0;for(let i=0;i<32;i++)expect(op.charge(1).ok).toBe(true);expect(scans,'STABLE_APPROVED_CHUNKS_NEVER_SCAN_HISTORY').toBe(0);await f.taint();expect(op.charge(1).ok,'NEW_INPUT_STILL_WITHDRAWS_CACHED_APPROVAL').toBe(false);}finally{spy.mockRestore();op.finish('cancelled');}
+ try{expect(op.charge(1).ok).toBe(true);scans=0;for(let i=0;i<32;i++)expect(op.charge(1).ok).toBe(true);expect(scans,'STABLE_APPROVED_CHUNKS_NEVER_SCAN_HISTORY').toBe(0);await f.taint("web_fetch");expect(op.charge(1).ok,'NEW_INPUT_STILL_WITHDRAWS_CACHED_APPROVAL').toBe(false);}finally{spy.mockRestore();op.finish('cancelled');}
  }finally{await f.close();}
 });
 

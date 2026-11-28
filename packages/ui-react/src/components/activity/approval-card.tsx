@@ -119,7 +119,9 @@ export function ApprovalCard(p: ApprovalCardProps) {
   const networkScopes: readonly NetworkApprovalScope[] | undefined = networkOffer
     ? networkOffer.managedReference
       ? ["once"]
-      : networkOffer.scopes
+      : networkOffer.scopes.length > 0
+        ? networkOffer.scopes
+        : undefined
     : undefined;
   const networkLabel = networkOffer || p.tool.approvalOrigin
     ? formatNetworkOriginLabel(p.tool.approvalOrigin, networkOffer, p.tool.input)
@@ -215,11 +217,11 @@ export function ApprovalCard(p: ApprovalCardProps) {
             </>
           ) : (
             <>
-              <Button label="Allow" icon="confirm" tone="primary" size="sm" center block={false} style={ALLOW_MOUNT} onClick={() => decide(cardOf(), true)} />
+              <Button label={sending ? "Sending…" : "Allow"} icon="confirm" tone="primary" size="sm" center block={false} disabled={sending} style={ALLOW_MOUNT} onClick={() => decide(cardOf(), true)} />
               {offersAlwaysAllow(p.tool) && (
-                <Button label="Always allow" effect="write_policy" tone="ghost" size="sm" block={false} onClick={() => decide(cardOf(), true, true)} />
+                <Button label="Always allow" effect="write_policy" tone="ghost" size="sm" block={false} disabled={sending} onClick={() => decide(cardOf(), true, true)} />
               )}
-              <Button label="Deny" icon="deny" tone="danger" size="sm" center block={false} style={DENY_MOUNT} onClick={() => decide(cardOf(), false)} />
+              <Button label="Deny" icon="deny" tone="danger" size="sm" center block={false} disabled={sending} style={DENY_MOUNT} onClick={() => decide(cardOf(), false)} />
             </>
           )}
           {printKeys && (
