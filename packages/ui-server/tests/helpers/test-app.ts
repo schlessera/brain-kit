@@ -38,6 +38,15 @@ const BASE_ENV = [
 
 let nextId = 0;
 
+/**
+ * The env each live app saved at boot, oldest first. An app's saved values
+ * are what the app before it set, so tearing apps down out of boot order and
+ * restoring each one's own values would put a closed app's native socket
+ * back (#5005). Only the newest live app restores; an older one hands its
+ * saved values to the next app up, which restores them in turn.
+ */
+const liveEnv: Array<Map<string, string | undefined>> = [];
+
 /** Options used to boot an isolated app for one test suite. */
 export interface TestAppOptions {
   /**
@@ -95,13 +104,21 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   const brainPath = join(tmpdir(), `${stem}-brain`);
   const piAgentDir = join(tmpdir(), `${stem}-pi`);
   const envKeys = new Set<string>([...BASE_ENV, ...Object.keys(options.env ?? {})]);
-  const saved: Record<string, string | undefined> = {};
+  const saved = new Map<string, string | undefined>();
 
-  for (const key of envKeys) saved[key] = process.env[key];
+  for (const key of envKeys) saved.set(key, process.env[key]);
 
   const restoreEnv = (): void => {
-    for (const key of envKeys) {
-      const value = saved[key];
+    const index = liveEnv.indexOf(saved);
+    if (index === -1) return;
+    liveEnv.splice(index, 1);
+    const newer = liveEnv[index];
+    if (newer) {
+      // The newer app saved what this one set; the value from before this one is what must come back.
+      for (const [key, value] of saved) newer.set(key, value);
+      return;
+    }
+    for (const [key, value] of saved) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
@@ -119,6 +136,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   mkdirSync(brainPath, { recursive: true });
   mkdirSync(piAgentDir, { recursive: true });
   options.prepare?.(brainPath, dbPath);
+  liveEnv.push(saved);
   process.env.AUTH_MODE = "none";
   process.env.HOST = "127.0.0.1";
   process.env.NODE_ENV = "test";
