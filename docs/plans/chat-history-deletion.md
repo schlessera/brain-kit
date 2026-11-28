@@ -60,7 +60,7 @@ The bridge offers the creator only on a new, non-host-work turn whose
 authorization is current
 (`const creator`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:143`). The write worker
 binds the creator only in the transaction that creates the session's row
-(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:170-182`).
+(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:179-191`).
 `resolveChat` counts the binding as one more ownership record beside dialogue
 owners and voice epochs, so a disagreement among them still refuses as ambiguous
 (`const creator`, `packages/ui-server/src/ws/chat-lifecycle.ts:102-103`). A typed
@@ -259,8 +259,8 @@ must be tested through their installed runtime, not inferred from directory name
   handoff preparation, classifier callbacks, DialogueJournal routing/pending writes,
   ConversationHost receipts/results/output and frozen startup envelopes can retain
   or publish text. Catalog optimistic maps precede worker acknowledgements
-  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:258-271`;
-  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:301-304`).
+  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:264-277`;
+  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:315-318`).
   Both submission and worker commit need a generation check.
 - **Browser state.** Chat buffers/history chunks, shared timeline, session
   title/list cache, dialogue pages/cursors, recognition/generated/unsaved tails,
@@ -295,7 +295,7 @@ Concrete entry points include `readSessionRecovery`
 (`readSessionRecovery`, `packages/ui-server/src/ws/recovery.ts:209-222`),
 `FailureReplay` (`FailureReplay`, `packages/ui-server/src/ws/turn-failures.ts:67-94`),
 and both handoff stages (`startHandoff`, `packages/ui-server/src/ws/handoff.ts:100-110`;
-`prepareHandoff`, `packages/ui-server/src/ws/handoff.ts:273-285`). Draft autosave
+`prepareHandoff`, `packages/ui-server/src/ws/handoff.ts:275-287`). Draft autosave
 belongs to `createDraftClient` (`createDraftClient`,
 `packages/ui-react/src/lib/draft-client.ts:64-87`); browser reloadable work belongs
 to `createLocalWork` (`createLocalWork`, `packages/ui-react/src/lib/local-work.ts:227-245`).

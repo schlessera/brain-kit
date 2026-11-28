@@ -102,15 +102,19 @@ async function runRetainedSession(
 ): Promise<void> {
   const starting = beginSlotStart(host, initial);
   let target: Awaited<ReturnType<typeof resolveTurnTarget>>;
+  let storedOutputSpeed: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed | null = null;
   try {
     target = await resolveTurnTarget(host.registry, host.catalog, initial.sessionId, initial.providerId);
+    // A resume's stored speed is read here, where a failed read is a routing
+    // failure that settles every queued follow-up (#4310, round 3 F9).
+    if (initial.sessionId) storedOutputSpeed = host.catalog.getStoredOutputSpeed?.(initial.sessionId) ?? null;
   } catch (err) {
     reportRoutingFailure(host, initial, starting, err, initialLifecycle);
     return;
   } finally {
     host.coordinator.endStarting(initial.sessionId, starting);
   }
-  const slot = registerSessionSlot(host, initial, starting, target, initialTurnId);
+  const slot = registerSessionSlot(host, initial, starting, target, initialTurnId, storedOutputSpeed);
   if (!slot) return;
   const { turn } = slot;
   let next: QueuedFollowUp | null = firstRequest(initial);
@@ -306,6 +310,8 @@ export async function handleChatMessage(
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
     attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
     providerId?: string;
+    /** Only a new conversation chooses its speed (#4310). */
+    outputSpeed?: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed;
     client?: ClientEnvironment;
     source?: MessageSource;
     thinkingLevel?: ThinkingLevel;
@@ -513,6 +519,7 @@ export async function handleChatMessage(
     ...(files?.length ? { files } : {}),
     ...(attachmentFiles?.length ? { attachmentFiles } : {}),
     providerId: requestedProviderId,
+    ...(msg.outputSpeed && !sessionId ? { outputSpeed: msg.outputSpeed } : {}),
     ...(client ? { client } : {}),
     ...(source ? { source } : {}),
     ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),

@@ -98,9 +98,9 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // core. An edge here would mean scraping logic had started reasoning about
   // what it was scraping, which is the consuming module's job.
   "@schlessera/brain-scrape": { dependencies: ["@schlessera/brain-common"], optionalPeers: [] },
-  // Agent backends implement the SDK seam; pi additionally embeds core.
+  // #4325: both backends consume core; Claude imports its static MCP definitions.
   "@schlessera/brain-backend-claude": {
-    dependencies: ["@schlessera/brain-common", "@schlessera/brain-ui-sdk"],
+    dependencies: ["@schlessera/brain-common", "@schlessera/brain", "@schlessera/brain-ui-sdk"],
     optionalPeers: [],
   },
   "@schlessera/brain-backend-pi": {

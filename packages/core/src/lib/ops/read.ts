@@ -7,11 +7,9 @@
  */
 import type { Database } from "bun:sqlite";
 import { readFileSync } from "fs";
-import { z } from "zod";
 
 import type { BrainContext } from "../context.js";
 import { assembleContext, emptyContextCoverage, type ContextCoverage } from "../context-assembler.js";
-import { MAX_SCOPE_ENTRIES, MAX_SCOPE_ENTRY_LENGTH } from "../context-scope.js";
 import { readDocumentPart } from "../document-parts.js";
 import {
   finishDocumentPage,
@@ -19,6 +17,7 @@ import {
   type DocumentPage,
   type DocumentPageInput,
 } from "../document-page.js";
+import { contextCoverageSchema, contextScopeListSchema, DEFAULT_LIST_LIMIT, listLimitSchema, MAX_LIST_LIMIT } from "../read-schemas.js";
 import { rerankSetup } from "../registry.js";
 import { safeResolve } from "../safe-path.js";
 import { filterSearch, hybridSearch } from "../search-engine.js";
@@ -111,31 +110,7 @@ export async function searchDocuments(
   };
 }
 
-/**
- * One of `brain_context`'s scope lists as its input schema: at most
- * {@link MAX_SCOPE_ENTRIES} paths of 1 to {@link MAX_SCOPE_ENTRY_LENGTH}
- * characters. The entry rules (`scopeEntryError`) run in the assembler, so
- * every surface refuses the same entries with the same message.
- */
-export const contextScopeListSchema = z.array(z.string().min(1).max(MAX_SCOPE_ENTRY_LENGTH)).max(MAX_SCOPE_ENTRIES);
-
-/** A scoped briefing's coverage, as `brain_context` declares it in its output schema. */
-export const contextCoverageSchema = z.object({
-  exhaustive: z.literal(false),
-  include: z.array(z.string()).nullable(),
-  exclude: z.array(z.string()),
-  excerpts: z.array(
-    z.object({
-      path: z.string(),
-      lane: z.enum(["identity", "focus", "search", "related"]),
-      form: z.enum(["whole", "cut", "section", "snippet", "summary"]),
-      lines: z.tuple([z.number().int().min(1), z.number().int().min(1)]).optional(),
-    })
-  ),
-  omitted: z.array(z.object({ path: z.string(), reason: z.enum(["budget", "unavailable", "not_ranked", "excluded"]) })),
-  omittedMore: z.number().int().min(0),
-  budgetExhausted: z.boolean(),
-}) satisfies z.ZodType<ContextCoverage>;
+export { contextCoverageSchema, contextScopeListSchema, DEFAULT_LIST_LIMIT, listLimitSchema, MAX_LIST_LIMIT };
 
 export interface ContextInput {
   query: string;
@@ -190,18 +165,6 @@ export function readDocument(root: string, input: ReadInput): string {
   });
 }
 
-/** `brain list` and `brain_list` return this many documents when no limit is given. */
-export const DEFAULT_LIST_LIMIT = 20;
-/** The largest `limit` `brain list` and `brain_list` accept. */
-export const MAX_LIST_LIMIT = 100;
-
-/**
- * The one list-limit rule both surfaces apply (#1351): a whole number from 1
- * to {@link MAX_LIST_LIMIT}. Anything else is rejected, never clamped.
- * `brain_list` uses it as its input schema; `brain list` runs its parsed
- * `--limit` through it.
- */
-export const listLimitSchema = z.number().int().min(1).max(MAX_LIST_LIMIT);
 
 export interface ListInput {
   type?: string;

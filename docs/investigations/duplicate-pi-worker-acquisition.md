@@ -38,7 +38,7 @@ synchronous `disposeSession(opened.session)` and then either refuses
 `packages/ui-backend-pi/src/session-pool.ts:77-101`). Without retention, an
 entry in the map is always running, so in production the loser always
 refuses busy. The runner re-throws that refusal to its caller unchanged
-(`let acquired`, `packages/ui-backend-pi/src/turn-runner.ts:63-86`).
+(`let acquired`, `packages/ui-backend-pi/src/turn-runner.ts:65-88`).
 
 **The new-session branch.** A worker-backed session's identity is
 `resumeId ?? randomUUID()` (`const sessionId = resumeId`,
@@ -62,7 +62,7 @@ and releases `bySession` only in the slot's final `finally`
 (`coordinator.bySession.get(turn.sessionId) === turn`, `packages/ui-server/src/ws/run-session.ts:1003-1005`). Retry admission refuses
 on the same two maps (`coordinator.bySession.has(msg.sessionId)`, `packages/ui-server/src/ws/dispatch.ts:242`). The other
 two backend callers run autonomous turns and pass no `sessionId`: the handoff
-summary (`await backend.startTurn`, `packages/ui-server/src/ws/handoff.ts:374-388`) and inbox work
+summary (`await backend.startTurn`, `packages/ui-server/src/ws/handoff.ts:376-390`) and inbox work
 (`installApplication(request`, `packages/ui-server/src/inbox/autonomous-turn.ts:409-417`).
 
 The SDK contract suite also resumes a session while it is running
