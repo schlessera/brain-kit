@@ -17,7 +17,7 @@ import { pipeline } from "node:stream/promises";
 import { basename, dirname, join } from "node:path";
 import { prepareNativeMaintenanceIndex, authorizeNativeMaintenanceIndex, finishNativeMaintenanceIndex, prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { createWorkerPipes, createWorkerPipesSteps, fifoStream } from "./worker-pipes.js";
-import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, workerBootstrap, WorkerHostError, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
+import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, spawnQualifiedSteps, workerBootstrap, WorkerHostError, WorkerLaunchAborted, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
 import { WorkerIdentityCleanupError, workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 import { createWorkerStartupView, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
@@ -25,7 +25,7 @@ import { reserveMaintenanceTemp, type MaintenanceTempDomain, type MaintenanceTem
 import { OUTPUT_STAGING_BYTES_ENV, resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
 import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
-import { runWorkerStepsAsync, runWorkerStepsSync, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
+import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
 export const CREDENTIAL_FREE_ENV = ["PATH", "BRAIN_PATH", "BRAIN_ROOT", "NODE_ENV", "TZ", "LANG", "LC_ALL", "NO_COLOR",
@@ -231,6 +231,8 @@ export interface MaintenanceWorker {
   /** Resolves once no descriptor of the worker's stdio remains open in this process, once its streams have ended (#2862). */
   released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
+  /** @internal A gated direct spawn's deadline, counted from its spawn, and whether it passed before release (#4301). */
+  gate?: { deadline?: number; timedOut?: boolean };
 }
 
 /** Shared host state can never be writable repository input. */
@@ -310,16 +312,20 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
         kill: signal => running.kill(signal),
       };
     }
-    const boot = workerBootstrap(launch);
     pipes = yield* createWorkerPipesSteps();
-    child = Bun.spawn(boot.command, { cwd: "/", env: boot.env,
-      stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
-    registerWorker(child);
+    // The payload starts only once the host releases its start gate (#4301).
+    // The caller's deadline counts from the spawn, through the gate (#4301).
+    const gated = yield* spawnQualifiedSteps(launch, { stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] },
+      // The launcher's own Bun child, typed structurally on its published surface.
+      spawned => { child = spawned as ReturnType<typeof Bun.spawn>; registerWorker(child); },
+      { signal: (input as { signal?: AbortSignal }).signal, timeoutMs: (input as { timeoutMs?: number }).timeoutMs,
+        // The registered cancellation path: freeze, enumerate the children, then kill (#5016 F28).
+        stop: spawned => killWorker(spawned as ReturnType<typeof Bun.spawn>, "SIGKILL") });
     pipes.closeChild();
     const ends = pipes.take();
     let inputClosed = false;
     const closeInput = () => { if (!inputClosed) { inputClosed = true; closeSync(ends.stdin); } };
-    const running = child;
+    const running = child!;
     return {
       async input(data) {
         try {
@@ -343,6 +349,7 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       }),
       released: pipes.released,
       kill: (signal?: NodeJS.Signals) => killWorker(running, signal),
+      gate: { ...(gated.deadline !== undefined ? { deadline: gated.deadline } : {}), ...(gated.timedOut ? { timedOut: true } : {}) },
     };
   } catch (error) {
     if (helperWorker) {
@@ -352,7 +359,9 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       }
       throw error;
     }
-    if (workerCleanupUnconfirmed(error)) throw error;
+    // The caller's abort reason is never classified: it leaves as given, after cleanup (#5016 F27).
+    const aborted = error instanceof WorkerLaunchAborted ? error : undefined;
+    if (!aborted && workerCleanupUnconfirmed(error)) throw error;
     if (executionView) {
       // The helper launcher may already have begun dropping this idempotent
       // reference. Keep admission until both owned references are released.
@@ -367,13 +376,21 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       killWorker(running, "SIGKILL");
       // A synchronous launch can fail after spawn. Its late cleanup still owns
       // admission until the asynchronous stop and the actual outer exit join.
-      void Promise.all([running.exited, workerStopCompletion(running)]).then(() => {
+      // A synchronously reaped child rejects `exited`; its exit is already confirmed.
+      const cleanup = Promise.all([running.exited.catch(() => undefined), workerStopCompletion(running)]).then(() => {
         try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
       }).catch(() => { /* Unconfirmed cleanup retains ownership. */ });
+      // An abort's or a gate failure's sandbox has already been stopped: it
+      // leaves as itself, once what the launch owns is released (an
+      // asynchronous caller waits for that).
+      if (aborted || (input as { signal?: AbortSignal }).signal?.aborted || error instanceof WorkerHostError) {
+        yield* workerStep(() => undefined, () => cleanup);
+        throw aborted ? aborted.reason : error;
+      }
       throw Object.assign(new WorkerIdentityCleanupError("maintenance_worker_launch_cleanup_pending"), { cause: error });
     }
     try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
-    throw error;
+    throw aborted ? aborted.reason : error;
   }
 }
 
@@ -398,7 +415,10 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
   input.signal?.addEventListener("abort", kill, { once: true });
   // An abort accepted while the launch was awaited still stops the worker.
   if (input.signal?.aborted) kill();
-  const timer = input.timeoutMs ? setTimeout(kill, input.timeoutMs) : undefined;
+  // A gated launch's deadline counts from its spawn: the timer gets what is
+  // left, and a deadline that passed before release reports killed (#4301).
+  if (worker.gate?.timedOut) kill();
+  const timer = input.timeoutMs ? setTimeout(kill, worker.gate?.deadline !== undefined ? Math.max(0, worker.gate.deadline - performance.now()) : input.timeoutMs) : undefined;
   let bytes = 0;
   const collect = async (stream: ReadableStream<Uint8Array>) => {
     const chunks: Uint8Array[] = [];
