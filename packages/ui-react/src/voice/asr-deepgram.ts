@@ -34,8 +34,6 @@ export class DeepgramClient implements AsrClient {
   private pending: Blob[] = [];
   private closed = false;
   private drainResolve: (() => void) | null = null;
-  private wakeLock: WakeLockSentinel | null = null;
-  private wakeLockHandler: (() => void) | null = null;
 
   constructor(opts: DeepgramClientOptions) {
     this.opts = opts;
@@ -58,7 +56,6 @@ export class DeepgramClient implements AsrClient {
     }
     this.stream = stream;
 
-    void this.acquireWakeLock();
     this.startAudioLevelMeter(this.stream);
 
     // Record from the moment the mic is live — chunks buffer in `pending` until
@@ -156,46 +153,6 @@ export class DeepgramClient implements AsrClient {
     }
   }
 
-  // Keep the screen on for the duration of capture so the phone doesn't sleep
-  // mid-sentence and clip the audio. The lock is released when the page becomes
-  // hidden, so re-acquire on visibility return.
-  private async acquireWakeLock(): Promise<void> {
-    if (typeof navigator === "undefined" || !("wakeLock" in navigator)) {
-      return;
-    }
-    try {
-      this.wakeLock = await navigator.wakeLock.request("screen");
-      this.wakeLock.addEventListener("release", () => {
-        this.wakeLock = null;
-      });
-      if (!this.wakeLockHandler) {
-        this.wakeLockHandler = () => {
-          if (
-            document.visibilityState === "visible" &&
-            !this.closed &&
-            !this.wakeLock
-          ) {
-            void this.acquireWakeLock();
-          }
-        };
-        document.addEventListener("visibilitychange", this.wakeLockHandler);
-      }
-    } catch (err) {
-      console.warn("[voice] Wake lock request failed:", err);
-    }
-  }
-
-  private releaseWakeLock(): void {
-    if (this.wakeLockHandler) {
-      document.removeEventListener("visibilitychange", this.wakeLockHandler);
-      this.wakeLockHandler = null;
-    }
-    if (this.wakeLock) {
-      this.wakeLock.release().catch(() => {});
-      this.wakeLock = null;
-    }
-  }
-
   private startAudioLevelMeter(stream: MediaStream) {
     if (!this.opts.onAudioLevel) return;
     try {
@@ -282,7 +239,6 @@ export class DeepgramClient implements AsrClient {
   }
 
   private cleanup() {
-    this.releaseWakeLock();
     if (this.levelRaf !== null) {
       cancelAnimationFrame(this.levelRaf);
       this.levelRaf = null;

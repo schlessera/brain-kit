@@ -6,6 +6,7 @@
 import type { AsrClient } from "@schlessera/brain-ui-sdk/client";
 import type { BrainUiRoot } from "../root.js";
 import { endedNotice, type DictationFailure } from "./dictation-failure.js";
+import type { ScreenWakeLock } from "./screen-wake-lock.js";
 import type { VoiceState } from "./voice-state.js";
 
 type VoiceStore = BrainUiRoot["stores"]["voice"];
@@ -17,6 +18,7 @@ type VoiceStore = BrainUiRoot["stores"]["voice"];
 export type Capture = {
   root: object;
   client: AsrClient | null;
+  wakeLock?: ScreenWakeLock;
   failure?: DictationFailure;
   /** A failure the client reported while a Done drained it: that Done ends with a notice. */
   drainFailure?: DictationFailure;
@@ -33,6 +35,8 @@ export const owners = new WeakMap<object, Capture>();
 export const stopping = new WeakSet<Capture>();
 
 export function release(capture: Capture) {
+  capture.wakeLock?.release();
+  capture.wakeLock = undefined;
   if (owners.get(capture.root) === capture) owners.delete(capture.root);
 }
 
