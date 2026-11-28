@@ -341,4 +341,65 @@ describe("live conversation screen wake lock", () => {
     await flushMicrotasks();
     expect(sentinels[1]!.released).toBe(true);
   });
+
+  test("re-acquires wake lock when conversation_opened restores a live muted epoch after a non-recoverable pause", async () => {
+    const { client, doc, sentinels, sent } = setupEnv();
+    client.enter();
+    client.start();
+    await flushMicrotasks();
+    expect(sentinels).toHaveLength(1);
+
+    const start1 = sent.find((m) => m.type === "conversation_start");
+    const req1 = start1?.type === "conversation_start" ? start1.requestId : undefined;
+    client.receive({
+      type: "conversation_opened",
+      conversationId: "ithaca-voice",
+      epoch: 1,
+      requestId: req1,
+      providerId: PROFILE.providerId,
+      capabilities: CAPS,
+      disclosure: PROFILE.disclosure,
+      limits: { ...CONVERSATION_LIMITS },
+      resync: { work: 0, outputs: 0 },
+    });
+
+    client.mute();
+    await flushMicrotasks();
+    expect(sentinels[0]!.released).toBe(false);
+
+    // Non-recoverable pause while muted releases wake lock.
+    client.receive({
+      type: "conversation_closed",
+      conversationId: "ithaca-voice",
+      epoch: 1,
+      reason: "provider_error",
+    });
+    await flushMicrotasks();
+    expect(sentinels[0]!.released).toBe(true);
+
+    // Returning from hidden starts a new epoch; once conversation_opened restores
+    // the live Connected muted epoch, the wake lock is re-acquired.
+    doc.setHidden(true);
+    doc.setHidden(false);
+    await flushMicrotasks();
+    const starts = sent.filter((m) => m.type === "conversation_start");
+    expect(starts).toHaveLength(2);
+    const req2 = starts[1]?.type === "conversation_start" ? starts[1].requestId : undefined;
+    client.receive({
+      type: "conversation_opened",
+      conversationId: "ithaca-voice",
+      epoch: 2,
+      requestId: req2,
+      providerId: PROFILE.providerId,
+      capabilities: CAPS,
+      disclosure: PROFILE.disclosure,
+      limits: { ...CONVERSATION_LIMITS },
+      resync: { work: 0, outputs: 0 },
+    });
+    await flushMicrotasks();
+    expect(client.state.getState().connection).toBe("Connected");
+    expect(client.state.getState().capture).toBe("muted");
+    expect(sentinels).toHaveLength(2);
+    expect(sentinels[1]!.released).toBe(false);
+  });
 });

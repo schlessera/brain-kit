@@ -712,7 +712,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   /** Principal/auth boundaries drop all volatile evidence and old callback identities. */
   function clearPrivateDialogue() {
     unassignedWorkOwners.length = 0;
-    entryLifetime++; generation++; setConsent(false, "idle"); ready=false; requested=false; openingId=undefined;
+    entryLifetime++; generation++; paused = false; setConsent(false, "idle"); ready=false; requested=false; openingId=undefined;
     // Retire the source before cutting playback: no old identity is sent on a new principal socket.
     state.setState({active:false,profile:null});
     syncWakeLock();
@@ -958,8 +958,10 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (!requested || (s.profile && (s.profile.conversationId !== message.conversationId || message.epoch <= s.profile.epoch))) return;
       clearClosedNotice();
       generation++; state.setState({ token: generation }); stopMic(); resetRecovery(); playback.dispose(); playback = makePlayback(); fragments.clear(); unassignedThrough = -1; seenRecognition.clear(); retiredInputs.clear(); capturedInputs.clear(); manualReview.clear(); incompleteReview.clear(); lastInput = undefined;
-      state.setState({ profile: message, connection: "Connected", text: "", interaction: "Listening", disclosureOpen: agreedEntry !== entryLifetime || agreedDisclosure !== disclosureKey(message, message.agentProviderId ?? entryProfileId) });
-      if (agreedEntry !== entryLifetime || agreedDisclosure !== disclosureKey(message, message.agentProviderId ?? entryProfileId)) setConsent(false);
+      const disclosureMismatch = agreedEntry !== entryLifetime || agreedDisclosure !== disclosureKey(message, message.agentProviderId ?? entryProfileId);
+      state.setState({ profile: message, connection: "Connected", text: "", interaction: "Listening", disclosureOpen: disclosureMismatch });
+      if (disclosureMismatch) setConsent(false);
+      else paused = false;
       syncWakeLock();
       resync = message.resync.work + message.resync.outputs;
       ready = false; if (consent) void capture();
