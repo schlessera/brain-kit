@@ -57,7 +57,7 @@ test("host admission, tool completion and terminal observation produce scoped re
     await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Record the return to Ithaca", requestId: "journal-request" }) } as MessageEvent, ws);
     const frames = () => sent.flatMap(text => { const parsed = parseServerMessage(text); if (!parsed.ok) throw new Error(parsed.error); return [parsed.message]; });
-    const wait = async (check: () => boolean) => { const until = Date.now() + 5000; while (!check()) { if (Date.now() > until) throw new Error(JSON.stringify(frames())); await Bun.sleep(5); } };
+    const wait = (check: () => boolean) => until(check, () => JSON.stringify(frames()), 5000);
     await wait(() => frames().some(frame => frame?.type === "tool_result"));
     await wait(() => frames().some(frame => frame.type === "turn_journal" && (frame.journal.changedFiles ?? 0) > 0));
     const toolReceipt = frames().findLast(frame => frame.type === "turn_journal");
@@ -124,8 +124,7 @@ test("a real mid-turn journal capacity stop emits the named failure and an error
     const handlers = createWsHandlers(host, principal); await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Record the voyage", requestId: "overflow-request" }) } as MessageEvent, ws);
     const frames = () => sent.map(text => JSON.parse(text));
-    const deadline = Date.now() + 5000;
-    while (!frames().some(frame => frame.type === "turn_journal" && frame.journal.state === "partial") || host.coordinator.isTurnActive()) { if (Date.now() > deadline) throw Error(JSON.stringify(frames())); await Bun.sleep(5); }
+    await until(() => frames().some(frame => frame.type === "turn_journal" && frame.journal.state === "partial") && !host.coordinator.isTurnActive(), () => JSON.stringify(frames()), 5000);
     const failure = frames().find(frame => frame.type === "error");
     expect(failure, "JOURNAL_HOST_OVERFLOW_NAMED_FAILURE").toMatchObject({ code: "JOURNAL_CAPACITY", failure: { errorClass: "journal_capacity" } });
     expect(JSON.stringify(frames()), "JOURNAL_OVERFLOW_NOT_TIMEOUT").not.toContain("Turn timed out");
@@ -199,7 +198,7 @@ test("an automatically admitted conversation task keeps real effects, receipts a
     const sent: any[] = [], ws = { send: (text: string) => sent.push(JSON.parse(text)), close() {}, readyState: 1 } as WSContext;
     const handlers = createWsHandlers(app.wsHost, principal); await handlers.onOpen(undefined as never, ws);
     const send = (frame: unknown) => handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
-    const wait = async (check: () => boolean) => { const end = Date.now() + 10_000; while (!check()) { if (Date.now() > end) throw new Error(JSON.stringify(sent)); await Bun.sleep(5); } };
+    const wait = (check: () => boolean) => until(check, () => JSON.stringify(sent), 10_000);
     send({ type: "conversation_start", contextualTasks: true, disclosed:app.wsHost.conversations!.profile(true) }); await wait(() => sent.some(f => f.type === "conversation_opened"));
     const opened = sent.find(f => f.type === "conversation_opened");
     send({ type: "conversation_audio", conversationId: opened.conversationId, epoch: opened.epoch, utteranceId: "watch-capture", sequence: 0, rate: 16000, pcm: "AAA=" });

@@ -18,9 +18,10 @@ import { createPrincipal } from "../src/db/principals.js";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
 import { scopePiProgress } from "./helpers/scope-pi-progress.js";
 import { requireTurnFreeSpace } from "./helpers/turn-free-space.js";
+import { until } from "../../../tests/helpers/until";
 import type { ServerMessage, ScopeCapReceipt } from "@schlessera/brain-ui-sdk/protocol";
 
-async function wait(check: () => boolean, detail: () => unknown) { const end = Date.now() + 8000; while (!check()) { if (Date.now() > end) throw Error(JSON.stringify(detail())); await Bun.sleep(10); } }
+const wait = (check: () => boolean, detail: () => unknown) => until(check, () => JSON.stringify(detail()), 8000);
 const cases = (["claude", "pi"] as const).flatMap(adapter => [false, true].map(voice => ({ adapter, voice, overshoot: false })));
 cases.push({ adapter: "pi", voice: false, overshoot: true });
 for (const { adapter, voice, overshoot } of cases) test(`${adapter}: ${overshoot ? "backlogged four-call overshoot is Stop-only" : voice ? (adapter === "pi" ? "voice admission refuses before a worker" : "true voice stops without a grant") : "dictation pauses, grants once, refuses a second grant and Stops normally"}`, async () => {

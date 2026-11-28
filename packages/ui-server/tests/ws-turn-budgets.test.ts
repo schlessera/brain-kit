@@ -101,12 +101,7 @@ for (const adapter of ["claude", "pi"] as const)
         handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Record Ithaca", requestId: "budget-request" }) } as MessageEvent, ws);
         const frames = () => sent.map(text => { const parsed = parseServerMessage(text); if (!parsed.ok)
           throw Error(parsed.error); return parsed.message; });
-        const deadline = Date.now() + 5000;
-        while (!called || host.coordinator.isTurnActive()) {
-          if (Date.now() > deadline)
-            throw Error(JSON.stringify(frames()));
-          await Bun.sleep(5);
-        }
+        await until(() => called > 0 && !host.coordinator.isTurnActive(), () => JSON.stringify(frames()), 5000);
         expect(admissionModel, "MODEL_CONFIGURED_JOURNAL_ADMISSION").toBe("configured-main");
         expect(receivedPrompt, "GOVERNED_PROMPT_PRESERVES_USER_BYTES").toBe("Record Ithaca");
         expect(receivedLimits, "STATIC_BUDGET_LIMITS_STILL_TRANSPORTED").toContain("turn: warn $5; stop $10");

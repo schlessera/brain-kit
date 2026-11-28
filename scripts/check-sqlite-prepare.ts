@@ -22,7 +22,9 @@
 // file and matches that argument. SQL text is a string, template or tagged
 // template literal, a conditional or `+` concatenation with one, a name that
 // says `sql` (a constant such as `UPSERT_SESSION_SQL`, a `sql.replace(…)`
-// call), or a name a `const` in the same file sets to SQL text (#4997). Other
+// call), or a name whose `const` in its own scope is SQL text (#4997, #5008):
+// the nearest enclosing block, function or file that declares the name, so a
+// short name such as `stmt` reused across functions resolves in each. Other
 // objects' `prepare` methods (`boundary.prepare()`, `operation.prepare()`,
 // `privateIndexes.prepare({…})`) take no SQL and are not flagged. Detection is
 // AST-based (the TypeScript compiler API), so comments and strings that mention
@@ -91,26 +93,62 @@ function unwrap(node: ts.Expression): ts.Expression {
 
 const SQL_NAME = /sql/i;
 
-/** The initializer of every `const <name> = …` in a file, by name; a name declared twice is left out. */
-function constInitializers(source: ts.SourceFile): Map<string, ts.Expression | null> {
-  const consts = new Map<string, ts.Expression | null>();
-  const visit = (node: ts.Node) => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
-      ts.isVariableDeclarationList(node.parent) && node.parent.flags & ts.NodeFlags.Const) {
-      consts.set(node.name.text, consts.has(node.name.text) ? null : node.initializer);
+/** Whether a binding name (an identifier or a destructuring pattern) binds `name`. */
+function binds(binding: ts.BindingName, name: string): boolean {
+  if (ts.isIdentifier(binding)) return binding.text === name;
+  return binding.elements.some((element) => !ts.isOmittedExpression(element) && binds(element.name, name));
+}
+
+/**
+ * What `name` is in one scope node: the initializer of a plain `const` that
+ * declares it there, `null` when something else declares it there (a `let`,
+ * a `var`, a parameter, a destructuring, a function or class), or `undefined`
+ * when this scope does not declare it.
+ */
+function declaredIn(scope: ts.Node, name: string): ts.Expression | null | undefined {
+  if (ts.isFunctionLike(scope) && scope.parameters.some((parameter) => binds(parameter.name, name))) return null;
+  if (ts.isCatchClause(scope) && scope.variableDeclaration && binds(scope.variableDeclaration.name, name)) return null;
+  const lists: ts.VariableDeclarationList[] = [];
+  let statements: readonly ts.Statement[] = [];
+  if (ts.isSourceFile(scope) || ts.isBlock(scope) || ts.isModuleBlock(scope) || ts.isCaseClause(scope) || ts.isDefaultClause(scope)) {
+    statements = scope.statements;
+  } else if ((ts.isForStatement(scope) || ts.isForInStatement(scope) || ts.isForOfStatement(scope)) &&
+    scope.initializer && ts.isVariableDeclarationList(scope.initializer)) {
+    lists.push(scope.initializer);
+  }
+  for (const statement of statements) {
+    if (ts.isVariableStatement(statement)) lists.push(statement.declarationList);
+    else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name?.text === name) return null;
+  }
+  for (const list of lists) {
+    for (const declaration of list.declarations) {
+      if (!binds(declaration.name, name)) continue;
+      const plainConst = list.flags & ts.NodeFlags.Const && ts.isIdentifier(declaration.name) && declaration.initializer;
+      return plainConst ? declaration.initializer! : null;
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return consts;
+  }
+  return undefined;
+}
+
+/**
+ * The `const` initializer a name refers to where it is used: the nearest
+ * enclosing block, function or file that declares it (#5008). A `let`, `var`
+ * or parameter of the same name shadows it and resolves to nothing.
+ */
+export function constInitializer(use: ts.Identifier): ts.Expression | null {
+  for (let scope: ts.Node | undefined = use.parent; scope; scope = scope.parent) {
+    const found = declaredIn(scope, use.text);
+    if (found !== undefined) return found;
+  }
+  return null;
 }
 
 /**
  * Whether an expression is SQL text: a literal, a combination of one, a name
- * that says so, or a name whose same-file `const` initializer is SQL text.
+ * that says so, or a name whose `const` initializer in its own scope is SQL text.
  */
-export function isSqlText(node: ts.Expression, consts: ReadonlyMap<string, ts.Expression | null> = new Map(), seen = new Set<string>()): boolean {
-  const sql = (next: ts.Expression) => isSqlText(next, consts, seen);
+export function isSqlText(node: ts.Expression, seen = new Set<ts.Expression>()): boolean {
+  const sql = (next: ts.Expression) => isSqlText(next, seen);
   node = unwrap(node);
   if (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node) || ts.isTaggedTemplateExpression(node)) return true;
   if (ts.isConditionalExpression(node)) return sql(node.whenTrue) || sql(node.whenFalse);
@@ -119,9 +157,10 @@ export function isSqlText(node: ts.Expression, consts: ReadonlyMap<string, ts.Ex
   }
   if (ts.isIdentifier(node)) {
     if (SQL_NAME.test(node.text)) return true;
-    const initializer = consts.get(node.text);
-    if (!initializer || seen.has(node.text)) return false;
-    seen.add(node.text);
+    const initializer = constInitializer(node);
+    // The cycle guard: a name met again on one resolution path is not SQL text.
+    if (!initializer || seen.has(initializer)) return false;
+    seen.add(initializer);
     return sql(initializer);
   }
   if (ts.isPropertyAccessExpression(node)) return SQL_NAME.test(node.name.text);
@@ -133,10 +172,10 @@ export function isSqlText(node: ts.Expression, consts: ReadonlyMap<string, ts.Ex
 /** Every `.prepare(<SQL text>, …)` call in one source file. */
 export function sqlPrepareSites(file: string, text: string): Site[] {
   const source = parse(file, text);
-  const sites: Site[] = [], consts = constInitializers(source);
+  const sites: Site[] = [];
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === "prepare" && node.arguments.length > 0 && isSqlText(node.arguments[0]!, consts)) {
+      node.expression.name.text === "prepare" && node.arguments.length > 0 && isSqlText(node.arguments[0]!)) {
       const { line, character } = source.getLineAndCharacterOfPosition(node.expression.name.getStart(source));
       sites.push({ file, line: line + 1, column: character + 1, sql: node.arguments[0]!.getText(source) });
     }

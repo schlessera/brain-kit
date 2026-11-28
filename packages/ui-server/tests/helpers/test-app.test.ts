@@ -1,6 +1,7 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { existsSync } from "fs";
 
+import * as nativeAppFixture from "./native-app-fixture.js";
 import { createTestApp, type TestApp, withHeaders } from "./test-app";
 
 // Every key the helper overrides at boot, written out independently of the
@@ -28,6 +29,18 @@ const HELPER_ENV = [
 ] as const;
 const helperEnv = (): Record<string, string | undefined> =>
   Object.fromEntries(HELPER_ENV.map((key) => [key, process.env[key]]));
+/**
+ * Read the given keys from process.env, then put back their expected values,
+ * so a helper that leaks one fails this test instead of every later file.
+ */
+const settleEnv = (expected: Record<string, string | undefined>): Record<string, string | undefined> => {
+  const actual = Object.fromEntries(Object.keys(expected).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(expected)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  return actual;
+};
 let testApp: TestApp;
 
 describe("test-app helper", () => {
@@ -112,5 +125,46 @@ describe("test-app helper teardown", () => {
 
     expect(process.env.BRAIN_UI_NATIVE_BRAIN_SOCKET).toBe(envBefore.BRAIN_UI_NATIVE_BRAIN_SOCKET);
     expect(helperEnv()).toStrictEqual(envBefore);
+  });
+
+  test("an app whose native fixture fails to start still lets an older app restore the env (#5015)", async () => {
+    // The native fixture makes its state directory under TMPDIR after the
+    // helper has applied this app's env; a missing TMPDIR makes it throw.
+    const envBefore = { ...helperEnv(), TMPDIR: process.env.TMPDIR };
+    const older = await createTestApp();
+    try {
+      await expect(createTestApp({ env: { TMPDIR: "/odysseus-missing-tmpdir" } })).rejects.toThrow("odysseus-missing-tmpdir");
+    } finally {
+      await older.teardown();
+    }
+
+    expect(settleEnv(envBefore)).toStrictEqual(envBefore);
+  });
+
+  test("an app whose native close throws in teardown still lets an older app restore the env (#5015)", async () => {
+    const envBefore = helperEnv();
+    const older = await createTestApp();
+    try {
+      const realFixture = nativeAppFixture.createNativeAppFixture;
+      const failingClose = spyOn(nativeAppFixture, "createNativeAppFixture").mockImplementation((brainPath) => {
+        const fixture = realFixture(brainPath);
+        return { ...fixture, close: async () => { await fixture.close(); throw new Error("odysseus native close failed"); } };
+      });
+      let newer: TestApp;
+      try {
+        newer = await createTestApp({ env: { SOURCE_COMMIT: "test-app-newer" } });
+      } finally {
+        failingClose.mockRestore();
+      }
+      // Awaited directly: under expect(...).rejects the app's storage worker
+      // does not settle its shutdown, and teardown fails on that instead.
+      const closeError = await newer.teardown().then(() => undefined, (error: unknown) => error);
+      expect(closeError).toBeInstanceOf(Error);
+      expect((closeError as Error).message).toBe("odysseus native close failed");
+    } finally {
+      await older.teardown();
+    }
+
+    expect(settleEnv(envBefore)).toStrictEqual(envBefore);
   });
 });

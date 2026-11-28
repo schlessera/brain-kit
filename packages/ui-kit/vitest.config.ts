@@ -63,7 +63,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 // and the same a11y gate at `'error'`. That is the light theme's contrast
 // proof: axe on every rendered story, not a table of numbers.
 const storyProject = (name: string, theme: string) => ({
-  extends: true,
+  extends: true as const,
   plugins: [
     storybookTest({
       configDir: path.join(dirname, ".storybook"),
@@ -81,7 +81,7 @@ const storyProject = (name: string, theme: string) => ({
       commands: { consumerParityViewport, artifactParityRoute },
       provider: playwright({}),
       headless: true,
-      instances: [{ browser: "chromium" }],
+      instances: [{ browser: "chromium" as const }],
     },
   },
 });
@@ -93,7 +93,7 @@ const storyProject = (name: string, theme: string) => ({
 // scenes. The strip's pixel baselines are taken in `rail-mixed` only, so one
 // image covers each case.
 const railProject = (mode: "fine" | "coarse" | "mixed") => ({
-  extends: true,
+  extends: true as const,
   test: {
     name: `rail-${mode}`,
     // The app's own rail and palette (#946), phone navigation (#947) and
@@ -113,7 +113,7 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
         contextOptions: { reducedMotion: "reduce" },
       }),
       headless: true,
-      instances: [{ browser: "chromium" }],
+      instances: [{ browser: "chromium" as const }],
     },
   },
 });

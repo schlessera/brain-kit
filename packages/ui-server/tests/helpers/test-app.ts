@@ -93,6 +93,19 @@ export function withHeaders(base: HeadersInit, init: RequestInit = {}): RequestI
   return { ...init, headers };
 }
 
+/** Run every step in order even when one throws; return the first error. */
+async function settleAll(steps: ReadonlyArray<() => unknown>): Promise<{ error: unknown } | undefined> {
+  let failure: { error: unknown } | undefined;
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (error) {
+      failure ??= { error };
+    }
+  }
+  return failure;
+}
+
 /**
  * Boot one real app for a test suite using a disposable database and brain
  * root. Call once from `beforeAll` and call `teardown` from `afterAll`.
@@ -137,36 +150,41 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   mkdirSync(piAgentDir, { recursive: true });
   options.prepare?.(brainPath, dbPath);
   liveEnv.push(saved);
-  process.env.AUTH_MODE = "none";
-  process.env.HOST = "127.0.0.1";
-  process.env.NODE_ENV = "test";
-  delete process.env.BRAIN_UI_PASSWORD_HASH;
-  delete process.env.COOKIE_SECRET;
-  delete process.env.ALLOWED_ORIGINS;
-  delete process.env.TRUST_PROXY;
-  delete process.env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH;
-  // Boot probes the binary a turn would spawn (#211): the one the lockfile installs.
-  process.env.CLAUDE_CODE_PATH = bundledClaudeBinary();
-  for (const [key, value] of Object.entries(options.env ?? {})) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-  process.env.DB_PATH = dbPath;
-  process.env.BRAIN_PATH = brainPath;
-  process.env.PI_CODING_AGENT_DIR = piAgentDir;
-  process.env.BRAIN_UI_PRICING_DISCOVERY = "0";
-
-  const native = createNativeAppFixture(brainPath);
-  Object.assign(process.env,native.env);
+  // Everything from here on can throw (the bundled binary lookup, the native
+  // fixture, boot): every path out restores the env, or an older app's
+  // teardown would hand its values to an entry nobody restores (#5005, #5015).
+  let native: ReturnType<typeof createNativeAppFixture> | undefined;
   let app: BrainUiApp;
   try {
+    process.env.AUTH_MODE = "none";
+    process.env.HOST = "127.0.0.1";
+    process.env.NODE_ENV = "test";
+    delete process.env.BRAIN_UI_PASSWORD_HASH;
+    delete process.env.COOKIE_SECRET;
+    delete process.env.ALLOWED_ORIGINS;
+    delete process.env.TRUST_PROXY;
+    delete process.env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH;
+    // Boot probes the binary a turn would spawn (#211): the one the lockfile installs.
+    process.env.CLAUDE_CODE_PATH = bundledClaudeBinary();
+    for (const [key, value] of Object.entries(options.env ?? {})) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    process.env.DB_PATH = dbPath;
+    process.env.BRAIN_PATH = brainPath;
+    process.env.PI_CODING_AGENT_DIR = piAgentDir;
+    process.env.BRAIN_UI_PRICING_DISCOVERY = "0";
+
+    native = createNativeAppFixture(brainPath);
+    Object.assign(process.env, native.env);
     app = await createApp(options.appOptions);
   } catch (error) {
-    await native.close();
-    removeTemporaryState();
-    restoreEnv();
+    // The boot error is the one to report; a cleanup step that also throws
+    // must not skip the steps after it, above all the env restore (#5015).
+    await settleAll([() => native?.close(), removeTemporaryState, restoreEnv]);
     throw error;
   }
+  const fixture = native;
 
   let tornDown = false;
   return {
@@ -179,13 +197,10 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     teardown: async () => {
       if (tornDown) return;
       tornDown = true;
-      try {
-        await app.close();
-      } finally {
-        await native.close();
-        removeTemporaryState();
-        restoreEnv();
-      }
+      // Every step runs even when an earlier one throws, so the env is
+      // restored after a failed close; the first error is rethrown (#5015).
+      const failure = await settleAll([() => app.close(), () => fixture.close(), removeTemporaryState, restoreEnv]);
+      if (failure) throw failure.error;
     },
   };
 }

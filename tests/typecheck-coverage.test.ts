@@ -15,17 +15,6 @@ const ROOT = join(import.meta.dir, "..");
 /** Paths (a directory ending in `/`, or a file) the root typecheck does not include, each with its reason. */
 const EXCLUSIONS: Array<{ path: string; reason: string }> = [
   { path: "website/", reason: "its own project (website/tsconfig.json), type-checked by the publication workflow" },
-  // Package-level tooling outside the include patterns. A fix there can land in
-  // a core package, so each is its own follow-up.
-  { path: "packages/core/fixtures/corpus/brain.config.ts", reason: "corpus fixture config; #4864 brings it into a typecheck" },
-  { path: "packages/ui-kit/.storybook/", reason: "Storybook config; #4864 brings it into a typecheck" },
-  { path: "packages/ui-kit/vite.config.ts", reason: "Vite config; #4864 brings it into a typecheck" },
-  { path: "packages/ui-kit/vitest.config.ts", reason: "Vitest config; #4864 brings it into a typecheck" },
-  { path: "packages/ui-kit/vitest.shims.d.ts", reason: "Vitest browser shims; #4864 brings it into a typecheck" },
-  { path: "packages/ui-server/evals/triage/", reason: "triage eval harness; #4864 brings it into a typecheck" },
-  { path: "packages/module-diagrams/scripts/", reason: "module maintenance scripts; #4865 brings them into a typecheck" },
-  { path: "packages/module-jobs/scripts/", reason: "module maintenance scripts; #4865 brings them into a typecheck" },
-  { path: "packages/ui-backend-pi/scripts/", reason: "backend measurement script; #4865 brings it into a typecheck" },
 ];
 
 /** Repository-relative files the config's `include`/`exclude` patterns select. */

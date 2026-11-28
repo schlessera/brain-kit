@@ -35,7 +35,11 @@ export interface LoadedModulesOptions {
   env: Record<string, string>;
   /** Written to the child's stdin, which is then closed. Default: empty. */
   stdin?: string;
-  /** Milliseconds before a child that has not exited is killed, scaled by `watchdogMs`. Default 20 s. */
+  /**
+   * Milliseconds, scaled by `watchdogMs`, before a run that has not finished
+   * fails: a child that has not exited is killed, and one that exited while
+   * its output is still held open is reported as such. Default 20 s.
+   */
   watchdog?: number;
 }
 
@@ -61,20 +65,34 @@ export async function runLoadedModules(argv: readonly string[], options: LoadedM
       stdout: "pipe",
       stderr: "pipe",
     });
-    child.stdin.write(options.stdin ?? "");
-    await child.stdin.end();
+    // Armed before stdin is written: input larger than the pipe buffer, sent
+    // to a child that never reads it, must not wait unguarded (#4886).
     const ms = watchdogMs(options.watchdog ?? 20_000);
-    let timedOut = false;
-    const watchdog = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, ms);
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]).finally(() => clearTimeout(watchdog));
-    if (timedOut) throw new Error(`bun ${argv.join(" ")} (pid ${child.pid}) did not exit within ${ms} ms and was killed`);
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<"deadline">((settle) => {
+      watchdog = setTimeout(() => settle("deadline"), ms);
+    });
+    // Read while writing, so neither side's pipe fills while the other waits.
+    const outputs = Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    // A child killed, or exited, before reading everything closes its stdin; the outcome is reported below.
+    void (async () => {
+      child.stdin.write(options.stdin ?? "");
+      await child.stdin.end();
+    })().catch(() => undefined);
+    // The deadline also bounds the wait for stdout and stderr to close: a
+    // descendant that inherited them can hold them open after the child exits.
+    const settled = await Promise.race([outputs, deadline]).finally(() => clearTimeout(watchdog));
+    if (settled === "deadline") {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+        await child.exited;
+        throw new Error(`bun ${argv.join(" ")} (pid ${child.pid}) did not exit within ${ms} ms and was killed`);
+      }
+      throw new Error(
+        `bun ${argv.join(" ")} (pid ${child.pid}) exited ${child.exitCode ?? child.signalCode}, but its output was still held open ${ms} ms after it started (a descendant may hold its pipes)`,
+      );
+    }
+    const [stdout, stderr, code] = settled;
     let recorded: string[];
     try {
       recorded = JSON.parse(readFileSync(output, "utf8")) as string[];
