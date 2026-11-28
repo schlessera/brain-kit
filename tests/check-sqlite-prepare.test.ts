@@ -49,6 +49,21 @@ describe("the refused shapes", () => {
     expect(cases.map(([text]) => ({ text, findings: run(text).findings.map((f) => ({ file: f.file, line: f.line })) })))
       .toEqual(cases.map(([text, line]) => ({ text, findings: [{ file: FILE, line }] })));
   });
+  test("a const name reused across functions resolves in each scope and is refused at both lines (#5008)", () => {
+    const text = [
+      'import type { Database } from "bun:sqlite";',
+      "export function touch(db: Database, id: string) {",
+      '  const stmt = "UPDATE session_drafts SET updated_at = 0 WHERE draft_id = ?";',
+      "  db.prepare(stmt).run(id);",
+      "}",
+      "export function drop(db: Database, id: string) {",
+      '  const stmt = "DELETE FROM session_drafts WHERE draft_id = ?";',
+      "  db.prepare(stmt).run(id);",
+      "}",
+      "",
+    ].join("\n");
+    expect(run(text).findings.map((f) => ({ file: f.file, line: f.line }))).toEqual([{ file: FILE, line: 4 }, { file: FILE, line: 8 }]);
+  });
 });
 
 describe("what passes", () => {
@@ -63,6 +78,31 @@ describe("what passes", () => {
       "await combined.prepare(c.get(\"principal\")!, input, signal);",
       'const note = "await boundary.prepare() before admission"; // db.prepare("SELECT 1")',
       'db.query("UPDATE session_drafts SET updated_at = ? WHERE draft_id = ?").run(at, id);',
+    ]) {
+      expect({ text, findings: run(text).findings }).toEqual({ text, findings: [] });
+    }
+  });
+
+  test("a name is resolved in its own scope: SQL in one function does not make another's object SQL (#5008)", () => {
+    const text = [
+      "export function touch(db: Database, id: string) {",
+      '  const stmt = "UPDATE session_drafts SET updated_at = 0 WHERE draft_id = ?";',
+      "  db.query(stmt).run(id);",
+      "}",
+      "export async function admit(privateIndexes: Indexes, startupView: View) {",
+      "  const stmt = { startupView };",
+      "  await privateIndexes.prepare(stmt);",
+      "}",
+      "",
+    ].join("\n");
+    expect(run(text).findings).toEqual([]);
+  });
+
+  test("a parameter or let of the same name shadows a file-level SQL const, and a const cycle resolves to nothing (#5008)", () => {
+    for (const text of [
+      'const stmt = "DELETE FROM session_drafts";\nexport const go = (boundary: Boundary, stmt: Plan) => boundary.prepare(stmt);\n',
+      'const stmt = "DELETE FROM session_drafts";\nexport function go(boundary: Boundary) {\n  let stmt = plan();\n  return boundary.prepare(stmt);\n}\n',
+      "const first = second;\nconst second = first;\nawait boundary.prepare(first);\n",
     ]) {
       expect({ text, findings: run(text).findings }).toEqual({ text, findings: [] });
     }
