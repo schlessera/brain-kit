@@ -27,7 +27,7 @@
  * elsewhere and never consult it. Its session state is in-memory host state,
  * never written to the record or the provider-facing conversation.
  */
-import { prepareOutwardPlan } from "@schlessera/brain-ui-sdk/internal";
+import { canonicalEgressHost, prepareOutwardPlan } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendBridge, type InputSafetyOutputStatus } from "@schlessera/brain-ui-sdk/server";
 import { inputTaintSignals, outputTaintSignals, searchOutputContext, searchOutputComplete } from "../activity/ingestion-taint.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
@@ -59,7 +59,11 @@ function extractionCardDescription(tool: string, reason: string, cause: string |
 }
 
 /** A call in progress: the hosts it relaxes, the hosts it names, and whether the proxy can attribute its connections at all. */
-interface Call { relax: readonly string[]; hosts: readonly string[]; withholds: boolean }
+interface Call { relax: readonly string[]; hosts: readonly string[]; withholds: boolean; carded?: boolean }
+/** The proxy's form of a host (no root dot, no IPv6 brackets), so a binding made here matches the one the proxy checks. */
+const sameHost = (left: string, right: string) => { try { return canonicalEgressHost(left) === canonicalEgressHost(right); } catch { return left === right; } };
+/** Whether this turn may raise or honour a card (#4351): a known gap or an unreadable one refuses. */
+export type CardState = "allowed" | "gapped" | "unknown";
 
 /** The command policy's class of a call, and whether its connections are the hosts it names. */
 function classOf(tool: string, input: unknown): { toolClass: ToolClass; readable: boolean; attributable: boolean } {
@@ -87,6 +91,13 @@ export function createTurnExtraction(options: {
   contacted: ReadonlySet<string>;
   /** What tainted the session, as "This session …" completes it. */
   cause: () => string | null;
+  /**
+   * Not "allowed" on a turn with a permanent recording gap, or whose gap
+   * cannot be read (#4351): an `ask` verdict raises no card there, an answer
+   * that arrives once it holds is not used, and no relaxation counts a host
+   * as contacted.
+   */
+  cardsAllowed?: () => CardState;
   brainPath?: string;
   marked?: (path: string) => boolean;
   /**
@@ -136,14 +147,24 @@ export function createTurnExtraction(options: {
       const reason = verdict.reason ?? "looks like it carries data out of this session";
       // Voice has no grant surface: it refuses wherever an interactive turn would ask.
       if (options.origin !== "interactive") throw new Error(extractionRefusal(tool, reason, options.cause()));
+      const noCard = () => {
+        const state = options.cardsAllowed?.() ?? "allowed";
+        if (state === "gapped") return new Error(`Refused: this ${tool} call ${reason}, and this turn's safety recording has a permanent gap, so it cannot ask you about it. Nothing was sent. Start a new turn to ask again.`);
+        if (state === "unknown") return new Error(`Refused: this ${tool} call ${reason}, and this turn's safety recording could not be verified, so it cannot ask you about it. Nothing was sent.`);
+        return null;
+      };
+      const before = noCard(); if (before) throw before;
       const fresh = hosts.filter(host => !options.contacted.has(host));
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: tool, kind: "command",
         input: { ...(verdict.request.surface === "web_fetch" ? { url: input.url } : verdict.request.surface === "bash" || verdict.request.surface === "brain_cli" ? { command: input.command } : {}), hosts },
         description: extractionCardDescription(tool, reason, options.cause(), fresh),
       }).catch(() => ({ behavior: "deny" as const, message: "The card could not be shown." }));
       if (decision.behavior !== "allow") throw new Error(`Refused: the user declined this ${tool} call, which ${reason}. Nothing was sent.`);
-      // The user saw this call and its hosts: its connections need no second card.
-      return { ...call, relax: relaxable ? hosts : [] };
+      // A gap that opened while the card waited: the answer is not used.
+      const after = noCard(); if (after) throw after;
+      // The user saw this call and its hosts: its connections need no second
+      // card, and they stay bound to this one (`carded`) until they dispatch.
+      return { ...call, relax: relaxable ? hosts : [], carded: true };
     }
     // An incomplete state may have missed a read, so it never allows.
     return { ...call, relax: relaxable && current.complete ? hosts : [] };
@@ -212,10 +233,17 @@ export function createTurnExtraction(options: {
      * `host` now: some call in progress relaxes it, every call in progress is
      * attributable, and no call in progress names it without relaxing it.
      */
+    /** Whether a call in progress that an extraction card approved names `host`: its connection relies on that card. */
+    carded(host: string): boolean {
+      return [...calls.values()].some(call => call.carded === true && call.hosts.some(named => sameHost(named, host)));
+    },
     relaxes(host: string): boolean {
+      // A relaxation stands in for a card; a gapped turn honours none (#4351).
+      if ((options.cardsAllowed?.() ?? "allowed") !== "allowed") return false;
       const active = [...calls.values()];
       if (active.some(call => call.withholds)) return false;
-      return active.some(call => call.relax.includes(host)) && active.every(call => !call.hosts.includes(host) || call.relax.includes(host));
+      const names = (list: readonly string[]) => list.some(named => sameHost(named, host));
+      return active.some(call => names(call.relax)) && active.every(call => !names(call.hosts) || names(call.relax));
     },
   };
 }

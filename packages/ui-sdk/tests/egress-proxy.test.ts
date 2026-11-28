@@ -616,3 +616,106 @@ test("a superseded Network card reports a byte budget spent by a concurrent conn
     expect(records.at(-1)).toMatchObject({ reason: "max_bytes_per_turn", dispatched: false });
   } finally { answer.resolve("superseded"); proxy.stop(); }
 });
+
+// #4351: the proxy itself reads `recordingGap()` before any approval callback
+// and again at dispatch for every card-approved kind, whatever the host's
+// callback answers, and names each refusal `recording_gap`.
+for (const kind of ["network", "outward"] as const) for (const when of ["before the card", "after the answer"] as const)
+  test(`a recording gap ${when} refuses a ${kind} card-approved connection as recording_gap`, async () => {
+    const records: EgressRecord[] = [];
+    let gap = when === "before the card", asks = 0, hits = 0;
+    const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+    const approve = async () => { asks++; return true as const; };
+    const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => gap,
+      // The answer is already in; the gap appears in the last step before dispatch.
+      admitted: () => { if (when === "after the answer") gap = true; },
+      ...(kind === "outward" ? { outwardHosts: ["127.0.0.1"], approveOutward: approve }
+        : { taint: { allow: [], tainted: () => true, contacted: () => false, approve } }) });
+    try {
+      const response = await get(proxy.socketPath, origin.url.href);
+      await recorded(records, 1);
+      expect(response.status).toBe(403);
+      expect(hits).toBe(0);
+      expect(asks, when === "before the card" ? "GAP_RAISES_NO_CARD_WHATEVER_THE_HOST_ANSWERS" : "THE_CARD_WAS_ANSWERED").toBe(when === "before the card" ? 0 : 1);
+      expect(records.at(-1), when === "before the card" ? "GAP_REFUSAL_IS_NAMED" : "GAP_AFTER_THE_ANSWER_REFUSES_AT_DISPATCH").toMatchObject({ outcome: "denied", reason: "recording_gap", dispatched: false });
+    } finally { proxy.stop(); origin.stop(true); }
+  });
+test("a recording gap leaves an outward destination that needs no card connected", async () => {
+  const records: EgressRecord[] = [];
+  let asks = 0, hits = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => true, outwardHosts: ["127.0.0.1"],
+    outwardCovered: () => true, approveOutward: async () => { asks++; return true; } });
+  try {
+    expect((await get(proxy.socketPath, origin.url.href)).status, "COVERED_OUTWARD_NEEDS_NO_CARD_AND_CONNECTS").toBe(200);
+    expect(asks).toBe(0);
+    expect(hits).toBe(1);
+  } finally { proxy.stop(); origin.stop(true); }
+});
+for (const gapped of [true, false]) test(`covered outward traffic that loses its cover before dispatch is refused (${gapped ? "gapped: recording_gap" : "not gapped: a fresh decision"})`, async () => {
+  const records: EgressRecord[] = [];
+  let covered = true, asks = 0, hits = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => gapped, outwardHosts: ["127.0.0.1"],
+    outwardCovered: () => covered, approveOutward: async () => { asks++; return true; },
+    // The covering call ends in the last step before dispatch.
+    admitted: () => { covered = false; } });
+  try {
+    expect((await get(proxy.socketPath, origin.url.href)).status, "COVER_LOST_BEFORE_DISPATCH_NEVER_DISPATCHES").toBe(403);
+    await recorded(records, 1);
+    expect(hits).toBe(0);
+    expect(asks).toBe(0);
+    expect(records.at(-1), "COVER_LOST_BEFORE_DISPATCH_IS_REFUSED").toMatchObject({ reason: gapped ? "recording_gap" : "safety_changed", dispatched: false });
+  } finally { proxy.stop(); origin.stop(true); }
+});
+// #4351: the gap and cover checks come before any card's evidence marker is read.
+for (const kind of ["covered outward", "gapped Network card"] as const) test(`a throwing card marker reader leaves a ${kind} connection to its own rule`, async () => {
+  const records: EgressRecord[] = [];
+  let hits = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+  const marker = () => { throw new Error("Odysseus marker unreadable"); };
+  const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => kind === "gapped Network card",
+    ...(kind === "covered outward" ? { outwardHosts: ["127.0.0.1"], outwardCovered: () => true, approveOutward: async () => true,
+      taint: { allow: ["127.0.0.1"], tainted: () => true, contacted: () => false, approvalRevision: marker } }
+      : { taint: { allow: [], tainted: () => true, contacted: () => false, approvalRevision: marker, approve: async () => true } }) });
+  try {
+    const status = (await get(proxy.socketPath, origin.url.href)).status;
+    await recorded(records, 1);
+    if (kind === "covered outward") { expect(status, "COVERED_OUTWARD_NEVER_READS_A_CARD_MARKER").toBe(200); expect(hits).toBe(1); }
+    else { expect(records.at(-1), "GAP_REFUSAL_PRECEDES_THE_MARKER_READ").toMatchObject({ reason: "recording_gap", dispatched: false }); expect(hits).toBe(0); }
+  } finally { proxy.stop(); origin.stop(true); }
+});
+test("a gapped turn names the refusal when a standing rule is withdrawn before dispatch", async () => {
+  const records: EgressRecord[] = [];
+  let rule = true, hits = 0, asks = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => true,
+    taint: { allow: [], tainted: () => true, contacted: () => false, approve: async () => { asks++; return true; },
+      recipient: () => rule ? { ruleId: "ithaca", policyHash: "a".repeat(64), trustRevision: "1", collectionRevision: "1", instance: "1" } : false },
+    // The rule is withdrawn in the last step before dispatch: the destination now needs a card.
+    admitted: () => { rule = false; } });
+  try {
+    expect((await get(proxy.socketPath, origin.url.href)).status).toBe(403);
+    await recorded(records, 1);
+    expect(hits).toBe(0); expect(asks).toBe(0);
+    expect(records.at(-1), "WITHDRAWN_RULE_ON_A_GAPPED_TURN_IS_A_GAP_REFUSAL").toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { proxy.stop(); origin.stop(true); }
+});
+test("a gapped turn names its refusal before a replacement card's snapshot is read", async () => {
+  const records: EgressRecord[] = [];
+  let narrowing = false, hits = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy({ ...defaults(records), recordingGap: () => true,
+    // Admission reads pass; once narrowing starts, the snapshot read throws.
+    admissionSafety: { read: () => { if (narrowing) throw new Error("Odysseus snapshot unreadable");
+      return { scope: "voyage", evidenceRevision: "1", trustRevision: "0", authorityEpoch: "0", policyHash: null, authorityCurrent: true, restricted: false, recordingAvailable: true }; },
+      subscribe: () => () => {} },
+    taint: { allow: [], tainted: () => { narrowing = true; return true; }, contacted: () => false, approve: async () => true } });
+  try {
+    const response = await get(proxy.socketPath, origin.url.href);
+    await recorded(records, 1);
+    expect(response.status, "GAPPED_TURN_STAYS_403_WHEN_THE_SNAPSHOT_THROWS").toBe(403);
+    expect(hits).toBe(0);
+    expect(records.at(-1)).toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { proxy.stop(); origin.stop(true); }
+});

@@ -7,11 +7,12 @@ import type { Database } from "bun:sqlite";
 import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
-import type { GovernanceWrites } from "../governance/event-writes.js";
+import { parseRecordReply, type GovernanceWrites } from "../governance/event-writes.js";
 import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
 import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
 import { STORAGE_SETTLEMENT_MS } from "../db/settlement.js";
 import { settleTurnSessionBinding, type SessionBindingRefusal } from "../ws/bridge-session-binding.js";
+import type { CardState } from "./turn-extraction.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { createTurnExtraction } from "./turn-extraction.js";
 import type { ExtractionJudge } from "../governance/extraction-judge.js";
@@ -134,8 +135,10 @@ export async function prepareTurnEgress(options: {
       let pending:unknown;
       recordFirstTaint(db,event,input=>{pending=record(input);});
       const result=await pending;
-      if(typeof result === "boolean")return result;
-      if(result&&typeof result === "object"&&"recorded" in result)return result.recorded === true;
+      // One strict parser for every reply (`parseRecordReply`, #4351); a malformed one throws.
+      const reply=parseRecordReply(result);
+      if(reply==="durable")return true;
+      if(reply==="loss")return false;
       const input=event.payload.occurrence;
       return !input?.admission?.trusted || db.query("SELECT id FROM safety_records WHERE id=? AND kind='occurrence'").get(input.id) !== null;
     },
@@ -181,10 +184,37 @@ export async function prepareTurnEgress(options: {
     recordingFailure ??= new EgressAdmissionRefused("Turn egress recording is unavailable","egress_unavailable");
     if (options.stop) options.stop(recordingFailure); else options.controller.abort(recordingFailure);
   };
-  const track = (committed: unknown) => {
+  // A turn whose collection began restricted carries a permanent gap before
+  // any delivery (`covered` in governance/event-writes.ts). Its writer
+  // tolerates a lost taint record there with `{id:0,recorded:false}`: the
+  // gap already shows the loss, and it never clears (#4351). Such a turn
+  // raises no approval card and uses none it holds: a card's marker cannot
+  // see the losses it tolerates. Only a known gap tolerates a loss; an
+  // unreadable one (undefined) still raises no card.
+  const gapRead = (): boolean | undefined => {
+    try {
+      if (!db) return false;
+      const row = db.query("SELECT restricted_begin FROM safety_collections WHERE turn_id=?").get(options.turnId) as {restricted_begin:unknown}|null;
+      // Exactly 0 or 1; any other stored value is unknown, never "no gap".
+      return !row ? false : row.restricted_begin === 1 ? true : row.restricted_begin === 0 ? false : undefined;
+    }
+    catch { return undefined; }
+  };
+  // `cardsAllowed` is the one predicate every card path reads (#4351): the
+  // proxy's Network and outward cards (and so managed fetches), and the
+  // extraction classifier's card and relaxation. No card is raised or
+  // honoured on a gapped turn.
+  // An unreadable gap is unknown, not a gap: card paths fail closed as
+  // unavailable there, with no new-turn advice.
+  const gapped = () => gapRead() === true;
+  const cardsAllowed = (): CardState => { const gap = gapRead(); return gap === undefined ? "unknown" : gap ? "gapped" : "allowed"; };
+  /** `tolerable`: a taint record, whose tolerated loss on a gapped turn is not an audit failure. */
+  const track = (committed: unknown, tolerable = false) => {
     const confirm=(result:unknown)=>{
-      // A positive existing id is a durable replay, not a lost write.
-      if(result===false||result&&typeof result === "object"&&"recorded" in result&&result.recorded===false&&(!("id" in result)||typeof result.id !== "number"||result.id<=0))throw new Error("Egress audit was not durably recorded");
+      // A durable write or a replay passes; only the exact tolerated-loss
+      // acknowledgment on a gapped turn is excused; any other reply stops the turn.
+      const reply=parseRecordReply(result);
+      if(reply==="loss"&&!(tolerable&&gapped()))throw new Error("Egress audit was not durably recorded");
     };
     if (!(committed instanceof Promise)) {try{confirm(committed);}catch{fail();}return;}
     const pending = committed.then(confirm).catch(fail).finally(() => recording.delete(pending));
@@ -211,7 +241,7 @@ export async function prepareTurnEgress(options: {
         // Removal can close the transport while its initial occurrence is
         // still committing. Terminal evidence must join that exact write.
         const initial = exposureCommits.get(record.connectionId!);
-        track(initial ? initial.then(recorded=>recorded===true?terminal():undefined,()=>undefined) : terminal());
+        track(initial ? initial.then(recorded=>recorded===true?terminal():undefined,()=>undefined) : terminal(), true);
       }
       const denied = options.policy.egress.deny.some(pattern => {
         const normalized = canonicalEgressHost(pattern);
@@ -320,7 +350,7 @@ export async function prepareTurnEgress(options: {
   // The extraction classifier (#4088), off unless the policy turns it on. It
   // needs the session's taint record, so a host that keeps none never runs it.
   const extraction = db && options.policy.taint.classifier === "heuristics" ? createTurnExtraction({ bridge: options.bridge, origin: options.origin,
-    sessionId: options.sessionId, tainted: () => firstTaint() !== null, contacted, brainPath: options.brainPath,
+    sessionId: options.sessionId, tainted: () => firstTaint() !== null, contacted, brainPath: options.brainPath, cardsAllowed,
     cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
     marked: path => isMarkedUntrusted(db, path),
     ...(options.policy.taint.judge.mode === "jev" && options.extractionJudge ? { judge: options.extractionJudge } : {}) }) : null;
@@ -383,17 +413,25 @@ export async function prepareTurnEgress(options: {
     const group=approvalGroups.get(destination.connectionId);
     if(group){group.occurrences.add(exposure.id);for(const peer of group.members)approvalMarkers.delete(`${peer}:network`);}
     const hadCollection=db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId);
+    let durable = false, failed = false;
     try {
       const initial = writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
         detail: `${destination.method} ${destination.host}:${destination.port}`, occurrence: exposure } });
       exposureCommits.set(destination.connectionId, initial);
-      if(await initial !== true)throw new EgressAdmissionRefused("Input occurrence was not durably recorded","egress_unavailable");
-    } catch {
+      durable = await initial === true;
+    } catch { failed = true; }
+    finally { exposureCommits.delete(destination.connectionId); }
+    if (!durable) {
       // No occurrence means no trusted fact and no terminal exposure to append.
       exposures.delete(destination.connectionId);
-      throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
+      // A tolerated loss (an explicit false result) on a permanently gapped
+      // turn changes nothing for ordinary traffic: it already passed the
+      // restricted recipient policy, which every later check keeps applying.
+      // A refused write, such as a full recording queue, never qualifies, and
+      // source trust still needs its durable occurrence (#4351).
+      if (failed || match || !gapped()) throw new EgressAdmissionRefused("Input occurrence recording unavailable","egress_unavailable");
+      return;
     }
-    finally { exposureCommits.delete(destination.connectionId); }
     if(db&&!hadCollection){
       const created=db.query("SELECT c.id FROM safety_collections c WHERE c.turn_id=? AND (SELECT r.id FROM safety_records r WHERE r.collection_id=c.id AND r.kind='occurrence' ORDER BY length(r.sequence),r.sequence LIMIT 1)=?").get(options.turnId,exposure.id) as {id:string}|null;
       if(created){ownCollectionStarts.set(destination.connectionId,created.id);if(group){group.starts.add(created.id);for(const peer of group.members)approvalMarkers.delete(`${peer}:network`);}}
@@ -410,14 +448,16 @@ export async function prepareTurnEgress(options: {
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
     outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted,
-    inputCurrent,
+    inputCurrent, recordingGap: () => { const state = cardsAllowed(); if (state === "unknown") throw new Error("Recording gap state unreadable"); return state === "gapped"; },
+    ...(extraction ? { hostCard: (host: string) => extraction.carded(host) } : {}),
     committed:destination=>{
       if(destination.inference||destination.provider)return;
       if(destination.recipientAuthority.kind === "rule")standingRecipients.set(destination.connectionId,destination.recipientAuthority.admission);
       if (!destination.managedReference && (destination.recipientApproved || !trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId))) contacted.add(destination.host);
     }, ...(taint ? { taint } : {}),
+    // A call in progress that covers the host needs no card (#4351).
+    outwardCovered: destination => calls.covers(destination.host),
     approveOutward: async (destination, signal) => {
-      if (calls.covers(destination.host)) return !signal.aborted;
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network",
         kind: "command", input: destination,
         description: `${destination.method} to ${networkAuthority(destination)}`,

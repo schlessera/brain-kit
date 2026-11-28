@@ -196,3 +196,47 @@ test("an admitted web provider request is unknown spend in every scope, never ze
     expect(await f.budgets.providerAdmission("athena", policy())).toBeUndefined();
   } finally { f.close(); }
 });
+
+// #4370: the relay publishes a receipt only for an attempt that left the
+// host, so a refusal before dispatch books no usage row and no unknown spend.
+test("a relayed attempt refused at its final fence books nothing; a dispatched one counts once", async () => {
+  const { startEgressProxy, startProviderRelay } = await import("@schlessera/brain-ui-sdk/internal");
+  const { request } = await import("node:http");
+  const f = fixture();
+  const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }) });
+  let current = true, fence = false;
+  const proxy = await startEgressProxy({ mode: "record", allow: [], deny: [], maxBytes: 1 << 20, outwardHosts: [], observe() {},
+    admissionSafety: { read: () => ({ evidenceRevision: "1", trustRevision: "1", authorityEpoch: "1", scope: "ithaca", policyHash: null, restricted: false,
+      recordingAvailable: true, authorityCurrent: current }), subscribe: () => () => {} } });
+  const observed: Promise<unknown>[] = [];
+  const relay = startProviderRelay({ egress: proxy, credential: () => "odysseus-host-anthropic", origins: new Map([["ANTHROPIC_API_KEY", [upstream.url.origin]]]),
+    observe: receipt => { observed.push(f.budgets.observeProvider("athena", receipt)); },
+    // After preparation, before the final fence: authority lapses for an armed attempt.
+    preparing: () => { if (fence) current = false; } });
+  const send = () => new Promise<number>((resolve, reject) => {
+    const body = Buffer.from(JSON.stringify({ model: "claude-haiku-4-5-20251001", messages: [] }));
+    const outgoing = request({ socketPath: relay.socketPath, method: "POST", path: "/v1/messages", headers: { "content-type": "application/json",
+      "x-brain-provider": "anthropic", "x-brain-provider-key": "ANTHROPIC_API_KEY", "x-brain-provider-origin": upstream.url.origin, "content-length": String(body.byteLength) } },
+    incoming => { incoming.resume(); incoming.on("end", () => resolve(incoming.statusCode ?? 0)).on("error", reject); });
+    outgoing.on("error", reject); outgoing.end(body);
+  });
+  const rows = () => (f.db.query("SELECT COUNT(*) AS n FROM provider_relay_usage").get() as { n: number }).n;
+  try {
+    await f.budgets.begin("athena", "ithaca", policy());
+    const before = f.budgets.receipt("athena").scopes.map(scope => [scope.unknownRuns, scope.costUsd]);
+    fence = true;
+    expect(await send(), "FENCE_REFUSAL_ANSWERS_THE_CALLER").toBe(403);
+    await Promise.all(observed);
+    expect(observed, "FENCE_REFUSAL_PUBLISHES_NO_RECEIPT").toHaveLength(0);
+    expect(rows(), "FENCE_REFUSAL_BOOKS_NO_USAGE_ROW").toBe(0);
+    expect(f.budgets.receipt("athena").scopes.map(scope => [scope.unknownRuns, scope.costUsd]), "FENCE_REFUSAL_LEAVES_COST_PROJECTION").toEqual(before);
+    fence = false; current = true;
+    expect(await send()).toBe(200);
+    await relay.stop();
+    await Promise.all(observed);
+    expect(observed, "DISPATCHED_ATTEMPT_HAS_DISPATCH_AND_TERMINAL_RECEIPTS").toHaveLength(2);
+    expect(rows(), "DISPATCHED_ATTEMPT_BOOKS_ONE_ROW").toBe(1);
+    const turn = f.budgets.receipt("athena").scopes.find(scope => scope.scope === "turn")!;
+    expect(turn.costUsd!).toBeGreaterThan(0);
+  } finally { await relay.stop(); proxy.stop(); upstream.stop(true); f.close(); }
+});
