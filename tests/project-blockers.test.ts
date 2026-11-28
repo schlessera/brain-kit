@@ -9,7 +9,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   blockedVerdict,
-  blockersIn,
   isOwnNotice,
   parseBlockers,
   reconcileBlocked,
@@ -30,13 +29,16 @@ const states =
   (ref: string): BlockerState | undefined =>
     known[ref];
 
-describe("blockersIn", () => {
+/** The blockers `parseBlockers` reads, as the script reads them (#4706). */
+const declaredRefs = (body: string, repo: string) => parseBlockers(body, repo).refs;
+
+describe("parseBlockers: the blockers a body names", () => {
   test("reads `Blocked by #N` on its own line, in the issue's own repository", () => {
-    expect(blockersIn("Context.\n\nBlocked by #110\n\nMore.", REPO)).toEqual([`${REPO}#110`]);
+    expect(declaredRefs("Context.\n\nBlocked by #110\n\nMore.", REPO)).toEqual([`${REPO}#110`]);
   });
 
   test("reads a cross-repository blocker as written", () => {
-    expect(blockersIn("Blocked by schlessera/brain-kit#194", "schlessera/brain-template")).toEqual([
+    expect(declaredRefs("Blocked by schlessera/brain-kit#194", "schlessera/brain-template")).toEqual([
       "schlessera/brain-kit#194",
     ]);
   });
@@ -51,15 +53,15 @@ describe("blockersIn", () => {
       "~~~~",
       "Blocked by #2",
     ].join("\n");
-    expect(blockersIn(body, REPO)).toEqual([`${REPO}#2`]);
+    expect(declaredRefs(body, REPO)).toEqual([`${REPO}#2`]);
   });
 
   test("reads a body with CRLF line endings", () => {
-    expect(blockersIn("Context.\r\nBlocked by #7\r\n", REPO)).toEqual([`${REPO}#7`]);
+    expect(declaredRefs("Context.\r\nBlocked by #7\r\n", REPO)).toEqual([`${REPO}#7`]);
   });
 
   test("reads every blocker on the line, and every line", () => {
-    expect(blockersIn("Blocked by #1 and #2\nblocked by: #3", REPO)).toEqual([
+    expect(declaredRefs("Blocked by #1 and #2\nblocked by: #3", REPO)).toEqual([
       `${REPO}#1`,
       `${REPO}#2`,
       `${REPO}#3`,
@@ -77,7 +79,7 @@ describe("blockersIn", () => {
       "Blocked by #42",
       "```",
     ].join("\n");
-    expect(blockersIn(body, REPO)).toEqual([]);
+    expect(declaredRefs(body, REPO)).toEqual([]);
   });
 });
 
@@ -125,13 +127,13 @@ describe("a declaration read in part is not read at all", () => {
 
   test("a fence inside an HTML comment does not hide the declarations after it", () => {
     const body = ["Blocked by #1", "<!--", "```", "-->", "Blocked by #2"].join("\n");
-    expect(blockersIn(body, REPO)).toEqual([`${REPO}#1`, `${REPO}#2`]);
+    expect(declaredRefs(body, REPO)).toEqual([`${REPO}#1`, `${REPO}#2`]);
   });
 
   test("a reference with a suffix is not read as its prefix", () => {
     expect(parseBlockers("Blocked by #1abc", REPO).refs).toEqual([]);
     expect(parseBlockers("Blocked by https://github.com/o/r/issues/5abc", REPO).refs).toEqual([]);
-    expect(blockersIn("Blocked by https://github.com/o/r/issues/5#issuecomment-1.", REPO)).toEqual([
+    expect(declaredRefs("Blocked by https://github.com/o/r/issues/5#issuecomment-1.", REPO)).toEqual([
       "o/r#5",
     ]);
   });
@@ -150,7 +152,7 @@ describe("a declaration read in part is not read at all", () => {
   });
 
   test("an issue URL is a reference", () => {
-    expect(blockersIn("Blocked by https://github.com/o/r/issues/5, #2", REPO)).toEqual([
+    expect(declaredRefs("Blocked by https://github.com/o/r/issues/5, #2", REPO)).toEqual([
       "o/r#5",
       `${REPO}#2`,
     ]);
