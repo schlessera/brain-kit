@@ -907,7 +907,9 @@ before it is refused: `toolName: "Network"`, `kind: "command"`, `input` of
 new card kind or variant is added. An allowed connection records
 `egress_connection` as any admitted one does; a declined one records
 `egress_connection` with `reason: "taint_not_approved"` and the existing
-`egress_denial` with `reason: "taint_allowlist"`. A turn stopped while the card
+`egress_denial` with `reason: "taint_allowlist"`. On a turn with a permanent
+recording gap no card is raised: the connection records `egress_connection`
+with `reason: "recording_gap"` (#4351). A turn stopped while the card
 is pending records the connection as `cancelled` with `turn_cancelled`, as any
 connection its turn stops. Voice turns refuse without a request, as before,
 with `reason: "taint_not_allowed"`.

@@ -28,22 +28,27 @@ function trust(rule: TrustRule) {
   const live: OriginTrust = { revision: () => revision, read: () => ({revision,rules,policyHash,ruleInstances}), subscribe: cb => {listeners.add(cb);return () => {listeners.delete(cb);};} };
   return { live, publish(next:TrustRule[]) {const old=new Map(rules.map(r=>[r.id,JSON.stringify([r.selector,r.incomingContent])]));revision=String(BigInt(revision)+1n);ruleInstances=Object.fromEntries(next.map(r=>[r.id,old.get(r.id)===JSON.stringify([r.selector,r.incomingContent])?ruleInstances[r.id]??revision:revision]));rules=next;policyHash=revision.padStart(64,"0");for(const cb of listeners)cb();}, remove(notify=true) { rules=[];ruleInstances={};revision=String(BigInt(revision)+1n);policyHash="b".repeat(64);if(notify)for(const cb of listeners)cb(); } };
 }
-async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false, listenHost = "127.0.0.1", legacy = false) {
+/** `commitReply` replaces the write worker's safetyCommit reply after the real commit, for malformed-reply cells. */
+async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false, listenHost = "127.0.0.1", legacy = false, commitReply?: () => unknown) {
   const root=full?mkdtempSync(join(tmpdir(),"odysseus-origin-trust-")):null;
   const db = createUiDb(root?join(root,"ui.db"):":memory:"); connectedSafetySession(db,"voyage","turn-voyage");
-  const writer=full?openSqliteWriter(db):undefined;
+  const real=full?openSqliteWriter(db):undefined;
+  const writer=real&&commitReply?{...real,channel:(...args:Parameters<typeof real.channel>)=>{const channel=real.channel(...args);
+    return {...channel,call:async(name:string,...rest:unknown[])=>{const result=await channel.call(name,...rest);return name==="safetyCommit"?commitReply():result;}} as typeof channel;}} as typeof real:real;
   const writes = createGovernanceWrites(db,writer); let asks = 0, hits = 0;
   let decide: BackendBridge["requestPermission"] = async () => ({behavior:"deny",message:"Athena declines"});
+  // How the host reports a denied card: an owner denial unless a test says it was withdrawn.
+  let refusal: (toolUseId: string) => false | "superseded" | "expired" | "unconfirmed" = () => false;
   const origin = Bun.serve({hostname:listenHost,port:0,fetch(){hits++;return response?.() ?? new Response("Ithaca");}});
   const rule: TrustRule = {id:"ithaca",label:"Ithaca",incomingContent:true,recipientWhileRestricted:recipient,
     selector:{kind:"web_origin",scheme:"http",host:origin.url.hostname,port:origin.port!}};
   const t=trust(rule);const controller=new AbortController();
   const bridge={emit(){},requestPermission:async(...args: Parameters<BackendBridge["requestPermission"]>)=>{asks++;return decide(...args);},admissionSafety:createEffectiveSafety(db,{turnId:"turn-voyage",sessionId:()=>"voyage",policyHash:null,writes,trust:t.live,authority:()=>({current:true,epoch:"0"})})} as unknown as BackendBridge;
   const proxy=await prepareTurnEgress({policy:resolveGovernancePolicy(policy),trust:t.live,controller,turnId:"turn-voyage",sessionId:()=>"voyage",model:()=>null,profile:"governed",origin:"interactive",governanceDb:db,governanceWrites:legacy?undefined:writes,record:legacy?event=>writes.record(event):writes.record,
-    bridge});
+    networkRefusal:toolUseId=>refusal(toolUseId),bridge});
   const epoch=(db.query("SELECT id FROM safety_collections WHERE turn_id='turn-voyage'").get() as {id:string}).id;
   const taint=()=>writes.firstTaint({kind:"taint",turnId:"turn-voyage",sessionId:"voyage",actor:"interactive",profile:"governed",model:null,payload:{source:"web_search",tool:null,detail:null,occurrence:occurrence(epoch,"tool_web_input",crypto.randomUUID(),"finalized")}});
-  return {db,writes,writer,origin,proxy,t,taint,controller,bridge,decide(value: BackendBridge["requestPermission"]) { decide=value; },asks:()=>asks,hits:()=>hits,async close(){proxy.stop();origin.stop(true);await proxy.settled();await writer?.close();db.close();if(root)rmSync(root,{recursive:true,force:true});}};
+  return {db,writes,writer,origin,proxy,t,taint,controller,bridge,decide(value: BackendBridge["requestPermission"]) { decide=value; },refuse(value: typeof refusal) { refusal=value; },asks:()=>asks,hits:()=>hits,async close(){proxy.stop();origin.stop(true);await proxy.settled();await writer?.close();db.close();if(root)rmSync(root,{recursive:true,force:true});}};
 }
 test("verified future input retains its decision without creating an unresolved trigger or recipient grant",async()=>{
  const f=await fixture();try{
@@ -135,14 +140,6 @@ for(const tunnel of [false,true])test(`review: managed HTTPS recipient uses actu
 test("review: outward cards cannot survive independent input even on a taint-allowlisted host",async()=>{
  const f=await fixture(false,{schema_version:1,taint:{egress:{allow:["127.0.0.1"]}},outward:{hosts:["127.0.0.1"]}},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;
  try{await f.taint();f.decide(async()=>({behavior:"allow"}));f.writes.firstTaint=async(...args)=>{if(args[0].payload.source==="egress_connection"){entered();await held;}return original(...args);};const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;await f.taint();release();expect(await pending,"STALE_OUTWARD_CARD_CANNOT_BORROW_TAINT_ALLOWLIST").toBe(403);expect(f.hits()).toBe(0);}finally{release();await f.close();}
-});
-test("review: independent pending input also withdraws a card on a permanently restricted turn",async()=>{
- const f=await fixture(false,{schema_version:1},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;let slow:Promise<unknown>|undefined,pendingTaint:Promise<unknown>|undefined;
- try{f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();await f.taint();f.decide(async()=>({behavior:"allow"}));
-  f.writes.firstTaint=async(...args)=>{const result=await original(...args);if(args[0].payload.source==="egress_connection"){entered();await held;}return result;};
-  const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;const probe=await import('./fixtures/write-worker-probe');const channel=f.writer!.channel(probe,{table:'origin_pending_hold'});await channel.ready;const active=new Int32Array(new SharedArrayBuffer(4));slow=channel.call('slow','Calypso',400,active);await Atomics.waitAsync(active,0,0).value;
-  pendingTaint=f.taint();expect(f.writes.safety('turn-voyage','voyage').pendingCount).toBeGreaterThan(0);release();expect(await pending,'PENDING_INPUT_WITHDRAWS_CARD_WITHOUT_NORMALIZING_AWAY_OTHER_SIGNALS').toBe(403);expect(f.hits()).toBe(0);
- }finally{release();await slow;await pendingTaint;await f.close();}
 });
 test("review2: a later revision cannot join a hostname's earlier pending Network card",async()=>{
  const f=await fixture();const answers:Array<(v:PermissionDecision)=>void>=[];let firstReady!:()=>void,secondReady!:()=>void;const firstCard=new Promise<void>(r=>{firstReady=r;}),secondRequest=new Promise<void>(r=>{secondReady=r;});let first:Promise<number>|undefined,second:Promise<number>|undefined;const safety=f.bridge.admissionSafety!,read=safety.read;
@@ -335,4 +332,434 @@ test('review31: the legacy recorder adapter awaits and preserves a negative comm
 for(const outcome of ['missing','rejected','replay'] as const)test(`review31: egress audit commit ${outcome} preserves truthful recording health`,async()=>{
  const f=await fixture(true,{schema_version:1},undefined,false,'127.0.0.1',true);const original=f.writes.record;
  try{f.writes.record=async(...args)=>{if(args[0].kind==='egress_connection'){if(outcome==='missing')return {id:0,recorded:false};if(outcome==='rejected')throw new Error('Odysseus audit unavailable');const result=await original(...args);return {...result,recorded:false};}return original(...args);};await get(f.proxy.socketPath,f.origin.url.href).catch(()=>0);await f.proxy.settled();expect(f.controller.signal.aborted,'AUDIT_NEGATIVE_RESULTS_ARE_NOT_SUCCESSFUL_COMMITS').toBe(outcome!=='replay');expect(Boolean(f.proxy.recordingFailure())).toBe(outcome!=='replay');}finally{await f.close();}
+});
+
+// #4351: on a turn that began restricted, the writer tolerates a lost
+// occurrence or terminal exposure ({id:0,recorded:false}): the permanent gap
+// already covers it. Ordinary traffic keeps its restricted recipient policy;
+// source trust still needs a durable occurrence.
+const permanentGap = (db: Database, failing: "source" | "exposure" | "audit") => {
+  db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();
+  const when = failing === "source" ? "NEW.kind='taint' AND json_extract(NEW.payload,'$.source')='egress_connection'"
+    : failing === "exposure" ? "NEW.kind='taint_exposure'" : "NEW.kind='egress_connection'";
+  db.exec(`CREATE TRIGGER ithaca_permanent_gap BEFORE INSERT ON governance_events WHEN ${when} BEGIN SELECT RAISE(FAIL,'Odysseus store unavailable'); END`);
+};
+for (const recipient of ["allowlisted", "card-needing"] as const) test(`#4351: a tolerated occurrence loss on a gapped turn admits ${recipient} untrusted traffic only under its recipient policy`, async () => {
+  const f = await fixture(false, recipient === "allowlisted" ? { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } } : { schema_version: 1 }, undefined, true);
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  const outcomes: boolean[] = [];
+  const original = f.writes.firstTaint;
+  try {
+    permanentGap(f.db, "source");
+    f.writes.firstTaint = async (...args) => { const result = await original(...args); outcomes.push(result); return result; };
+    f.decide(async () => ({ behavior: "allow" }));
+    const status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+    await f.proxy.settled();
+    // A destination that would need a Network card is refused without one
+    // (maintainer ruling on #4351); the allow-listed one needs none.
+    expect(status, "GAPPED_UNTRUSTED_TRAFFIC_KEEPS_ITS_RECIPIENT_POLICY").toBe(recipient === "allowlisted" ? 200 : 403);
+    if (recipient === "card-needing") expect(queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })[0]?.payload).toMatchObject({ reason: "recording_gap", dispatched: false });
+    expect(untrustedHits).toBe(recipient === "allowlisted" ? 1 : 0);
+    expect(f.asks()).toBe(0);
+    expect(outcomes).toEqual(recipient === "allowlisted" ? [false] : []);
+    expect(f.controller.signal.aborted, "GAPPED_UNTRUSTED_TRAFFIC_KEEPS_THE_TURN").toBe(false);
+    expect(f.proxy.recordingFailure()).toBeUndefined();
+    const connections = queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 });
+    for (const connection of connections) expect(connection.payload).not.toHaveProperty("trustedSource");
+    expect(queryGovernanceEvents(f.db, { kinds: ["taint_exposure"], limit: 10 })).toHaveLength(0);
+    const projection = safetyProjection(f.db, "turn-voyage", "voyage");
+    expect(projection.restriction, "PERMANENT_GAP_STAYS_VISIBLE").toBe("restricted");
+    expect(projection.coverage.state).toBe("incomplete");
+    // The same lost write never stands in for a trusted source's occurrence.
+    if (recipient === "allowlisted") {
+      expect(await get(f.proxy.socketPath, f.origin.url.href).catch(() => 0), "GAPPED_TRUSTED_SOURCE_STILL_503").toBe(503);
+      expect(f.hits()).toBe(0);
+      await f.proxy.settled();
+      expect(f.controller.signal.aborted).toBe(false);
+    }
+  } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_permanent_gap"); untrusted.stop(true); await f.close(); }
+});
+test("#4351: a tolerated terminal-exposure loss on a gapped turn stops neither the turn nor later traffic", async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, true);
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  try {
+    permanentGap(f.db, "exposure");
+    expect(await get(f.proxy.socketPath, untrusted.url.href)).toBe(200);
+    await f.proxy.settled();
+    expect(f.controller.signal.aborted, "TOLERATED_TERMINAL_LOSS_KEEPS_THE_TURN").toBe(false);
+    expect(f.proxy.recordingFailure()).toBeUndefined();
+    expect(await get(f.proxy.socketPath, untrusted.url.href), "TOLERATED_TERMINAL_LOSS_KEEPS_LATER_TRAFFIC").toBe(200);
+    await f.proxy.settled();
+    expect(untrustedHits).toBe(2);
+    expect(f.controller.signal.aborted).toBe(false);
+    // The first source occurrence stays durable and immutable. Its lost
+    // terminal exposure fails the collection, so the second connection's
+    // occurrence is a tolerated loss as well, and it still proceeds.
+    const sources = queryGovernanceEvents(f.db, { kinds: ["taint"], limit: 10 }).filter(event => (event.payload as { source?: string }).source === "egress_connection");
+    expect(sources).toHaveLength(1);
+    expect((sources[0]!.payload as { occurrence: { exposure: string } }).occurrence.exposure).toBe("open");
+    expect(queryGovernanceEvents(f.db, { kinds: ["taint_exposure"], limit: 10 })).toHaveLength(0);
+    const projection = safetyProjection(f.db, "turn-voyage", "voyage");
+    expect(projection.restriction, "PERMANENT_GAP_STAYS_VISIBLE").toBe("restricted");
+    expect(projection.coverage.state).toBe("incomplete");
+  } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_permanent_gap"); untrusted.stop(true); await f.close(); }
+});
+test("#4351: a lost connection audit on a gapped turn keeps its existing containment", async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, true);
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Troy") });
+  try {
+    permanentGap(f.db, "audit");
+    await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+    await f.proxy.settled();
+    expect(f.controller.signal.aborted, "UNTOLERATED_AUDIT_LOSS_STILL_STOPS_THE_TURN").toBe(true);
+    expect(f.proxy.recordingFailure()).toBeDefined();
+  } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_permanent_gap"); untrusted.stop(true); await f.close(); }
+});
+for (const lost of ["taint", "taint_exposure"] as const) test(`#4351: outside a permanent gap a lost untrusted ${lost} keeps its existing containment`, async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, false, "127.0.0.1", true);
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  const original = f.writes.record;
+  try {
+    f.writes.record = async (...args) => args[0].kind === lost ? { id: 0, recorded: false } : original(...args);
+    const status = await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0);
+    await f.proxy.settled();
+    if (lost === "taint") {
+      expect(status, "UNGAPPED_LOST_OCCURRENCE_STILL_503").toBe(503);
+      expect(untrustedHits).toBe(0);
+      expect(f.controller.signal.aborted).toBe(false);
+    } else {
+      expect(status).toBe(200);
+      expect(f.controller.signal.aborted, "UNGAPPED_LOST_TERMINAL_EXPOSURE_STILL_STOPS_THE_TURN").toBe(true);
+      expect(f.proxy.recordingFailure()).toBeDefined();
+    }
+  } finally { untrusted.stop(true); await f.close(); }
+});
+
+test("#4351: a refused occurrence write on a gapped turn is never a tolerated loss", async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, true);
+  let untrustedHits = 0;
+  const untrusted = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { untrustedHits++; return new Response("Troy"); } });
+  try {
+    f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();
+    // The writer refuses outright when its recording queue is full: ingestion must stop.
+    f.writes.firstTaint = async () => { throw new Error("Safety occurrence write capacity exceeded; ingestion must stop"); };
+    expect(await get(f.proxy.socketPath, untrusted.url.href).catch(() => 0), "GAPPED_REFUSED_WRITE_STILL_503").toBe(503);
+    expect(untrustedHits).toBe(0);
+  } finally { untrusted.stop(true); await f.close(); }
+});
+
+// #4351, maintainer ruling 2026-11-27: a turn with a permanent recording gap
+// raises no approval card and uses none it holds, because a card's marker
+// cannot see the losses such a turn tolerates. Allow-listed and
+// already-contacted destinations need no card and still connect; a new turn
+// restores approvals.
+type Fixture = Awaited<ReturnType<typeof fixture>>;
+const gappedTurn = (f: Fixture) => f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();
+const lastConnection = (f: Fixture) => queryGovernanceEvents(f.db, { kinds: ["egress_connection"], limit: 10 })[0]?.payload;
+const untrustedOrigin = () => {
+  let hits = 0;
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { hits++; return new Response("Troy"); } });
+  return { url: server.url.href, hits: () => hits, stop: () => server.stop(true) };
+};
+
+test("#4351: a gapped turn refuses a card-needing destination without raising a card", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    gappedTurn(f);
+    await f.taint();
+    f.decide(async () => ({ behavior: "allow" }));
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0)).toBe(403);
+    await f.proxy.settled();
+    expect(f.asks(), "GAPPED_TURN_RAISES_NO_CARD").toBe(0);
+    expect(troy.hits()).toBe(0);
+    expect(lastConnection(f), "GAPPED_TURN_NAMES_ITS_REFUSAL").toMatchObject({ outcome: "denied", reason: "recording_gap", dispatched: false });
+    expect(f.controller.signal.aborted).toBe(false);
+  } finally { troy.stop(); await f.close(); }
+});
+
+test("#4351: a gapped turn refuses a managed GitHub fetch that needs a card", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  try {
+    gappedTurn(f);
+    await f.taint();
+    f.decide(async () => ({ behavior: "allow" }));
+    const op = f.proxy.managedReference(new URL("https://github.com/"), new AbortController().signal);
+    expect(await op.admit(), "GAPPED_TURN_REFUSES_A_MANAGED_FETCH").toBe(false);
+    expect(f.asks()).toBe(0);
+    expect(op.reason()).toBe("recording_gap");
+    await f.proxy.settled();
+    expect(lastConnection(f)).toMatchObject({ managedReference: true, reason: "recording_gap", dispatched: false });
+  } finally { await f.close(); }
+});
+
+for (const route of ["allow-listed", "already contacted"] as const) test(`#4351: a gapped turn still connects an ${route} destination without a card`, async () => {
+  const f = await fixture(false, route === "allow-listed" ? { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } } : { schema_version: 1 }, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    await f.taint();
+    f.decide(async () => ({ behavior: "allow" }));
+    // Reached once under an answered card before the gap: the host is contacted.
+    if (route === "already contacted") { expect(await get(f.proxy.socketPath, troy.url)).toBe(200); expect(f.asks()).toBe(1); }
+    gappedTurn(f);
+    expect(await get(f.proxy.socketPath, troy.url), "GAPPED_TURN_KEEPS_DESTINATIONS_THAT_NEED_NO_CARD").toBe(200);
+    expect(f.asks(), "NO_CARD_ON_THE_GAPPED_TURN").toBe(route === "allow-listed" ? 0 : 1);
+    expect(troy.hits()).toBe(route === "allow-listed" ? 1 : 2);
+  } finally { troy.stop(); await f.close(); }
+});
+
+for (const answer of ["withdrawn", "answered late"] as const) test(`#4351: a turn that becomes gapped while its card is pending never uses the card (${answer})`, async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    await f.taint();
+    // The gap arrives while the card waits. The host withdraws the card, or
+    // the owner's answer lands after the gap and the host cannot confirm it.
+    f.decide(async () => { gappedTurn(f); return answer === "withdrawn" ? { behavior: "deny", message: "The card expired" } : { behavior: "allow" }; });
+    f.refuse(() => answer === "withdrawn" ? "superseded" : "unconfirmed");
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0)).toBe(403);
+    await f.proxy.settled();
+    expect(f.asks(), "NO_REPLACEMENT_CARD_ON_THE_GAPPED_TURN").toBe(1);
+    expect(troy.hits()).toBe(0);
+    expect(lastConnection(f), "PENDING_CARD_ON_A_NEWLY_GAPPED_TURN_IS_NEVER_USED").toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { troy.stop(); await f.close(); }
+});
+
+test("#4351: a turn that becomes gapped between an answered card and its dispatch refuses the dispatch", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  try {
+    await f.taint();
+    f.decide(async () => ({ behavior: "allow" }));
+    // A managed acquisition writes nothing between its answer and its dispatch.
+    const op = f.proxy.managedReference(new URL("https://github.com/"), new AbortController().signal);
+    expect(await op.admit()).toBe(true);
+    gappedTurn(f);
+    const prepared = op.prepare();
+    const sent = prepared.ok ? op.dispatch(() => {}) : prepared;
+    expect(sent.ok).toBe(false);
+    expect(op.reason(), "GAP_BEFORE_DISPATCH_REFUSES_AN_ANSWERED_CARD").toBe("recording_gap");
+  } finally { await f.close(); }
+});
+
+const OUTWARD: GovernancePolicyInput = { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } }, outward: { hosts: ["127.0.0.1"] } };
+test("#4351: a gapped turn refuses an outward destination without raising its card", async () => {
+  const f = await fixture(false, OUTWARD, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    gappedTurn(f);
+    f.decide(async () => ({ behavior: "allow" }));
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0), "GAPPED_TURN_REFUSES_AN_OUTWARD_DESTINATION").toBe(403);
+    await f.proxy.settled();
+    expect(f.asks(), "GAPPED_TURN_RAISES_NO_OUTWARD_CARD").toBe(0);
+    expect(troy.hits()).toBe(0);
+    expect(lastConnection(f), "GAPPED_OUTWARD_REFUSAL_IS_NAMED").toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { troy.stop(); await f.close(); }
+});
+test("#4351: an outward card is never used once the turn becomes gapped while it is pending", async () => {
+  const f = await fixture(false, OUTWARD, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    f.decide(async () => { gappedTurn(f); return { behavior: "allow" }; });
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0)).toBe(403);
+    await f.proxy.settled();
+    expect(f.asks()).toBe(1);
+    expect(troy.hits()).toBe(0);
+    expect(lastConnection(f), "OUTWARD_ANSWER_AFTER_THE_GAP_IS_REFUSED").toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { troy.stop(); await f.close(); }
+});
+test("#4351: an outward card answered before the gap is not used at dispatch", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  try {
+    f.decide(async () => ({ behavior: "allow" }));
+    // An untainted managed fetch of a GitHub API host needs only its outward
+    // card, and it writes nothing between that answer and its dispatch.
+    const op = f.proxy.managedReference(new URL("https://api.github.com/"), new AbortController().signal);
+    expect(await op.admit()).toBe(true);
+    expect(f.asks()).toBe(1);
+    gappedTurn(f);
+    const prepared = op.prepare();
+    const sent = prepared.ok ? op.dispatch(() => {}) : prepared;
+    expect(sent.ok).toBe(false);
+    expect(op.reason(), "GAP_BEFORE_DISPATCH_REFUSES_AN_ANSWERED_OUTWARD_CARD").toBe("recording_gap");
+  } finally { await f.close(); }
+});
+test("#4351: a gapped turn still connects an outward host a classified call covers, without a card", async () => {
+  const f = await fixture(false, OUTWARD, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    gappedTurn(f);
+    f.decide(async () => ({ behavior: "allow" }));
+    // A visible read in progress covers the outward host: it needs no card.
+    f.proxy.bridge.activity?.({ kind: "outward_classification", toolUseId: "toolu-odysseus-read", decision: "allow",
+      classification: { kind: "read", opaque: false, actions: [] } } as never);
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0), "GAPPED_TURN_KEEPS_COVERED_OUTWARD_TRAFFIC").toBe(200);
+    expect(f.asks()).toBe(0);
+    expect(troy.hits()).toBe(1);
+  } finally { troy.stop(); await f.close(); }
+});
+const classifiedRead = (f: Fixture, toolUseId = "toolu-odysseus-read") => f.proxy.bridge.activity?.({ kind: "outward_classification", toolUseId, decision: "allow",
+  classification: { kind: "read", opaque: false, actions: [] } } as never);
+test("#4351: covered outward traffic on a gapped turn is refused as recording_gap when its call ends before dispatch", async () => {
+  const f = await fixture(false, OUTWARD, undefined, true);
+  const troy = untrustedOrigin();
+  const original = f.writes.firstTaint;
+  try {
+    gappedTurn(f);
+    classifiedRead(f);
+    // The covering call returns its result while the connection's occurrence commits.
+    f.writes.firstTaint = async (...args) => { const result = await original(...args);
+      if (args[0].payload.source === "egress_connection") f.proxy.bridge.emit({ type: "tool_result", toolUseId: "toolu-odysseus-read", content: "", isError: false } as never);
+      return result; };
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0), "COVER_LOST_BEFORE_DISPATCH_NEVER_DISPATCHES").toBe(403);
+    await f.proxy.settled();
+    expect(f.asks()).toBe(0);
+    expect(troy.hits()).toBe(0);
+    expect(lastConnection(f), "COVER_LOST_ON_A_GAPPED_TURN_IS_A_GAP_REFUSAL").toMatchObject({ reason: "recording_gap", dispatched: false });
+  } finally { troy.stop(); await f.close(); }
+});
+test("#4351: covered outward traffic keeps connecting when its own occurrence write is lost on a gapped turn", async () => {
+  const f = await fixture(false, OUTWARD, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    permanentGap(f.db, "source");
+    classifiedRead(f);
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0), "COVERED_OUTWARD_BINDS_TO_NO_CARD_MARKER").toBe(200);
+    expect(f.asks()).toBe(0);
+    expect(troy.hits()).toBe(1);
+    expect(f.controller.signal.aborted).toBe(false);
+  } finally { f.db.exec("DROP TRIGGER IF EXISTS ithaca_permanent_gap"); troy.stop(); await f.close(); }
+});
+// #4351: only the writer's exact {id:0, recorded:false} acknowledges a
+// tolerated loss on a gapped turn; any other negative reply is no acknowledgment.
+for (const reply of ["exact", "no id", "negative id", "text id", "recorded null", "bare false", "no recorded"] as const) for (const lost of ["taint", "taint_exposure"] as const)
+  test(`#4351: a gapped turn's ${lost} reply (${reply}) is tolerated only when it is the exact acknowledgment`, async () => {
+    const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, false, "127.0.0.1", true);
+    const troy = untrustedOrigin();
+    const original = f.writes.record;
+    const answer = reply === "exact" ? { id: 0, recorded: false } : reply === "no id" ? { recorded: false } : reply === "negative id" ? { id: -1, recorded: false }
+      : reply === "text id" ? { id: "0", recorded: false } : reply === "recorded null" ? { id: 0, recorded: null } : reply === "no recorded" ? { id: 0 } : false;
+    try {
+      gappedTurn(f);
+      f.writes.record = async (...args) => args[0].kind === lost && (lost === "taint_exposure" || (args[0].payload as { source?: string }).source === "egress_connection") ? answer as never : original(...args);
+      const status = await get(f.proxy.socketPath, troy.url).catch(() => 0);
+      await f.proxy.settled();
+      if (reply === "exact") {
+        expect(status, "EXACT_ACKNOWLEDGMENT_IS_TOLERATED").toBe(200);
+        expect(f.controller.signal.aborted).toBe(false);
+      } else if (lost === "taint") {
+        // No occurrence acknowledgment: the connection refuses as before.
+        expect(status, "MALFORMED_OCCURRENCE_REPLY_REFUSES").toBe(503);
+        expect(troy.hits()).toBe(0);
+      } else expect(f.controller.signal.aborted, "MALFORMED_TERMINAL_REPLY_STOPS_THE_TURN").toBe(true);
+    } finally { troy.stop(); await f.close(); }
+  });
+
+// #4351: an unreadable gap is unknown, not a gap: a card path fails closed as
+// unavailable, with no new-turn advice.
+test("#4351: an unreadable gap refuses a card-needing destination as egress_unavailable, not recording_gap", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    await f.taint();
+    f.decide(async () => ({ behavior: "allow" }));
+    const query = f.db.query.bind(f.db);
+    const unreadable = spyOn(f.db, "query").mockImplementation(((sql: string) => {
+      // Only turn egress reads the gap with this statement.
+      if (sql === "SELECT restricted_begin FROM safety_collections WHERE turn_id=?") throw new Error("Odysseus ledger unreadable");
+      return query(sql);
+    }) as never);
+    let status: number;
+    try { status = await get(f.proxy.socketPath, troy.url).catch(() => 0); } finally { unreadable.mockRestore(); }
+    await f.proxy.settled();
+    expect(status, "UNKNOWN_GAP_IS_UNAVAILABLE").toBe(503);
+    expect(f.asks(), "UNKNOWN_GAP_RAISES_NO_CARD").toBe(0);
+    expect(troy.hits()).toBe(0);
+    expect(lastConnection(f), "UNKNOWN_GAP_IS_NOT_A_GAP_REFUSAL").toMatchObject({ reason: "egress_unavailable", dispatched: false });
+  } finally { troy.stop(); await f.close(); }
+});
+// #4351: a positive id is a durable replay. It keeps its evidence on a
+// gapped turn: never a tolerated loss.
+for (const source of ["untrusted", "trusted"] as const) test(`#4351: a replayed ${source} occurrence on a gapped turn keeps its durable evidence`, async () => {
+  const f = await fixture(true, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, false, "127.0.0.1", true);
+  const troy = untrustedOrigin();
+  const original = f.writes.record;
+  try {
+    gappedTurn(f);
+    f.writes.record = async (...args) => {
+      if (args[0].kind === "taint" && (args[0].payload as { source?: string }).source === "egress_connection") { await original(...args); return { id: 7, recorded: false }; }
+      return original(...args);
+    };
+    const status = await get(f.proxy.socketPath, source === "trusted" ? f.origin.url.href : troy.url).catch(() => 0);
+    await f.proxy.settled();
+    expect(status, "REPLAY_KEEPS_ITS_DURABLE_EVIDENCE").toBe(200);
+    expect(queryGovernanceEvents(f.db, { kinds: ["taint_exposure"], limit: 10 }), "REPLAY_RECORDS_ITS_TERMINAL_STATE").toHaveLength(1);
+    expect(f.controller.signal.aborted).toBe(false);
+  } finally { troy.stop(); await f.close(); }
+});
+// #4351: restricted_begin is exactly 0 or 1; any other value is unknown.
+test("#4351: a malformed restricted_begin is unknown and refuses a card-needing destination as egress_unavailable", async () => {
+  const f = await fixture(false, { schema_version: 1 }, undefined, true);
+  const troy = untrustedOrigin();
+  try {
+    await f.taint();
+    f.db.query("UPDATE safety_collections SET restricted_begin=2 WHERE turn_id='turn-voyage'").run();
+    f.decide(async () => ({ behavior: "allow" }));
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0), "MALFORMED_GAP_IS_UNAVAILABLE").toBe(503);
+    await f.proxy.settled();
+    expect(f.asks()).toBe(0);
+    expect(troy.hits()).toBe(0);
+    expect(lastConnection(f)).toMatchObject({ reason: "egress_unavailable", dispatched: false });
+  } finally { troy.stop(); await f.close(); }
+});
+// #4351: the hosted writer keeps a replay's id end to end. The connection's
+// occurrence is written twice: the second write is a real duplicate.
+for (const source of ["untrusted", "trusted"] as const) test(`#4351: a ${source} occurrence replayed through the hosted writer on a gapped turn keeps its durable evidence`, async () => {
+  const f = await fixture(true, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, true);
+  const troy = untrustedOrigin();
+  const original = f.writes.firstTaint;
+  const replies: boolean[] = [];
+  try {
+    gappedTurn(f);
+    f.writes.firstTaint = async (...args) => {
+      if (args[0].payload.source !== "egress_connection") return original(...args);
+      await original(...args);
+      const replay = await original(...args);
+      replies.push(replay);
+      return replay;
+    };
+    const status = await get(f.proxy.socketPath, source === "trusted" ? f.origin.url.href : troy.url).catch(() => 0);
+    await f.proxy.settled();
+    expect(replies, "HOSTED_REPLAY_IS_DURABLE").toEqual([true]);
+    expect(status, "HOSTED_REPLAY_KEEPS_ITS_DURABLE_EVIDENCE").toBe(200);
+    expect(queryGovernanceEvents(f.db, { kinds: ["taint_exposure"], limit: 10 }), "HOSTED_REPLAY_RECORDS_ITS_TERMINAL_STATE").toHaveLength(1);
+    expect(f.controller.signal.aborted).toBe(false);
+  } finally { troy.stop(); await f.close(); }
+});
+// #4351: one strict reply parser for every caller. A worker reply other than
+// {id:0, recorded:false} never resolves as a tolerated loss.
+for (const reply of [{ id: 0 }, { id: 0, recorded: "false" }, null] as const) test(`#4351: a malformed write-worker reply (${JSON.stringify(reply)}) on a gapped turn refuses the occurrence`, async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, true, "127.0.0.1", false, () => reply);
+  const troy = untrustedOrigin();
+  try {
+    gappedTurn(f);
+    expect(await get(f.proxy.socketPath, troy.url).catch(() => 0), "MALFORMED_WORKER_REPLY_REFUSES_THE_OCCURRENCE").toBe(503);
+    expect(troy.hits()).toBe(0);
+  } finally { troy.stop(); await f.close(); }
+});
+// An explicit error reply is no acknowledgment, with or without a gap.
+for (const gapped of [false, true]) for (const lost of ["taint", "taint_exposure"] as const) test(`#4351: an explicit error reply for a ${lost} is malformed (${gapped ? "gapped" : "no gap"})`, async () => {
+  const f = await fixture(false, { schema_version: 1, taint: { egress: { allow: ["127.0.0.1"] } } }, undefined, false, "127.0.0.1", true);
+  const troy = untrustedOrigin();
+  const original = f.writes.record;
+  try {
+    if (gapped) gappedTurn(f);
+    f.writes.record = async (...args) => args[0].kind === lost && (lost === "taint_exposure" || (args[0].payload as { source?: string }).source === "egress_connection") ? { error: "write failed" } as never : original(...args);
+    const status = await get(f.proxy.socketPath, troy.url).catch(() => 0);
+    await f.proxy.settled();
+    if (lost === "taint") { expect(status, "ERROR_REPLY_REFUSES_THE_OCCURRENCE").toBe(503); expect(troy.hits()).toBe(0); }
+    else expect(f.controller.signal.aborted, "ERROR_REPLY_STOPS_THE_TURN").toBe(true);
+  } finally { troy.stop(); await f.close(); }
 });
