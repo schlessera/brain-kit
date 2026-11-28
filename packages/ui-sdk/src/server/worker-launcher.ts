@@ -1143,6 +1143,19 @@ function withIdentity(boot: ReturnType<typeof workerBootstrap>, helper: string, 
   return broker;
 }
 
+/**
+ * A failed separate-UID supervisor/control path, which is never eligible for
+ * publication: independently authorized termination, then the broker close,
+ * both awaited off the event loop (#2854, #4894 round 8 F3). Always rejects,
+ * with the close's refusal or the original failure.
+ */
+export async function settleFailedSupervision(broker: { terminateSteps(): WorkerSteps<void> }, release: () => Promise<void>, error: unknown): Promise<never> {
+  await runWorkerStepsAsync(broker.terminateSteps());
+  try { await release(); }
+  catch (failure) { throw new WorkerIdentityCleanupError(`${(failure as Error).message}; original failure: ${String(error)}`); }
+  throw error;
+}
+
 /** How close to a worker's death its own memory limit and an OOM kill must be to have caused it. */
 const FATAL_OOM_WINDOW_MS = 1_000;
 
@@ -1539,12 +1552,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     }).catch(async (error: unknown) => {
       // The worker exited and only its broker's close was refused.
       if (exitReleaseRefused) throw error;
-      // A failed supervisor/control path is never eligible for publication.
-      // Independently authorized termination precedes the broker close.
-      identityBroker!.terminate();
-      try { await releaseIdentityAsync(); }
-      catch (failure) { throw new WorkerIdentityCleanupError(`${(failure as Error).message}; original failure: ${String(error)}`); }
-      throw error;
+      return settleFailedSupervision(identityBroker!, releaseIdentityAsync, error);
     }) : spawned.exited;
     if (input.preparedOutput) bindPreparedWorkerOutputExit(input.preparedOutput, workerExit);
     void workerExit.then(() => completeMaintenanceSetup?.(), error => failMaintenanceSetup?.(error));

@@ -83,7 +83,6 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
     })], { env: {}, stdin: "ignore", timeout: 12_000 });
     if (cleanup.exitCode !== 0) throw new WorkerIdentityCleanupError(`worker_identity_cleanup_unconfirmed: ${cleanup.stderr.slice(0, 300)}`);
   };
-  const fallback = (operations: ("signal" | "cleanup")[]) => runWorkerStepsSync(fallbackSteps(operations));
   const requestSteps = function* <T extends object>(operation: string, input: object = {}): WorkerSteps<T> {
     if (!open) throw new Error("worker_identity_control_closed");
     const command = [python, "-I", "-S", "-c", WORKER_IDENTITY_CLIENT, socket, JSON.stringify({ secret, operation, ...input })];
@@ -179,6 +178,11 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
     // obtain a fresh authenticated receipt after outstanding IO has drained.
     open = false; rmSync(directory, { recursive: true, force: true });
   };
+  /** Independently authorized termination: the broker's kill, or its fallback when control is lost. */
+  const terminateSteps = function* (): WorkerSteps<void> {
+    try { yield* requestSteps("signal", { signal: "KILL" }); }
+    catch { yield* fallbackSteps(["signal"]); }
+  };
   return {
     command: [python, "-I", "-S", "-c", WORKER_IDENTITY_SUPERVISOR, JSON.stringify({
       helper, argv, roots, cgroup, socket, ready: readyPath, secret, ...(view ? { view } : {}),
@@ -214,10 +218,9 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
         *close(): WorkerSteps<void> { if (held) { held = false; yield* requestSteps("unview"); } },
       };
     },
-    terminate() {
-      try { request("signal", { signal: "KILL" }); }
-      catch { fallback(["signal"]); }
-    },
+    terminate() { runWorkerStepsSync(terminateSteps()); },
+    /** `terminate` as steps, so a separate-UID exit observer keeps its event loop (#4894 round 8 F3). */
+    terminateSteps,
     /**
      * The supervisor's last recorded setup step, for a readiness timeout's
      * detail (#3664). Read before close removes the directory; never follows

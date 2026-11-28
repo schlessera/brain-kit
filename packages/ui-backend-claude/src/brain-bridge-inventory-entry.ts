@@ -13,14 +13,15 @@
  *   a tool or argument the brain's own server lacks (F14; versions move in
  *   lockstep);
  * - with an index the read-only forwarder can open: the bridge runs `brain
- *   mcp` with a read-only index, which cannot create a missing one, while
- *   the project's own stdio entry can (#4894 round 7 F4).
+ *   mcp` with a read-only index, which cannot create a missing one, nor a
+ *   WAL database's `-wal`/`-shm` sidecars, while the project's own stdio
+ *   entry can (#4894 round 7 F4, round 8 F2).
  * Anything else, including a missing or unreadable file, exits with
  * {@link NOT_CANONICAL}, and the host keeps the original stdio entry. A
  * qualifying brain runs `brain module list --json` and passes its output and
  * exit status through.
  */
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
 
 /** Exit status for a project entry the bridge cannot reproduce. */
@@ -55,9 +56,25 @@ function brainCoreVersion(): string | undefined {
   } catch { return undefined; }
 }
 
-/** Whether the brain at `root` already has its index file. */
-export function brainIndexPresent(root: string): boolean {
-  try { return statSync(indexDbPath(root)).isFile(); } catch { return false; }
+const SQLITE_HEADER = "SQLite format 3\u0000";
+const isFile = (path: string) => { try { return statSync(path).isFile(); } catch { return false; } };
+
+/**
+ * Whether the brain at `root` has an index a read-only open can use: a SQLite
+ * file, and for a WAL database (header bytes 18-19 are 2) both sidecars
+ * present, since a read-only connection cannot create them.
+ */
+export function brainIndexReadable(root: string): boolean {
+  const path = indexDbPath(root);
+  if (!isFile(path)) return false;
+  const header = Buffer.alloc(100);
+  let fd: number | undefined;
+  try { fd = openSync(path, "r"); if (readSync(fd, header, 0, 100, 0) < 100) return false; }
+  catch { return false; }
+  finally { if (fd !== undefined) closeSync(fd); }
+  if (header.toString("latin1", 0, 16) !== SQLITE_HEADER) return false;
+  const wal = header[18] === 2 || header[19] === 2;
+  return !wal || (isFile(`${path}-wal`) && isFile(`${path}-shm`));
 }
 
 if (import.meta.main) {
@@ -65,7 +82,7 @@ if (import.meta.main) {
   const entry = (readJson(".mcp.json") as { mcpServers?: Record<string, unknown> } | undefined)?.mcpServers?.brain;
   const settings = [readJson(".claude/settings.json"), readJson(".claude/settings.local.json")];
   if (!canonicalBrainEntry(entry) || projectDisablesBrain(settings) || !expectedVersion || brainCoreVersion() !== expectedVersion
-    || !brainIndexPresent(process.cwd()))
+    || !brainIndexReadable(process.cwd()))
     process.exit(NOT_CANONICAL);
   const child = Bun.spawnSync([process.execPath, "node_modules/.bin/brain", "module", "list", "--json"],
     { stdin: "ignore", stdout: "pipe", stderr: "inherit" });

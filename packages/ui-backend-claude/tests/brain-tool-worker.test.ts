@@ -526,6 +526,31 @@ test("a worker that exits after its cleanup deadline frees its allowance at that
   } finally { child.exit.resolve(0); timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
 });
 
+// #4894 round 8 F1: the exit alone never frees the reservation; a storage
+// close that fails keeps it held until a retry confirms the close.
+test("a worker that exits after its deadline keeps its allowance until its failing storage close is confirmed", async () => {
+  const f = fixture(), child = worker(f.state), ledger = internal.createStateLedger();
+  (child.launched as { kill: unknown }).kill = () => {};
+  let closes = 0;
+  const confirm = Promise.withResolvers<void>();
+  (child.launched as unknown as { turnTemp: { closeAsync(): Promise<void> } }).turnTemp.closeAsync = async () => {
+    if (++closes <= 2) throw new Error("Ithaca turn temp is still busy.");
+    await confirm.promise;
+  };
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockResolvedValue(child.launched);
+  const timer = shortTimers({ [BRAIN_TOOL_EXIT_WAIT_MS]: 0, 1_000: 20, 2_000: 20, 4_000: 20 });
+  try {
+    const resource = await startBrainToolWorker({ ...f.input, reservation: () => ledger.reserve(undefined, f.input.turnTempLimits) })(f.signal);
+    await expect(resource.close()).rejects.toThrow("brain_tool_worker_exit_unconfirmed");
+    child.exit.resolve(0); child.stdout.end(); child.stderr.end();
+    // Two failed closes and a third still unconfirmed: the reservation stays held.
+    for (let waited = 0; waited < 2_000 && closes < 3; waited += 5) await Bun.sleep(5);
+    expect({ closes, held: ledger.turnTempHeld }, "FAILED_STORAGE_CLOSE_KEEPS_RESERVATION").toEqual({ closes: 3, held: f.input.turnTempLimits.allowanceBytes });
+    confirm.resolve();
+    expect(await heldAfter(ledger, 0), "CONFIRMED_STORAGE_CLOSE_FREES_RESERVATION").toBe(0);
+  } finally { child.exit.resolve(0); timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
 // #4894 round 7 F5: only active modules' tools are served.
 for (const [state, verdict] of [["dormant", "core-only"], ["active", "module-tools"]] as const)
   test(`an inventory whose only module tool is ${state} is ${verdict}`, async () => {

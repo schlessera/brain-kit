@@ -21,3 +21,5 @@ Every bridge worker is signalled at most once, through the launcher's new asynch
 Turn scope receives a guarded handle whose kill is that same single signal, and a bridge worker's turn-temp allowance is released once its exit is confirmed and storage closed, without waiting for its pipes, so the forwarder can reserve what the inventory check held.
 
 A brain without its index, or whose only module tools belong to dormant modules, is judged as the brain's own MCP server would serve it: no index keeps stdio, and dormant tools do not count. Every bridge worker frees its turn-temp allowance through one release as soon as its exit is confirmed and storage closed; the inventory verdict waits for that release, and a forwarder start refused by a full budget is retried on the next read. An asynchronous separate-UID request that loses control now stops its supervisor without blocking the host.
+
+An index in WAL mode qualifies only with its sidecars present; a bridge worker's reservation is freed only once both its exit and its storage close are confirmed; and a failed separate-UID supervision is terminated and closed off the host's event loop.

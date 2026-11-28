@@ -455,6 +455,27 @@ test("an asynchronous broker request that loses control stops its supervisor wit
   } finally { supervisor.kill("SIGKILL"); await supervisor.exited; broker?.discard(); }
 });
 
+// #4894 round 8 F3: the async stop above makes the supervisor exit, and the
+// launcher's exit observer then settles the failed supervision; it too
+// terminates and closes without a synchronous subprocess.
+test("a failed separate-UID supervision is terminated and closed without a synchronous subprocess", async () => {
+  const supervisor = Bun.spawn(["/bin/sh", "-c", "exec sleep 30"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  let broker: Broker | undefined;
+  try {
+    broker = readyBroker(supervisor.pid);
+    const held = broker;
+    const spawns = identityControlSpawns();
+    let refusal: unknown, operations;
+    try {
+      refusal = await launcher.settleFailedSupervision(held, () => runWorkerStepsAsync(held.closeSteps()), new Error("Ithaca supervision was lost.")).catch((error: unknown) => error);
+      operations = spawns.operations();
+    } finally { spawns.restore(); }
+    expect(refusal, "FAILED_SUPERVISION_IS_REFUSED").toBeInstanceOf(Error);
+    expect(operations!.sync, "FAILED_SUPERVISION_RUNS_NO_SYNC_SUBPROCESS").toEqual([]);
+    expect(operations!.async, "FAILED_SUPERVISION_TERMINATES_FIRST").toContain("signal");
+  } finally { supervisor.kill("SIGKILL"); await supervisor.exited; broker?.discard(); }
+});
+
 test("the brain view's broker requests are awaited with the event loop free", async () => {
   const f = fixture();
   const holder = Bun.spawn(["/usr/bin/python3", "-I", "-S", "-c", "import os,sys,time\nfd=os.open(sys.argv[1],os.O_RDONLY|os.O_DIRECTORY)\nprint(fd,flush=True)\ntime.sleep(30)", f.brain],
@@ -759,8 +780,8 @@ test("a failed supervision terminates its worker before an awaited broker close,
         refusal = await run.worker.exited.then(() => new Error("exit_succeeded"), (error: unknown) => error);
         requests = spawns.operations();
       } finally { spawns.restore(); }
-      // Termination is a synchronous signal request (out of #2854's scope); the close is awaited.
-      expect({ reply, requests }, "EXIT_REJECTION_CLOSES_BROKER_THROUGH_AWAITED_STEPS").toEqual({ reply, requests: { sync: ["signal"], async: ["close"] } });
+      // Termination and the close are both awaited off the event loop (#4894 round 8 F3).
+      expect({ reply, requests }, "EXIT_REJECTION_CLOSES_BROKER_THROUGH_AWAITED_STEPS").toEqual({ reply, requests: { sync: [], async: ["signal", "close"] } });
       expect({ reply, operations: run.seam.operations() }, "TERMINATION_PRECEDES_BROKER_CLOSE")
         .toEqual({ reply, operations: ["signal", "signal:answered", "close", "close:answered"] });
       const error = refusal as WorkerHostError;

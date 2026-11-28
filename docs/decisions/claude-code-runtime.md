@@ -1725,8 +1725,9 @@ when the project `brain` entry is exactly `bun node_modules/.bin/brain mcp`,
 with no environment, working directory or other option, the project's Claude
 settings do not turn that server off, and the brain's installed
 `@schlessera/brain` is the host's own version (the static definitions are that
-version's), and the brain already has its index (the read-only forwarder
-cannot create one; the project's stdio entry can); it runs under the
+version's), and the brain already has an index a read-only open can use (a
+SQLite file and, in WAL mode, its `-wal`/`-shm` sidecars, which the read-only
+forwarder cannot create while the project's stdio entry can); it runs under the
 tool-search setting the bridged session pins. Any other brain keeps stdio.
 A turn whose host login lies inside the brain skips the helper. The forwarder
 serves read tools only: it keeps the turn's profile, view, data tree and masks

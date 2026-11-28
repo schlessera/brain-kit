@@ -209,13 +209,17 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
     let worker: LaunchedWorker | undefined;
     let launchFailure: unknown;
     let abort: (() => void) | undefined;
-    const closeStorage = async () => {
+    let storageClosing: Promise<void> | undefined;
+    /** Closes storage once; a close that fails is retried by the next caller. */
+    const closeStorage = () => storageClosing ??= (async () => {
       if (!worker && workerCleanupUnconfirmed(launchFailure)) {
         if (!launchFailure.close) throw launchFailure;
         await launchFailure.close();
       }
       await worker?.turnTemp?.closeAsync();
-    };
+    })().catch((error: unknown) => { storageClosing = undefined; throw error; });
+    /** Set once a reconciler owns this reservation, so a storage failure is retained once. */
+    let reconciled = false;
     const unexited = () => new Error("brain_tool_worker_exit_unconfirmed: the sandboxed brain server did not exit; its allowance stays held until it does.");
     /**
      * The ONE release for every path (normal exit, a refused start, an exit
@@ -227,19 +231,33 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, command: reado
      */
     let releasing: Promise<void> | undefined;
     const release = () => releasing ??= (async () => {
+      // Freed only once BOTH the exit and the storage close are confirmed:
+      // a failed close keeps the reservation held until its reconciler
+      // confirms it (#4894 round 8 F1).
       try { await closeStorage(); reservation.release(); }
       catch (error) {
         if (!worker && workerCleanupUnconfirmed(launchFailure) && !launchFailure.close)
           reportStrandedWorkerCleanup("claude", reservation, launchFailure);
-        else processCleanupReconciler().retain({ bytes: reservation.bytes, turnTempBytes: reservation.turnTempBytes,
-          close: closeStorage, release: () => reservation.release(), report: notice => input.req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, error);
+        else if (!reconciled) {
+          reconciled = true;
+          processCleanupReconciler().retain({ bytes: reservation.bytes, turnTempBytes: reservation.turnTempBytes,
+            close: closeStorage, release: () => reservation.release(), report: notice => input.req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, error);
+        }
         throw error;
       }
     })();
-    /** A process that may still run keeps its storage and reservation, owned by the reconciler until it is confirmed gone (#4325 F12). */
-    const retainUnexited = (child: LaunchedWorker, error: Error) => processCleanupReconciler().retain({ bytes: reservation.bytes, turnTempBytes: reservation.turnTempBytes,
-      close: async () => { await child.exited.catch(() => {}); await release().catch(() => {}); await child.released(); },
-      release: () => reservation.release(), report: notice => input.req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, error);
+    /**
+     * A process that may still run keeps its storage and reservation, owned by
+     * the reconciler until it is confirmed gone (#4325 F12) AND its storage is
+     * confirmed closed: a close that fails keeps this cleanup retrying, so the
+     * exit alone never frees the reservation (#4894 round 8 F1).
+     */
+    const retainUnexited = (child: LaunchedWorker, error: Error) => {
+      reconciled = true;
+      processCleanupReconciler().retain({ bytes: reservation.bytes, turnTempBytes: reservation.turnTempBytes,
+        close: async () => { await child.exited.catch(() => {}); await closeStorage(); reservation.release(); await child.released(); },
+        release: () => reservation.release(), report: notice => input.req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, error);
+    };
     try {
       signal.throwIfAborted();
       const sandbox = readOnlyBrainSandbox(input.sandbox);
