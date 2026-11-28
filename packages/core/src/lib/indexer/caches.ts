@@ -301,11 +301,29 @@ export function saveAssetCache(db: Database, root: string): void {
   );
 }
 
+/** A cache file's non-blank lines, each with its key when it has one. */
+function keyedLines(raw: string): Array<{ line: string; k: string | undefined }> {
+  return raw.split("\n").filter((l) => l.trim()).map((line) => {
+    try {
+      return { line, k: (JSON.parse(line) as { k?: string }).k };
+    } catch {
+      return { line, k: undefined }; // leave malformed lines alone; not ours to discard
+    }
+  });
+}
+
 /**
  * Remove every line whose key `drop` selects, and return how many went.
  * Writes only when a line was removed. `drop` is built from the file's keys,
  * and only when the file holds at least one, so a missing or empty cache
  * costs the caller nothing.
+ *
+ * Building `drop` can take a scan of every chunk, and nothing stops another
+ * run from publishing the file meanwhile: an embeddings run appending
+ * contexts, a `--forget-cache` removing some. So the file is read again once
+ * `drop` exists, and that content is what is filtered and written: a line
+ * whose key the first read did not hold is kept, and a line the second read
+ * no longer holds stays gone.
  */
 function removeSidecarLines(
   root: string,
@@ -320,20 +338,20 @@ function removeSidecarLines(
   } catch {
     return 0; // no cache yet
   }
-  const lines = raw.split("\n").filter((l) => l.trim()).map((line) => {
-    try {
-      return { line, k: (JSON.parse(line) as { k?: string }).k };
-    } catch {
-      return { line, k: undefined }; // leave malformed lines alone; not ours to discard
-    }
-  });
   const keys = new Set<string>();
-  for (const { k } of lines) if (k) keys.add(k);
+  for (const { k } of keyedLines(raw)) if (k) keys.add(k);
   if (keys.size === 0) return 0;
   const dropKey = drop(keys);
+  let current: string;
+  try {
+    current = readFileSync(path, "utf-8");
+  } catch {
+    return 0; // removed meanwhile: nothing left to prune
+  }
+  const lines = keyedLines(current);
   const kept = lines.filter(({ k }) => {
     try {
-      return !k || !dropKey(k);
+      return !k || !keys.has(k) || !dropKey(k);
     } catch {
       return true; // a key of another shape (a number, say) is malformed too
     }

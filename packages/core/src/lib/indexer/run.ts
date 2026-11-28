@@ -66,6 +66,18 @@ async function createRun(db: Database, options: IndexOptions): Promise<IndexRun>
   if (!checked.ok) console.warn(`provider_policy_invalid: embedding and enrichment disabled; ${checked.errors.join("; ")}`);
   const rules = checked.ok ? checked.effective.providers : [{ paths: ["**"], allow: [] }];
   const recipient = rules.length ? await geminiEmbeddingRecipient(options.provider) : undefined;
+  // The run's start, before it reads any file, rounded up to the next
+  // millisecond. `indexed_at` keeps milliseconds and a file's mtime keeps
+  // more, so a file written in the millisecond the run started would
+  // otherwise be newer than the run that read it, and counted stale until it
+  // changed again (#4870). No file is read before the clock has passed the
+  // stamp, so a file changed after the run read it is always newer than its
+  // row. The stamp is taken after the awaits above and the wait is capped, so
+  // a clock stepped back (an NTP step, a resumed VM) neither stalls the
+  // caller for the size of the step nor leaves the stamp ahead of the clock.
+  const stamp = Date.now() + 1;
+  const wait = stamp - Date.now();
+  if (wait > 0) Bun.sleepSync(Math.min(wait, 1));
   return {
     db,
     root: options.root,
@@ -74,7 +86,7 @@ async function createRun(db: Database, options: IndexOptions): Promise<IndexRun>
     wantEmbeddings: options.embeddings ?? false,
     provider: options.provider,
     enrichment: options.enrichment,
-    now: new Date().toISOString(),
+    now: new Date(stamp).toISOString(),
     ...(rules.length ? { embeddingRouting: { rules, recipient, excludedDocuments: [] } } : {}),
     stats: emptyStats(),
     report: quiet ? () => {} : (message) => console.log(message),
@@ -224,7 +236,7 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   }
 
   // --- persist ------------------------------------------------------------
-  persistMarkdown(
+  const persisted = persistMarkdown(
     run,
     parsed,
     existingDocs,
@@ -232,6 +244,13 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
     assetsOnDisk,
     targeted ? new Set(options.paths) : undefined
   );
+  if (!persisted) {
+    // Another connection changed the index after this targeted run read it.
+    // Nothing was written; a complete run reads every file and row afresh.
+    run.report("Index changed during a targeted run: indexing completely");
+    run.stats = emptyStats();
+    return runPipeline(run, { ...options, paths: undefined });
+  }
 
   await dropIneligibleVectors(run);
   dropOrphanedVectors(run.db);
@@ -262,10 +281,12 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   // every asset on disk; otherwise a live asset's description would look
   // unreachable (#3242). A targeted run scans no asset, so it never knows;
   // nor does it read every note, so it leaves context lines alone too.
-  const pruneAssets = !targeted && indexCoversAssets(run, assetFiles);
-  const pruned = pruneSidecarCaches(run.db, run.root, run.warn, { assets: pruneAssets, contexts: !targeted });
-  if (pruned.assets || pruned.contexts) {
-    run.report(`  Pruned ${pruned.assets} asset and ${pruned.contexts} context cache entries`);
+  if (options.pruneCaches !== false) {
+    const pruneAssets = !targeted && indexCoversAssets(run, assetFiles);
+    const pruned = pruneSidecarCaches(run.db, run.root, run.warn, { assets: pruneAssets, contexts: !targeted });
+    if (pruned.assets || pruned.contexts) {
+      run.report(`  Pruned ${pruned.assets} asset and ${pruned.contexts} context cache entries`);
+    }
   }
 
   // --- graph --------------------------------------------------------------

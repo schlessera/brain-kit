@@ -237,7 +237,7 @@ describe("unchanged files are read and hashed, not parsed (#4781)", () => {
     expect(await executions(200)).toBe(small);
   });
 
-  test("an alias with a line break reads back as a targeted run reads it", async () => {
+  test("an alias with a line break reads back whole, as a parse reads it (#4876)", async () => {
     const root = brain({
       ...CORPUS,
       "notes/penelope.md": note("Penelope", "Weaves.", "aliases: [\"Weaver\\nof Ithaca\"]\n"),
@@ -247,8 +247,10 @@ describe("unchanged files are read and hashed, not parsed (#4781)", () => {
     const skipping = await captureMaps(() => indexAll(db, options(root)));
     write(root, "notes/raft.md", note("Raft", "Built on [[The Island]] for [[nowhere]] again."));
     const targeted = await captureMaps(() => indexAll(db, { ...options(root), paths: ["notes/raft.md"] }));
-    expect(skipping.aliasMap).toEqual(targeted.aliasMap);
-    expect(skipping.aliasMap).toContainEqual(["weaver", ["notes/penelope.md"]]);
-    expect(skipping.aliasMap).toContainEqual(["of ithaca", ["notes/penelope.md"]]);
+    const parsing = await captureMaps(() => indexAll(open(root, "full"), { ...options(root), force: true }));
+    expect(skipping.aliasMap).toEqual(parsing.aliasMap);
+    expect(targeted.aliasMap).toEqual(parsing.aliasMap);
+    expect(parsing.aliasMap).toContainEqual(["weaver\nof ithaca", ["notes/penelope.md"]]);
+    expect(parsing.aliasMap.map(([key]) => key)).not.toContain("weaver");
   });
 });

@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
   existsSync,
@@ -19,6 +19,8 @@ import { dirname, join } from "path";
 import { chunkContextKey, forgetCachedEnrichment, getAssetFiles, indexAll, type IndexStats } from "../src/lib/indexer";
 import { forgetAssetEntries, loadAssetCache, loadContextCache, pruneSidecarCaches } from "../src/lib/indexer/caches";
 import { JOURNAL_SIZE_LIMIT_BYTES, openDatabase, migrateVecSchema } from "../src/lib/db";
+import { indexStaleness } from "../src/lib/ops/staleness";
+import * as nodeFs from "fs";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { collectStats } from "../src/lib/stats";
 import { gitIgnoredMatcher } from "../src/lib/git-ignore";
@@ -267,6 +269,122 @@ describe("incremental indexing (default mode)", () => {
     const after = db2.prepare("SELECT id, path FROM documents ORDER BY path").all();
     db2.close();
     expect(after).toEqual(before);
+  });
+});
+
+describe("the run stamp (#4870)", () => {
+  // A controlled clock: `Date` reads it and only `Bun.sleepSync` moves it, so
+  // a run that waits for the clock is told apart from one that does not. The
+  // mtimes are set explicitly, with the sub-millisecond part a real one has.
+  const START = Date.parse("2026-07-12T09:00:00.000Z");
+  function controlledClock() {
+    let clock = START;
+    setSystemTime(new Date(clock));
+    const sleep = spyOn(Bun, "sleepSync").mockImplementation((ms) => { clock += Number(ms); setSystemTime(new Date(clock)); });
+    return { restore: () => { sleep.mockRestore(); setSystemTime(); } };
+  }
+  const setMtime = (path: string, ms: number) => utimesSync(path, ms / 1000, ms / 1000);
+
+  test("a file written in the millisecond its run starts is not stale after it; one changed after the run is", async () => {
+    const root = makeCorpus({ "notes/raft.md": md("Raft", "Built on Ogygia.") });
+    setMtime(join(root, "notes/raft.md"), START + 0.5);
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    const clock = controlledClock();
+    try {
+      await indexAll(db, { root, taxonomy, quiet: true });
+    } finally {
+      clock.restore();
+    }
+    try {
+      expect(indexStaleness(db, root, taxonomy)).toEqual({ stale: 0, indexed: 1 });
+      // Any write after the run read the file lands after the stamp: see below.
+      const { indexed_at } = db.prepare("SELECT indexed_at FROM documents").get() as { indexed_at: string };
+      setMtime(join(root, "notes/raft.md"), Date.parse(indexed_at) + 0.5);
+      expect(indexStaleness(db, root, taxonomy)).toEqual({ stale: 1, indexed: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a clock stepped back during the run's setup neither stalls it nor leaves its stamp ahead (#4870)", async () => {
+    const root = makeCorpus({ "notes/raft.md": md("Raft", "Built on Ogygia.") });
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    const STEPPED = START - 3_600_000;
+    let clock = START;
+    setSystemTime(new Date(clock));
+    const waits: number[] = [];
+    const sleep = spyOn(Bun, "sleepSync").mockImplementation((ms) => { waits.push(Number(ms)); clock += Number(ms); setSystemTime(new Date(clock)); });
+    // The clock steps back an hour while the run reads its provider policy,
+    // whose first step resolves the brain root.
+    const realpath = nodeFs.realpathSync;
+    let stepped = false;
+    const policy = spyOn(nodeFs, "realpathSync").mockImplementation(((...args: Parameters<typeof realpath>) => {
+      if (!stepped && args[0] === root) {
+        stepped = true;
+        clock = STEPPED;
+        setSystemTime(new Date(clock));
+      }
+      return realpath(...args);
+    }) as typeof realpath);
+    try {
+      await indexAll(db, { root, taxonomy, quiet: true });
+    } finally {
+      policy.mockRestore();
+      sleep.mockRestore();
+      setSystemTime();
+    }
+    try {
+      expect(stepped).toBe(true);
+      expect(Math.max(0, ...waits)).toBeLessThanOrEqual(1);
+      const { indexed_at } = db.prepare("SELECT indexed_at FROM documents").get() as { indexed_at: string };
+      expect(Date.parse(indexed_at)).toBe(STEPPED + 1);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a clock stepped back between the stamp and the wait costs at most a millisecond's wait (#4870)", async () => {
+    const root = makeCorpus({ "notes/raft.md": md("Raft", "Built on Ogygia.") });
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    let readings = 0;
+    const now = spyOn(Date, "now").mockImplementation(() => (readings++ === 0 ? START : START - 3_600_000));
+    const waits: number[] = [];
+    const sleep = spyOn(Bun, "sleepSync").mockImplementation((ms) => { waits.push(Number(ms)); });
+    try {
+      await indexAll(db, { root, taxonomy, quiet: true });
+    } finally {
+      now.mockRestore();
+      sleep.mockRestore();
+      db.close();
+    }
+    expect(waits).toEqual([1]);
+  });
+
+  test("a run reads nothing before the clock has passed its stamp", async () => {
+    const root = makeCorpus({ "notes/raft.md": md("Raft", "Built on Ogygia.") });
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    // The first thing a run reads is the index's document rows; every file is read after them.
+    const prepare = db.prepare;
+    const firstRead: number[] = [];
+    db.prepare = ((...args: Parameters<typeof prepare>) => {
+      if (String(args[0]).startsWith("SELECT id, path, asset_type, content_hash") && !firstRead.length) firstRead.push(Date.now());
+      return prepare.apply(db, args);
+    }) as typeof prepare;
+    const clock = controlledClock();
+    try {
+      await indexAll(db, { root, taxonomy, quiet: true });
+    } finally {
+      clock.restore();
+      db.prepare = prepare;
+    }
+    try {
+      const { indexed_at } = db.prepare("SELECT indexed_at FROM documents").get() as { indexed_at: string };
+      expect(Date.parse(indexed_at)).toBe(START + 1);
+      expect(firstRead).toHaveLength(1);
+      expect(firstRead[0]).toBeGreaterThanOrEqual(Date.parse(indexed_at));
+    } finally {
+      db.close();
+    }
   });
 });
 
@@ -1179,6 +1297,68 @@ describe("sidecar cache pruning", () => {
     expect(warnings).toEqual([]);
     expect(chunkScans).toEqual([[], []]);
     expect(readFileSync(join(root, ".brain-cache/contexts.jsonl"), "utf-8")).toBe("\n");
+  });
+
+  // Another run publishes the cache while the prune scans the chunks: `run`
+  // replaces the file once, when the scan starts. Restored by the caller.
+  function duringChunkScan(db: Database, run: () => void): () => void {
+    const prepare = db.prepare;
+    db.prepare = ((...args: Parameters<typeof prepare>) => {
+      const statement = prepare.apply(db, args);
+      const sql = String(args[0]);
+      if (!sql.includes("SELECT c.heading, c.content, d.title") || sql.includes("c.context")) return statement;
+      const iterate = statement.iterate.bind(statement);
+      statement.iterate = ((...params: Parameters<typeof iterate>) => { run(); return iterate(...params); }) as typeof statement.iterate;
+      return statement;
+    }) as typeof prepare;
+    return () => { db.prepare = prepare; };
+  }
+
+  test("a context line another run publishes during the chunk scan survives the prune (#4874)", async () => {
+    const root = makeCorpus({ "note.md": mdSections("Note", ["oar", "mast", "sail"]) });
+    await runIndex(root, withEnrichment());
+    const path = join(root, ".brain-cache/contexts.jsonl");
+    const live = sidecarLines(root, ".brain-cache/contexts.jsonl");
+    expect(live).toHaveLength(3);
+    const [late, ...early] = live;
+    const stale = JSON.stringify({ k: "stale-context", v: "stale" });
+    writeCacheFile(path, [...early, stale].sort().join("\n") + "\n");
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    // An embeddings run banks `late`, publishing the whole file as saveContextCache does.
+    const restore = duringChunkScan(db, () => writeCacheFile(path, [...early, stale, late].sort().join("\n") + "\n"));
+    const warnings: string[] = [];
+    try {
+      expect(pruneSidecarCaches(db, root, (m) => warnings.push(m))).toEqual({ assets: 0, contexts: 1 });
+    } finally {
+      restore();
+      db.close();
+    }
+    expect(warnings).toEqual([]);
+    expect(sidecarLines(root, ".brain-cache/contexts.jsonl")).toEqual(live);
+  });
+
+  test("a context line forgotten during the chunk scan is not written back by the prune (#4874)", async () => {
+    const root = makeCorpus({ "note.md": mdSections("Note", ["oar", "mast", "sail"]) });
+    await runIndex(root, withEnrichment());
+    const path = join(root, ".brain-cache/contexts.jsonl");
+    const live = sidecarLines(root, ".brain-cache/contexts.jsonl");
+    expect(live).toHaveLength(3);
+    const stale = JSON.stringify({ k: "stale-context", v: "stale" });
+    writeCacheFile(path, [...live, stale].sort().join("\n") + "\n");
+    const [forgotten, ...rest] = live;
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
+    // `--forget-cache` removes `forgotten` meanwhile; the stale line makes the prune write.
+    const restore = duringChunkScan(db, () => writeCacheFile(path, [...rest, stale].sort().join("\n") + "\n"));
+    const warnings: string[] = [];
+    try {
+      expect(pruneSidecarCaches(db, root, (m) => warnings.push(m))).toEqual({ assets: 0, contexts: 1 });
+    } finally {
+      restore();
+      db.close();
+    }
+    expect(warnings).toEqual([]);
+    expect(sidecarLines(root, ".brain-cache/contexts.jsonl")).toEqual(rest);
+    expect(sidecarLines(root, ".brain-cache/contexts.jsonl")).not.toContain(forgotten);
   });
 
   test("context lines of a deleted document and an edited section go; renamed and untouched ones stay", async () => {
