@@ -48,7 +48,7 @@ export interface ReleaseEntry {
   version: string;
 }
 
-export interface ReleaseStep extends ReleaseEntry {
+interface ReleaseStep extends ReleaseEntry {
   action: "publish" | "skip";
 }
 
@@ -137,7 +137,7 @@ export async function awaitPublished(
  * between the two `bun publish` calls. The npm name comes from each manifest —
  * directory names and package names diverge (core → @schlessera/brain).
  */
-export function releaseEntries(packagesRoot: string = root): ReleaseEntry[] {
+function releaseEntries(packagesRoot: string = root): ReleaseEntry[] {
   return listPublishablePackages(packagesRoot).map(({ dir, name, version }) => ({
     dir,
     name,

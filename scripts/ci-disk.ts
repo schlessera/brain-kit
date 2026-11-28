@@ -39,7 +39,7 @@ export const RECLAIMABLE = [
   "/usr/share/swift",
 ] as const;
 
-export interface DiskReading { path: string; totalBytes: number; availableBytes: number; floorBytes: number }
+interface DiskReading { path: string; totalBytes: number; availableBytes: number; floorBytes: number }
 type Statfs = (path: string) => { blocks: number; bsize: number; bavail: number };
 
 export function turnFreeSpaceFloor(totalBytes: number): number {

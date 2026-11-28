@@ -1,6 +1,6 @@
 import type { CapturedRequest } from "./capture-turn-surface";
 
-export const TOKEN_GROUPS = ["everythingElse", "builtinTools", "brainMcpTools", "bridgeTools", "skillListing"] as const;
+const TOKEN_GROUPS = ["everythingElse", "builtinTools", "brainMcpTools", "bridgeTools", "skillListing"] as const;
 export type TokenGroup = typeof TOKEN_GROUPS[number];
 type TextBlock = { type: string; text?: string; [key: string]: unknown };
 const SKILL_START = "The following skills are available for use with the Skill tool:\n\n";

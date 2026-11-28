@@ -87,7 +87,7 @@ export function checkIconImports(sources: Sources): string[] {
 }
 
 /** The ui-react sources under `root`, by repository-relative path. */
-export function scanSources(root: string): Sources {
+function scanSources(root: string): Sources {
   const sources: Sources = {};
   for (const file of treeFiles(root, `${SRC}/**/*.{ts,tsx}`)) sources[file.split("\\").join("/")] = readFileSync(resolve(root, file), "utf8");
   return sources;

@@ -5,7 +5,7 @@ import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
 import { repoArtifactMask } from "./native-proof/repo-artifact-mask.js";
 
 /** `integrated` runs the app-level proof of #2751 on the same owned volumes, for the named backends. */
-export function referencePoolDockerArgs(root: string, artifact: string, apparmor: boolean, bun: string, integrated?: { backends: string[] }, candidate?: string): string[] {
+function referencePoolDockerArgs(root: string, artifact: string, apparmor: boolean, bun: string, integrated?: { backends: string[] }, candidate?: string): string[] {
   return ["docker", "run", "--rm", "--pull=never", "--network=none", "--cap-drop=ALL",
     // The efficiency report (#3513) names the exact candidate it measured.
     ...(candidate ? [`--env=BRAIN_PROOF_CANDIDATE=${candidate}`] : []),

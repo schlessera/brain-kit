@@ -12,7 +12,7 @@
 export const EXPECTED_FAILURE_PREFIX = "expected-failure control | ";
 
 /** Copies `stream` to `write`, prefixing every line, including a final line without a newline. */
-export async function relayExpectedFailure(stream: ReadableStream<Uint8Array>, write: (text: string) => void): Promise<void> {
+async function relayExpectedFailure(stream: ReadableStream<Uint8Array>, write: (text: string) => void): Promise<void> {
   const decoder = new TextDecoder();
   let pending = "";
   for await (const chunk of stream) {

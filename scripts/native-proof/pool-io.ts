@@ -8,7 +8,7 @@
 import { readFileSync, statSync } from "node:fs";
 
 /** The fixture's pool loop device (reference-pool-fixture.py). */
-export const POOL_DEVICE = "/dev/brain-pool-loop";
+const POOL_DEVICE = "/dev/brain-pool-loop";
 export interface PoolIo { device: { readOps: number; readBytes: number; writeOps: number; writeBytes: number }; process: { readBytes: number; writeBytes: number; rchar: number; wchar: number } }
 
 export function poolIo(device = POOL_DEVICE): PoolIo | null {

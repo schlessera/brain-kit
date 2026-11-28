@@ -135,7 +135,7 @@ function declaredIn(scope: ts.Node, name: string): ts.Expression | null | undefi
  * enclosing block, function or file that declares it (#5008). A `let`, `var`
  * or parameter of the same name shadows it and resolves to nothing.
  */
-export function constInitializer(use: ts.Identifier): ts.Expression | null {
+function constInitializer(use: ts.Identifier): ts.Expression | null {
   for (let scope: ts.Node | undefined = use.parent; scope; scope = scope.parent) {
     const found = declaredIn(scope, use.text);
     if (found !== undefined) return found;
@@ -147,7 +147,7 @@ export function constInitializer(use: ts.Identifier): ts.Expression | null {
  * Whether an expression is SQL text: a literal, a combination of one, a name
  * that says so, or a name whose `const` initializer in its own scope is SQL text.
  */
-export function isSqlText(node: ts.Expression, seen = new Set<ts.Expression>()): boolean {
+function isSqlText(node: ts.Expression, seen = new Set<ts.Expression>()): boolean {
   const sql = (next: ts.Expression) => isSqlText(next, seen);
   node = unwrap(node);
   if (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node) || ts.isTaggedTemplateExpression(node)) return true;
@@ -170,7 +170,7 @@ export function isSqlText(node: ts.Expression, seen = new Set<ts.Expression>()):
 }
 
 /** Every `.prepare(<SQL text>, …)` call in one source file. */
-export function sqlPrepareSites(file: string, text: string): Site[] {
+function sqlPrepareSites(file: string, text: string): Site[] {
   const source = parse(file, text);
   const sites: Site[] = [];
   const visit = (node: ts.Node) => {

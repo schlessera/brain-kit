@@ -26,7 +26,7 @@ interface RawJob {
   id: number; run_id: number; run_attempt?: number; name: string; status: string;
   conclusion: string | null; created_at?: string; started_at?: string; completed_at?: string; labels?: string[]; steps?: RawStep[];
 }
-export interface TimingJob {
+interface TimingJob {
   id: number; name: string; category: string; conclusion: string | null; labels: string[];
   execution: "observed" | "excluded" | "retained" | "unobserved";
   createdAt?: string | null; startedAt: string | null; completedAt: string | null; seconds: number | null;

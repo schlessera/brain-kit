@@ -8,7 +8,7 @@ import { listPublishablePackages } from "./publishable-packages";
 export type BuildFile = { path: string; mode: number; kind: "directory" | "file" | "link"; sha256?: string; target?: string };
 export const digest = (bytes: string | Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 export const identity = (value: unknown) => digest(JSON.stringify(value));
-export function safePath(path: string): string {
+function safePath(path: string): string {
   if (!path || path.includes("\\") || path.includes("\0") || posix.isAbsolute(path) || posix.normalize(path) !== path || path === ".." || path.startsWith("../")) throw new Error("Unsupported build path");
   return path;
 }
@@ -135,7 +135,7 @@ export function captureDerivedOutput(root: string, destination: string, expected
   return records;
 }
 
-export type BuildMount = { source: string; target: string; readonly: boolean };
+type BuildMount = { source: string; target: string; readonly: boolean };
 export function buildMounts(input: string, state: string, packages: readonly string[], derived: Readonly<Record<string, string>> = {}) {
   const mounts: BuildMount[] = [];
   if (Object.keys(derived).some(pkg => !packages.includes(pkg))) throw new Error("Unknown derived build package");

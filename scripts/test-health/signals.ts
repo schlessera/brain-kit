@@ -16,7 +16,7 @@ import ts from "typescript";
 import { smellById } from "./catalog";
 
 /** Bump when the scanner's output for unchanged source would change. */
-export const SCAN_VERSION = 2;
+const SCAN_VERSION = 2;
 
 export interface Signal { smell: string; line: number; detail?: string; weight?: number }
 export interface FileSignals {

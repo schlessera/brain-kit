@@ -87,7 +87,7 @@ function routedServer(name: string, peer: Peer, arm: Arm, picked: ReadonlySet<st
   return { type: "sdk", name, instance };
 }
 
-export interface RoutingOptions {
+interface RoutingOptions {
   enabled?: boolean;
   arm: Arm;
   client: JevClient;

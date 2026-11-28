@@ -10,7 +10,7 @@ const MAX_EVENTS = 100, MAX_BYTES = 256 * 1024, MAX_EVENT_BYTES = 8192;
 const opaque = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
 
 /** Strict local-event schema plus the same personal-string screen as the tree. */
-export function screenPublishedEvent(value: unknown, repository: string): WorkEvent {
+function screenPublishedEvent(value: unknown, repository: string): WorkEvent {
   const e = validateWorkEvent(value);
   if (e.repository !== repository) throw new Error("Event repository differs from --repo");
   if (!["work-started", "work-finished", "wait-started", "wait-finished", "preempted"].includes(e.kind) ||

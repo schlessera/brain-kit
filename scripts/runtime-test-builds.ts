@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
-export const runtimeTestBuilds: Readonly<Record<string, readonly string[]>> = Object.fromEntries([
+const runtimeTestBuilds: Readonly<Record<string, readonly string[]>> = Object.fromEntries([
   "answer-delivery", "approval-recovery", "artifact-recovery", "attachment-read", "association-signout", "auth-expiry", "chat-focus",
   "connection-continuity", "dictation-selection", "draft", "ended-question", "external-speech", "html-preview", "live-service", "local-work", "parallel-sessions", "passkey-login", "persona-settings", "scratch-links", "start-card", "tracker", "turn-journal", "untrusted-marks",
 ].map(name => [`packages/ui-react/tests/${name}-runtime.test.ts`, ["ui-react", "ui-server", "core"]]));

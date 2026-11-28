@@ -20,7 +20,7 @@ import { join, resolve } from "path";
 
 const ROOT = resolve(import.meta.dir, "..");
 
-export interface ChangesetVerdict {
+interface ChangesetVerdict {
   /** Shipped files that put this change in scope, relative to the repo root. */
   shipped: string[];
   /** Changeset files ADDED by this change. */

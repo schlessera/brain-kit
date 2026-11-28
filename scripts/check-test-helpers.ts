@@ -53,7 +53,7 @@ const lineAt = (text: string, index: number) => text.slice(0, index).split("\n")
  * The text of a declaration starting at `start`: up to the bracket that
  * closes its body, or the `;` that ends it, skipping strings and comments.
  */
-export function declarationText(text: string, start: number, maxLines = 80): string {
+function declarationText(text: string, start: number, maxLines = 80): string {
   let depth = 0, lines = 0;
   for (let i = start; i < text.length; i++) {
     const c = text[i]!;
@@ -153,7 +153,7 @@ export function scanSource(file: string, text: string, rules: readonly Rule[] = 
   return rules.flatMap((rule) => rule.allowed.includes(file) ? [] : rule.sites(text).map((site) => ({ rule: rule.id, file, ...site })));
 }
 
-export function testFiles(root: string): string[] {
+function testFiles(root: string): string[] {
   return treeFiles(root, SCANNED).filter((file) => !/(^|\/)(node_modules|dist)\//.test(file));
 }
 

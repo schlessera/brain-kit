@@ -14,12 +14,12 @@ import { failureKey } from "./red-main";
 import { archiveInputs, deduplicate, lifecycleCoverage, reservationCoverage, summarize, type ReportInputs, type TimingSnapshot } from "./ci-timings";
 import { resolveRepository } from "./lib/gh";
 
-export const EVIDENCE_REPORT_VERSION = 1;
+const EVIDENCE_REPORT_VERSION = 1;
 export type Cadence = "daily" | "weekly";
 /** The artifact base name each cadence writes: `<name>.json` and `<name>.md`. */
-export const REPORT_NAMES: Record<Cadence, string> = { daily: "digest", weekly: "weekly" };
+const REPORT_NAMES: Record<Cadence, string> = { daily: "digest", weekly: "weekly" };
 /** GitHub's retention cap for a public repository's artifacts, logs and runs. */
-export const RETENTION_DAYS = 90;
+const RETENTION_DAYS = 90;
 /** The #2934 Phase B gate, ruled on #2938. */
 export const GATE = { days: 7, firstMainGreenPercent: 80 } as const;
 const HOUR = 3_600_000, DAY = 86_400_000, TOP = 10;
@@ -28,7 +28,7 @@ const SCENARIO = { failedPRFraction: .3, additionalPushes: 2, failedRunCostFract
 const iso = (ms: number) => new Date(ms).toISOString();
 const stamp = (value: unknown): value is string => typeof value === "string" && Number.isFinite(Date.parse(value));
 
-export interface EvidenceOptions {
+interface EvidenceOptions {
   cadence: Cadence;
   /** Exclusive end of the reported window, on a whole UTC hour. */
   until: string;
@@ -39,8 +39,8 @@ export interface EvidenceOptions {
   archiveHead?: string | null;
 }
 type Status = "met" | "not met" | "unknown";
-export interface GateCondition { status: Status; reason: string }
-export interface GateResult {
+interface GateCondition { status: Status; reason: string }
+interface GateResult {
   status: "met" | "not met"; window: { since: string; until: string };
   failing: ("epoch" | "firstMainGreen" | "incidentsAttributed")[];
   conditions: { epoch: GateCondition & { epoch: string | null; days: number | null };
@@ -49,7 +49,7 @@ export interface GateResult {
 }
 
 /** The window a cadence reports: the UTC day, or the seven days, before `until`. */
-export function reportWindow(cadence: Cadence, until: string): { since: string; until: string } {
+function reportWindow(cadence: Cadence, until: string): { since: string; until: string } {
   const end = Date.parse(until);
   if (!Number.isFinite(end) || end % HOUR) throw new Error("A report window ends on a whole UTC hour");
   return { since: iso(end - (cadence === "daily" ? DAY : GATE.days * DAY)), until: iso(end) };
@@ -111,7 +111,7 @@ function incidentsIn(redMain: NonNullable<ReturnType<typeof summarizeRedMain>>, 
  * incident is attributed when a `failure-classified` event records its opening
  * run. Missing evidence makes a condition unknown, and unknown is not met.
  */
-export function phaseBGate(data: Loaded, until: string, epochSource: EpochSource | undefined): GateResult {
+function phaseBGate(data: Loaded, until: string, epochSource: EpochSource | undefined): GateResult {
   const window = { since: iso(Date.parse(until) - GATE.days * DAY), until };
   const throughput = throughputFor(data, window, epochSource), epochs = throughput.epochs, current = epochs?.current ?? null;
   const epoch: GateResult["conditions"]["epoch"] = { status: "unknown", reason: "", epoch: current?.id ?? null, days: current?.days ?? null };
@@ -286,7 +286,7 @@ export function evidenceReport(inputs: ReportInputs, options: EvidenceOptions) {
     detail: options.cadence === "weekly" ? { throughput } : null,
   };
 }
-export type EvidenceReport = ReturnType<typeof evidenceReport>;
+type EvidenceReport = ReturnType<typeof evidenceReport>;
 
 /** Consecutive whole hours as compact ranges, so a long gap reads as one line. */
 export function hourRanges(hours: string[]): string[] {

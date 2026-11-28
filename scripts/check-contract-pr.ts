@@ -35,10 +35,10 @@ import { resolve } from "path";
 const ROOT = resolve(import.meta.dir, "..");
 
 export const CONTRACT_DOC = "docs/integration-contract.md";
-export const CONTRACT_PREFIX = "CONTRACT:";
-export const CONTRACT_LABEL = "contract";
+const CONTRACT_PREFIX = "CONTRACT:";
+const CONTRACT_LABEL = "contract";
 
-export interface ContractVerdict {
+interface ContractVerdict {
   touchesDoc: boolean;
   titled: boolean;
   labelled: boolean;

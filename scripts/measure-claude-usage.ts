@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { CompletedResponseUsage } from "../packages/ui-backend-claude/src/usage.js";
 
-export async function measureClaudeUsage() {
+async function measureClaudeUsage() {
   const entry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
   const { query } = await import(entry) as typeof import("@anthropic-ai/claude-agent-sdk");
   const requests: Array<{ turn: number; model: string; stream: boolean }> = [];

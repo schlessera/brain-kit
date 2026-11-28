@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-export interface BrowserSpec { key: string; project: string; }
+interface BrowserSpec { key: string; project: string; }
 export interface BrowserCosts { seconds: Record<string, number>; }
 export const UNKNOWN_BROWSER_SECONDS = 1;
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;

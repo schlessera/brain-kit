@@ -24,7 +24,7 @@ export interface CapturedRequest {
 }
 
 /** A second transport delegates to the original core executors. */
-export function coreSdkServer(peer: Peer) {
+function coreSdkServer(peer: Peer) {
   const instance = new McpServer({ name: "brain", version: "0.1.0" }, {
     capabilities: { tools: {} }, instructions: peer.client.getInstructions(),
   });

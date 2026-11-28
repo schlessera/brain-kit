@@ -22,9 +22,9 @@ import { git } from "../lib/git";
 
 const MUTATE_GIT = { error: (args: readonly string[], _code: number | null, stderr: string) => `git ${args.slice(0, 2).join(" ")}: ${stderr.trim()}` } as const;
 
-export type MutationVerdict = "killed" | "survived" | "wrong-reason" | "load-error" | "unstable-baseline";
+type MutationVerdict = "killed" | "survived" | "wrong-reason" | "load-error" | "unstable-baseline";
 
-export interface MutationReceipt {
+interface MutationReceipt {
   schemaVersion: 1;
   tool: "test-health mutate";
   at: string;
@@ -38,7 +38,7 @@ export interface MutationReceipt {
   runs: Record<"baseline" | "mutated" | "restored", { exitCode: number; wallMs: number; failedCases: string[] } | null>;
 }
 
-export interface MutateOptions {
+interface MutateOptions {
   root: string;
   test: string;
   name?: string;

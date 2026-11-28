@@ -12,7 +12,7 @@
  * not current list prices, and are not recomputed.
  */
 export const SONNET55_USD_PER_MTOK = { input: 2, output: 10, cacheRead: 0.1, cacheWrite5m: 2.5, cacheWrite1h: 4 } as const;
-export interface Sonnet55Price {
+interface Sonnet55Price {
   lowerUsd: number;
   upperUsd: number;
   unknownCacheTokens: number;

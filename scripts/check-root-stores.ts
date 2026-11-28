@@ -45,7 +45,7 @@ export function checkRootStores(source: string, file = "source.tsx"): string[] {
 }
 
 /** Findings for every ui-react source file under `root`. */
-export function scanRootStores(root: string): string[] {
+function scanRootStores(root: string): string[] {
   const findings: string[] = [];
   for (const file of treeFiles(root, "packages/ui-react/src/**/*.{ts,tsx}")) {
     findings.push(...checkRootStores(readFileSync(resolve(root, file), "utf8"), relative(root, resolve(root, file))));

@@ -177,7 +177,7 @@ export function outermost(root: Json, shapes: ReadonlyMap<string, number>): stri
   });
 }
 
-export interface VariantRow {
+interface VariantRow {
   kind: string;
   chars: number;
   prose: number;

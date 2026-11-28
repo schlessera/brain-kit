@@ -29,7 +29,7 @@ export interface Profile {
 
 export interface Config { ledgerRemote: string; ledgerRef: string; profile: Profile }
 
-export const CONFIG_FILE = join(import.meta.dir, "config.json");
+const CONFIG_FILE = join(import.meta.dir, "config.json");
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

@@ -18,18 +18,18 @@ const LANE_GIT = { trim: true, error: (args: readonly string[], _code: number | 
 /** Main-push runs one lane decision reads at most: the own run and up to nine later ones. */
 export const MAX_MAIN_RUNS = 10;
 /** First-parent main squashes examined for the last proof-system change. */
-export const SCAN_LIMIT = 200;
+const SCAN_LIMIT = 200;
 /** Run URLs read from one PR body's qualification section. */
-export const MAX_QUALIFICATION_RUNS = 5;
-export const QUALIFICATION_HEADING = "Off-main qualification";
+const MAX_QUALIFICATION_RUNS = 5;
+const QUALIFICATION_HEADING = "Off-main qualification";
 
 export interface MainRun { id: number; status: string; conclusion: string | null }
 /** One main squash the decision read. `position` counts squashes in merge
  * order from the proof-system squash, which is position 0. `settled` is false
  * while its run may still change: queued, in progress, or not created yet at
  * the newest squash. */
-export interface WindowEntry { position: number; sha: string; run: MainRun | null; green: boolean; settled: boolean }
-export interface LaneDecision {
+interface WindowEntry { position: number; sha: string; run: MainRun | null; green: boolean; settled: boolean }
+interface LaneDecision {
   schemaVersion: 1;
   /** The main squash the history was read from. */
   main: string;
@@ -53,14 +53,14 @@ export interface LaneDecision {
 
 /** Only a completed, successful run is green: missing, queued, in-progress,
  * cancelled, failed, skipped or timed-out runs are not. */
-export function isGreen(run: MainRun | null): boolean {
+function isGreen(run: MainRun | null): boolean {
   return run?.status === "completed" && run.conclusion === "success";
 }
 
 /** `later` holds the newest `MAX_MAIN_RUNS - 1` squashes after the
  * proof-system squash, in merge order; `omitted` counts the older ones
  * between it and them, which the decision does not read. */
-export interface ProofSystemHistory { squash: string | null; later: string[]; omitted: number; scanned: number }
+interface ProofSystemHistory { squash: string | null; later: string[]; omitted: number; scanned: number }
 
 /** The most recent first-parent squash at or before `main` whose diff to its
  * parent is a proof-system change, and the newest squashes after it within the bound. */
@@ -179,7 +179,7 @@ export function qualificationRunIds(text: string, repository: string): number[] 
 }
 
 export interface QualificationRun { id: number; headSha: string | null; repository: string | null; status: string | null; conclusion: string | null }
-export interface QualificationEvidence { run: number; headSha: string; via: "head" | "ancestor" }
+interface QualificationEvidence { run: number; headSha: string; via: "head" | "ancestor" }
 
 /** Whether a completed, successful run's head SHA qualifies `head`: it is the head, or an ancestor
  * whose diff to the head is not a proof-system change. Returns why not. */

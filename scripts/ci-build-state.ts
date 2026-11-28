@@ -1,6 +1,6 @@
 /** Shared necessary reuse predicates; purpose never substitutes for qualification. */
 import { identity, type BuildFile } from "./ci-build-boundary";
-export type BuildPurpose = "production" | "qualification";
+type BuildPurpose = "production" | "qualification";
 export const operationFor = (purpose: BuildPurpose) => purpose === "production" ? "fixed-isolated-ci-v1" : "fixed-isolated-ci-qualification-v1";
 export type BuildMaterial = { producer: Record<string, string>; configuration: Record<string, string>; installation: string; bun: string };
 export const buildProducerPaths = ["scripts/build.ts", "scripts/build-execution.ts", "scripts/build-receipt.ts", "scripts/build-repeat-observation.ts", "scripts/bin-modes.ts", "scripts/publishable-packages.ts", "scripts/workspace-lease.mjs",

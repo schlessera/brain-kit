@@ -12,7 +12,7 @@ export const diagramProducerImageIdentity="mcr.microsoft.com/playwright@sha256:e
 /** @type {(bytes:string|Uint8Array)=>string} */
 const hash=bytes=>createHash("sha256").update(bytes).digest("hex");
 /** @returns {{image:string,bun:string,executable:string,bytes:Uint8Array,sha256:string}} */
-export function diagramProducerRuntime(){
+function diagramProducerRuntime(){
  const bun=(process.env.PATH??"").split(delimiter).map(dir=>resolve(dir,"bun")).find(path=>{try{accessSync(path,constants.X_OK);return statSync(path).isFile();}catch{return false;}});
  if(!bun)throw Error("Native diagram producer requires the installed Bun");
  const image=diagramProducerImageIdentity;

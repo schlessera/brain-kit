@@ -162,7 +162,7 @@ export function requireRuntimeTools(plan: CheckPlan): string | undefined {
  * the type check resolves; browser, capture and native stages share Docker,
  * Chrome or the native loop and storage fixtures, and browser jobs keep their
  * measured scheduling/isolation behavior and diagnostic artifacts. */
-export const CONCURRENT_LOCAL_CHECKS: ReadonlySet<string> = new Set(["strict typecheck", "complete unit and integration suite"]);
+const CONCURRENT_LOCAL_CHECKS: ReadonlySet<string> = new Set(["strict typecheck", "complete unit and integration suite"]);
 
 export function localStages(commands: readonly Command[]): Command[][] {
   const concurrent = commands.filter(command => CONCURRENT_LOCAL_CHECKS.has(command.name));
@@ -243,7 +243,7 @@ export async function runPreflight(steps: PreflightStep[], receipt: CheckReceipt
   return receipt;
 }
 
-export function writeReceipt(path: string, receipt: CheckReceipt): void {
+function writeReceipt(path: string, receipt: CheckReceipt): void {
   mkdirSync(dirname(path), { recursive: true });
   // Replace atomically so a killed run never leaves a truncated receipt.
   writeFileSync(`${path}.tmp`, JSON.stringify(receipt, null, 2) + "\n"); renameSync(`${path}.tmp`, path);

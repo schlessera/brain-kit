@@ -17,7 +17,7 @@ const FEEDBACK_GH = { trim: true, error: (_args: readonly string[], code: number
 /** One `gh` invocation: argv plus optional stdin, resolving stdout. */
 export type GH = (args: string[], input?: string) => Promise<string>;
 
-export interface FeedbackRun { pr: number; head: string; base: string; workflow: string; run: number; url: string; api: string; }
+interface FeedbackRun { pr: number; head: string; base: string; workflow: string; run: number; url: string; api: string; }
 
 export async function requestHeavyFeedback(gh: GH, repository: string, pr: number): Promise<FeedbackRun> {
   if (!Number.isSafeInteger(pr) || pr < 1) throw new Error("Usage: bun scripts/request-heavy-feedback.ts <pr> [--json]");

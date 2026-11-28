@@ -5,7 +5,7 @@
  * exit with `git <args> failed (<code>): <stderr>`.
  */
 
-export interface GitOptions {
+interface GitOptions {
   /** Trim stdout. */
   trim?: boolean;
   /** Exit codes that return instead of throwing (default `[0]`). */

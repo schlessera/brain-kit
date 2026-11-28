@@ -19,7 +19,7 @@ export interface WorkEvent {
   evidence?: string;
 }
 export interface Scenario { failedPRFraction: number; additionalPushes: number; failedRunCostFraction: number; failedRunElapsedFraction?: number; }
-export interface AnalysisWindow { since: string; until: string; source: string; }
+interface AnalysisWindow { since: string; until: string; source: string; }
 type Interval = { start: number; end: number };
 const SHA = /^[a-f0-9]{40}$/;
 const stamp = (x: unknown): x is string => typeof x === "string" && Number.isFinite(Date.parse(x));
