@@ -156,8 +156,10 @@ describe("test-app helper teardown", () => {
       } finally {
         failingClose.mockRestore();
       }
-      // Awaited directly: under expect(...).rejects the app's storage worker
-      // does not settle its shutdown, and teardown fails on that instead.
+      // Awaited directly: under expect(...).rejects Bun 1.4.4 delivers no
+      // Worker reply while it waits, so the storage writer's shutdown misses
+      // its settlement and teardown fails on that instead (#5047, which holds
+      // the standalone repro).
       const closeError = await newer.teardown().then(() => undefined, (error: unknown) => error);
       expect(closeError).toBeInstanceOf(Error);
       expect((closeError as Error).message).toBe("odysseus native close failed");
