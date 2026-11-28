@@ -1028,6 +1028,10 @@ export interface CronConfig {
   brainPath: string;
   /** The deployment database; unlike createApp(), the bin defaults to the container path. */
   dbPath: string;
+  /** BRAIN_UI_INBOX_POKE_TOKEN_FILE: the server's private token file, checked like the server checks it (#4498). */
+  inboxPokeTokenFile: string | null;
+  /** The server's compute settings, from which cron derives the same private-state layout (#4498). */
+  compute: NonNullable<ServerConfig["compute"]>;
   /**
    * Model pricing for a gated job's provider-relay budget. Its cache lives
    * below `brainPath`, the brain the job runs in, whatever `BRAIN_PATH` is.
@@ -1450,6 +1454,8 @@ export function resolveCronConfig(
     maintenanceTemp: hostMaintenanceTempLimits(env),
     brainPath,
     dbPath: env.DB_PATH || "/data/db/brain-ui.db",
+    inboxPokeTokenFile: env.BRAIN_UI_INBOX_POKE_TOKEN_FILE || null,
+    compute: resolveComputeConfig(env, env.DB_PATH || "/data/db/brain-ui.db"),
     pricing: { ...resolveStandalonePricingConfig(env), brainPath },
     moduleDiscoveryEnv: filterPackageSubprocessEnv(
       env,

@@ -104,6 +104,8 @@ test("real original and variant boundary methods preserve owned operation order,
       },
       // A scratch prune is credential-free: no CLI provider relay (#1673).
       providerRelayFor: () => undefined,
+      // No boot check was deferred (#4301): the run proceeds at once.
+      preflight: async () => {},
       options: { log: logger }, command: () => launch, prepareMaintenanceGit: async (...args: unknown[]) => {
         expect(args.length, "OWNED_PRUNE_GIT_ARGUMENT_COUNT_PRESERVED").toBe(4);
         expect(args[0], "OWNED_PRUNE_GIT_COMMAND_IDENTITY_PRESERVED").toBe(launch);
@@ -140,7 +142,8 @@ test("real original and variant boundary methods preserve owned operation order,
     expect(original.error, "OWNED_PRUNE_ORIGINAL_REACHES_SUCCESS").toBeUndefined();
     expect(observed.error, "OWNED_PRUNE_VARIANT_REACHES_SUCCESS").toBeUndefined();
     expect(observed, "OWNED_PRUNE_AUTHORITY_AND_EXECUTION_PRESERVED").toEqual(original);
-    expect(observed.calls).toEqual(["authorize", "gate", "credential", "output-lock", "authorize", "git-targets", "view", "output", "git", "authorize", "authorize", "on-execute", "worker", "authorize", "publish", "output-cleanup", "view-cleanup"]);
+    // Authority is checked before the deferred boot check, then again under the gate (#4301 F38).
+    expect(observed.calls).toEqual(["authorize", "authorize", "gate", "credential", "output-lock", "authorize", "git-targets", "view", "output", "git", "authorize", "authorize", "on-execute", "worker", "authorize", "publish", "output-cleanup", "view-cleanup"]);
     const failedOriginal = await execute(boundary, true), failedObserved = await execute(variant, true);
     expect(failedObserved.calls).toEqual(failedOriginal.calls); expect(failedObserved.error).toBe(failure); expect(failedOriginal.error).toBe(failure);
     expect(failedObserved.calls.slice(-2)).toEqual(["output-cleanup", "view-cleanup"]);

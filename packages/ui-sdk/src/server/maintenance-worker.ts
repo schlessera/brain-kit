@@ -24,6 +24,7 @@ import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
 import { reserveMaintenanceTemp, type MaintenanceTempDomain, type MaintenanceTempKind } from "./maintenance-temp-budget.js";
 import { OUTPUT_STAGING_BYTES_ENV, resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
+import { kernelRealpath, privateStateRefusalOf, takeAdmissionWalk, walkUnqualifiedLaunch } from "./worker-private-state.js";
 import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
 
@@ -383,7 +384,7 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       // An abort's or a gate failure's sandbox has already been stopped: it
       // leaves as itself, once what the launch owns is released (an
       // asynchronous caller waits for that).
-      if (aborted || (input as { signal?: AbortSignal }).signal?.aborted || error instanceof WorkerHostError) {
+      if (aborted || privateStateRefusalOf(error) || (input as { signal?: AbortSignal }).signal?.aborted || error instanceof WorkerHostError) {
         yield* workerStep(() => undefined, () => cleanup);
         throw aborted ? aborted.reason : error;
       }
@@ -450,17 +451,20 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
 }
 
 /** Native writable qualification prepares asynchronously and awaits ownership cleanup. */
-export async function probeNativeMaintenanceWorker(brainPath: string, tempLimits: WorkerStateLimits | undefined, tempDomain: MaintenanceTempDomain | undefined, startupView: WorkerStartupView, signal?: AbortSignal): Promise<{ ok: true } | { ok: false; requirement: string }> {
+export async function probeNativeMaintenanceWorker(brainPath: string, tempLimits: WorkerStateLimits | undefined, tempDomain: MaintenanceTempDomain | undefined, startupView: WorkerStartupView, signal?: AbortSignal,
+  /** The host's own masks: the probe sees what every maintenance worker of this host sees (#4301 F2). */
+  maskPaths?: readonly string[]): Promise<{ ok: true } | { ok: false; requirement: string }> {
   let outputs: Awaited<ReturnType<typeof prepareNativeWorkerOutput>> | undefined;
   try {
     outputs = await prepareNativeWorkerOutput(realpathSync(brainPath), { startupView, signal });
     const result = await runMaintenanceWorker({ brainPath, startupView: outputs.view, output: { ...outputs.output, target: "/tmp/brain-maintenance-output" },
       command: ["/bin/sh", "-c", 'printf "qualified" > "$BRAIN_ROOT/.brain-maintenance-probe"'], env: { PATH: "/usr/bin:/bin" }, credentials: false, tempKind: "probe",
-      ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), signal, timeoutMs: 5_000 });
+      ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), ...(maskPaths?.length ? { maskPaths } : {}), signal, timeoutMs: 5_000 });
     if (result.exitCode === 0) return { ok: true };
     return { ok: false, requirement: `a credential-free maintenance worker could not start (${result.stderr.trim().slice(0,300) || `exit ${result.exitCode}`})` };
   } catch (error) {
-    if (signal?.aborted || error instanceof WorkerStateError) throw error;
+    // A private-state refusal is not an unavailable host (#4301).
+    if (signal?.aborted || error instanceof WorkerStateError || privateStateRefusalOf(error)) throw error;
     return { ok: false, requirement: `a credential-free maintenance worker could not start (${error instanceof Error ? error.message : String(error)})` };
   } finally { await outputs?.cleanup(); }
 }
@@ -503,7 +507,7 @@ export function* brainGitSteps(brain: string, args: readonly string[], options: 
   try {
     return (yield* runMaintenanceWorkerSteps({ ...options, brainPath: brain, command, ...(parent ? { readPaths: [parent] } : {}), env: { PATH: [dirname(git), "/usr/bin:/bin"].join(":"), GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" },
       credentials: false, tempKind: options.tempKind ?? "git", timeoutMs: options.timeoutMs ?? 10_000 })).exitCode;
-  } catch (error) { if (error instanceof WorkerStateError) throw error; return 127; }
+  } catch (error) { if (error instanceof WorkerStateError || privateStateRefusalOf(error)) throw error; return 127; }
 }
 
 /**
@@ -515,6 +519,8 @@ export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs
 }
 
 function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: number }): WorkerSteps<MaintenanceResult> {
+  // The turn admission's one-shot receipt, spent before anything can wait or retry (#4973 r7).
+  const receipt = takeAdmissionWalk(input.startupView);
   const limits = input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits();
   const reservation = reserveMaintenanceTemp(limits, tempDomain(input), input.tempKind);
   let startupView: WorkerStartupView | undefined;
@@ -525,6 +531,10 @@ function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: num
     // Synchronous callers cannot prepare an unreadable protected stage.
     // workerCommand refuses that stage before any payload or helper starts.
     preparedMaintenanceCommands.delete(input);
+    // Synchronous maintenance is not qualified; it walks here unless it is its
+    // admission's first launch with an unchanged receipt, and is always
+    // counted (#4301 path O5, #4973 r4 F42, F50, r7; qualification in #5026).
+    walkUnqualifiedLaunch("synchronous-maintenance", kernelRealpath(input.brainPath), Boolean(launch.maintenance?.maskPaths?.length), receipt);
     const boot = workerBootstrap(launch);
     pipes = yield* createWorkerPipesSteps();
     const child = yield* workerStepSpawn(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],

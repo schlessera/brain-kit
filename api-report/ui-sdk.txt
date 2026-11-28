@@ -1521,6 +1521,8 @@ export "./internal" (./src/internal.ts)
   type TurnTempPromotionRecord
   type TurnTempPurgeRecord
   UNMANAGED_TURN_STORAGE
+  type UnqualifiedLaunch
+  type UnqualifiedLaunchSite
   VERSION_PROBE_TIMEOUT_MS
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
@@ -1551,6 +1553,10 @@ export "./internal" (./src/internal.ts)
   type WorkerNoteFacts
   type WorkerNoteLimit
   type WorkerOutputStorage
+  WorkerPrivateStateError
+  type WorkerPrivateStateEvent
+  type WorkerPrivateStateProvider
+  type WorkerPrivateStateReason
   type WorkerProviderMasks
   WorkerResourceLimitError
   type WorkerSandbox
@@ -1601,6 +1607,7 @@ export "./internal" (./src/internal.ts)
   isEnvName
   isManagedWorkerStartupView
   isMcpTimingServerName
+  kernelRealpath
   launchAgentWorker
   launchAgentWorkerAsync
   launchLimits
@@ -1619,6 +1626,7 @@ export "./internal" (./src/internal.ts)
   observeClassification
   observeDiagnostic
   observeOutwardPlan
+  onUnqualifiedLaunch
   outputStagingLimit
   outwardAdmissionRefusal
   ownedNames
@@ -1636,6 +1644,7 @@ export "./internal" (./src/internal.ts)
   prepareRecoveredWorkerFiles
   prepareWorkerSandbox
   prepareWorkerSandboxAsync
+  privateStateRefusalOf
   probeNativeMaintenanceWorker
   probeWorkerHost
   processCleanupReconciler
@@ -1647,6 +1656,7 @@ export "./internal" (./src/internal.ts)
   readWebSearchRouting
   recoveredWorkerFile
   recoveredWorkerFiles
+  registerWorkerPrivateState
   relayedProviderKeys
   removeMetadataFile
   removeOwnedArtifact
@@ -1682,11 +1692,14 @@ export "./internal" (./src/internal.ts)
   startInferenceRelay
   startProviderRelay
   stripHostContextFromTitle
+  takeAdmissionWalk
   toolAdmissionSafety
   turnTempLimit
   turnTempSpace
+  unqualifiedLaunches
   validatedEgressProvenance
   verifiedWorkerIdentity
+  walkForAdmission
   webSearchBrief
   webSearchKeySource
   webSearchProvider
@@ -8532,7 +8545,7 @@ signatures (every public export and the types it is made of)
         entries: FileEntry[];
     }
   FirstPartyFailureClass (packages/ui-sdk/src/failure-classes.ts)
-    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "fast_output_unavailable" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "private_state_unverified" | "OperationalStateAliasVerificationUnavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "fast_output_unavailable" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "code_receipt_malformed" | "private_state_unverified" | "private_state_exposed" | "OperationalStateAliasVerificationUnavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
   FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
     export interface FirstRequestCacheUsage {
         inputTokens: number | null;
@@ -10367,6 +10380,17 @@ signatures (every public export and the types it is made of)
             active: boolean;
             detail: string;
         };
+        stateBoundary?: {
+            mode: "boundary" | "walk";
+            reason?: string;
+            checkedAt: number | null;
+            lastRefusal?: {
+                at: number;
+                reason: string;
+                path?: string;
+            };
+            ownershipOnly?: string[];
+        };
     } & ({
         available: true;
     } | {
@@ -10375,7 +10399,7 @@ signatures (every public export and the types it is made of)
         detail: string;
     });
   GovernedUnavailableReason (packages/ui-sdk/src/protocol.ts)
-    export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "private_state_unverified" | "worker_host_unavailable";
+    export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "private_state_unverified" | "private_state_exposed" | "worker_host_unavailable";
   GraphBrokenLink (packages/ui-sdk/src/protocol.ts)
     export interface GraphBrokenLink {
         sourcePath: string;

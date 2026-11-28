@@ -9,7 +9,8 @@ import { createFixtureApp as createApp, createNativeAppFixture } from "./helpers
 import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
 import { createStaticBackendRegistry } from "../src/agent/backend";
-import { assertOperationalStateOutsideBrain, operationalStateMasks } from "../src/brain/operational-state";
+import { assertOperationalStateOutsideBrain, operationalStateMasks, operationalStatePaths } from "../src/brain/operational-state";
+import { registerWorkerPrivateState } from "@schlessera/brain-ui-sdk/internal";
 import { createHostBoundary as createBoundary } from "../src/brain/host-boundary";
 import { testServerConfig } from "./helpers/test-config";
 import { createRecordingObservability } from "../src/observability";
@@ -20,7 +21,8 @@ import * as referenceTransport from "../src/brain/reference-transport";
 import { readdirSync } from "node:fs";
 const roots: string[] = [];
 const nativeCleanup: (() => Promise<void>)[] = [];
-afterEach(async () => { for (const close of nativeCleanup.splice(0)) await close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+const cleanupsAfter: (() => void)[] = [];
+afterEach(async () => { for (const dispose of cleanupsAfter.splice(0)) dispose(); for (const close of nativeCleanup.splice(0)) await close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 /** Only native input acquisition is replaced; path guards and namespace workers remain real. */
 function createHostBoundary(options: Parameters<typeof createBoundary>[0]) {
   const native = createNativeAppFixture(options.brainPath); nativeCleanup.push(native.close);
@@ -208,8 +210,12 @@ for (const profile of ["governed", "strict"] as const) {
     mkdirSync(brain); mkdirSync(state);
     writeFileSync(join(state, "private"), "host-private");
     const view = profile === "strict" ? createFixtureWorkerStartupView(brain) : undefined;
+    // The server registers the same layout it masks (#4301).
+    const layout = { brainPath: brain, dbPath: ":memory:", privateStatePaths: [{ setting: "fixture state", path: state }] };
+    const dispose = registerWorkerPrivateState(brain, { roots: () => operationalStatePaths(layout), walk: () => undefined });
+    cleanupsAfter.push(dispose);
     const sandbox = prepareWorkerSandbox(brain, { profile, ...(view ? { startupView: view } : {}), areas: [], readPaths: [process.execPath, "/bin/sh"],
-      maskPaths: operationalStateMasks({ brainPath: brain, dbPath: ":memory:", privateStatePaths: [{ setting: "fixture state", path: state }] }) });
+      maskPaths: operationalStateMasks(layout) });
     const output = `/tmp/odysseus-output-${root.split("/").at(-1)}`;
     const worker = launchAgentWorker({ brainPath: brain, sandbox, ...(view ? { startupView: view } : {}), turnTempBytes: 1024 * 1024, env: {},
       command: ["/bin/sh", "-c", 'printf private-output > "$2" && test ! -e "$1/private" && printf PRIVATE_TMP_WRITABLE_STATE_HIDDEN', "probe", state, output] });

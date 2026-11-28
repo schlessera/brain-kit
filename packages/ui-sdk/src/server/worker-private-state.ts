@@ -1,0 +1,404 @@
+/**
+ * Launch qualification against host private state (#4301): the provider
+ * registry, the typed refusal and the host-side qualification of a launched
+ * sandbox's mount table while its start gate is closed. The verdict itself
+ * is `evaluateNamespace` (`namespace-qualification.ts`).
+ */
+import { closeSync, lstatSync, openSync, readFileSync, readlinkSync, statSync, constants } from "node:fs";
+import { resolve } from "node:path";
+import { evaluateNamespace, holdsPath, namespaceComplete, parseMountinfo, resolveMount, type MountRow, type NamespaceExposure, type StateRootObservation } from "./namespace-qualification.js";
+import { workerStepSleep, type WorkerSteps } from "./worker-steps.js";
+
+/** What a launch refused for private state reports, at its top level. */
+export type WorkerPrivateStateReason = "private_state_exposed" | "private_state_in_brain" | "database_in_brain" | "private_state_unverified";
+
+/**
+ * A launch refused before its payload started because host private state is
+ * reachable in its namespace (`private_state_exposed`), or because the
+ * fallback walk refused (its own reason). Not a `WorkerHostError`: it never
+ * reads as an unavailable worker host and never selects strict.
+ */
+/** Shared by every loaded copy of this SDK in one process (#4301 F12). */
+const REFUSAL_BRAND = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-refusal");
+export class WorkerPrivateStateError extends Error {
+  readonly errorClass: WorkerPrivateStateReason;
+  readonly [REFUSAL_BRAND] = true;
+  /**
+   * For diagnosis only, never in the message (#4301): the sandbox rows on the
+   * refused name's path and below it, and what the launch was given.
+   */
+  diagnostic?: ExposureDiagnostic;
+  constructor(readonly reason: WorkerPrivateStateReason, message: string, readonly exposure?: NamespaceExposure) {
+    super(message);
+    this.name = "WorkerPrivateStateError";
+    this.errorClass = reason;
+  }
+}
+
+/**
+ * The refusal carried by this error or by any error in its `cause` chain,
+ * including one thrown by another loaded copy of this SDK.
+ */
+export function privateStateRefusalOf(error: unknown): WorkerPrivateStateError | undefined {
+  for (let depth = 0, current = error; depth < 16 && current; depth++) {
+    if (current instanceof WorkerPrivateStateError || (typeof current === "object" && (current as Record<symbol, unknown>)[REFUSAL_BRAND] === true))
+      return current as WorkerPrivateStateError;
+    current = typeof current === "object" && "cause" in current ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return undefined;
+}
+
+/** One observation a provider is told about; diagnostics only, never a verdict another launch reads. */
+export type WorkerPrivateStateEvent =
+  | { kind: "refused"; reason: WorkerPrivateStateReason; detail: string; exposure?: NamespaceExposure }
+  | { kind: "ownership_only"; entries: NamespaceExposure[] }
+  | { kind: "namespace_unverified"; cause: string };
+
+/** The host's private-state layout for one brain, from the builder that produces `privateStatePaths`. */
+export interface WorkerPrivateStateProvider {
+  /** Current state roots, resolved per launch. A root that does not exist yet is not judged. */
+  roots(): readonly { setting: string; path: string }[];
+  /** Today's alias walk; its refusal, or `undefined` when it passes. */
+  walk(): { reason: Exclude<WorkerPrivateStateReason, "private_state_exposed">; detail: string } | undefined;
+  /** Diagnostics; a failure here never changes the launch's result. */
+  report?(event: WorkerPrivateStateEvent): void;
+}
+
+/**
+ * Brain -> layout key -> providers with that layout. One registry per process,
+ * whichever copy of this SDK a caller loaded (#4301 F12). Providers sharing a
+ * key are one layout: it is judged once, and each is told the result.
+ */
+const REGISTRY = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-registry");
+const providers: Map<string, Map<unknown, Set<WorkerPrivateStateProvider>>> =
+  ((globalThis as Record<symbol, unknown>)[REGISTRY] ??= new Map()) as Map<string, Map<unknown, Set<WorkerPrivateStateProvider>>>;
+/**
+ * The registry's generation, process-wide like the registry: every register
+ * and every dispose, under any brain and layout key, moves it. A walk receipt
+ * holds the generation its walk began at (#4973 r8 F112-F114).
+ */
+const GENERATION = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-generation");
+const registry: { generation: number } = ((globalThis as Record<symbol, unknown>)[GENERATION] ??= { generation: 0 }) as { generation: number };
+/**
+ * A path's canonical name in the kernel's own component order: a link is
+ * followed before a later `..` (F16). Bun's realpathSync, and `.native` before
+ * Bun 1.4.4, collapse `..` first; the kernel's open does not. Throws as open
+ * does (ENOENT for an absent path).
+ */
+export function kernelRealpath(path: string): string {
+  const fd = openSync(path, O_PATH);
+  try { return readlinkSync(`/proc/self/fd/${fd}`); } finally { closeSync(fd); }
+}
+const brainKey = (brain: string) => { try { return kernelRealpath(brain); } catch { return resolve(brain); } };
+
+/**
+ * Register the private-state layout of one brain; returns its disposer. A
+ * `layout` key makes registrations of the same layout one entry, so repeated
+ * boundaries add no work to later launches.
+ */
+export function registerWorkerPrivateState(brain: string, provider: WorkerPrivateStateProvider, layout: unknown = Symbol("layout")): () => void {
+  const key = brainKey(brain);
+  const layouts = providers.get(key) ?? new Map<unknown, Set<WorkerPrivateStateProvider>>();
+  const set = layouts.get(layout) ?? new Set<WorkerPrivateStateProvider>();
+  set.add(provider); layouts.set(layout, set); providers.set(key, layouts);
+  registry.generation++;
+  let disposed = false;
+  return () => {
+    if (disposed) return;
+    disposed = true; set.delete(provider); registry.generation++;
+    if (!set.size && layouts.get(layout) === set) layouts.delete(layout);
+    if (!layouts.size && providers.get(key) === layouts) providers.delete(key);
+  };
+}
+
+/** One provider per registered layout of a brain, if any registered. */
+export function workerPrivateStateProviders(brain: string): readonly WorkerPrivateStateProvider[] {
+  return [...providers.get(brainKey(brain))?.values() ?? []].flatMap(set => [...set].slice(0, 1));
+}
+/** Every registered provider of a brain: each is told what a launch saw. */
+function workerPrivateStateReporters(brain: string): readonly WorkerPrivateStateProvider[] {
+  return [...providers.get(brainKey(brain))?.values() ?? []].flatMap(set => [...set]);
+}
+
+/**
+ * Host mounts strictly inside a directory state root that the host itself
+ * reaches (`resolveMount` on its own table): a row stacked under another is
+ * not what that path shows, so its coordinates never stand for the path
+ * (#4301 F4).
+ */
+export function liveDescendantMounts(rows: readonly MountRow[], path: string): MountRow[] {
+  return rows.filter(row => {
+    if (row.point === path || !holdsPath(path, row.point)) return false;
+    const reached = resolveMount(rows, row.point);
+    // An ambiguous host table is unknown, never a silently smaller set of roots (F36).
+    if ("ambiguous" in reached) throw new Error(`the host mount table is ambiguous below ${path}: ${reached.ambiguous}`);
+    return reached.row.id === row.id;
+  });
+}
+
+const O_PATH = 0o10000000;
+/** The host's mount table row the kernel resolved an open of `path` into. */
+function hostRow(path: string, rows: readonly MountRow[]): MountRow {
+  const fd = openSync(path, O_PATH | constants.O_NOFOLLOW);
+  try {
+    const id = Number(/^mnt_id:\s*(\d+)$/m.exec(readFileSync(`/proc/self/fdinfo/${fd}`, "utf8"))?.[1]);
+    const row = rows.find(candidate => candidate.id === id);
+    if (!row) throw new Error(`the host mount of ${path} is not in its mount table`);
+    return row;
+  } finally { closeSync(fd); }
+}
+/** Backing coordinates of a canonical host path inside the host row it resolves into. */
+function coordinates(path: string, row: MountRow): { sb: string; fspath: string } {
+  const rest = path === row.point ? "" : row.point === "/" ? path : path.slice(row.point.length);
+  return { sb: row.sb, fspath: row.root === "/" ? (rest || "/") : `${row.root}${rest}` };
+}
+
+/**
+ * The existing roots in backing coordinates, plus every host mount strictly
+ * inside a directory root, each a further root in its own coordinates. An
+ * absent root is skipped. Any other failure throws: the caller treats it as
+ * unknown.
+ */
+export function observeStateRoots(roots: readonly { setting: string; path: string }[]): StateRootObservation[] {
+  const rows = parseMountinfo(readFileSync("/proc/self/mountinfo", "utf8"));
+  if (!rows) throw new Error("the host mount table is empty");
+  const observed: StateRootObservation[] = [];
+  for (const root of roots) {
+    let path: string;
+    try { path = kernelRealpath(root.path); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
+    const row = hostRow(path, rows);
+    observed.push({ setting: root.setting, path, ...coordinates(path, row), ...(row.options.includes("idmapped") ? { hostIdmapped: true } : {}) });
+    if (!lstatSync(path).isDirectory()) continue;
+    for (const row of liveDescendantMounts(rows, path))
+      observed.push({ setting: root.setting, path: row.point, sb: row.sb, fspath: row.root, ...(row.options.includes("idmapped") ? { hostIdmapped: true } : {}) });
+  }
+  return observed;
+}
+
+/** Real, effective, saved and filesystem UIDs of a process, as the host sees them. */
+function processUids(pid: number): number[] {
+  const line = /^Uid:\s+(.+)$/m.exec(readFileSync(`/proc/${pid}/status`, "utf8"))?.[1];
+  const uids = line?.trim().split(/\s+/).map(Number) ?? [];
+  if (uids.length !== 4 || uids.some(uid => !Number.isSafeInteger(uid))) throw new Error("the sandbox's UIDs could not be read");
+  return uids;
+}
+
+/** How a launch's namespace qualified. `unqualified`: no provider for this brain. */
+export type NamespaceQualification =
+  | { result: "unqualified" }
+  | { result: "hidden" | "ownership_only" | "namespace_unverified" };
+
+const report = (provider: WorkerPrivateStateProvider, event: WorkerPrivateStateEvent) => {
+  try { provider.report?.(event); } catch { /* Diagnostics never change the launch's result. */ }
+};
+
+/**
+ * Qualify one held sandbox before its payload starts: observe its mount table
+ * until it is complete (the seal and one row at `/`), then judge every
+ * existing state root of the brain's providers. An exposure throws
+ * `WorkerPrivateStateError`; the caller kills the sandbox. An unreadable,
+ * incomplete or ambiguous table is unknown: the providers' walk runs now, and
+ * its refusal throws with the walk's reason while a pass releases. The walk's
+ * time is not counted against `deadline`, which bounds the observation only.
+ */
+/** What a launch was given, for an exposure's diagnostic. */
+export interface LaunchDescription {
+  site: UnqualifiedLaunchSite;
+  masked: boolean;
+  /** The launch function that held the gate. */
+  launcher?: "launchAgentWorkerSteps" | "spawnQualifiedSteps";
+  /** The mask paths the launch declared. */
+  masks?: readonly string[];
+  /** The `--tmpfs` targets of the argv actually spawned. */
+  tmpfs?: readonly string[];
+  /** Whether output staging went through the keeper's namespace (`nsenter`). */
+  staged?: boolean;
+  /** The caller's abort or deadline: it ends the mount-table wait and skips the walk (#4973 r4 F46). */
+  interrupted?: () => boolean;
+}
+/** The caller's abort or deadline arrived while the launch was being qualified; its own result stands. */
+export class WorkerQualificationInterrupted extends Error {
+  constructor() { super("the launch's qualification was interrupted by its caller"); this.name = "WorkerQualificationInterrupted"; }
+}
+/** An exposure's evidence: the rows that decide its name, and the launch's inputs. */
+export interface ExposureDiagnostic {
+  name: string;
+  /** Rows at the name, at any directory above it, or below it, as `id parent sb root point fstype`. */
+  rows: string[];
+  launch: LaunchDescription;
+}
+
+/** Where an unqualified launch came from: the launch function and the envelope it built. */
+export type UnqualifiedLaunchSite = "agent" | "maintenance" | "transport" | "synchronous-maintenance";
+/** One masked launch that skipped qualification because its brain has no registered layout (#4301 Q1 ruling). */
+export interface UnqualifiedLaunch { at: number; site: UnqualifiedLaunchSite; brain: string }
+/** Process-wide, like the registry: the count and the last one, for status. */
+interface UnqualifiedRecord { count: number; last?: UnqualifiedLaunch; listeners: Set<(launch: UnqualifiedLaunch) => void> }
+const UNQUALIFIED = Symbol.for("@schlessera/brain-ui-sdk/worker-private-state-unqualified");
+const unqualified: UnqualifiedRecord = ((globalThis as Record<symbol, unknown>)[UNQUALIFIED] ??= { count: 0, listeners: new Set() }) as UnqualifiedRecord;
+
+/** The masked launches that skipped qualification in this process, for status. */
+export function unqualifiedLaunches(): { count: number; last?: UnqualifiedLaunch } {
+  return { count: unqualified.count, ...(unqualified.last ? { last: { ...unqualified.last } } : {}) };
+}
+/** Be told of each skipped masked launch (the host's diagnostic log); returns the disposer. */
+export function onUnqualifiedLaunch(listener: (launch: UnqualifiedLaunch) => void): () => void {
+  unqualified.listeners.add(listener);
+  return () => { unqualified.listeners.delete(listener); };
+}
+/** The sites and brains already reported on stderr, with no host log listening (F25). */
+const reportedWithoutListener = new Set<string>();
+/**
+ * Record one masked launch that ran without qualification: a brain with no
+ * registered layout, or a synchronous maintenance launch, which walks
+ * instead (#4301 path O5).
+ */
+export function recordUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: string): void { recordUnqualified(site, brain); }
+/**
+ * One-shot walk receipts, keyed on a turn admission's startup view (#4973 r7):
+ * minted only by a walk that passed, redeemed at most once, and only for the
+ * same brain and the same registered layouts.
+ */
+const admissionWalks = new WeakMap<object, AdmissionWalk>();
+
+/**
+ * A turn admission's walk of the brain's registered layouts (#4973 r7). It
+ * walks every registered layout except the caller's `own` one, which the
+ * caller has just walked itself, and throws the walk's typed refusal. Only
+ * once every layout passed does it leave a receipt on `view`: the first
+ * synchronous launch that presents that view, for the same brain and layouts,
+ * does not walk again. Minting always walks, so any caller may mint.
+ */
+export function walkForAdmission(view: object, brain: string, own?: WorkerPrivateStateProvider): void {
+  // A failed re-mint must leave nothing behind (F111).
+  admissionWalks.delete(view);
+  const key = brainKey(brain);
+  // Read before the walks: a registration during them makes the receipt stale (F112).
+  const generation = registry.generation;
+  const layouts = [...providers.get(key)?.values() ?? []];
+  for (const set of layouts) {
+    if (own && set.has(own)) continue;
+    const refusal = [...set][0]!.walk();
+    if (refusal) {
+      for (const each of workerPrivateStateReporters(key)) report(each, { kind: "refused", ...refusal });
+      throw new WorkerPrivateStateError(refusal.reason, refusal.detail);
+    }
+  }
+  admissionWalks.set(view, { brain: key, generation });
+}
+
+/**
+ * Synchronous maintenance's own check (#4301 path O5, #4973 r4 F42, F50): it
+ * is not qualified, so it runs every registered walk for its brain before it
+ * spawns, refusing with the walk's typed error, and it is always counted as
+ * an unqualified launch when the brain has a layout or the launch masks. A
+ * launch presenting its admission's view redeems that admission's receipt
+ * instead of walking, once, if the brain and its layouts are unchanged; a
+ * retried, repeated or refreshed launch walks again (#4973 r7).
+ */
+/** An admission's receipt, spent as it is taken: it never serves a second launch. */
+export type AdmissionWalk = { readonly brain: string; readonly generation: number };
+/**
+ * Take, and so spend, the receipt on `view`. A launch takes it first, before
+ * any wait (a busy budget's retry included), so a launch that waited walks
+ * again (#4973 r7).
+ */
+export function takeAdmissionWalk(view: object | undefined): AdmissionWalk | undefined {
+  if (!view) return undefined;
+  const receipt = admissionWalks.get(view);
+  admissionWalks.delete(view);
+  return receipt;
+}
+export function walkUnqualifiedLaunch(site: UnqualifiedLaunchSite, brain: string, masked: boolean, receipt?: AdmissionWalk): void {
+  if (workerPrivateStateProviders(brain).length || masked) recordUnqualified(site, brain);
+  // Judged after the record's listeners ran: one that registered a layout moved the generation (F113).
+  if (receipt && receipt.brain === brainKey(brain) && receipt.generation === registry.generation) return;
+  for (const provider of workerPrivateStateProviders(brain)) {
+    const refusal = provider.walk();
+    if (refusal) {
+      for (const each of workerPrivateStateReporters(brain)) report(each, { kind: "refused", ...refusal });
+      throw new WorkerPrivateStateError(refusal.reason, refusal.detail);
+    }
+  }
+}
+function recordUnqualified(site: UnqualifiedLaunchSite, brain: string): void {
+  const launch = { at: Date.now(), site, brain };
+  unqualified.count++; unqualified.last = launch;
+  for (const listener of unqualified.listeners) { try { listener(launch); } catch { /* A diagnostic never changes the launch. */ } }
+  // A standalone backend or library has no host log: one line per site and brain, never silent.
+  const key = `${site}\u0000${brain}`;
+  if (!unqualified.listeners.size && !reportedWithoutListener.has(key)) {
+    reportedWithoutListener.add(key);
+    try {
+      process.stderr.write(JSON.stringify({ kind: "worker_launch_unqualified", reason: site === "synchronous-maintenance" ? "synchronous_maintenance_walks" : "no_private_state_layout", site, brain,
+        message: `a masked ${site} launch skipped private-state qualification: ${site === "synchronous-maintenance" ? `synchronous maintenance is not qualified and walks instead (brain ${brain})` : `no private-state layout is registered for brain ${brain} in this process`}` }) + "\n");
+    } catch { /* A diagnostic never changes the launch. */ }
+  }
+}
+
+export function* qualifyWorkerNamespaceSteps(pid: number, brain: string, deadline: number,
+  { interrupted, ...launch }: LaunchDescription): WorkerSteps<NamespaceQualification> {
+  const registered = workerPrivateStateProviders(brain), reporters = workerPrivateStateReporters(brain);
+  // No layout registered for this brain in this process (a backend or library
+  // used on its own, whose masks are credential files): nothing to judge or
+  // walk, so the launch runs unqualified, as before #4301. A masked launch is
+  // never skipped silently (maintainer ruling on #4301 Q1).
+  if (!registered.length) {
+    if (launch.masked) recordUnqualified(launch.site, brain);
+    return { result: "unqualified" };
+  }
+  let cause: string | undefined;
+  try {
+    let rows: MountRow[] | undefined;
+    for (;;) {
+      rows = parseMountinfo(readFileSync(`/proc/${pid}/mountinfo`, "utf8"));
+      if (rows && namespaceComplete(rows)) break;
+      if (interrupted?.()) throw new WorkerQualificationInterrupted();
+      if (Date.now() >= deadline) throw new Error(rows ? "the sandbox's mount table was not complete in time" : "the sandbox's mount table stayed empty");
+      yield* workerStepSleep(1);
+    }
+    // Observed against the final table, never before it: a root that appears
+    // while the sandbox finishes its mounts is judged (#4973 r4 F45).
+    const roots = observeStateRoots(registered.flatMap(provider => provider.roots()));
+    const verdict = evaluateNamespace(rows, roots, processUids(pid), {
+      owner: path => { try { const info = statSync(path); return { uid: info.uid, mode: info.mode }; } catch { return undefined; } },
+      layer: path => {
+        try {
+          const real = kernelRealpath(path), host = parseMountinfo(readFileSync("/proc/self/mountinfo", "utf8"));
+          return host ? coordinates(real, hostRow(real, host)) : undefined;
+        } catch { return undefined; }
+      },
+    });
+    if (verdict.result === "exposed") {
+      const { result: _result, ...exposure } = verdict;
+      const detail = `WorkerPrivateStateError: ${exposure.setting} is reachable in the worker's namespace at ${exposure.name} (mount ${exposure.row}); remove or mask that mount or alias, or make the state owner-only for a separate worker identity. The next launch is checked again.`;
+      for (const provider of reporters) report(provider, { kind: "refused", reason: "private_state_exposed", detail, exposure });
+      const refused = new WorkerPrivateStateError("private_state_exposed", detail, exposure);
+      refused.diagnostic = { name: exposure.name, launch,
+        rows: rows.filter(row => holdsPath(row.point, exposure.name) || holdsPath(exposure.name, row.point))
+          .map(row => `${row.id} ${row.parent} ${row.sb} ${row.root} ${row.point} ${row.fstype} ${row.options.join(",")}`) };
+      throw refused;
+    }
+    if (verdict.result === "ownership_only") {
+      for (const provider of reporters) report(provider, { kind: "ownership_only", entries: verdict.entries });
+      return { result: "ownership_only" };
+    }
+    if (verdict.result === "hidden") return { result: "hidden" };
+    cause = verdict.cause;
+  } catch (error) {
+    if (error instanceof WorkerPrivateStateError || error instanceof WorkerQualificationInterrupted) throw error;
+    cause = error instanceof Error ? error.message : String(error);
+  }
+  if (interrupted?.()) throw new WorkerQualificationInterrupted();
+  // Unknown never refuses by itself and never releases on boundary evidence alone.
+  for (const provider of registered) {
+    const refusal = provider.walk();
+    if (refusal) {
+      for (const each of reporters) report(each, { kind: "refused", ...refusal });
+      throw new WorkerPrivateStateError(refusal.reason, refusal.detail);
+    }
+  }
+  for (const provider of reporters) report(provider, { kind: "namespace_unverified", cause: cause! });
+  return { result: "namespace_unverified" };
+}

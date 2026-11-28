@@ -689,3 +689,26 @@ test("the brain worker transport closes when the worker exits before its stdout 
     expect(closes, "TRANSPORT_CLOSES_ONCE").toBe(1);
   } finally { child.stdout.end(); rmSync(f.root, { recursive: true, force: true }); }
 });
+
+// #4973 r4 F48, F49: a launch refused for host private state is a typed
+// verdict of that launch: never a stdio fallback, never cached.
+const exposure = () => new internal.WorkerPrivateStateError("private_state_exposed", "WorkerPrivateStateError: turn journal is reachable in the worker's namespace at /opt/aeolus");
+
+test("F48: an inventory launch refused for private state throws the typed refusal instead of choosing stdio", async () => {
+  const f = fixture();
+  const refused = exposure();
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockRejectedValue(refused);
+  try {
+    const verdict = await probeBrainBridgeInventory(f.input, f.signal).catch(error => error);
+    expect(verdict, "F48_INVENTORY_REFUSAL_IS_TYPED").toBe(refused);
+  } finally { launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test("F49: a forwarder whose start was refused for private state starts again on the next read", async () => {
+  let starts = 0;
+  const forward = createBrainToolForwarder(async () => { starts++; throw exposure(); }, new AbortController().signal, () => {});
+  forward.start(); await Bun.sleep(10);
+  forward.start(); await Bun.sleep(10);
+  expect(starts, "F49_REFUSED_START_IS_NOT_CACHED").toBe(2);
+  await forward.close();
+});

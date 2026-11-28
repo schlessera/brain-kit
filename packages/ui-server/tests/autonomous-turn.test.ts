@@ -3,6 +3,7 @@ import { installFixtureNativeStartupViews } from "./helpers/fixture-native-start
 installFixtureNativeStartupViews();
 const nativeCleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of nativeCleanup.splice(0)) await close(); });
+import { workerPrivateStateProviders } from "../../ui-sdk/src/server/worker-private-state";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
@@ -509,6 +510,35 @@ for (const adapter of ["claude", "pi"] as const) test(`${adapter} autonomous inb
     const allowedTools = ["inbox_list", "inbox_get"].map(name => adapter === "claude" ? `mcp__brain-ui__${name}` : name);
     await runAutonomousTurn({ ...f, checkpoint() {} }, { ...f.input, allowedTools });
     expect(reached).toBe(true);
+  } finally { f.db.close(); }
+});
+
+test("an autonomous application turn releases its own boundary's private-state registration when it ends (#4301)", async () => {
+  const proposal = { operation: "write" as const, path: "notes/ithaca.md", content: "---\ntitle: Ithaca\ntype: note\n---\nOdysseus reaches Ithaca.\n", expectedBaseHash: null };
+  let registered = () => 0, during = 0;
+  const f = setup(async req => {
+    during = registered();
+    req.bridge.emit({ type: "result", sessionId: "runtime", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  });
+  registered = () => workerPrivateStateProviders(f.brainPath).length;
+  f.backend.id = "pi";
+  f.backend.brainApplicationPolicy = () => ({ autoAllowed: [], available: ["write"], lock: createKeyedLock() });
+  const before = registered();
+  try {
+    await runAutonomousTurn({ ...f, checkpoint() {} },
+      { ...f.input, allowedTools: ["write_file"], application: { approved: { toolName: "write_file", input: proposal, targetPath: proposal.path } } });
+    expect(during, "AUTONOMOUS_BOUNDARY_REGISTERED_WHILE_RUNNING").toBe(before + 1);
+    expect(registered(), "AUTONOMOUS_BOUNDARY_RELEASED_AT_END").toBe(before);
+  } finally { f.db.close(); }
+});
+
+test("an autonomous turn runs the boundary's deferred boot check before any CLI launch of its admission (#4301 F37)", async () => {
+  const order: string[] = [];
+  const f = setup(async req => { order.push("backend");
+    req.bridge.emit({ type: "result", sessionId: "runtime", outcome: "success", isError: false, durationMs: 1, numTurns: 1 }); });
+  try {
+    await runAutonomousTurn({ ...f, privateIndex: { maskPaths: [], preflight: async () => { order.push("preflight"); } }, checkpoint() {} }, f.input);
+    expect(order, "F37_PREFLIGHT_BEFORE_ADMISSION_LAUNCHES").toEqual(["preflight", "backend"]);
   } finally { f.db.close(); }
 });
 

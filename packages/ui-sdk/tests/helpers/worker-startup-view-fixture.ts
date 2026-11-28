@@ -8,6 +8,7 @@ import { launchAgentWorker, prepareWorkerSandbox, type WorkerLaunch } from "../.
 import type { MaintenanceHost } from "../../src/server/maintenance-worker.js";
 import type { PreparedWorkerOutput } from "../../src/server/worker-native-output.js";
 import { prepareWorkerOutput } from "./worker-copy-output.js";
+import { registerWorkerPrivateState } from "../../src/server/worker-private-state.js";
 
 export interface WorkerStartupStorage {
   readonly root: string;
@@ -262,10 +263,14 @@ export function launchFixtureAgentWorker(input: WorkerLaunch) {
 /** Prepared Git/configuration input; caller owns cleanup after its maintenance reads. */
 export function createFixtureMaintenanceHost(brain: string, options: MaintenanceHost = {}) {
   const startupView = createFixtureWorkerStartupView(brain, { omitWritableAreas: true });
+  // Masked paths are this host's declared private state: launches that mask
+  // them are qualified against them, as a server's are (#4301).
+  const dispose = options.maskPaths?.length ? registerWorkerPrivateState(brain, {
+    roots: () => (options.maskPaths ?? []).map(path => ({ setting: "fixture private state", path })), walk: () => undefined }) : undefined;
   // Independent fixture hosts must not share the standalone per-UID ledger.
   // Tests of shared admission supply their own explicit domain and keep it.
   return { ...options, tempDomain: options.tempDomain ?? { statePath: join(startupView.storage.root, "maintenance-state.db") },
-    startupView, cleanup() { startupView.cleanup(); } };
+    startupView, cleanup() { dispose?.(); startupView.cleanup(); } };
 }
 
 /** Only short Git reads need the copied input; the sandbox still validates real writable-area identities. */

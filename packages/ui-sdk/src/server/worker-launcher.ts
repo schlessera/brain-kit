@@ -3,6 +3,8 @@ import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe, createWorkerStatusPipeSteps, WorkerStatusInterrupted } from "./worker-status.js";
+import { WORKER_NAMESPACE_SEAL } from "./namespace-qualification.js";
+import { kernelRealpath, privateStateRefusalOf, qualifyWorkerNamespaceSteps } from "./worker-private-state.js";
 import { prepareWorkerIdentity, workerCleanupUnconfirmed, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
 import { conformingPrivateSocket, createPrivateSocketDirectory, verifyPrivateSocketDirectory } from "./private-socket-dir.js";
@@ -579,7 +581,9 @@ export function workerCommand(input: WorkerLaunch,
    * bubblewrap's own `PWD` last, instead of as `--setenv` arguments: a direct
    * start gate restores them after release (#5016 F34).
    */
-  environment?: string[]): string[] {
+  environment?: string[],
+  /** Mount the namespace seal: only a launch that is qualified gets it (#4973 r4 F51). */
+  seal = false): string[] {
   if (input.startupView && input.sandbox?.profile === "governed" && !input.restricted && !input.maintenance) {
     throw new WorkerHostError("governed workers require their shared live brain; an immutable startupView cannot be mounted over that writable root");
   }
@@ -589,7 +593,8 @@ export function workerCommand(input: WorkerLaunch,
   if (!isAbsolute(input.brainPath) || !input.command[0] || !isAbsolute(input.command[0])) {
     throw new WorkerHostError("an absolute brain path and worker executable are required");
   }
-  const brain = realpathSync(input.brainPath);
+  // The kernel's resolution, as qualification and the host boundary use (#4973 r4 F43).
+  const brain = kernelRealpath(input.brainPath);
   const scratch = input.scratchPath ? realpathSync(normalize(input.scratchPath)) : WORKER_SCRATCH;
   if (!isAbsolute(scratch) || holds(brain, scratch) || holds(scratch, brain) || brain === "/tmp") {
     throw new WorkerHostError("scratch must be a separate location outside the authoritative brain and its ancestors");
@@ -790,6 +795,9 @@ export function workerCommand(input: WorkerLaunch,
   if (input.stateBytes !== undefined) argv.push("--size", String(input.stateBytes), "--tmpfs", WORKER_STATE);
   // HOME writes must fail with EROFS without consuming transcript/state space (#2984).
   if (emptyHome) argv.push("--tmpfs", WORKER_EMPTY_HOME, "--remount-ro", WORKER_EMPTY_HOME);
+  // The last mount option: once it is read-only in the sandbox's table,
+  // bubblewrap has built every bind, mask and HOME of this launch (#4301).
+  if (seal) argv.push("--tmpfs", WORKER_NAMESPACE_SEAL, "--remount-ro", WORKER_NAMESPACE_SEAL);
   // A governed or strict turn worker holds no provider credential its own
   // inference does not need (#1666); the CLI's providers name what is missing.
   const setenv = [...workerEnvironmentArgs({ env: input.env, ...(input.credentialEnv ? { credentialEnv: input.credentialEnv } : {}),
@@ -1074,7 +1082,11 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
   if (wantsScratch) {
     const end = step("sandbox_scratch");
     try { preparedScratch = yield* resolveScratchMountSteps(brain, options.maintenance); }
-    catch (error) { preparedScratch = { mount: { writable: false, reason: `.brain/scratch/ could not be checked (${(error as Error).message})` }, removed: [] }; }
+    catch (error) {
+      // A launch refused for private state is the scratch check's verdict, not a read-only scratch (F40).
+      if (privateStateRefusalOf(error)) throw error;
+      preparedScratch = { mount: { writable: false, reason: `.brain/scratch/ could not be checked (${(error as Error).message})` }, removed: [] };
+    }
     end?.();
   }
   // Qualification never creates its own prerequisite. Scratch cleanup precedes
@@ -1143,13 +1155,19 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
  */
 export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: { source: string; gateSource: string },
   /** A direct spawn's gate goes before the rlimit prefix (#4301). */
-  direct = false): { command: string[]; env: Record<string, string>; payload: WorkerLaunchPayload } {
+  direct = false,
+  /**
+   * Whether the launch is qualified, and so carries the namespace seal: the
+   * agent launcher and the direct spawn. Synchronous maintenance and the
+   * fixed probes keep main's argv (#4973 r4 F51).
+   */
+  seal = direct): { command: string[]; env: Record<string, string>; payload: WorkerLaunchPayload } {
   // Resolve using this package's source/build output, never the brain's module resolver.
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
   const { limits: _limits, populateState: _populate, ...launch } = input;
   // A direct gate restores the launch's variables itself after release (#5016 F34).
   const environment = direct && status !== undefined && !gated(input) ? [] as string[] : undefined;
-  let argv = workerCommand(input, environment);
+  let argv = workerCommand(input, environment, seal);
   if (status !== undefined) {
     if (![status.source, status.gateSource].every(source => new RegExp(`^/proc/${process.pid}/fd/[0-9]+$`).test(source))) throw new WorkerHostError("invalid trusted worker status source");
     const bwrap = argv.indexOf(Bun.which("bwrap")!);
@@ -1346,6 +1364,16 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     }
     status.closeWriter();
     if (interrupted()) return interruption(pid);
+    // The caller's abort and deadline end the mount-table wait too, and win
+    // over anything it finds (#4973 r4 F46).
+    try {
+      yield* qualifyWorkerNamespaceSteps(pid, kernelRealpath(input.brainPath), Date.now() + Math.max(0, spawnedAt + STATE_SETUP_MS - performance.now()),
+        { site: input.transport ? "transport" : "maintenance", masked: launchMasked(input), ...launchDescription(input, boot.env), launcher: "spawnQualifiedSteps", interrupted });
+    } catch (error) {
+      if (interrupted()) return interruption(pid);
+      throw error;
+    }
+    if (interrupted()) return interruption(pid);
     try { status.release(); } catch (error) { return yield* gateFailure(error); }
     return result({ pid });
   } catch (error) {
@@ -1356,14 +1384,31 @@ export function* spawnQualifiedSteps(input: WorkerLaunch, stdio: { stdin: number
     // An unreleased start gate closes only after its sandbox is dead (#3387).
     const gateClosed = closeStatus(child);
     if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    // An abort or a live gate failure leaves as itself once its sandbox is
-    // gone and, for an asynchronous caller, its gate descriptors are closed.
-    if (child && stopped) {
+    // An abort, a live gate failure or a private-state refusal leaves as
+    // itself once its sandbox is gone and, for an asynchronous caller, its
+    // gate descriptors are closed.
+    if (child && (stopped || privateStateRefusalOf(error))) {
       yield* awaitWorkerExitSteps(child);
       yield* workerStep(() => undefined, () => gateClosed);
     }
     throw error;
   }
+}
+
+/** What a launch was given, for an exposure's diagnostic only (#4301). */
+function launchDescription(input: WorkerLaunch, env: Record<string, string>): { masks: readonly string[]; tmpfs: string[]; staged: boolean } {
+  let tmpfs: string[] = [];
+  try {
+    const argv = (JSON.parse(env.BRAIN_WORKER_LAUNCH ?? "{}") as { argv?: string[] }).argv ?? [];
+    tmpfs = argv.flatMap((arg, at) => arg === "--tmpfs" && argv[at + 1] ? [argv[at + 1]!] : []);
+  } catch { /* Diagnostic only. */ }
+  return { masks: input.maintenance?.maskPaths ?? input.sandbox?.maskPaths ?? [], tmpfs,
+    staged: Boolean(input.maintenance?.output?.storage || input.areaOutput?.storage) };
+}
+
+/** Whether a launch names private host paths to mask (#4301 Q1). */
+function launchMasked(input: WorkerLaunch): boolean {
+  return Boolean(input.maintenance?.maskPaths?.length || input.sandbox?.maskPaths?.length);
 }
 
 /**
@@ -1682,7 +1727,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     }
     const bootInput = { ...input, limits: plan };
     transferNativeMaintenanceMasks(input, bootInput);
-    const boot = workerBootstrap(bootInput, cgroup?.path, status);
+    const boot = workerBootstrap(bootInput, cgroup?.path, status, false, true);
     // The helper enrolls only the payload launch. Coordination stays outside its cgroup.
     if (helper) identityBroker = withIdentity(boot, helper, payloadCommand(input), input, cgroup?.path, input.areaOutput?.storage ?? input.maintenance?.output?.storage,
       input.sandbox?.profile === "governed" && input.sandbox.retainedFolders?.length ? brain : undefined);
@@ -1739,6 +1784,10 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     if (input.sandbox?.profile === "governed")
       yield* verifyWorkerFolderMountsSteps(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks,
         identityBroker?.brainView());
+    // Every envelope, before release: no host private state reachable here (#4301).
+    // The registry's own key: Bun's realpathSync can name another path (F35).
+    yield* qualifyWorkerNamespaceSteps(pid, kernelRealpath(input.brainPath), deadline, { site: input.maintenance ? "maintenance" : "agent", masked: launchMasked(input),
+      ...launchDescription(input, boot.env), launcher: "launchAgentWorkerSteps" });
     // Release the gate: the worker's command starts only now.
     // A separate identity opens both keys: the coordinator's gate, then STATE_GATE's line.
     if (identityBroker) { yield* identityBroker.requestSteps("release"); writeSync(pipes.parent[0], STATE_GATE_OPEN); }
@@ -1855,7 +1904,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
         await areaOutput?.cleanup();
         if (!input.preparedOutput) await startupView?.cleanup();
       })().catch((failure: unknown) => { closing = undefined; throw failure; });
-      const failure = new WorkerIdentityCleanupError(`worker_identity_setup_cleanup_unconfirmed: ${String(cleanupFailure)}; original failure: ${String(error)}${detail ? ` (${detail})` : ""}`, close);
+      const failure = Object.assign(new WorkerIdentityCleanupError(`worker_identity_setup_cleanup_unconfirmed: ${String(cleanupFailure)}; original failure: ${String(error)}${detail ? ` (${detail})` : ""}`, close), { cause: error });
       failMaintenanceSetup?.(failure);
       throw failure;
     }

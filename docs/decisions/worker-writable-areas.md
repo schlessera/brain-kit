@@ -526,3 +526,41 @@ existing admission walk. A host-owned module store must not replace it until
 bounded installation, provider masks, worker ownership and crash recovery are
 proven together. A broken store must fall back to in-brain dependencies and
 remain repairable by scheduled maintenance.
+
+## Launch qualification — 2026-11-28 (#4301 PR A, path O5)
+
+Every launch with a caller-supplied command is qualified against host private
+state while its start gate is still closed, with one recorded exception. The
+host reads the sandbox's own mount table and refuses that launch with
+`private_state_exposed` when a state root is live there at a name the
+sandbox's UIDs can open.
+
+| Launch | Qualified |
+| --- | --- |
+| L1 agent workers (`launchAgentWorkerSteps`), every envelope | yes, unconditionally |
+| L2 asynchronous maintenance and transport (`launchMaintenanceWorker`, `runMaintenanceWorker`) | yes, at the direct start gate |
+| L3 synchronous maintenance (`runMaintenanceWorkerSync`) | **no; it walks.** It stays on `spawnSync` with main's argv (no seal), runs the brain's registered walk itself before it spawns (a refusal is the walk's typed error); a warm admission walks each registered layout once, and a retried, repeated or refreshed launch walks again: the admission's passing walk leaves a one-shot receipt on its startup view, which only its first synchronous launch for the same brain and layouts redeems, and every launch for a brain with a layout, or that masks, is recorded as unqualified (`runtime.unqualifiedLaunches`, site `synchronous-maintenance`). Its qualification is a follow-up. |
+| L4–L6 fixed probes, the probe keeper and the output-staging keeper | no: constant host programs |
+| L7 the web executor | no: built outside the launcher, with no state masks (a separate follow-up) |
+
+L3 cannot simply probe and then spawn: the mount table is not a function of
+the argv (a symlinked bind source can change the row between a probe and the
+spawn), and L3 runs commands an agent influences (`resolveOutwardGitRemote`'s
+git options, `brainGitSteps` under the brain's configuration, the boundary's
+`runSync`).
+
+What qualification does not cover:
+- a host mount made, or a root created at an unmasked name, after a worker
+  was qualified, for the rest of that worker's life;
+- an overlay layer the server cannot resolve in its own namespace, and FUSE,
+  network, 9p or other stacking filesystems outside the brain backed by state;
+- a hard link from a state file to a worker-visible place outside the brain;
+- a copy of state, as opposed to an alias;
+- the launches marked "no" above.
+
+Two shortcuts were refuted and are not used: a filesystem-identity fast path
+(a mount can expose private bytes under another name), and a mask list
+predicted from the host's table (the launcher's real argv disagreed with it).
+An unreadable, incomplete or ambiguous table refuses nothing by itself: the
+walk runs at the launch, and its own verdict stands.
+

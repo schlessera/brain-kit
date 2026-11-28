@@ -94,7 +94,9 @@ export interface AutonomousTurnDeps extends TurnRecorderDeps {
    * turns: the host's operational-state masks and optionally the CLI argv.
    * Absent, a turn under a provider folder rule refuses before any worker.
    */
-  privateIndex?: { maskPaths: readonly string[]; command?: readonly string[] };
+  privateIndex?: { maskPaths: readonly string[]; command?: readonly string[];
+    /** The boundary's deferred boot check, run before the private index and type translation launch the CLI (#4301 F37). */
+    preflight?: (signal: AbortSignal) => Promise<void> };
   db: Database;
   backend: AgentBackend;
   /** Must commit checkpoint + Action/block intent synchronously or throw. */
@@ -300,6 +302,9 @@ async function executeAutonomousTurn(
       } }) : undefined;
   // Index updates this turn's applications queued (#2835).
   let turnIndex: IndexBatch | undefined;
+  // The turn's own planner boundary registers its private-state layout; the
+  // turn releases it when it ends (#4301), or every later launch judges it.
+  let applicationBoundary: ReturnType<typeof createHostBoundary> | undefined;
   // Installed once the turn's masks are resolved, before the backend starts.
   const installApplication = (request: StartTurnRequest, maskGuard: ProviderMaskGuard | undefined, tree: TurnDataTree, view: string): void => {
     const lock = input.application && deps.brainPath ? deps.backend.brainApplicationPolicy?.(request)?.lock : undefined;
@@ -310,7 +315,7 @@ async function executeAutonomousTurn(
     // The server owns this policy: nothing is auto-allowed, so every
     // application reaches `approve`, whatever the backend would allow.
     const apply = createBrainApplication({ root, principalId, turnId: input.turnId, signal: controller.signal,
-      planner: deps.applicationPlanner ?? boundaryPlanner(createHostBoundary({ brainPath: root, nativeManager: deps.nativeManager, dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory })),
+      planner: deps.applicationPlanner ?? boundaryPlanner(applicationBoundary ??= createHostBoundary({ brainPath: root, nativeManager: deps.nativeManager, dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory })),
       policy: { autoAllowed: [], available: ["write", "edit", "add", "update", "archive", "staged"], enforceAllowedTools: true, lock },
       // The policy admitted for this turn protects its targets, as for a hosted turn (#2876).
       protectedPaths: protectedPaths(policy.policy),
@@ -366,6 +371,8 @@ async function executeAutonomousTurn(
     startupView = await prepareNativeWorkerStartupView(brainPath, deps.nativeManager, controller.signal);
     controller.signal.throwIfAborted();
     if (!checkPrincipal()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
+    // A deferred boot version check runs before any CLI launch of this turn (F37).
+    await deps.privateIndex?.preflight?.(controller.signal);
     // Types map onto folders as for hosted turns, judged on this view (#2694).
     let typeFolders: Record<string, string[]> = {};
     if (providerTypeSelectors(policy.policy).length) {
@@ -456,6 +463,7 @@ async function executeAutonomousTurn(
       }).immediate();
     } finally {
       watermark?.release();
+      applicationBoundary?.disposePrivateState?.();
       try { await dataTree?.close(); } finally { try { await startupView?.cleanup(); } finally { if (privateIndex) removePrivateIndexDirectory(privateIndex); } }
     }
   }

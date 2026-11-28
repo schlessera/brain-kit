@@ -2,7 +2,7 @@ import { SessionRosterIncompatibleError } from "./session-request-shape.js";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import type { ServerMessage, StartTurnRequest, TurnFailure } from "@schlessera/brain-ui-sdk/server";
 import { FastOutputUnavailableError } from "@schlessera/brain-ui-sdk/server";
-import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
+import { privateStateRefusalOf, WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
 
 import { SessionTooLargeError } from "./worker-state.js";
 import { workerStateClass } from "./worker-spawn.js";
@@ -264,6 +264,11 @@ export interface TurnTerminalInputs {
  * or runtime state's named class, else the error itself as a diagnostic.
  */
 export function thrownTurnFailure(err: unknown): { refusal?: TurnRefusal; diagnostic?: { code: string; message: string } } {
+  // A launch refused for host private state before its payload started (#4301).
+  const privateState = privateStateRefusalOf(err);
+  // The walk's other reasons keep the mapping admission gives them (#4497).
+  if (privateState && (privateState.reason === "private_state_exposed" || privateState.reason === "private_state_unverified")) return { refusal: { code: privateState.reason.toUpperCase(), message: privateState.message,
+    failure: { errorClass: privateState.errorClass, message: privateState.message } } };
   const stateClass = workerStateClass(err);
   if (err instanceof WorkerHostError || err instanceof SessionTooLargeError || err instanceof SessionRosterIncompatibleError || err instanceof FastOutputUnavailableError || stateClass) {
     const { message } = err as Error;

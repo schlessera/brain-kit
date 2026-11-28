@@ -52,6 +52,9 @@ type RecordedAuthFailure = Omit<AuthFailure, "kind"> & {
  */
 export type WorkerHostMode = "ordinary" | "restricted";
 
+/** One launch refused for host private state (#4301): the setting, the live name and the mount row. */
+export interface PrivateStateExposure { at: number; reason: "private_state_exposed"; setting: string; path: string; row: string; scope: "launch" }
+
 export interface RuntimeStatusSnapshot {
   /** One entry per backend whose runtime was probed at boot. */
   boot: Array<{ backendId: string } & BackendRuntimeReport>;
@@ -64,6 +67,18 @@ export interface RuntimeStatusSnapshot {
   /** Last incomplete private-state alias check, retained across recovery and restart. */
   operationalStateLastFailure?: { at: number; errorClass: "OperationalStateAliasVerificationUnavailable";
     callSite: "operationalStateRefusal"; scope: "governed"; detail: string };
+  /**
+   * The last launch refused because host private state was reachable in its
+   * namespace (#4301), retained across restart like its neighbour. A
+   * diagnostic, never a verdict any admission or launch reads.
+   */
+  privateStateLastExposure?: PrivateStateExposure;
+  /**
+   * Masked launches that skipped launch qualification because no private-state
+   * layout is registered for their brain in this process (#4301): how many,
+   * and the last one's launch site and brain. Absent while there are none.
+   */
+  unqualifiedLaunches?: { count: number; last?: { at: number; site: "agent" | "maintenance" | "transport" | "synchronous-maintenance"; brain: string } };
   /** The last turn's own report. */
   lastObserved?: Omit<RuntimeObserved, "kind"> & { runId: string; at: string };
   /** The last turn that failed to authenticate. */
@@ -227,7 +242,7 @@ export function createRuntimeStatus(
         ? { severityText: "INFO", body: "the governed profile is available; the brain's own code runs only in maintenance workers", attributes }
         // A worker host failure is already a warning of its own; say it once.
         : { severityText: status.reason === "worker_host_unavailable" ? "INFO" : "WARN",
-          body: `the governed profile is unavailable (${status.reason}): ${status.detail}. ${status.reason === "private_state_unverified" ? "Governed and strict turns are refused until private-state verification succeeds." : status.reason === "worker_host_unavailable" ? "Agent turns cannot start until worker host qualification succeeds." : "Interactive and voice turns run under strict."}`, attributes });
+          body: `the governed profile is unavailable (${status.reason}): ${status.detail}. ${status.reason === "private_state_unverified" ? "Governed and strict turns are refused until private-state verification succeeds." : status.reason === "private_state_exposed" ? "Governed and strict turns are refused until the exposed private state is masked or removed; the next admission checks again." : status.reason === "worker_host_unavailable" ? "Agent turns cannot start until worker host qualification succeeds." : "Interactive and voice turns run under strict."}`, attributes });
     },
     snapshot() {
       return {

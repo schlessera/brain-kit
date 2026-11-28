@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
+import { runMaintenanceWorkerSync } from "../../ui-sdk/src/server/maintenance-worker";
 import { createUiDb } from "../src/db/client";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createGovernedTurns } from "../src/brain/governed-turn";
@@ -768,6 +769,32 @@ test("one warm admitted turn walks private state exactly once", async () => {
       expect(maintenance, "WARM_ADMISSION_REUSES_THE_PROVEN_MAINTENANCE_CACHE").toHaveBeenCalledTimes(1);
     } finally { await admitted.end(); }
   } finally { walk?.mockRestore(); maintenance.mockRestore(); probe.mockRestore(); await f.turns.close(); }
+});
+
+test("a warm admission's walk receipt ends with sandbox resolution: a later command on its view walks (#4973 r8 F115)", async () => {
+  const f = fixture(); f.write("profiles: { interactive: strict }");
+  const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: true });
+  const maintenance = spyOn(hostExecution, "maintenanceProbe").mockImplementation(async () => ({ ok: true }));
+  // The admission's own view, as its prepare receives it.
+  const boundary = f.execution.boundary, prepare = boundary.prepare.bind(boundary);
+  let view: Parameters<typeof prepare>[1];
+  const capture = spyOn(boundary, "prepare").mockImplementation((async (...args: Parameters<typeof prepare>) => { view = args[1]; return prepare(...args); }) as typeof prepare);
+  let walk: ReturnType<typeof spyOn<typeof operationalState, "operationalStateRefusal">> | undefined;
+  try {
+    await (await f.turns.begin("ithaca-warmup", new AbortController().signal)).end();
+    // No git: resolution returns before its scratch query, so nothing redeems the receipt.
+    const which = Bun.which;
+    const noGit = spyOn(Bun, "which").mockImplementation(((name: string, ...rest: unknown[]) => name === "git" ? null : (which as (...a: unknown[]) => string | null)(name, ...rest)) as typeof Bun.which);
+    walk = spyOn(operationalState, "operationalStateRefusal");
+    let admitted: Awaited<ReturnType<typeof f.turns.begin>>;
+    try { admitted = await f.turns.begin("ithaca-warm", new AbortController().signal); } finally { noGit.mockRestore(); }
+    try {
+      expect(walk, "WARM_ADMISSION_WALKS_ONCE").toHaveBeenCalledTimes(1);
+      try { runMaintenanceWorkerSync({ brainPath: f.brain, startupView: view!, command: ["/bin/true"], env: { PATH: "/usr/bin:/bin" }, credentials: false, timeoutMs: 20_000 }); }
+      catch { /* Only the walk before spawn is observed. */ }
+      expect(walk, "F115_RECEIPT_ENDS_WITH_RESOLUTION").toHaveBeenCalledTimes(2);
+    } finally { await admitted.end(); }
+  } finally { walk?.mockRestore(); capture.mockRestore(); maintenance.mockRestore(); probe.mockRestore(); await f.turns.close(); }
 });
 
 test("preparation keeps the private-state refusal ahead of the in-brain cwd shortcut", async () => {

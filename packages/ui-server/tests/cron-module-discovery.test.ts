@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import { createActivityStore } from "../src/activity/store.js";
 import type { ExecutionResult, HostBoundary } from "../src/brain/host-boundary.js";
 import { createUiDb } from "../src/db/client.js";
+import { privateStateLayout } from "../src/brain/operational-state.js";
 import { createCronScheduler } from "../src/cron/scheduler.js";
 import { emitCrontab, type BrainModuleListPayload } from "../src/cron/emit.js";
 import {
@@ -178,6 +179,18 @@ describe("persistModuleDiscovery", () => {
     expect(existsSync(dbPath)).toBe(false);
     createUiDb(dbPath).close();
     expect(persistModuleDiscovery({ brainPath, dbPath, hostQualified: false, outcome: { modules: null, attempts: 1, cause: "x" }, report: () => {} })).toBe(true);
+  });
+
+  test("an alias only in the turn journal of the shared layout keeps the outcome unrecorded (#4498)", () => {
+    const { brainPath, dbPath } = brainAndDb("journal-alias");
+    const layout = privateStateLayout({ dbPath, compute: { keys: {}, stateDir: null } }), lines: string[] = [];
+    mkdirSync(layout.journalRoot!, { recursive: true });
+    writeFileSync(join(brainPath, "ithaca.md"), "# Ithaca\n");
+    linkSync(join(brainPath, "ithaca.md"), join(layout.journalRoot!, "ithaca"));
+    expect(persistModuleDiscovery({ brainPath, dbPath, privateStatePaths: layout.privateStatePaths, hostQualified: true,
+      outcome: { modules: null, attempts: 1, cause: "x" }, report: line => lines.push(line) }), "CRON_DISCOVERY_JOURNAL_ALIAS_REFUSES").toBe(false);
+    expect(existsSync(dbPath)).toBe(false);
+    expect(lines[0]).toContain("OperationalStateInBrainError: turn journal has an inode alias inside the brain");
   });
 
   test("a database inside the brain or in memory is never written", () => {

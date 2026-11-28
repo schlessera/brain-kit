@@ -2,7 +2,7 @@
 /** Thin argv dispatcher for the ui-server's container cron jobs. */
 
 import { statSync, realpathSync } from "fs";
-import { join, resolve } from "path";
+import { join } from "path";
 
 import { resolveCronConfig, type CronConfig } from "../config/env.js";
 import { createTurnBudgets } from "../brain/turn-budgets.js";
@@ -10,7 +10,7 @@ import { maintenanceProviderMeter } from "../brain/provider-meter.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
 import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 import { createNativeBrainLeaseManager } from "../brain/native-brain-leases.js";
-import { assertOperationalStateOutsideBrain } from "../brain/operational-state.js";
+import { assertOperationalStateOutsideBrain, privateStateLayout } from "../brain/operational-state.js";
 import { runDigest } from "../cron/digest.js";
 import { cronJobRepositories } from "../cron/job-repositories.js";
 import {
@@ -101,6 +101,11 @@ function runOptions(args: string[]): {
   return { jobName, command, subprocessEnvExtraNames };
 }
 
+/** The server's private-state layout, derived the same way (#4498); an ephemeral database's journal is the server's alone. */
+function cronPrivateStateLayout(config: CronConfig) {
+  return privateStateLayout({ dbPath: config.dbPath, nativeLeasePath: config.nativeBrain?.leasePath, pokeTokenFile: config.inboxPokeTokenFile, compute: config.compute });
+}
+
 /**
  * The host execution boundary for this cron process (#1648), on the UI
  * database the server shares. Turns a dead server left mid-turn are
@@ -113,8 +118,7 @@ async function cronHostExecution(config: CronConfig, options: { gate: boolean })
   if (realpathSync(config.brainPath) !== ready.brainPath) throw Error("The native manager serves a different cron brain; no repository code can run.");
   const ephemeral = !config.dbPath || config.dbPath === ":memory:";
   if (ephemeral && !config.nativeBrain.leasePath) throw Error("Ephemeral cron UI state requires explicit BRAIN_UI_NATIVE_BRAIN_LEASE_PATH.");
-  const statePath = resolve(config.nativeBrain.leasePath ?? `${config.dbPath}.native-leases.sqlite`);
-  const privateStatePaths = [{ setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: statePath }];
+  const { nativeLeasePath: statePath, privateStatePaths } = cronPrivateStateLayout(config);
   assertOperationalStateOutsideBrain({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths });
   const leases = await createNativeBrainLeaseManager(raw, { statePath, brainPath: ready.brainPath, fsid: ready.fsid, brainUuid: ready.brainUuid });
   try {
@@ -207,7 +211,7 @@ if (subcommand === "crontab") {
       return await readModuleList(config.moduleDiscoveryEnv, host.boundary);
     } finally { await host.close(); }
   } });
-  persistModuleDiscovery({ brainPath: config.brainPath, dbPath: config.dbPath, hostQualified, outcome: discovery, report });
+  persistModuleDiscovery({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths: cronPrivateStateLayout(config).privateStatePaths, hostQualified, outcome: discovery, report });
   const modules: BrainModuleListPayload | null = discovery.modules;
   process.stdout.write(
     emitCrontab({

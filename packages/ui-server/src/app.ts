@@ -41,11 +41,11 @@ import { HTTPException } from "hono/http-exception";
 import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
-import { basename, dirname, join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
-import { prepareNativeWorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { onUnqualifiedLaunch, prepareNativeWorkerStartupView, unqualifiedLaunches, type WorkerPrivateStateEvent } from "@schlessera/brain-ui-sdk/internal";
 import { createCodeChangeHistory } from "./brain/code-change-history.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
@@ -207,7 +207,7 @@ import { createComputeHost, readHostedComputeConfig } from "./brain/compute-host
 import { createReferenceTransport } from "./brain/reference-transport.js";
 import { createReferenceWorktreeHygiene } from "./brain/reference-worktree-hygiene.js";
 import { createReferenceWorktrees, forgetReferenceWorktreeCheckpoint, recordReferenceWorktreeCheckpoint, referenceWorktreeDependents, referenceWorktreeOwner } from "./brain/reference-worktrees.js";
-import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
+import { assertOperationalStateOutsideBrain, operationalStateMasks, privateStateLayout } from "./brain/operational-state.js";
 
 export type { AppRenderer };
 
@@ -422,30 +422,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   if (realpathSync(config.brainPath) !== nativeReady.brainPath) throw new Error("The native storage manager serves a different brain. Correct the configured managed brain path before starting hosted workers.");
   const ephemeralJournal = config.dbPath === "" || config.dbPath === ":memory:";
   if (ephemeralJournal && !config.nativeBrain.leasePath) throw new Error("An ephemeral UI database requires BRAIN_UI_NATIVE_BRAIN_LEASE_PATH outside the brain for durable native checkpoint ownership.");
-  const nativeLeasePath = resolve(config.nativeBrain.leasePath ?? `${config.dbPath}.native-leases.sqlite`);
-  const journalRoot = ephemeralJournal ? mkdtempSync(join(tmpdir(), "brain-ui-journal-"))
-    : join(dirname(resolve(config.dbPath)), `${basename(config.dbPath)}.journal`);
-  const storageCacheRoot = `${journalRoot}.storage-cache`;
-  const privateStatePaths = config.inbox?.pokeTokenFile
-    ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: config.inbox.pokeTokenFile }] : [];
-  privateStatePaths.push({ setting: "Storage transfer cache", path: storageCacheRoot }, { setting: "turn journal", path: journalRoot }, { setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: nativeLeasePath });
-  // The host web executor's per-session private directories (#3686): host
-  // operational state beside the journal, refused inside the brain and masked
-  // from workers like the rest.
-  const webExecutorRoot = `${journalRoot}.web-executor`;
-  privateStatePaths.push({ setting: "web executor state", path: webExecutorRoot });
-  // Hosted external compute state (#3108, ruling R5): host operational state
-  // beside the database, refused inside the brain and masked from workers.
-  // An ephemeral database has no durable place for it, so compute is off.
-  // An unconfigured host (no bound credential, no earlier state) creates and
-  // masks nothing, so it boots exactly as before hosted compute existed.
   const computeSettings = config.compute ?? resolveComputeConfig({}, config.dbPath);
-  const computeConfigured = Object.keys(computeSettings.keys).length > 0
-    || (computeSettings.stateDir !== null && existsSync(computeSettings.stateDir));
-  if (computeSettings.stateDir && computeConfigured) {
-    privateStatePaths.push({ setting: "BRAIN_UI_COMPUTE_STATE_DIR", path: computeSettings.stateDir });
-    mkdirSync(computeSettings.stateDir, { recursive: true, mode: 0o700 });
-  }
+  const layout = privateStateLayout({ dbPath: config.dbPath, nativeLeasePath: config.nativeBrain.leasePath, pokeTokenFile: config.inbox?.pokeTokenFile, compute: computeSettings,
+    ...(ephemeralJournal ? { ephemeralJournalRoot: mkdtempSync(join(tmpdir(), "brain-ui-journal-")) } : {}) });
+  const { nativeLeasePath, privateStatePaths } = layout, journalRoot = layout.journalRoot!;
+  const storageCacheRoot = `${journalRoot}.storage-cache`;
+  const webExecutorRoot = `${journalRoot}.web-executor`;
+  // Hosted compute is off for an ephemeral database: it has no durable place
+  // for the state directory. The directory is created here, not by the layout.
+  if (layout.computeStateDir) mkdirSync(layout.computeStateDir, { recursive: true, mode: 0o700 });
   // The manager verifies its fixed topology and root-private state. These are
   // exact masks, not app-owned directories to enumerate or mask by parent.
   const nativeMaskPaths = nativeReady.privatePaths;
@@ -531,9 +516,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const providerRelay = nativeManager ? maintenanceProviderMeter({ brainPath: config.brainPath,
     ...(config.cliProviderOrigins ? { origins: config.cliProviderOrigins } : {}), budgets: () => relayBudgets,
     report: message => brainLog.emit({ severityText: "WARN", body: message }) }) : undefined;
+  // Bound once Activity exists: the durable record of a refused launch (#4301).
+  // Events before Activity exists are kept and recorded once it does (F9).
+  const bootPrivateStateEvents: { event: WorkerPrivateStateEvent; at: number }[] = [];
+  let onPrivateStateEvent: ((event: WorkerPrivateStateEvent, at?: number) => void) = event => { bootPrivateStateEvents.push({ event, at: Date.now() }); };
   const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, ...(providerRelay ? { providerRelay } : {}), profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
-    ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
+    ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary,
+    privateStateEvents: event => onPrivateStateEvent(event) });
   bootCleanup.push(() => hostExecution.release());
+  // A masked launch for a brain with no registered layout runs unqualified, never silently (#4301 Q1 ruling).
+  // One WARN per site and brain: synchronous maintenance is never qualified and runs often (#4301 path O5).
+  const loggedUnqualified = new Set<string>();
+  const stopUnqualifiedLog = onUnqualifiedLaunch(launch => loggedUnqualified.has(`${launch.site} ${launch.brain}`) ? undefined : (loggedUnqualified.add(`${launch.site} ${launch.brain}`), brainLog.emit({ severityText: "WARN",
+    body: `a masked ${launch.site} launch skipped private-state qualification: ${launch.site === "synchronous-maintenance" ? `synchronous maintenance is not qualified and walks instead (brain ${launch.brain})` : `no private-state layout is registered for brain ${launch.brain} in this process`}`,
+    attributes: { "launch.site": launch.site, "launch.brain": launch.brain } })));
+  bootCleanup.push(stopUnqualifiedLog);
   const boundary = hostExecution.boundary;
   const reconciled = (results: ReturnType<typeof hostExecution.attach>) => {
     for (const result of results) {
@@ -546,7 +543,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // must still leave no new database behind.
   reconciled(hostExecution.reconcileExisting());
   await boundary.prepare();
-  await probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary });
+  // An exposure refuses no boot: the version check is then repeated before any later execution (#4301).
+  const probeVersion = (gate?: "shared" | "none", signal?: AbortSignal) => probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary,
+    ...(gate ? { gate } : {}), ...(signal ? { signal } : {}) });
+  if ((await probeVersion())?.deferred) boundary.deferPreflight?.(async (gate, signal) => (await probeVersion(gate, signal))?.deferred);
   // The CLI now keeps its index in .brain-index/. Delete the root-level copy
   // an earlier release left (it holds document bodies a provider-restricted
   // turn must not read); the index is rebuilt below, never moved (#1668).
@@ -703,6 +703,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     writer,
     pricingConfig: { brainPath: config.brainPath, enabled: config.pricing.enabled, ttlMs: config.pricing.ttlMs },
   });
+  onPrivateStateEvent = (event, at = Date.now()) => {
+    if (event.kind !== "refused" || event.reason !== "private_state_exposed" || !event.exposure) return;
+    activity.runtime.recordPrivateStateExposure({ at, reason: "private_state_exposed", setting: event.exposure.setting,
+      path: event.exposure.name, row: event.exposure.row, scope: "launch" });
+  };
+  for (const { event, at } of bootPrivateStateEvents.splice(0)) onPrivateStateEvent(event, at);
   bootCleanup.push(() => activity.close());
   activity.runtime.setBoot(runtimeProbes);
   const cron = createCronScheduler({ db });
@@ -831,7 +837,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
     refresh(turnId) { host.governedTurns?.refresh(host.workerLock, turnId); } });
   const computeHost = createComputeHost({ db, brainPath: config.brainPath, stateDir: computeSettings.stateDir,
-    stateMasked: computeConfigured && computeSettings.stateDir !== null && turnMaskPaths.includes(realpathSync(computeSettings.stateDir)),
+    stateMasked: layout.computeStateDir !== undefined && turnMaskPaths.includes(realpathSync(layout.computeStateDir)),
     keys: computeSettings.keys, workerEnvExtra: computeSettings.workerEnvExtra,
     readConfig: ctx => readHostedComputeConfig({ brainPath: config.brainPath, nativeManager, maskPaths: turnMaskPaths, policy: ctx.policy, signal: AbortSignal.timeout(60_000) }),
     budgets, activity, log: brainLog, ...options.computeOverrides });
@@ -998,7 +1004,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     return result;
   };
   if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager,
-    privateIndex: { maskPaths: turnMaskPaths }, applicationPlanner: host.applicationPlanner, indexBatch,
+    privateIndex: { maskPaths: turnMaskPaths, preflight: signal => boundary.awaitPreflight?.(signal) ?? Promise.resolve() }, applicationPlanner: host.applicationPlanner, indexBatch,
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now, yieldAfterMs: config.inbox?.yieldAfterMs,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
     store: activity.store, runtime: activity.runtime, governanceWrites: activity.governanceWrites, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
@@ -1214,7 +1220,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Chat's runtime beside what scheduled syncs ran (#290). A failed read
       // leaves the sync half out rather than failing the status.
       getRuntime: () => {
-        const snapshot = { ...activity.runtime.snapshot(), compute: computeHost.status() };
+        const recorded = activity.runtime.snapshot();
+        // Launch-qualification diagnostics are live, not the copy recorded at boot or recheck (#4301 F8).
+        const live = boundary.privateStateStatus?.(), governed = recorded.workerHost?.governed;
+        const current = !live || !governed ? governed : live.refusal ? (({ profile: _profile, profileFallback: _fallback, ...rest }) => ({ ...rest, available: false as const, ...live.refusal!, stateBoundary: live.stateBoundary }))(governed as typeof governed & { profileFallback?: string })
+          : governed.available === false && governed.reason === "private_state_exposed" ? { ...boundary.status(), stateBoundary: live.stateBoundary }
+            : { ...governed, stateBoundary: live.stateBoundary };
+        const skipped = unqualifiedLaunches();
+        const snapshot = { ...recorded, ...(current && recorded.workerHost ? { workerHost: { ...recorded.workerHost, governed: current } } : {}),
+          ...(skipped.count ? { unqualifiedLaunches: skipped } : {}), compute: computeHost.status() };
         try {
           return { ...snapshot, sync: readSyncRuntime(db) };
         } catch {
@@ -1600,6 +1614,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => activity.close());
       await attempt(stopAttachmentSweep);
       await attempt(() => hostExecution.release());
+      await attempt(() => stopUnqualifiedLog());
       // Consumers have drained; close the shared write connection before its reader.
       await attempt(() => writer.close());
       await attempt(() => db.close());

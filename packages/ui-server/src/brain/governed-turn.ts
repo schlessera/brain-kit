@@ -5,7 +5,7 @@ import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import type { PhaseTimer } from "../activity/turn-lifecycle.js";
-import { assertManagedTurnStartupView, prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepareWorkerSandboxAsync, workerProfile, type WorkerSandbox, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { assertManagedTurnStartupView, prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepareWorkerSandboxAsync, takeAdmissionWalk, workerProfile, type WorkerSandbox, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
@@ -119,7 +119,7 @@ export function createGovernedTurns(options: {
   // base is brought to a fresh checkpoint of the live brain, so the next warm
   // turn usually finds it unchanged even after a turn added notes (#2833).
   const assertReadable = (availability: ReturnType<HostExecution["boundary"]["governed"]> = options.execution.boundary.governed()) => {
-    if (!availability.available && ["private_state_unverified", "private_state_in_brain", "database_in_brain"].includes(availability.reason)) throw Object.assign(new Error(`${availability.reason}: ${availability.detail}`), { reason: availability.reason });
+    if (!availability.available && ["private_state_unverified", "private_state_exposed", "private_state_in_brain", "database_in_brain"].includes(availability.reason)) throw Object.assign(new Error(`${availability.reason}: ${availability.detail}`), { reason: availability.reason });
   };
   const advance = () => void privateIndexes.advance(signal => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal))
     .catch(error => options.report(`private index advance failed: ${String(error)}`));
@@ -253,9 +253,15 @@ export function createGovernedTurns(options: {
       try { ensureRetainedDirectories(options.brainPath, folderPaths); } catch { /* resolver refuses */ }
       const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
       const selected = requested === "governed" && !availability.available ? "strict" : requested;
-      const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { timing, profile: selected, codeChanges: route?.codeChanges === true,
-        protectedPaths: protectedPaths(policy.policy), folderPaths,
-        maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
+      // Whatever resolution did with it, the admission's walk receipt ends with
+      // it: a later command with this view walks (#4973 r8 F115).
+      const resolveSandbox = async () => {
+        try {
+          return await prepareWorkerSandboxAsync(options.brainPath, { timing, profile: selected, codeChanges: route?.codeChanges === true,
+            protectedPaths: protectedPaths(policy.policy), folderPaths,
+            maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
+        } finally { takeAdmissionWalk(startupView!); }
+      };
       let resolved = await step("sandbox_resolve", resolveSandbox);
       const missingWritableRoot = () => resolved.areas.find(area => (area.mount.writable || area.mount.readOnlyPath)
         && !lstatSync(join(startupView!.root, area.rel), { throwIfNoEntry: false })?.isDirectory());

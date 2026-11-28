@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import {
   chmodSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -315,6 +316,19 @@ test("qualified native module discovery emits its repository-declared job", asyn
   expect(output, "NATIVE_CRON_REAL_MODULE_DISCOVERY_EMITTED_JOB").toContain("run harbor-watch -- brain harbor watch");
   expect(output).toContain("12 * * * *");
   expect(errors).toBe("");
+});
+
+test("a cron job refuses when only the turn journal aliases a brain file, as the server does (#4498)", async () => {
+  const brain = join(directory, "journal-alias-brain"), state = join(directory, "journal-alias-state"), sentinel = join(directory, "journal-alias-child");
+  mkdirSync(brain); mkdirSync(join(`${join(state, "brain-ui.db")}.journal`, "objects"), { recursive: true });
+  writeFileSync(join(brain, "ithaca.md"), "# Ithaca\n");
+  linkSync(join(brain, "ithaca.md"), join(`${join(state, "brain-ui.db")}.journal`, "objects", "ithaca"));
+  const proc = nativeProcess(brain, ["run", "journal-alias", "--", process.execPath, "-e", `await Bun.write(${JSON.stringify(sentinel)}, "executed")`],
+    { PATH: process.env.PATH, DB_PATH: join(state, "brain-ui.db") });
+  const [code, errors] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+  expect(code, "CRON_JOURNAL_ALIAS_REFUSES").not.toBe(0);
+  expect(errors, "CRON_JOURNAL_ALIAS_NAMED").toContain("OperationalStateInBrainError: turn journal has an inode alias inside the brain");
+  expect(existsSync(sentinel), "CRON_JOURNAL_ALIAS_RUNS_NO_JOB").toBe(false);
 });
 
 test("repository job without native qualification refuses before creating UI state or executing child", async () => {

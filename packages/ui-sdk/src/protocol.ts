@@ -1977,7 +1977,7 @@ export interface WorkerLimitsStatus {
 }
 
 /** Why `governed` cannot run on a server (#1648). */
-export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "private_state_unverified" | "worker_host_unavailable";
+export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "private_state_unverified" | "private_state_exposed" | "worker_host_unavailable";
 
 export type GovernedStatus = {
   hostExecution: "worker" | "host";
@@ -1995,6 +1995,17 @@ export type GovernedStatus = {
    * those turns keep their current network and `detail` says so.
    */
   egress?: { active: boolean; detail: string };
+  /**
+   * How turn admission proves host private state stays out of the brain, and
+   * what launch qualification last saw (#4301). `mode: "walk"` is today's
+   * alias walk on every admission; `checkedAt` is the last admission check
+   * (epoch ms), `null` before the first. `lastRefusal` is the last launch this
+   * process refused for private state; `ownershipOnly` lists live names that
+   * were reported but released because the sandbox's UIDs cannot open them.
+   * Diagnostics only: no admission or launch reads them.
+   */
+  stateBoundary?: { mode: "boundary" | "walk"; reason?: string; checkedAt: number | null;
+    lastRefusal?: { at: number; reason: string; path?: string }; ownershipOnly?: string[] };
 }
   & ({ available: true } | { available: false; reason: GovernedUnavailableReason; detail: string });
 

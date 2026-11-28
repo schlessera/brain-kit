@@ -1,5 +1,5 @@
 import { BackendBusyError, BackendRequestError, FastOutputUnavailableError } from "@schlessera/brain-ui-sdk/server";
-import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
+import { privateStateRefusalOf, WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
 import { BudgetExceeded, BudgetUnavailable } from "../../brain/turn-budgets.js";
 import { JournalCapacityError } from "../../brain/journal-objects.js";
 import { JournalStorageUnavailable } from "../../brain/journal-accounting.js";
@@ -13,10 +13,18 @@ export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): vo
   // startTurn resolves for runtime failures (it emits its own error frame); it
   // only rejects for caller errors. Each rejection is reported server-side
   // too — the frame alone leaves no trace once the browser tab is gone.
-  if (err instanceof Error && "reason" in err && err.reason === "private_state_unverified") {
-    host.reportTurnFailed("PRIVATE_STATE_UNVERIFIED", turn, err.message);
-    host.sendToClients(withTurnScope({ type: "error", code: "PRIVATE_STATE_UNVERIFIED", message: err.message,
-      failure: { errorClass: "private_state_unverified", message: err.message }, ...correlation }, turn));
+  const exposure = privateStateRefusalOf(err);
+  if (exposure?.reason === "private_state_exposed" || (err instanceof Error && "reason" in err && err.reason === "private_state_exposed")) {
+    // A launch, or the admission probe, refused before its payload started (#4301): never a backend error.
+    const message = exposure?.message ?? (err as Error).message;
+    host.reportTurnFailed("PRIVATE_STATE_EXPOSED", turn, message);
+    host.sendToClients(withTurnScope({ type: "error", code: "PRIVATE_STATE_EXPOSED", message,
+      failure: { errorClass: "private_state_exposed", message }, ...correlation }, turn));
+  } else if ((err instanceof Error && "reason" in err && err.reason === "private_state_unverified") || exposure?.reason === "private_state_unverified") {
+    const message = exposure?.message ?? (err as Error).message;
+    host.reportTurnFailed("PRIVATE_STATE_UNVERIFIED", turn, message);
+    host.sendToClients(withTurnScope({ type: "error", code: "PRIVATE_STATE_UNVERIFIED", message,
+      failure: { errorClass: "private_state_unverified", message }, ...correlation }, turn));
   } else if (err instanceof BudgetExceeded) {
     const budget=host.budgets?.saved(turn.turnId);
     if (budget && turn.sessionId && host.journal) host.sendToClients(withTurnScope({type:"turn_journal",sessionId:turn.sessionId,
