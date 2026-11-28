@@ -59,6 +59,9 @@ import { bunRunner, DEFAULT_BUN_COMMAND, visualRunner, type TestRunner } from ".
 import { groupsOf, makeShards, planRun, rank, remainingIn, resolveGroup, type Cluster, type IssueRef, type Mode, type Shard } from "./test-health/select";
 import { countSignals, scanFiles, scanSource, signalWeight, type FileSignals } from "./test-health/signals";
 import { resolveWorksheet, validateWorksheet, type DraftWorksheet } from "./test-health/worksheet";
+import { git } from "./lib/git";
+
+const HEALTH_GIT = { error: (args: readonly string[], _code: number | null, stderr: string) => `git ${args[0]}: ${stderr.trim()}` } as const;
 
 /** What the CLI reaches outside the checkout for. Tests replace all of it. */
 export interface Io {
@@ -98,12 +101,6 @@ export function parseArgs(argv: readonly string[]): { positional: string[]; flag
   return { positional, flags, lists };
 }
 
-function git(root: string, args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) throw new Error(`git ${args[0]}: ${result.stderr.toString().trim()}`);
-  return result.stdout.toString().trim();
-}
-
 interface Session { io: Io; flags: Map<string, string | true>; config: Config; store: LedgerStore; stateDir: string; cacheDir: string }
 const flag = (session: Session, name: string): string | undefined => { const value = session.flags.get(name); return typeof value === "string" ? value : undefined; };
 const need = (session: Session, name: string): string => { const value = flag(session, name); if (!value) throw new Error(`--${name} is required`); return value; };
@@ -116,7 +113,7 @@ function openSession(io: Io, flags: Map<string, string | true>): Session {
   if (text("budget-files")) overrides.budgetFiles = Number(text("budget-files"));
   if (flags.has("bun-only")) overrides.tiers = BUN_TIERS;
   const config = loadConfig(text("profile") ?? "cron", overrides);
-  const common = git(io.root, ["rev-parse", "--git-common-dir"]);
+  const common = git(io.root, ["rev-parse", "--git-common-dir"], { ...HEALTH_GIT, trim: true });
   const stateDir = text("state-dir") ? resolve(text("state-dir")!) : join(isAbsolute(common) ? common : join(io.root, common), "test-health");
   const store = text("ledger-dir") ? new DirLedgerStore(resolve(text("ledger-dir")!)) : new GitLedgerStore(io.root, config.ledgerRemote, config.ledgerRef);
   return { io, flags, config, store, stateDir, cacheDir: join(stateDir, "cache") };
@@ -365,8 +362,8 @@ function commandRecordCluster(session: Session): unknown {
   for (const file of sheet.members ?? []) if (!planned.members.includes(file)) problems.push(`${file} is not a planned member of this cluster`);
   if (problems.length) throw new Error(`The worksheet cannot be recorded:\n- ${problems.join("\n- ")}`);
 
-  const commit = flag(session, "commit") ? git(io.root, ["rev-parse", "--verify", `${flag(session, "commit")}^{commit}`]) : null;
-  if (commit && !git(io.root, ["show", "-s", "--format=%B", commit]).includes(trailerFor(runId, index))) {
+  const commit = flag(session, "commit") ? git(io.root, ["rev-parse", "--verify", `${flag(session, "commit")}^{commit}`], { ...HEALTH_GIT, trim: true }) : null;
+  if (commit && !git(io.root, ["show", "-s", "--format=%B", commit], { ...HEALTH_GIT, trim: true }).includes(trailerFor(runId, index))) {
     throw new Error(`Commit ${commit.slice(0, 10)} lacks the trailer "${trailerFor(runId, index)}"`);
   }
   const current = commit ? null : blobsOf(io.root, sheet.members);
@@ -374,7 +371,7 @@ function commandRecordCluster(session: Session): unknown {
     const blobBefore = plan.rows[file]?.blob;
     if (!blobBefore) throw new Error(`${file} has no planned blob`);
     let blobAfter: string | null;
-    if (commit) { try { blobAfter = git(io.root, ["rev-parse", "--verify", `${commit}:${file}`]); } catch { blobAfter = null; } }
+    if (commit) { try { blobAfter = git(io.root, ["rev-parse", "--verify", `${commit}:${file}`], { ...HEALTH_GIT, trim: true }); } catch { blobAfter = null; } }
     else blobAfter = existsSync(join(io.root, file)) ? current!.get(file) ?? null : null;
     if (!commit && blobAfter !== blobBefore) throw new Error(`${file} changed but no --commit was given: commit the cluster with its trailer first`);
     return { file, blobBefore, blobAfter, lenses: sheet.audits.find(audit => audit.file === file)!.lenses };

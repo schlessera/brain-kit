@@ -32,6 +32,7 @@
 import { readFileSync } from "fs";
 import { relative, resolve } from "path";
 import ts from "typescript";
+import { parse, treeFiles } from "./lib/source";
 
 export interface Allowed { file: string; match: RegExp; reason: string }
 
@@ -131,8 +132,7 @@ export function isSqlText(node: ts.Expression, consts: ReadonlyMap<string, ts.Ex
 
 /** Every `.prepare(<SQL text>, …)` call in one source file. */
 export function sqlPrepareSites(file: string, text: string): Site[] {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true,
-    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const source = parse(file, text);
   const sites: Site[] = [], consts = constInitializers(source);
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
@@ -171,21 +171,21 @@ export function check(files: ReadonlyMap<string, string>, allow: readonly Allowe
 
 export function scanTree(root: string): Result {
   const files = new Map<string, string>();
-  for (const file of new Bun.Glob(SCOPE).scanSync({ cwd: root })) files.set(file, readFileSync(resolve(root, file), "utf8"));
+  for (const file of treeFiles(root, SCOPE)) files.set(file, readFileSync(resolve(root, file), "utf8"));
   const result = check(files);
   // An entry whose file is gone is stale too.
   for (const entry of ALLOWED) if (!files.has(entry.file)) result.unmatched.push(entry);
   return result;
 }
 
-if (import.meta.main) {
-  const root = resolve(process.argv[2] ?? process.cwd());
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
   const { findings, allowed, unmatched } = scanTree(root);
   const where = (site: Site) => `${relative(root, resolve(root, site.file))}:${site.line}:${site.column}`;
   if (findings.length === 0 && unmatched.length === 0) {
     console.log("ui-server takes fixed-text SQLite statements from db.query(); the prepare() sites that stay:");
     for (const site of allowed) console.log(`  ${where(site)}: ${site.reason}`);
-    process.exit(0);
+    return 0;
   }
   if (findings.length) {
     console.error("db.prepare() with SQL text in ui-server source, where db.query() is meant:");
@@ -196,5 +196,7 @@ if (import.meta.main) {
     for (const entry of unmatched) console.error(`  ${entry.file} ${entry.match}: ${entry.reason}`);
   }
   console.error(`\n${findings.length + unmatched.length} finding(s); see scripts/check-sqlite-prepare.ts.`);
-  process.exit(1);
+  return 1;
 }
+
+if (import.meta.main) process.exit(lintGate(resolve(process.argv[2] ?? process.cwd())));

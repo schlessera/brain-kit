@@ -18,6 +18,7 @@ import { buildBundle, buildCss, buildLibs } from "./bundle.ts";
 import { buildCards, buildIndexDts } from "./cards.ts";
 import { checkStories } from "./check.ts";
 import { buildTokensJson, parseTokensCss } from "./tokens.ts";
+import { gitResult } from "../lib/git";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const KIT = join(ROOT, "packages/ui-kit");
@@ -36,8 +37,7 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(project, { recursive: true });
 mkdirSync(work, { recursive: true });
 
-const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: ROOT }).stdout.toString().trim();
-const ref = `${git("rev-parse", "--abbrev-ref", "HEAD")}@${git("rev-parse", "--short", "HEAD")}`;
+const ref = `${gitResult(ROOT, ["rev-parse", "--abbrev-ref", "HEAD"], { trim: true }).stdout}@${gitResult(ROOT, ["rev-parse", "--short", "HEAD"], { trim: true }).stdout}`;
 
 const css = await Bun.file(join(KIT, "src/tokens.css")).text();
 const { tokens, skipped } = parseTokensCss(css);

@@ -52,7 +52,7 @@ describe("scanText", () => {
 });
 
 describe("repository", () => {
-  test("scans tracked text while excluding binary, deleted, ignored and untracked files", () => {
+  test("scans tracked and untracked text while excluding binary, deleted and ignored files (#4674)", () => {
     const root = mkdtempSync(join(tmpdir(), "invisibles-gate-"));
     const git = (...args: string[]) => execFileSync("git", args, {
       cwd: root,
@@ -72,6 +72,7 @@ describe("repository", () => {
       writeFileSync(join(root, "untracked.ts"), NUL);
       expect(scanRepo(root)).toEqual([
         { file: "nested/dirty.ts", line: 2, column: 2, name: "NUL", codepoint: 0 },
+        { file: "untracked.ts", line: 1, column: 1, name: "NUL", codepoint: 0 },
       ]);
       const child = Bun.spawnSync({
         cmd: [process.execPath, resolve(import.meta.dir, "../scripts/check-invisibles.ts"), root],
@@ -81,6 +82,7 @@ describe("repository", () => {
       expect(child.stderr.toString()).toContain("nested/dirty.ts:2:2: NUL");
       expect(child.stderr.toString()).toContain("write it as " + String.fromCharCode(92) + "u0000 instead");
       writeFileSync(join(root, "nested/dirty.ts"), "clean\n");
+      writeFileSync(join(root, "untracked.ts"), "clean\n");
       expect(scanRepo(root)).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });

@@ -10,6 +10,9 @@
  */
 import { FEEDBACK_WORKFLOW, requireLiveDraftHead } from "./heavy-feedback";
 import type { API } from "./proof-api";
+import { gh as ghCommand, resolveRepository } from "./lib/gh";
+
+const FEEDBACK_GH = { trim: true, error: (_args: readonly string[], code: number, stderr: string) => stderr.trim() || `gh exited ${code}` };
 
 /** One `gh` invocation: argv plus optional stdin, resolving stdout. */
 export type GH = (args: string[], input?: string) => Promise<string>;
@@ -35,20 +38,13 @@ export async function requestHeavyFeedback(gh: GH, repository: string, pr: numbe
   return { pr, head: live.head, base: live.base, workflow: FEEDBACK_WORKFLOW, run: response.workflow_run_id, url: response.html_url, api: response.run_url };
 }
 
-async function gh(args: string[], input?: string): Promise<string> {
-  const child = Bun.spawn(["gh", ...args], { stdin: input === undefined ? "ignore" : new TextEncoder().encode(input), stdout: "pipe", stderr: "pipe" });
-  const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-  if (code !== 0) throw new Error(err.trim() || `gh exited ${code}`);
-  return out.trim();
-}
-
 if (import.meta.main) {
   try {
     const args = process.argv.slice(2), json = args.includes("--json");
     const rest = args.filter(arg => arg !== "--json");
     if (rest.length !== 1 || !/^[1-9]\d*$/.test(rest[0]!)) throw new Error("Usage: bun scripts/request-heavy-feedback.ts <pr> [--json]");
-    const repository = process.env.BRAIN_KIT_REPOSITORY ?? "schlessera/brain-kit";
-    const run = await requestHeavyFeedback(gh, repository, Number(rest[0]));
+    const repository = resolveRepository();
+    const run = await requestHeavyFeedback((args, input) => ghCommand(args, { ...FEEDBACK_GH, input }), repository, Number(rest[0]));
     console.log(json ? JSON.stringify(run, null, 2) : run.url);
   } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }
 }

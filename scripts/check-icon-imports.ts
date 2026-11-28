@@ -13,6 +13,7 @@
 import { readFileSync } from "node:fs";
 import { posix, resolve } from "node:path";
 import ts from "typescript";
+import { parse, treeFiles } from "./lib/source";
 
 const SRC = "packages/ui-react/src";
 export const ICONS = `${SRC}/components/icons.ts`;
@@ -20,9 +21,6 @@ const MODULE = "lucide-react";
 
 type Sources = Record<string, string>;
 
-function parse(file: string, source: string) {
-  return ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-}
 const lineOf = (tree: ts.SourceFile, node: ts.Node) => tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1;
 
 /** Every module specifier a file names, in any import or re-export form. */
@@ -88,19 +86,28 @@ export function checkIconImports(sources: Sources): string[] {
   return findings;
 }
 
-if (import.meta.main) {
-  const root = resolve(process.argv[2] ?? ".");
+/** The ui-react sources under `root`, by repository-relative path. */
+export function scanSources(root: string): Sources {
   const sources: Sources = {};
-  for (const file of new Bun.Glob(`${SRC}/**/*.{ts,tsx}`).scanSync(root)) sources[file.split("\\").join("/")] = readFileSync(resolve(root, file), "utf8");
+  for (const file of treeFiles(root, `${SRC}/**/*.{ts,tsx}`)) sources[file.split("\\").join("/")] = readFileSync(resolve(root, file), "utf8");
+  return sources;
+}
+
+/** The gate as `bun run lint` runs it: prints its findings, returns its exit code. */
+export function lintGate(root: string): number {
+  const sources = scanSources(root);
   if (!(ICONS in sources)) {
     // A missing module would leave rules 2 and 3 checking nothing.
     console.error(`icon-imports: ${ICONS} is missing; the gate checked nothing`);
-    process.exit(1);
+    return 1;
   }
   const findings = checkIconImports(sources);
   if (findings.length) {
     console.error(findings.join("\n"));
-    process.exit(1);
+    return 1;
   }
   console.log(`icon-imports: ${Object.keys(sources).length} files name lucide-react only through ${ICONS}`);
+  return 0;
 }
+
+if (import.meta.main) process.exit(lintGate(resolve(process.argv[2] ?? ".")));

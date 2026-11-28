@@ -17,6 +17,7 @@
 
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
+import { treeFiles } from "./lib/source";
 
 export interface Site {
   rule: string;
@@ -153,13 +154,7 @@ export function scanSource(file: string, text: string, rules: readonly Rule[] = 
 }
 
 export function testFiles(root: string): string[] {
-  const files = new Set<string>();
-  for (const pattern of SCANNED) {
-    for (const file of new Bun.Glob(pattern).scanSync({ cwd: root })) {
-      if (!/(^|\/)(node_modules|dist)\//.test(file)) files.add(file);
-    }
-  }
-  return [...files].sort();
+  return treeFiles(root, SCANNED).filter((file) => !/(^|\/)(node_modules|dist)\//.test(file));
 }
 
 /** Shape problems in a baseline: an unknown rule, a missing reason, a duplicate, the wrong order. */
