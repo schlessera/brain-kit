@@ -122,6 +122,13 @@ export const WORKER_HOST_ROUTE = "Use a verified Linux or qualifying WSL2 host w
 
 export interface WorkerLaunch {
   brainPath: string;
+  /**
+   * A read-only consumer of the turn's view (#4325): no writable area,
+   * workspace or worktree is bound, and every bind that targets the brain or
+   * the turn's data tree, including protection pins and indexes, is
+   * read-only, whatever the sandbox profile would otherwise make writable.
+   */
+  readOnlyBrain?: boolean;
   /** Host-owned immutable execution view for snapshot consumers. */
   startupView?: WorkerStartupView;
   /** Async-acquired stage and its owned startup reference, consumed by this launch. */
@@ -226,6 +233,8 @@ export interface MaintenanceEnvelope {
   output?: { source: string; target: string; storage?: WorkerOutputStorage };
   /** Agent profiles make the empty host masks read-only. */
   readOnlyMasks?: boolean;
+  /** Mount the brain itself read-only: a consumer that only reads (#4325). */
+  readOnlyBrain?: boolean;
   /** One sized /tmp for all maintenance temporary writes; never agent turn temp. */
   tempBytes?: number;
   /** The host network namespace. Otherwise a private one with only loopback. */
@@ -530,7 +539,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     // again over the home just bound back.
     for (const mask of resolved) if (mask !== home && within(home, mask)) { argv.push("--tmpfs", mask); readOnlyMasks.add(mask); }
   }
-  argv.push("--bind", brain, brain);
+  argv.push(envelope.readOnlyBrain ? "--ro-bind" : "--bind", brain, brain);
   if (!envelope.credentials) argv.push("--dir", MAINTENANCE_HOME);
   if (!envelope.credentials || envelope.maskEnvFiles) argv.push(...maintenanceEnvMasks(brain, brain));
   for (const requested of envelope.writeFiles ?? []) {
@@ -681,7 +690,7 @@ export function workerCommand(input: WorkerLaunch,
   const runtimeViewMounts = [
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
     ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : input.sandbox?.profile ? maintenanceMounts({
-      network: true, credentials: false, readOnlyMasks: true,
+      network: true, credentials: false, readOnlyMasks: true, ...(input.readOnlyBrain ? { readOnlyBrain: true } : {}),
       readPaths: [...runtimePaths,
         ...(input.egress ? egressWorkerReadPaths() : [])],
       maskPaths: input.sandbox.maskPaths,
@@ -721,7 +730,7 @@ export function workerCommand(input: WorkerLaunch,
         return existsSync(source) ? ["--ro-bind", source, target] : ["--tmpfs", target, "--remount-ro", target];
       }),
     ] : []),
-    ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds,
+    ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...(input.readOnlyBrain ? [] : writable.binds),
     ...writable.readOnlyBinds,
     // Workspace ancestor pins stay read-only; quarantine child masks come last.
     ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders,
@@ -761,6 +770,18 @@ export function workerCommand(input: WorkerLaunch,
       at += count;
     }
     argv.push(...hostFiles, clear!);
+  }
+  // A read-only consumer (#4325): whatever the mounts above made writable
+  // inside the brain or the turn's data tree (governed ancestor and
+  // retained-folder pins, writable indexes, any later helper) is read-only.
+  // This one pass over the finished mount section is the invariant.
+  if (input.readOnlyBrain) {
+    for (let at = 0; at < argv.length - 2; at++) {
+      if (argv[at] !== "--bind") continue;
+      const target = argv[at + 2]!;
+      if (target === brain || isWithin(brain, target) || target === WORKER_DATA_ROOT || isWithin(WORKER_DATA_ROOT, target)) argv[at] = "--ro-bind";
+      at += 2;
+    }
   }
 
   // A private tmpfs of exactly the allowance. Nothing on the host backs it,
@@ -1344,6 +1365,19 @@ export function awaitWorkerExitSteps(child: SpawnedWorkerProcess): WorkerSteps<{
   });
 }
 
+/**
+ * A failed separate-UID supervisor/control path, which is never eligible for
+ * publication: independently authorized termination, then the broker close,
+ * both awaited off the event loop (#2854, #4894 round 8 F3). Always rejects,
+ * with the close's refusal or the original failure.
+ */
+export async function settleFailedSupervision(broker: { terminateSteps(): WorkerSteps<void> }, release: () => Promise<void>, error: unknown): Promise<never> {
+  await runWorkerStepsAsync(broker.terminateSteps());
+  try { await release(); }
+  catch (failure) { throw new WorkerIdentityCleanupError(`${(failure as Error).message}; original failure: ${String(error)}`); }
+  throw error;
+}
+
 /** How close to a worker's death its own memory limit and an OOM kill must be to have caused it. */
 const FATAL_OOM_WINDOW_MS = 1_000;
 
@@ -1382,6 +1416,11 @@ export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["st
   /** Resolves once no descriptor of this worker's stdio remains open in this process, once its streams have ended (#2862). */
   released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
+  /**
+   * The same signal without blocking the event loop: a separate-UID worker is
+   * signalled through its broker's asynchronous request (#4894 round 5 F1).
+   */
+  killAsync?(signal?: NodeJS.Signals): Promise<void>;
   /** True means the existing worker control acknowledged the stop; void has no timing confirmation. */
   freeze(): boolean | void;
   /** True means the existing worker control acknowledged the resume; void has no timing confirmation. */
@@ -1735,12 +1774,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     }).catch(async (error: unknown) => {
       // The worker exited and only its broker's close was refused.
       if (exitReleaseRefused) throw error;
-      // A failed supervisor/control path is never eligible for publication.
-      // Independently authorized termination precedes the broker close.
-      identityBroker!.terminate();
-      try { await releaseIdentityAsync(); }
-      catch (failure) { throw new WorkerIdentityCleanupError(`${(failure as Error).message}; original failure: ${String(error)}`); }
-      throw error;
+      return settleFailedSupervision(identityBroker!, releaseIdentityAsync, error);
     }) : spawned.exited;
     if (input.preparedOutput) bindPreparedWorkerOutputExit(input.preparedOutput, workerExit);
     void workerExit.then(() => completeMaintenanceSetup?.(), error => failMaintenanceSetup?.(error));
@@ -1768,6 +1802,10 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       resume: () => cgroup ? cgroup.resume() : freezer.resume(),
       kill: (signal?: NodeJS.Signals) => { killed = true;
         if (identityBroker) identityBroker.request("signal", { signal: (signal ?? "SIGTERM").replace(/^SIG/, "") });
+        else spawned.kill(signal);
+      },
+      killAsync: async (signal?: NodeJS.Signals) => { killed = true;
+        if (identityBroker) await identityBroker.requestAsync("signal", { signal: (signal ?? "SIGTERM").replace(/^SIG/, "") });
         else spawned.kill(signal);
       }, ...(state ? { state } : {}),
       ...(turnTemp ? { turnTemp } : {}) };

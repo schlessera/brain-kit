@@ -1,4 +1,4 @@
-import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
+import { FIRST_PARTY_FAILURE_CLASSES, type ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
 import type { AccountInfo, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { isMcpTimingServerName } from "@schlessera/brain-ui-sdk/internal";
@@ -41,6 +41,41 @@ export interface TurnStreamInputs {
   ackGrace: { timer?: ReturnType<typeof setTimeout> };
   /** A new session's SDK-minted id: re-key the turn's slot and retain its observations. */
   adoptSessionId(sessionId: string): void;
+  /** The session's fixed speed: a fast turn that ran any request at standard speed is not a plain success (#4310). */
+  outputSpeed?: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed;
+}
+
+/**
+ * Why a fast turn did not run entirely at fast speed, from what the runtime
+ * reported (#4310): a response whose usage names `standard` speed, or a final
+ * `fast_mode_state` other than `on` (for example `cooldown` after a rate
+ * limit). Absent evidence is not a fallback.
+ */
+/** The runtime's provider policy refused a fast session's route at startup (#4310, ruling 2026-11-27). */
+const PROVIDER_REFUSED = "not_first_party: Claude Code refused to start this turn outside the first-party provider policy";
+
+function fastFallback(msg: SDKMessage): string | undefined {
+  if (msg.type === "result" && (msg as { startup_failure_reason?: unknown }).startup_failure_reason === "provider_not_allowed") return PROVIDER_REFUSED;
+  if (msg.type === "assistant") {
+    const speed = (msg.message?.usage as { speed?: unknown } | undefined)?.speed;
+    return speed === "standard" ? "a response ran at standard speed" : undefined;
+  }
+  if (msg.type === "result") {
+    const state = (msg as { fast_mode_state?: unknown }).fast_mode_state;
+    return typeof state === "string" && state !== "on" ? `fast output ended ${state}` : undefined;
+  }
+  return undefined;
+}
+
+/** A fast turn that fell back never reports plain success; its usage and cost are kept. */
+function markFastFallback(frames: ServerMessage[], reason: string | undefined, inputs: TurnStreamInputs): ServerMessage[] {
+  if (!reason) return frames;
+  return frames.map(frame => {
+    if (frame.type !== "result" || frame.outcome === "cancelled" || inputs.abortController.signal.aborted) return frame;
+    const message = `fast_output_unavailable: ${reason} during this fast-output turn; the runtime did not serve it entirely at fast speed.`;
+    inputs.frames.emit({ type: "error", code: "CLAUDE_ERROR", message });
+    return { ...frame, outcome: "error" as const, isError: true, failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.fast_output_unavailable, message } };
+  });
 }
 
 /**
@@ -86,8 +121,18 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
   let resultTimingObserved = false;
   let reported = false;
   let carried: CarriedResult | null = null;
+  let fallback: string | undefined;
   try {
     for await (const msg of inputs.stream) {
+      if (inputs.outputSpeed === "fast") {
+        fallback ??= fastFallback(msg);
+        // A startup refusal can end a turn its prompt gate already withheld:
+        // that refusal names the provider policy, not a failed handshake.
+        if (fallback === PROVIDER_REFUSED) {
+          const message = `fast_output_unavailable: ${PROVIDER_REFUSED}.`;
+          terminal.refused = { code: "CLAUDE_ERROR", message, failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.fast_output_unavailable, message } };
+        }
+      }
       if (startupTiming && msg.type === "system" && msg.subtype === "init" && !mcpInitObserved) {
         mcpInitObserved = true;
         let omitted = 0, statesOmitted = 0, bytes = 2;
@@ -185,7 +230,7 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
           continue;
         }
         input.close();
-        frames = CarriedResult.carry(carried, frames);
+        frames = markFastFallback(CarriedResult.carry(carried, frames), fallback, inputs);
         carried = null;
       }
       forwardFrames(inputs, frames);
@@ -195,7 +240,7 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
     // began. One that began and ended without its own result is an abnormal
     // end, reported below like any other.
     if (carried && !carried.continued && !terminal.sawResult && !terminal.withheld && !inputs.abortController.signal.aborted) {
-      for (const serverMsg of carried.frames) {
+      for (const serverMsg of markFastFallback(carried.frames, fallback, inputs)) {
         if (serverMsg.type === "result") { terminal.hold(serverMsg); continue; }
         inputs.frames.emit(serverMsg);
       }

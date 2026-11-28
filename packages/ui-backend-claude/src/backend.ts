@@ -111,6 +111,9 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
     // turn-input.ts).
     followUp: true,
     historyRemoval: true,
+    // A fast session is checked against its upstream before start and its
+    // runtime's own fast-mode state before prompt release (#4310).
+    fastOutput: true,
   };
 
   return {

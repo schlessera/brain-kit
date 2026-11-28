@@ -6,6 +6,7 @@ import type { Taxonomy } from "./taxonomy.js";
 import { providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
 import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn, indexShape, vecStoreHasRows } from "./db.js";
 import { nameKey } from "./name-key.js";
+import { isIsoDate } from "./iso-date.js";
 import {
   assertPermutation,
   envRerankMode,
@@ -85,18 +86,11 @@ function generatedFromColumn(db: Database): string {
   return hasDocumentsColumn(db, "generated_from") ? "d.generated_from" : "NULL";
 }
 
+export { isIsoDate };
+
 interface FilterResult {
   where: string;
   params: any[];
-}
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** True for a real calendar date written `YYYY-MM-DD`. */
-export function isIsoDate(value: string): boolean {
-  if (!ISO_DATE.test(value)) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
 }
 
 const DATE_FILTERS = [

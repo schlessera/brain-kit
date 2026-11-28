@@ -1,3 +1,4 @@
+import { pricingForSpeed } from "../pricing/fast-output.js";
 import { stoppedTime } from "./stopped-time.js";
 import { clientTurnTimingSchema, MAX_CLIENT_TURN_RECEIPT_BYTES } from "@schlessera/brain-ui-sdk/schemas";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
@@ -610,8 +611,10 @@ export function createActivityStore(
     const pricingRoute = isPricingRoute(attrRoute) ? attrRoute : undefined;
 
     const usage = usageForPricing(root, spans);
-    const priced =
-      usage.kind === "usage" ? priceUsage(usage.byModel, getPricing(), pricingRoute) : null;
+    // A fast run (#4310) is priced at its fast rate, never from the
+    // catalog's standard rates, and is real spend on every billing mode.
+    const fast = root.attrs["brain.output_speed"] === "fast";
+    const priced = usage.kind === "usage" ? priceUsage(usage.byModel, pricingForSpeed(getPricing(), fast ? "fast" : undefined), pricingRoute) : null;
 
     // Effective-cost semantics (NULL = unknown, 0 = genuinely free):
     // subscription → 0 regardless of tokens (AE1); api → the priced sum —
@@ -623,11 +626,11 @@ export function createActivityStore(
     // An unclassified run (missing/invalid billing attr) prices as unknown:
     // no subscription-zero, no api pricing.
     const effectiveCostUsd =
-      billingMode === null ? null : billingMode === "subscription" ? 0 : (priced?.costUsd ?? null);
+      billingMode === null ? null : billingMode === "subscription" && !fast ? 0 : (priced?.costUsd ?? null);
     const pricingEstimate =
       billingMode === null
         ? null
-        : billingMode === "subscription"
+        : billingMode === "subscription" && !fast
           ? 0
           : priced
             ? (priced.estimate ? 1 : 0)

@@ -1,3 +1,5 @@
+import { createBridgedTurnReservation } from "./brain-tool-reservation.js";
+import { createBrainToolForwarder, startBrainToolWorker } from "./brain-tool-forwarder.js";
 import { HOST_UNUSED_BUILTINS, retainSessionRequestShape } from "./session-request-shape.js";
 import { AGENT_INFERENCE_CREDENTIAL_ENV, INFERENCE_PLACEHOLDER, WORKER_EGRESS_DIR, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
 import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
@@ -17,7 +19,7 @@ import type {
   StartTurnRequest,
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
-import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
+import { buildSystemPromptAppend, FastOutputUnavailableError } from "@schlessera/brain-ui-sdk/server";
 import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWorkerSandbox, prepareWorkerSandboxAsync, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
@@ -36,7 +38,7 @@ import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
 import { CLAUDE_INFERENCE_ENV, createWorkerSpawn } from "./worker-spawn.js";
-import { launchLimits, resolveTurnTempLimits, resolveWorkerStateLimits, workerNoteLimits, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
+import { launchLimits, mergeLimitReports, resolveTurnTempLimits, resolveWorkerStateLimits, workerNoteLimits, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
 import { createTurnTempPressureHook, createTurnTempTool, TURN_TEMP_TOOL_NAME } from "./turn-temp-tool.js";
 import { workerStateLimit } from "./worker-state.js";
 import { claudeAutonomousEnvelope } from "./autonomous-envelope.js";
@@ -76,6 +78,10 @@ export interface ClaudeSdkTurn {
   subscriptionOnly: boolean;
   /** Flag-settings env values the host pinned itself; the settings check accepts exactly these. */
   pinnedSettingsEnv?: Readonly<Record<string, string>>;
+  /** The session's fixed speed, which the prompt gate holds the runtime to (#4310). */
+  outputSpeed?: import("@schlessera/brain-ui-sdk/protocol").OutputSpeed;
+  /** Starts the owned forwarding worker alongside native runtime initialization. */
+  startBrainTools?(): void;
   finishWorker(): Promise<void>;
   sdkInitialized(): void;
   /** The resource limits this turn's workers hit (#1660): so far, and once they have exited. */
@@ -120,7 +126,79 @@ export function firstPartyInferenceUpstream(env: Readonly<Record<string, string 
   } catch { return false; }
 }
 
+/**
+ * The provider and transport selectors the subscription guard already clears
+ * (`CLEARED_API_CREDENTIALS`): every `CLAUDE_CODE_USE_*` provider switch and
+ * the Unix-socket transport. Used only to name an early refusal; the
+ * runtime's own provider policy is the guard on a direct turn.
+ */
+const ROUTE_SELECTOR_ENV = Object.keys(CLEARED_API_CREDENTIALS).filter(name => name.startsWith("CLAUDE_CODE_USE_") || name === "ANTHROPIC_UNIX_SOCKET");
+
+/** The one provider a fast session may use, enforced by the runtime itself (#4310, ruling 2026-11-27). */
+export const FAST_PROVIDER_PIN = Object.freeze({ allowedProviders: Object.freeze(["anthropic"] as const) });
+
+/**
+ * Why a fast session cannot be served on this turn's route (#4310), before
+ * anything persists or starts; undefined when the route qualifies. The pinned
+ * runtime serves fast output through the relay (keyless qualification:
+ * `speed: "fast"` on the wire, `fast_mode_state: "on"`). Here the inherited
+ * upstream must be the first-party origin, and a selector the host can see
+ * that routes elsewhere is named early. On a direct turn the runtime's own
+ * provider policy (`FAST_PROVIDER_PIN`) is the guard, proven in force at the
+ * prompt gate; a relayed turn's route is qualified by the relay.
+ */
+export function fastOutputRouteRefusal(inheritedEnv: Readonly<Record<string, string | undefined>>, autonomous: boolean): string | undefined {
+  if (autonomous) return "autonomous turns run at standard speed";
+  const selector = ROUTE_SELECTOR_ENV.find(name => { const value = inheritedEnv[name]; return value !== undefined && value !== "" && value !== "0" && value.toLowerCase() !== "false"; });
+  if (selector) return `not_first_party: ${selector} routes this profile away from the provider's first-party API`;
+  if (!firstPartyInferenceUpstream(inheritedEnv)) return "not_first_party: this profile's upstream is not the provider's first-party origin";
+  return undefined;
+}
+
+/**
+ * Whether a direct fast turn runs under the runtime's first-party provider
+ * policy, from the settings report the runtime itself returns (maintainer
+ * ruling 2026-11-27 on #4310). Admission needs POSITIVE proof: a complete
+ * report without errors whose effective policy is exactly the pin. brain-kit
+ * names no route selector here; the runtime refuses every non-first-party
+ * route (base URL, socket, cloud or gateway provider) under that policy.
+ * Undefined means proven.
+ */
+export function directFastRouteRefusal(settings: unknown): string | undefined {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return "not_first_party: the runtime reported no settings";
+  const report = settings as { effective?: unknown; sources?: unknown; errors?: unknown };
+  if (!report.effective || typeof report.effective !== "object" || Array.isArray(report.effective)) return "not_first_party: the runtime reported no effective settings";
+  if (!Array.isArray(report.sources)) return "not_first_party: the runtime reported no settings sources";
+  if (report.errors !== undefined && (!Array.isArray(report.errors) || report.errors.length > 0)) return "not_first_party: the runtime reported settings it could not read";
+  const allowed = (report.effective as { allowedProviders?: unknown }).allowedProviders;
+  if (!isFastProviderPin(allowed))
+    return "not_first_party: the runtime's first-party provider policy is not in force (a managed policy tier may replace it)";
+  // The runtime enforces the policy tier only, and the effective value can
+  // come from project or user settings. The report names a source but not
+  // its origin, so the policy tier must hold exactly the pin this turn set:
+  // an admin tier that replaced or merged into it never reads as the pin
+  // (#4894 round 4 F1).
+  const policy = (report.sources as unknown[]).filter(entry => !!entry && typeof entry === "object" && (entry as { source?: unknown }).source === "policySettings");
+  const pinned = policy.length === 1 ? (policy[0] as { settings?: unknown }).settings : undefined;
+  if (!pinned || typeof pinned !== "object" || Array.isArray(pinned) || Object.keys(pinned).length !== 1 || !isFastProviderPin((pinned as { allowedProviders?: unknown }).allowedProviders))
+    return "not_first_party: the runtime's provider policy tier does not hold the first-party pin this turn set (a managed policy tier replaced it, or another settings source supplied it)";
+  return undefined;
+}
+
+const isFastProviderPin = (value: unknown) => Array.isArray(value) && value.length === 1 && value[0] === "anthropic";
+
+/**
+ * The tool-search setting a new bridged session retains, and so the one its
+ * brain subprocesses evaluate configuration under: on only behind a relay to
+ * the first-party origin (#4306, #4325 F23).
+ */
+export function bridgedToolSearch(hostInference: unknown, inheritedEnv: Readonly<Record<string, string | undefined>>): "true" | "false" {
+  return hostInference && firstPartyInferenceUpstream(inheritedEnv) ? "true" : "false";
+}
+
 interface ClaudeSdkTurnOptions {
+  /** Host-only resolved inventory; an absent or failed proof keeps project stdio. */
+  brainBridgeInventory?: "core-only" | "module-tools" | "unavailable";
   identity?: import("@schlessera/brain-ui-sdk/internal").WorkerNoteFacts["identity"];
   backend: ClaudeBackendOptions;
   /** One resolved environment selects both host observation storage and native runtime state. */
@@ -317,7 +395,7 @@ export function turnChildEnvironment(
     ANTHROPIC_UNIX_SOCKET: `${WORKER_EGRESS_DIR}/inference.sock`,
     ANTHROPIC_BASE_URL: options.hostInference.baseUrl ?? "http://localhost",
     ...RELAYED_TURN_TRAFFIC_ENV,
-    // Production non-blocking project MCP startup is not qualified (#4306).
+    // Retained session selection is applied after roster assembly.
     ENABLE_TOOL_SEARCH: "false",
   } : undefined;
   // The relay holds the profile's credential, so the variables it names stay on the host.
@@ -360,10 +438,10 @@ function prepareSandboxNote(
   const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
   // Only the nonpersistent read-only summary keeps its historical prompt text.
   // This rendering plan never becomes the launched sandbox or a write grant.
-  const sandboxNote = [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
-    turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
+  const renderSandboxNote = (temp: typeof turnTempLimits) => [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
+    turnTempLimit(temp.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
     outputStagingLimit()] }, legacySummary), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote(Boolean(options.hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
-  return { sandbox, limits, stateLimits, turnTempLimits, sandboxNote };
+  return { sandbox, limits, stateLimits, turnTempLimits, sandboxNote: renderSandboxNote(turnTempLimits), renderSandboxNote };
 }
 
 /**
@@ -377,7 +455,7 @@ export function assemblePromptContext(
   roster: ClaudeToolRoster,
   sandbox: NonNullable<StartTurnRequest["workerSandbox"]>,
   sandboxNote: string,
-  beforePrepare?: (contextId: string) => void
+  beforePrepare?: (contextId: string) => string | void
 ) {
   const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, requestImageMarkup, proposePolicyChange, queryActivity, turnTempTool } = roster;
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
@@ -409,7 +487,7 @@ export function assemblePromptContext(
     policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
     location: true, mask: true, markup: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true, github: true,
   }, undefined), req.sessionBudgetLimits].filter(Boolean).join("\n\n"), req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}) : candidate;
-  if (context) beforePrepare?.(contextId);
+  if (context) sandboxNote = beforePrepare?.(contextId) ?? sandboxNote;
   const available = (name: string) => toolAvailabilityRefusal({ ...req, workerSandbox: sandbox }, name) === undefined;
   const prepare = context ? () => context.prepare(req.prompt, {
     device: req.client ? describeClient(req.client) : "Device unknown; hardware probe results are withheld until known.",
@@ -438,20 +516,41 @@ function assembleClaudeSdkTurn(
   const roster = computeToolRoster(req, options.allowedTools);
   const { turnTempTool, hosted, allowed } = roster;
   const { inferenceEnv, inheritedEnv, filteredEnv, childEnv, credentialEnv, providerKeys } = turnChildEnvironment(options, envelope);
-  const { sandbox, limits, stateLimits, turnTempLimits, sandboxNote } = prepareSandboxNote(options, envelope, providerKeys, turnTempTool);
+  // A fast session is refused before anything persists, never run at another speed (#4310).
+  const fastRefusal = req.outputSpeed === "fast" ? fastOutputRouteRefusal(inheritedEnv, Boolean(req.autonomous)) : undefined;
+  if (fastRefusal) throw new FastOutputUnavailableError(fastRefusal);
+  const { sandbox, limits, stateLimits, turnTempLimits, sandboxNote, renderSandboxNote } = prepareSandboxNote(options, envelope, providerKeys, turnTempTool);
   const mandatory = ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...IN_WORKER_APIFY_TOOLS, ...((hosted || req.autonomous) ? [
       "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
     ] : []), ...(hosted && req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])];
+  const bridgeEligible = hosted && options.brainBridgeInventory === "core-only" && turnTempLimits.allowanceBytes >= 8192;
+  if (hosted && req.sessionId === undefined && !bridgeEligible) {
+    // #4381 supplies the future static module inventory. Until then retain the
+    // original stdio server; this owner diagnostic never enters model inputs.
+    try { log("warn", `brain_bridge_fallback_${options.brainBridgeInventory === "module-tools" ? "module_tools" : options.brainBridgeInventory === "core-only" ? "temp_allowance" : "inventory_unavailable"}: keeping the project brain stdio entry and tool search off.`); }
+    catch { /* Owner diagnostics never change the selected execution path. */ }
+  }
   let retained: ReturnType<typeof retainSessionRequestShape> | undefined;
+  let bridgeReservation: ReturnType<typeof createBridgedTurnReservation> | undefined;
   const { contextId, context, append, prepare } = assemblePromptContext(backend, req, roster, sandbox, sandboxNote, id => {
     // Validate before prepare() persists this turn. Refused retries must leave
     // the saved prompt and pending-turn journal byte-identical.
     retained = retainSessionRequestShape(backend.brainPath, id, req.sessionId !== undefined,
-      [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, "false");
+      [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, bridgeEligible ? bridgedToolSearch(options.hostInference, inheritedEnv) : "false", bridgeEligible ? 1 : undefined);
     if (retained.toolSearch === "true") {
+      // Only the relay qualifies the route tool search needs; a direct turn's
+      // inherited URL does not show where its native settings send it. Turning
+      // the setting off would change the session's retained roster, so the
+      // resume is refused by name instead (#4306, #4894 round 4 F2).
+      if (!options.hostInference)
+        throw new Error("This session's tool search requires its relay to the first-party inference upstream, which this turn does not have.");
       if (!firstPartyInferenceUpstream(inheritedEnv))
         throw new Error("This session's tool search requires its qualified first-party inference upstream.");
-      throw new Error("This session's tool search is not qualified for production MCP startup (#4306).");
+      if (!retained.brainBridge) throw new Error("This session's tool search is not qualified for production MCP startup (#4306).");
+    }
+    if (retained.brainBridge === 1) {
+      bridgeReservation = createBridgedTurnReservation(stateLimits, turnTempLimits);
+      return renderSandboxNote(bridgeReservation.runtimeTemp);
     }
   });
   const subscriptionOnly = profile.billing !== "api";
@@ -527,7 +626,7 @@ function assembleClaudeSdkTurn(
         }
       },
       log: (level, message) => log(level, message),
-    }, { limits: stateLimits, turnTempLimits, startupTiming: req.startupTiming, reportCleanup: notice => req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference, credentialEnv);
+    }, { limits: stateLimits, turnTempLimits: bridgeReservation?.runtimeTemp ?? turnTempLimits, reservation: bridgeReservation?.runtime, startupTiming: req.startupTiming, reportCleanup: notice => req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference, credentialEnv);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (!req.autonomous) addStateRoomWarning(sdkOptions, req, worker);
   /** This turn's answer text so far: what it links in turn temp is promoted, so a purge keeps it. */
@@ -545,6 +644,13 @@ function assembleClaudeSdkTurn(
   // bodies also return model-readable errors instead of acquiring authority.
   let assembledTools: unknown[] | undefined;
   sdkOptions.mcpServers = { "brain-ui": turnMcpServer(backend, req, roster, turnTemp, tools => { assembledTools = tools; }) };
+  const brainTools = retained?.brainBridge === 1 ? createBrainToolForwarder(startBrainToolWorker({
+    brainPath: backend.brainPath, exec: backend.exec ?? ambientExecConfig(), sandbox, startupView: req.workerStartupView, env: childEnv,
+    limits, turnTempLimits, reservation: bridgeReservation?.brain, req, egress: options.hostInference, credentialEnv,
+  }), abortController.signal, error => log("warn", `Sandboxed brain tool forwarding: ${String(error)}`)) : undefined;
+  // An explicit SDK entry overrides the project's brain stdio entry. Other
+  // project MCP servers keep their existing non-blocking startup behavior.
+  if (brainTools) sdkOptions.mcpServers.brain = brainTools.server;
   let selectionPin: string | undefined;
   if (retained) {
     // Retention already refused any incompatible mandatory exclusions. Never
@@ -565,6 +671,19 @@ function assembleClaudeSdkTurn(
   }
   sdkOptions.env = childEnv;
   applyTurnSettings(sdkOptions, envelope, subscriptionOnly, inferenceEnv);
+  // The session's speed, fixed by the host for its whole life (#4310), as a
+  // flag setting that outranks project settings. A session that predates the
+  // choice keeps the runtime's own default.
+  if (req.outputSpeed && !envelope) sdkOptions.settings = { ...sdkOptions.settings as object, fastMode: req.outputSpeed === "fast" };
+  // A direct fast turn runs under the runtime's own first-party provider
+  // policy, which the prompt gate proves in force (ruling 2026-11-27 on
+  // #4310). Never on a relayed turn: the list would refuse the relay's socket.
+  if (req.outputSpeed === "fast" && !envelope && !options.hostInference) {
+    sdkOptions.managedSettings = { allowedProviders: [...FAST_PROVIDER_PIN.allowedProviders] };
+    // A refused provider then ends with a result naming why, not stderr alone.
+    childEnv.CLAUDE_CODE_STARTUP_FAILURE_RESULTS = "1";
+  }
+  if (brainTools) sdkOptions.settings = { ...sdkOptions.settings as object, disabledMcpjsonServers: ["brain"] };
   if (selectionPin !== undefined) {
     sdkOptions.settings = { ...sdkOptions.settings as object,
       env: { ...(sdkOptions.settings as { env?: Record<string, string> }).env, ENABLE_TOOL_SEARCH: selectionPin } };
@@ -580,15 +699,25 @@ function assembleClaudeSdkTurn(
   return {
     options: sdkOptions,
     subscriptionOnly,
+    ...(brainTools ? { startBrainTools: brainTools.start } : {}),
+    ...(req.outputSpeed && !envelope ? { outputSpeed: req.outputSpeed } : {}),
     ...(envelope ? { pinnedSettingsEnv: envelope.pinned }
       : inferenceEnv || selectionPin !== undefined ? { pinnedSettingsEnv: { ...inferenceEnv, ...(selectionPin === undefined ? {} : { ENABLE_TOOL_SEARCH: selectionPin }) } } : {}),
     finishWorker: envelope
       ? () => worker.finish().finally(() => envelope.relay.stop())
       : async () => {
-        await worker.finish();
+        // A forwarder cleanup failure never withholds the acknowledgement of a
+        // transcript the runtime saved: the next turn would resend its facts (#4325 F26).
+        let forwarder: { error: unknown } | undefined;
+        try { await brainTools?.close(); } catch (error) { forwarder = { error }; }
+        try { await worker.finish(); } finally { bridgeReservation?.close(); }
         if (owned) acknowledgeClaudeContext(backend.brainPath, contextId, owned, childEnv);
+        if (forwarder) throw forwarder.error;
       },
-    workerLimits: { current: worker.limits, settled: worker.settledLimits },
+    workerLimits: brainTools ? {
+      current: () => mergeLimitReports([worker.limits(), ...brainTools.limitReports()]),
+      settled: async () => mergeLimitReports([await worker.settledLimits(), ...brainTools.limitReports()]),
+    } : { current: worker.limits, settled: worker.settledLimits },
     sdkInitialized: worker.sdkInitialized,
     workerFailure: worker.failure,
     workerStartFailure: worker.startFailure,

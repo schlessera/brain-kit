@@ -103,6 +103,7 @@ export "." (./src/index.ts)
 
 export "./internal" (./src/internal.ts)
   type ArchiveResult
+  BRAIN_READ_DEFINITION_VERSION
   BUILTIN_GOVERNANCE_POLICY
   type BrainContext
   COMPUTE_PROVIDERS
@@ -169,6 +170,7 @@ export "./internal" (./src/internal.ts)
   type ValidationIssue
   archiveDocument
   assembleContext
+  brainReadDefinitions
   buildTaxonomy
   canonicalFindings
   checkGovernancePolicy
@@ -225,6 +227,10 @@ export "./internal/graph" (./src/internal-graph.ts)
   communityTopTerms
   computeClusterLayout
   computeMetrics
+
+export "./internal/read-definitions" (./src/internal-read-definitions.ts)
+  BRAIN_READ_DEFINITION_VERSION
+  brainReadDefinitions
 
 export "./module" (./src/module.ts)
   GEMINI_FLASH_MODEL
