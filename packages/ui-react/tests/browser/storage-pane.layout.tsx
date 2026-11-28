@@ -1207,7 +1207,11 @@ for (const s of MATRIX) {
     targets(root, 2);
     named(root);
     if (!s.dialog) {
-      // Every list row is a Tab stop, reached without touching the map.
+      // Every list row is a Tab stop, reached without touching the map. The
+      // table is drawn busy before its first page arrives, so wait for the
+      // rows wherever there is a breakdown, or the walk checks nothing.
+      if (s.kind !== "empty" && s.kind !== "never")
+        await expect.poll(() => host.querySelectorAll(".bk-storage-row-main").length).toBeGreaterThan(0);
       const rows = Array.from(host.querySelectorAll<HTMLElement>(".bk-storage-row-main"));
       const reached = new Set<Element>();
       (host.querySelector("h2") as HTMLElement).focus();

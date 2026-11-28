@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 
  * The hover-hint trigger: a control that shows a tooltip after 300 ms of hover
  * or on focus, hides it 150 ms after both leave, and opens a details dialog on
  * click. After the details close under a resting pointer, hover rearms only
- * once the pointer leaves, so the tooltip does not reappear at once.
+ * once the pointer leaves, so the tooltip does not reappear at once; after
+ * they close with the pointer elsewhere, the next hover shows it.
  *
  * A trigger that has no tooltip (a reveal stop) uses only `trigger`,
  * `openDetails`, `closeDetails` and `skipFocus`, and spreads none of the
@@ -21,12 +22,32 @@ export function useHintTrigger<T extends HTMLElement = HTMLButtonElement>() {
   const skipFocus = useRef(false);
   const hovered = useRef(false);
   const rearm = useRef(false);
+  // Where the pointer is while details are open: the modal's backdrop covers
+  // the trigger, so `hovered` cannot say (#4935). Whether it was on the
+  // trigger when details opened, then its last move since.
+  const pointerAtOpen = useRef(false);
+  const lastPointer = useRef<{ x: number; y: number } | null>(null);
 
   const clear = () => { clearTimeout(pending.current); };
   const hide = () => { clear(); setShown(false); };
   const enter = () => { clear(); suppressed.current = false; pending.current = setTimeout(() => { if (!suppressed.current && !open) setShown(true); }, 300); };
   const leave = () => { clear(); pending.current = setTimeout(() => { if (!hovered.current && trigger.current?.ownerDocument.activeElement !== trigger.current) setShown(false); }, 150); };
   useEffect(() => () => clearTimeout(pending.current), []);
+  useEffect(() => {
+    if (!open) return;
+    const doc = trigger.current?.ownerDocument;
+    if (!doc) return;
+    const move = (event: globalThis.PointerEvent) => { if (event.pointerType !== "touch") lastPointer.current = { x: event.clientX, y: event.clientY }; };
+    doc.addEventListener("pointermove", move, true);
+    return () => doc.removeEventListener("pointermove", move, true);
+  }, [open]);
+  /** Whether the pointer rests on the trigger as details close. */
+  const pointerOnTrigger = () => {
+    const at = lastPointer.current;
+    if (!at) return pointerAtOpen.current;
+    const box = trigger.current?.getBoundingClientRect();
+    return !!box && at.x >= box.left && at.x <= box.right && at.y >= box.top && at.y <= box.bottom;
+  };
 
   useLayoutEffect(() => {
     if (!shown) return;
@@ -68,7 +89,8 @@ export function useHintTrigger<T extends HTMLElement = HTMLButtonElement>() {
       onPointerEnter: () => { hovered.current = true; clear(); },
       onPointerLeave: () => { hovered.current = false; leave(); },
     },
-    openDetails: () => { hide(); suppressed.current = true; setOpen(true); },
-    closeDetails: () => { suppressed.current = true; skipFocus.current = true; rearm.current = true; setOpen(false); },
+    openDetails: () => { hide(); suppressed.current = true; pointerAtOpen.current = hovered.current; lastPointer.current = null; setOpen(true); },
+    // Hover rearms only when details close under a resting pointer (#4727, #4935).
+    closeDetails: () => { suppressed.current = true; skipFocus.current = true; rearm.current = pointerOnTrigger(); setOpen(false); },
   };
 }

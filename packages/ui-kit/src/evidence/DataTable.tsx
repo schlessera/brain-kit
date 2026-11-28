@@ -121,7 +121,9 @@ export function DataTable(p: DataTableProps) {
                   textAlign: cols[i]?.align || "left",
                   fontFamily: c.mono ? font.mono : font.body,
                   fontWeight: c.bold ? 600 : 400,
-                  color: valueInk(tone, "ink"),
+                  // `dim` is a value tone but not a cell tone: like any tone
+                  // outside the union, it reads as the fallback (#4947).
+                  color: valueInk((tone as string) === "dim" ? "ink" : tone, "ink"),
                 }}
               >
                 {cue ? <Cue icon={cue} size={11} inline /> : null}

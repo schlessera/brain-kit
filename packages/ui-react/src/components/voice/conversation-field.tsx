@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent } from "react";
 import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import { VoiceControlButton, VoiceField, VoiceNotice, VoiceText, type IconName } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { conversationService, MUTED_NOTICE, READINESS_NOTICES, REVIEW_BOUNDED_NOTICE, REVIEW_TRIMMED_NOTICE, UNCLEAR_NOTICE, type ConversationClientState } from "../../voice/conversation-client.js";
@@ -85,7 +86,14 @@ function useLevel(read: (() => number) | null) {
 export function ConversationField({ backend, onLeave }: { backend: string; onLeave: () => void }) {
   const root = useBrainUiRoot();
   const client = root.connection.conversation;
-  const s = useStore(client.state);
+  // Only what the field draws: recognition, unassigned speech and dialogue
+  // pages are the transcript's to draw, not the field's (#4893).
+  const s = useStore(client.state, useShallow((state) => ({
+    active: state.active, token: state.token, connection: state.connection, micOn: state.micOn, capture: state.capture,
+    interaction: state.interaction, disclosureOpen: state.disclosureOpen, profile: state.profile,
+    conversationProfile: state.conversationProfile, sessionId: state.sessionId, text: state.text, notice: state.notice,
+    announcement: state.announcement, playing: state.playing, outputRecovery: state.outputRecovery, work: state.work,
+  })));
   const permission = useStore(client.permissions.state);
   const streaming = useStore(root.stores.chat, (state) => !!(s.sessionId === null ? state.draft : state.buffers[s.sessionId])?.isStreaming);
   // A pending approval is the tool card's to answer, by tap only (L6).

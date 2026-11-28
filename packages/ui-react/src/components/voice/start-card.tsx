@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import { StartCard, type StartCardNotice, type StartCardPersona } from "@schlessera/brain-ui-kit";
 import {
   STANDARD_PERSONA_ID,
@@ -79,7 +80,13 @@ function usePersonas(open: boolean, live: LivePersonaStatus | null) {
 export function ConversationStartCard({ backend, onLeave }: { backend: string; onLeave: () => void }) {
   const root = useBrainUiRoot();
   const client = root.connection.conversation;
-  const s = useStore(client.state);
+  // Only what the card draws: a recognition fragment or a streamed reply changes none of it (#4893).
+  const s = useStore(client.state, useShallow((state) => ({
+    disclosureOpen: state.disclosureOpen, livePersona: state.livePersona, personaChoice: state.personaChoice,
+    conversationProfile: state.conversationProfile, conversationProfiles: state.conversationProfiles,
+    liveDefault: state.liveDefault, serviceChoice: state.serviceChoice, profile: state.profile,
+    notice: state.notice, connection: state.connection, durableAvailable: state.durableAvailable, sessionId: state.sessionId,
+  })));
   const chat = useStore(root.stores.connection, (state) => state.wsStatus);
   const { list, saved, setSaved } = usePersonas(s.disclosureOpen, s.livePersona);
   const frame = useRef<HTMLDivElement>(null);
