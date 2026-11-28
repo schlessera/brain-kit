@@ -296,7 +296,7 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
 - **Storage scans and maintenance followed** (#3028, part of #2850).
   Shared scan acquisition, reaping, collector registration and unregistration,
   cancellation and completion commit on the worker
-  (`setup`, `packages/ui-server/src/storage/shared-scan-writes.ts:30-107`). The lease commits
+  (`setup`, `packages/ui-server/src/storage/shared-scan-writes.ts:35-112`). The lease commits
   before collection starts; collector bookkeeping settles before the process
   wrapper returns, and completion commits before the coordinator serves its
   result. Maintenance insertion, receipt updates and cancellation use the same
