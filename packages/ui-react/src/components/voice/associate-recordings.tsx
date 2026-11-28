@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, ChoiceOption } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { type Recording, recordingTime } from "../../lib/recordings.js";
-import { recordingClock, recordingDuration } from "./recordings-tray.js";
+import { recordingClock, recordingDuration } from "./recording-labels.js";
 import { LocalWorkDialog } from "./local-work-dialog.js";
 
 /** Selection is empty on every opening. Association neither uploads nor sends. */

@@ -56,3 +56,31 @@ test("after details close under a resting pointer, the tooltip waits for the poi
   await userEvent.hover(control);
   await expect.poll(tooltip, { message: "leaving and returning shows the tooltip again" }).not.toBeNull();
 });
+
+test("after details close by keyboard with the pointer elsewhere, the first hover shows the tooltip (#4935)", async () => {
+  await mount(<><p>Odysseus asks for the raft list. <TranscriptQualifiers kind="recognized" source="Ithaca dictation" evidenceLabel="Technical evidence"><p>Recognized fragment</p></TranscriptQualifiers></p><button type="button" data-outside="">Ithaca</button></>);
+  const control = trigger();
+  await userEvent.hover(host!.querySelector("[data-outside]")!);
+  control.focus();
+  await expect.poll(tooltip).not.toBeNull();
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(dialog).not.toBeNull();
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(dialog).toBeNull();
+  expect(document.activeElement, "Escape returns focus to the trigger").toBe(control);
+  await pause(400);
+  expect(tooltip(), "focus coming back from details shows no tooltip").toBeNull();
+  // Measured from the pointer's arrival, seen before React's handler starts the timer (#3829).
+  let enteredAt: number | undefined;
+  let shownAt: number | undefined;
+  const arrive = (event: PointerEvent) => { if (enteredAt === undefined && control.contains(event.target as Node)) enteredAt = performance.now(); };
+  document.addEventListener("pointerover", arrive, { capture: true });
+  const shown = new MutationObserver(() => { if (shownAt === undefined && tooltip()) shownAt = performance.now(); });
+  shown.observe(document.body, { subtree: true, childList: true, attributes: true });
+  try {
+    await userEvent.hover(control);
+    await expect.poll(tooltip, { message: "the first hover after a close away from the pointer shows the tooltip" }).not.toBeNull();
+  } finally { shown.disconnect(); document.removeEventListener("pointerover", arrive, { capture: true }); }
+  expect(enteredAt, "the pointer's arrival was observed").toBeTypeOf("number");
+  expect(shownAt! - enteredAt!, "hover waits for the 300ms delay").toBeGreaterThanOrEqual(300);
+});
