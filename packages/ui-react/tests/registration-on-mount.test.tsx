@@ -40,7 +40,8 @@ if (!childMode) {
 } else if (childMode === "behavior") {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
   GlobalRegistrator.register();
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const { enterActEnvironment, restoreActEnvironment } = await import("./act-environment.js");
+  enterActEnvironment();
 
   const { cleanup } = await import("@testing-library/react");
   const { renderToStaticMarkup } = await import("react-dom/server");
@@ -140,13 +141,18 @@ if (!childMode) {
   });
 
   afterAll(async () => {
-    cleanup();
-    await GlobalRegistrator.unregister();
+    try {
+      cleanup();
+      await GlobalRegistrator.unregister();
+    } finally {
+      restoreActEnvironment();
+    }
   });
 } else if (childMode === "counts") {
   const { GlobalRegistrator } = await import("@happy-dom/global-registrator");
   GlobalRegistrator.register();
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const { enterActEnvironment, restoreActEnvironment } = await import("./act-environment.js");
+  enterActEnvironment();
 
   const sdk = await import("@schlessera/brain-ui-sdk/internal/client");
   const realSdk = { ...sdk };
@@ -229,8 +235,12 @@ if (!childMode) {
   });
 
   afterAll(async () => {
-    cleanup();
-    await act(async () => {});
-    await GlobalRegistrator.unregister();
+    try {
+      cleanup();
+      await act(async () => {});
+      await GlobalRegistrator.unregister();
+    } finally {
+      restoreActEnvironment();
+    }
   });
 }

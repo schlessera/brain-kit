@@ -1,13 +1,18 @@
 // Register before component imports; contain globals like the other render suites.
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { enterActEnvironment, restoreActEnvironment } from "../act-environment.js";
 import { act } from "react";
 
 if (!GlobalRegistrator.isRegistered) GlobalRegistrator.register();
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+enterActEnvironment();
 
 export async function unregisterComposerDom(): Promise<void> {
-  if (GlobalRegistrator.isRegistered) {
-    await act(async () => {});
-    await GlobalRegistrator.unregister();
+  try {
+    if (GlobalRegistrator.isRegistered) {
+      await act(async () => {});
+      await GlobalRegistrator.unregister();
+    }
+  } finally {
+    restoreActEnvironment();
   }
 }

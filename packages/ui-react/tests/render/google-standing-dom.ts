@@ -6,21 +6,26 @@
 // top of the test file too: under `--rerun-each` the cached import does not
 // register again after the previous pass unregistered.
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { enterActEnvironment, restoreActEnvironment } from "../act-environment.js";
 import { act } from "react";
 
 export function registerGoogleStandingDom(): void {
   if (!GlobalRegistrator.isRegistered) {
     GlobalRegistrator.register({ url: "http://localhost/" });
   }
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  enterActEnvironment();
 }
 
 registerGoogleStandingDom();
 
 export async function unregisterGoogleStandingDom(): Promise<void> {
-  if (GlobalRegistrator.isRegistered) {
-    // Drain React callbacks before removing the globals they still read.
-    await act(async () => {});
-    await GlobalRegistrator.unregister();
+  try {
+    if (GlobalRegistrator.isRegistered) {
+      // Drain React callbacks before removing the globals they still read.
+      await act(async () => {});
+      await GlobalRegistrator.unregister();
+    }
+  } finally {
+    restoreActEnvironment();
   }
 }
