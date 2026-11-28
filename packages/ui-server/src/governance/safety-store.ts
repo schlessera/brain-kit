@@ -502,7 +502,14 @@ export function unresolvedTaintClasses(db:Database,turnId:string|null,sessionId:
 export function sessionHistoryGeneration(db:Database,turnId:string|null,sessionId:string|null):string {
  const s=sessionId?one<Session|null>(db,"SELECT * FROM safety_sessions WHERE session_id=?",sessionId):null;
  const target=turnId?collection(db,turnId):null;
- return s?.generation??target?.generation??"1";
+ const ownerId=s?.history_owner_id??target?.history_owner_id??null;
+ const owner=sessionId
+  ? one<{generation:number}|null>(db,`SELECT generation FROM dialogue_owners WHERE id=COALESCE((SELECT id FROM dialogue_owners WHERE session_id=?),(SELECT owner_id FROM dialogue_aliases WHERE id=?),?)`,sessionId,ownerId,ownerId)
+  : ownerId
+   ? one<{generation:number}|null>(db,`SELECT generation FROM dialogue_owners WHERE id=COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=?),?)`,ownerId,ownerId)
+   : null;
+ const safetyGen=target?.generation??s?.generation??"1";
+ return owner?`${safetyGen}:d${owner.generation}`:safetyGen;
 }
 
 /** Last immutable append in the same canonical scope as the aggregate. */

@@ -190,8 +190,8 @@ export async function prepareTurnEgress(options: {
     const queue = safetyQueue(db);
     return Object.freeze([...queue.pending].filter(p => p.occurrenceId === ownOcc).map(p => p.id));
   };
-  /** Snapshot of unresolved untrusted-input classes active when each connection's approval was granted (#4966). */
-  const connectionGrantedClasses = new Map<string, ReadonlySet<string>>();
+  /** Snapshot of unresolved untrusted-input classes and coverage posture active when each connection's approval was granted (#4966). */
+  const connectionGrantedClasses = new Map<string, { classes: ReadonlySet<string>; coverageState: string; nonPendingReasons: string }>();
   const exposureCommits = new Map<string, Promise<unknown>>();
   const normalBefore = new Set<string>();
   const standingRecipients = new Map<string, Pick<TrustMatch, "ruleId" | "policyHash" | "trustRevision" | "collectionRevision">>();
@@ -278,6 +278,17 @@ export async function prepareTurnEgress(options: {
     if (projectionRead?.version === version) return projectionRead.value;
     const value = writes?.safety?.(options.turnId,sessionId) ?? safetyProjection(db!,options.turnId,sessionId);
     projectionRead = {version,value}; return value;
+  };
+  const currentPosture = () => {
+    const proj = currentProjection();
+    return {
+      coverageState: proj.coverage.state,
+      nonPendingReasons: proj.reasons.filter((r) => r !== "recording_pending" && r !== "unresolved").sort().join(","),
+    };
+  };
+  const rememberGrantedClasses = (connectionId: string | undefined, classes: Iterable<string>) => {
+    if (!connectionId) return;
+    connectionGrantedClasses.set(connectionId, { classes: new Set(classes), ...currentPosture() });
   };
   let classesRead: { version: string; value: readonly string[] } | undefined;
   const currentTaintClasses = () => {
@@ -440,9 +451,7 @@ export async function prepareTurnEgress(options: {
         return null;
       },
       onGrantedByGrant(_scope, grantedClasses) {
-        if (connectionId) {
-          connectionGrantedClasses.set(connectionId, new Set(grantedClasses ?? currentClasses));
-        }
+        rememberGrantedClasses(connectionId, grantedClasses ?? currentClasses);
       },
       async commitScope(scope, principalId, stillClaimed) {
         if (signal.aborted) {
@@ -459,7 +468,7 @@ export async function prepareTurnEgress(options: {
         // the approved connection's own exposure (and concurrent settled siblings)
         // never self-suspend the grant just created (#4966, #3595).
         const grantedClasses = [...new Set([...approvedClasses, "egress_connection"])].sort();
-        if (connectionId) connectionGrantedClasses.set(connectionId, new Set(grantedClasses));
+        rememberGrantedClasses(connectionId, grantedClasses);
         if (origin.managedReference || scope === "once") {
           return { ok: true, scope: "once" };
         }
@@ -596,7 +605,7 @@ export async function prepareTurnEgress(options: {
     if (decision.behavior === "allow") {
       if (settledByRuleOrClear) return "recheck";
       if (connectionId && !connectionGrantedClasses.has(connectionId)) {
-        connectionGrantedClasses.set(connectionId, new Set([...currentClasses, "egress_connection"]));
+        rememberGrantedClasses(connectionId, [...currentClasses, "egress_connection"]);
       }
       return decision.networkScope ?? "legacy";
     }
@@ -645,7 +654,11 @@ export async function prepareTurnEgress(options: {
       const current = currentTaintClasses();
       if (granted) {
         for (const cls of current) {
-          if (!granted.has(cls)) return "new_class" as const;
+          if (!granted.classes.has(cls)) return "new_class" as const;
+        }
+        const posture = currentPosture();
+        if (posture.coverageState !== granted.coverageState || posture.nonPendingReasons !== granted.nonPendingReasons) {
+          return "new_class" as const;
         }
       }
       void destination;

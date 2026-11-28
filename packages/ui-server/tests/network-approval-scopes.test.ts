@@ -720,6 +720,20 @@ describe("network approval scopes (#3595)", () => {
       await waitFor(() => h.cards().length > beforeDegraded, "degraded coverage refuses standing grant and asks again");
       await h.approve(h.cards().at(-1)!, "once");
       expect((await second).status, "DEGRADED_COVERAGE_REQUIRES_FRESH_APPROVAL").toBe(200);
+
+      // Restoring clean coverage and advancing dialogue_owners.generation (snapshot restore / lifecycle bump)
+      // must invalidate prior-generation standing grants across standingGrant and HTTP listing.
+      h.db.query("UPDATE safety_collections SET gap = NULL WHERE turn_id = 't-cov'").run();
+      h.db.query("INSERT OR IGNORE INTO dialogue_owners (id, principal_id, session_id, coverage, generation, created_at) VALUES (?, ?, ?, 'complete', 1, ?)")
+        .run("owner-cov", h.principal.id, "session-cov", Date.now());
+      h.db.query("UPDATE dialogue_owners SET generation = generation + 1 WHERE session_id = 'session-cov'").run();
+      const listedAfterBump = await (await h.routes.request("/api/sessions/session-cov/network-grants")).json() as { grants: unknown[] };
+      expect(listedAfterBump.grants, "DIALOGUE_OWNER_GENERATION_BUMP_INVALIDATES_GRANTS").toEqual([]);
+      const beforeBumpReq = h.cards().length;
+      const third = fetchViaProxy(t1.egress.socketPath, new URL("/after-owner-bump", island.url));
+      await waitFor(() => h.cards().length > beforeBumpReq, "generation-bumped standing grant asks again");
+      await h.approve(h.cards().at(-1)!, "once");
+      expect((await third).status).toBe(200);
     } finally {
       await t1.stop();
       island.stop(true);
