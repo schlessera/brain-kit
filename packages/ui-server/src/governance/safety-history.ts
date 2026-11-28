@@ -13,7 +13,9 @@ export class SafetyReadUnavailable extends Error {
   constructor(readonly reason: Reason = "unavailable") { super(reason); }
 }
 interface Snapshot { id:string; principalId:string; target:SafetyTarget; identity:SafetyIdentity; highWater:string;
-  projection:SafetyPage["projection"]; membership:string; expiresAt:number; pruned:number; bytes:number; entries:boolean; admissions:boolean; nonDelivery:boolean; attribution:boolean }
+  projection:SafetyPage["projection"]; membership:string; expiresAt:number; pruned:number; bytes:number; entries:boolean; admissions:boolean; nonDelivery:boolean; attribution:boolean;
+  /** The fingerprint of the attribution its pages last delivered (#4513); the field itself is never retained here. */
+  attributionHash:string }
 interface Row { id:string; sequence:string; observed_at:number; kind:string; occurrence_id:string; source:string|null;
   detector:string|null; state:string|null; payload:string; detail_pruned:number; turn_id:string; collection_id:string }
 const same = (a:unknown,b:unknown) => JSON.stringify(a)===JSON.stringify(b);
@@ -195,15 +197,18 @@ export class SafetyHistory {
         if(this.pruned(identity)!==s.pruned)throw new SafetyReadUnavailable("expired");
       }else{
         if(this.snapshots.size>=256||[...this.snapshots.values()].filter(s=>s.principalId===principal.id).length>=32)throw new SafetyReadUnavailable("capacity");
-        // The display-only attribution has its own bound (128 bindings, 8 IDs
-        // each); it never spends the snapshot budget evidence needs (#4513).
-        const projection=this.projection(identity,attribution),size=bytes(enforcement(projection))+2048;
+        // A snapshot retains the projection without its display-only
+        // attribution, which each page recomputes at delivery (#4513): the
+        // retained bytes are exactly what the aggregate limit counts.
+        const projection=enforcement(this.projection(identity)),size=bytes(projection)+2048;
         if(this.retainedBytes+size>4194304)throw new SafetyReadUnavailable("capacity");
-        snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,membership:this.membership(identity,projection.evidenceRevision),expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size,entries,admissions,nonDelivery,attribution};
+        snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,membership:this.membership(identity,projection.evidenceRevision),expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size,entries,admissions,nonDelivery,attribution,attributionHash:fingerprint(null)};
         this.snapshots.set(snapshot.id,snapshot);this.retainedBytes+=size;
       }
       const fetched=this.records(identity,after,snapshot.highWater,limit+1,snapshot.entries,snapshot.admissions,snapshot.nonDelivery),records:SafetyRecord[]=[];
-      const page:SafetyPage={version:1,identity,snapshotId:snapshot.id,cursor,highWater:snapshot.highWater,projection:snapshot.projection,records,nextCursor:null,snapshotComplete:false,detailPruned:snapshot.pruned>0};
+      const delivered=snapshot.attribution?{...snapshot.projection,attributionUnknown:this.attributionUnknown(identity)}:snapshot.projection;
+      if(snapshot.attribution)snapshot.attributionHash=fingerprint(delivered.attributionUnknown??null);
+      const page:SafetyPage={version:1,identity,snapshotId:snapshot.id,cursor,highWater:snapshot.highWater,projection:delivered,records,nextCursor:null,snapshotComplete:false,detailPruned:snapshot.pruned>0};
       for(const record of fetched.slice(0,limit)){if(bytes({...page,records:[...records,record]})>261000)break;records.push(record);}
       if(fetched.length&&!records.length)throw new SafetyReadUnavailable("capacity");
       page.snapshotComplete=records.length===fetched.length;
@@ -249,7 +254,7 @@ export class SafetyHistory {
   subscribe(key:object,principal:Principal,identity:SafetyIdentity,revision:string,snapshotId:string,valid:()=>boolean,send:(value:SafetyUpdate|Unavailable)=>void):void {
     if(!this.subscriptions.has(key)&&this.subscriptions.size>=256)throw new SafetyReadUnavailable("capacity");
     const anchor=this.anchor(principal,identity,revision,snapshotId);
-    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(enforcement(anchor.projection)),valid,send,busy:false,entries:anchor.entries,admissions:anchor.admissions,nonDelivery:anchor.nonDelivery,attribution:anchor.attribution,attributionHash:fingerprint(anchor.projection.attributionUnknown??null)});this.poll();
+    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(enforcement(anchor.projection)),valid,send,busy:false,entries:anchor.entries,admissions:anchor.admissions,nonDelivery:anchor.nonDelivery,attribution:anchor.attribution,attributionHash:anchor.attributionHash});this.poll();
   }
   unsubscribe(key:object):void {this.subscriptions.delete(key);}
   revoke(principalIds:readonly string[]):void {
@@ -311,7 +316,11 @@ export class SafetyHistory {
     const live=safetyQueue(this.db).attribution;if(!live.size)return;
     for(const [turnId,tracker] of live){
       if(tracker.ending)continue;
-      const row=this.db.query("SELECT ended,EXISTS(SELECT 1 FROM safety_retired_turns WHERE turn_id=?1) retired FROM safety_collections WHERE turn_id=?1").get(turnId) as {ended:number;retired:number}|null;
+      // A read that fails keeps the tracker for the next sweep; nothing
+      // escapes the host's timer.
+      let row:{ended:number;retired:number}|null;
+      try{row=this.db.query("SELECT ended,EXISTS(SELECT 1 FROM safety_retired_turns WHERE turn_id=?1) retired FROM safety_collections WHERE turn_id=?1").get(turnId) as {ended:number;retired:number}|null;}
+      catch{continue;}
       if(!row||row.ended||row.retired)live.delete(turnId);
     }
   }

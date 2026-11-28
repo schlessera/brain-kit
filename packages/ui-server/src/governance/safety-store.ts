@@ -71,7 +71,7 @@ const one = <T>(db: Database, sql: string, ...args: (string | number | null)[]) 
 /** Every safety_collections column enforcement reads; never tool_reuse (#4513). */
 const COLLECTION_COLUMNS = ["id","turn_id","session_id","principal_id","history_owner_id","generation","backend_id","started_at","ended","acknowledged",
   "gap","failure","policy_hash","start_revision","end_revision","restricted_begin","failure_cause","principal_account"].map(column=>`c.${column}`).join(",");
-const collection = (db: Database, turn: string) => one<Collection | null>(db,"SELECT * FROM safety_collections WHERE turn_id=?",turn);
+const collection = (db: Database, turn: string) => one<Collection | null>(db,`SELECT ${COLLECTION_COLUMNS} FROM safety_collections c WHERE c.turn_id=?`,turn);
 const meta = (db: Database) => one<{revision:string;failed:number;reason:string|null;used_rows:number;used_bytes:number;scope_rows:number;scope_bytes:number}>(db,"SELECT * FROM safety_meta WHERE singleton=1");
 export function advance(db: Database): string {
   const old=BigInt(meta(db).revision);

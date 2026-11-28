@@ -320,6 +320,11 @@ test("T17 32 opted-in snapshots at the largest attribution still fit the snapsho
     try { for (let i = 0; i < 32; i++) reads.push(await page(f.history, f)); } catch (error) { refused = error; }
     expect({ reads: reads.length, refused: refused === null ? null : String(refused) }, "ATTRIBUTION_SPENDS_NO_SNAPSHOT_BUDGET").toEqual({ reads: 32, refused: null });
     expect(reads.at(-1)!.projection.attributionUnknown?.length, "WIDEST_ATTRIBUTION_IS_SERVED").toBe(128);
+    // What the 32 snapshots actually retain stays within the documented 4194304-byte aggregate.
+    const retained = [...(f.history as unknown as { snapshots: Map<string, { projection: object }> }).snapshots.values()];
+    expect(retained.length).toBe(32);
+    expect(retained.reduce((n, snapshot) => n + Buffer.byteLength(JSON.stringify(snapshot)), 0), "RETAINED_SNAPSHOTS_FIT_THE_AGGREGATE").toBeLessThanOrEqual(4194304);
+    expect(retained.some(snapshot => "attributionUnknown" in snapshot.projection), "NO_SNAPSHOT_RETAINS_ATTRIBUTION").toBe(false);
   } finally { await f.close(); }
 });
 
@@ -335,5 +340,20 @@ test("T18 a failed end followed by retiring the chat drops the tracker", async (
     expect(result.status).toBe("retired");
     f.history.poll();
     expect(safetyQueue(f.db).attribution.size, "RETIRED_CHAT_DROPS_THE_TRACKER").toBe(0);
+  } finally { await f.close(); }
+});
+
+test("T19 a failing read in the sweep keeps the tracker and never escapes the timer", async () => {
+  const f = await safetyHistoryFixture();
+  try {
+    await reused(f);
+    const result = retireChat(f.db, { operationId: "odysseus-retire", principalId: f.principal.id, target: { sessionId: "ithaca" }, expected: { backendId: "claude", generation: 1 }, removableBackends: ["claude"], at: Date.now() });
+    expect(result.status).toBe("retired");
+    const query = f.db.query;
+    f.db.query = (() => { throw new Error("The loom is unravelled"); }) as typeof query;
+    try { expect(() => f.history.poll(), "SWEEP_NEVER_THROWS").not.toThrow(); } finally { f.db.query = query; }
+    expect(safetyQueue(f.db).attribution.size, "FAILED_READ_KEEPS_THE_TRACKER").toBe(1);
+    f.history.poll();
+    expect(safetyQueue(f.db).attribution.size, "NEXT_SWEEP_DROPS_IT").toBe(0);
   } finally { await f.close(); }
 });
