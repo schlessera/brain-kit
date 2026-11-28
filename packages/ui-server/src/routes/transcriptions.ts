@@ -38,7 +38,7 @@ function transcriptionFailure(error: unknown): TranscriptionFailure {
   return { reason, retryable, ...(status !== undefined ? { providerStatus: status } : {}) };
 }
 async function readAudio(c: Context<AppEnv>): Promise<Uint8Array> {
-  const body = await readBodyBytes(c.req.raw, MAX_TRANSCRIPTION_BYTES);
+  const body = await readBodyBytes(c.req.raw, MAX_TRANSCRIPTION_BYTES, { copyChunks: true });
   if (!body) return refuse(413, "recording_too_large", "The recording exceeds the upload byte budget.");
   if (!body.bytes) return refuse(400, "recording_empty", "The recording is empty.");
   return new Uint8Array(Buffer.concat(body.chunks, body.bytes));
